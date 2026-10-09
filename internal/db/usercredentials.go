@@ -44,10 +44,10 @@ type UserCredential struct {
 	Sealed    bool      `json:"sealed"`
 	Unlocked  bool      `json:"unlocked"`
 	UpdatedAt time.Time `json:"updatedAt"`
-	// Kind is "api_token" or, for Jira, "oauth": a grant from Atlassian's
-	// consent screen (ADR 0044), which is never sealed. Disconnected marks a
-	// grant Atlassian refused to refresh, and GrantedSites lists the sites a
-	// grant covers.
+	// Kind is "api_token" or "oauth": a grant from Atlassian's consent screen
+	// (ADR 0044), or since #804 GitHub's or GitLab's, which is never sealed.
+	// Disconnected marks a grant its provider refused, and GrantedSites lists
+	// the sites a Jira grant covers.
 	Kind         string   `json:"kind"`
 	Disconnected bool     `json:"disconnected,omitempty"`
 	GrantedSites []string `json:"grantedSites,omitempty"`
@@ -121,7 +121,7 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 		switch {
 		case errors.Is(err, ErrCredentialLocked):
 			return fmt.Errorf("votre jeton est scellé et verrouillé : descellez-le, ou saisissez-le à nouveau")
-		case errors.Is(err, ErrNoUserCredential), errors.Is(err, errJiraGrant):
+		case errors.Is(err, ErrNoUserCredential), errors.Is(err, errOAuthGrant):
 			// A grant holds no token to keep: replacing it takes one.
 			return fmt.Errorf("the token is required")
 		case err != nil:
@@ -165,6 +165,16 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 	}
 	now := time.Now()
 
+	// A token replacing a GitHub or GitLab grant (#804) leaves no live grant
+	// at the provider: it is read now and revoked once the token is stored.
+	// The revocation is registered before the lock, so it runs after the
+	// lock is released: it calls the provider.
+	revoke, committed := d.forgeGrantRevocation(userID, tracker), false
+	defer func() {
+		if committed {
+			revoke()
+		}
+	}()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	tx, err := d.conn.Begin()
@@ -207,7 +217,11 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 // SetUserTrackerCredentialAccount records the account the tracker confirmed a
@@ -254,7 +268,9 @@ func (d *DB) TrackerAccounts(userID string) (map[string]string, error) {
 	return accounts, rows.Err()
 }
 
-// ClearUserTrackerCredential deletes one person's token.
+// ClearUserTrackerCredential deletes one person's token or grant. A GitHub or
+// GitLab grant (#804) is also revoked at the provider once the row is gone,
+// best effort: a failed revocation is only logged, and the row stays deleted.
 func (d *DB) ClearUserTrackerCredential(userID, tracker string) error {
 	userID = strings.TrimSpace(userID)
 	tracker = strings.ToLower(strings.TrimSpace(tracker))
@@ -263,6 +279,17 @@ func (d *DB) ClearUserTrackerCredential(userID, tracker string) error {
 		// credential was forgotten.
 		return ErrNoUserCredential
 	}
+	revoke := d.forgeGrantRevocation(userID, tracker)
+	if err := d.deleteUserTrackerCredential(userID, tracker); err != nil {
+		return err
+	}
+	revoke()
+	return nil
+}
+
+// deleteUserTrackerCredential deletes the row and its unlock, under the
+// store's lock.
+func (d *DB) deleteUserTrackerCredential(userID, tracker string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	tx, err := d.conn.Begin()
@@ -391,11 +418,15 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 		credential.Sealed = sealed == 1
 		if credential.Kind == CredentialKindOAuth {
 			// A grant is never sealed, so never locked: it only shows what
-			// it covers, and whether Atlassian still honours it.
+			// it covers, and whether the provider still honours it. A GitHub
+			// or GitLab grant covers its public instance, so it lists no
+			// sites.
 			credential.Sealed, credential.Unlocked = false, true
 			credential.Disconnected = disconnected.Valid
-			if grant, err := d.openJiraGrant(userID, record); err == nil {
-				credential.GrantedSites = grantedSiteURLs(grant.Sites)
+			if credential.Tracker == "jira" {
+				if grant, err := d.openJiraGrant(userID, record); err == nil {
+					credential.GrantedSites = grantedSiteURLs(grant.Sites)
+				}
 			}
 			out = append(out, credential)
 			continue
@@ -441,7 +472,7 @@ func (d *DB) userTrackerCredential(userID, tracker string) (siteURL string, emai
 		return "", "", "", scanErr
 	}
 	if kind == CredentialKindOAuth {
-		return "", "", "", errJiraGrant
+		return "", "", "", errOAuthGrant
 	}
 
 	key := d.serverKey
@@ -497,7 +528,7 @@ func (d *DB) userTrackerCredentialToken(userID, tracker string) (string, error) 
 func (d *DB) UserTrackerCredentialsFor(userID, tracker string) (siteURL string, email string, token string, err error) {
 	siteURL, email, token, err = d.userTrackerCredential(userID, tracker)
 	switch {
-	case errors.Is(err, ErrNoUserCredential), errors.Is(err, errJiraGrant):
+	case errors.Is(err, ErrNoUserCredential), errors.Is(err, errOAuthGrant):
 		// A grant is no API token: the paths reading one, a check or a
 		// re-store, find none. The tracker client resolves grants through
 		// ResolvePersonalCredential.

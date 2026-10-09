@@ -148,7 +148,7 @@ func adminOnlyRoute(_ string, path string) bool {
 		path == AdminStatsPath ||
 		path == ServerTrackerCredentialsPath || strings.HasPrefix(path, ServerTrackerCredentialsPath+"/") ||
 		path == AdminTrackersPath || strings.HasPrefix(path, AdminTrackersPath+"/") ||
-		path == JiraOAuthAppPath
+		path == JiraOAuthAppPath || path == GithubOAuthAppPath || path == GitlabOAuthAppPath
 }
 
 // memberProjectCreate and memberProjectUpdate drop the tracker configuration a

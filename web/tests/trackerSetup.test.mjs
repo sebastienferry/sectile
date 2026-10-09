@@ -228,6 +228,13 @@ test('tracker credentials translations are complete and localized states format 
     ['trackerCredentials.oauth', translations.fr.trackerCredentials.oauth, translations.en.trackerCredentials.oauth],
     ['trackerCredentials.oauth.outcomes', translations.fr.trackerCredentials.oauth.outcomes, translations.en.trackerCredentials.oauth.outcomes],
     ['admin.jiraOAuth', translations.fr.admin.jiraOAuth, translations.en.admin.jiraOAuth],
+    // Connect GitHub and GitLab (#804).
+    ['trackerCredentials.githubOAuth', translations.fr.trackerCredentials.githubOAuth, translations.en.trackerCredentials.githubOAuth],
+    ['trackerCredentials.githubOAuth.outcomes', translations.fr.trackerCredentials.githubOAuth.outcomes, translations.en.trackerCredentials.githubOAuth.outcomes],
+    ['trackerCredentials.gitlabOAuth', translations.fr.trackerCredentials.gitlabOAuth, translations.en.trackerCredentials.gitlabOAuth],
+    ['trackerCredentials.gitlabOAuth.outcomes', translations.fr.trackerCredentials.gitlabOAuth.outcomes, translations.en.trackerCredentials.gitlabOAuth.outcomes],
+    ['admin.githubOAuth', translations.fr.admin.githubOAuth, translations.en.admin.githubOAuth],
+    ['admin.gitlabOAuth', translations.fr.admin.gitlabOAuth, translations.en.admin.gitlabOAuth],
   ]) {
     assert.deepEqual(Object.keys(fr).sort(), Object.keys(en).sort(), group)
     for (const key of Object.keys(fr)) {
@@ -240,6 +247,32 @@ test('tracker credentials translations are complete and localized states format 
   assert.equal(translations.en.trackerCredentials.oauth.reconnect, 'Reconnect Jira')
   assert.match(translations.en.trackerCredentials.oauth.outcomes.no_site, /\{sites\}/)
   assert.match(translations.fr.trackerCredentials.oauth.outcomes.no_site, /\{sites\}/)
+
+  // The forge strings name their own provider, in each language, and have no
+  // site to miss.
+  for (const [forge, label] of [['githubOAuth', 'GitHub'], ['gitlabOAuth', 'GitLab']]) {
+    const fr = translations.fr.trackerCredentials[forge]
+    const en = translations.en.trackerCredentials[forge]
+    assert.equal(fr.connect, `Connecter ${label}`)
+    assert.equal(en.connect, `Connect ${label}`)
+    assert.equal(fr.reconnect, `Reconnecter ${label}`)
+    assert.equal(en.reconnect, `Reconnect ${label}`)
+    assert.equal(fr.connectedAs, `Connecté à ${label} en tant que {account}`)
+    assert.equal(en.connectedAs, `Connected to ${label} as {account}`)
+    assert.equal(fr.useTokenInstead, 'Utiliser un jeton à la place')
+    assert.equal(en.useTokenInstead, 'Use a token instead')
+    assert.deepEqual(Object.keys(en.outcomes).sort(), ['cancelled', 'connected', 'invalid', 'unreachable'])
+    assert.notEqual(fr.connectHint, en.connectHint)
+    assert.match(translations.fr.admin[forge].redirectHint, new RegExp(`/auth/${label.toLowerCase()}/callback`))
+    assert.match(translations.en.admin[forge].redirectHint, new RegExp(`/auth/${label.toLowerCase()}/callback`))
+  }
+  assert.equal(translations.en.trackerCredentials.gitlabOAuth.connect, 'Connect GitLab')
+  assert.equal(translations.fr.trackerCredentials.githubOAuth.connect, 'Connecter GitHub')
+  // GitHub's admin hint says an organisation may have to approve the app.
+  assert.match(translations.en.admin.githubOAuth.note, /OAuth app access restrictions/)
+  assert.match(translations.fr.admin.githubOAuth.note, /OAuth app access restrictions/)
+  // The Jira blocks stay as they were.
+  assert.equal(translations.en.admin.jiraOAuth.note, undefined)
 })
 
 test('profile AI and MCP configuration translations are complete in French and English', () => {

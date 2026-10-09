@@ -8,6 +8,72 @@ import { operations, type OperationsStrings } from './operations.ts'
 import { signIn, type SignInStrings } from './signIn.ts'
 
 /**
+ * What a tracker's entry of the profile says about connecting through OAuth,
+ * whichever the provider. Jira's `trackerCredentials.oauth` holds these and
+ * more (its sites, the Atlassian note, the `no_site` outcome).
+ */
+export interface OAuthEntryStrings {
+  connect: string
+  connecting: string
+  connectHint: string
+  useTokenInstead: string
+  useConnectInstead: string
+  replaceTokenHint: string
+  connectedAs: string
+  connectedNoAccount: string
+  disconnect: string
+  disconnectConfirm: string
+  disconnectedTitle: string
+  disconnectedBody: string
+  reconnect: string
+  notConfiguredHint: string
+  stateConnected: string
+  stateDisconnected: string
+  stateNotConnected: string
+  dismiss: string
+  connectFailed: string
+  outcomeTitle: string
+  outcomes: {
+    connected: string
+    cancelled: string
+    invalid: string
+    unreachable: string
+  }
+}
+
+/** GitHub's or GitLab's entry (#804): a grant covers the public instance alone, which the note says. */
+export interface ForgeOAuthStrings extends OAuthEntryStrings {
+  instanceNote: string
+}
+
+/** A tracker's OAuth app on the Administration page, the same wording for every provider. */
+export interface OAuthAppStrings {
+  title: string
+  intro: string
+  /** What else the provider asks of the admin, such as an organisation's approval. */
+  note?: string
+  clientId: string
+  clientSecret: string
+  secretSet: string
+  secretPlaceholder: string
+  redirectUrl: string
+  redirectHint: string
+  scopes: string
+  sourceStored: string
+  sourceEnvironment: string
+  sourceEnvironmentIncomplete: string
+  sourceNone: string
+  unreadable: string
+  save: string
+  clear: string
+  confirmClear: string
+  saved: string
+  cleared: string
+  loadFailed: string
+  saveFailed: string
+}
+
+/**
  * The web catalog. The namespaces below `toasts` live in one module per
  * surface (`locales/<surface>.ts`), merged here, so that `t` stays the single
  * entry point.
@@ -679,6 +745,8 @@ export interface TranslationSchema {
         unreachable: string
       }
     }
+    githubOAuth: ForgeOAuthStrings
+    gitlabOAuth: ForgeOAuthStrings
     form: {
       accountEmail: string
       accountEmailPlaceholder: string
@@ -847,6 +915,8 @@ export interface TranslationSchema {
       loadFailed: string
       saveFailed: string
     }
+    githubOAuth: OAuthAppStrings
+    gitlabOAuth: OAuthAppStrings
     serverCredentials: {
       title: string
       intro: string
@@ -1634,6 +1704,64 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
           unreachable: 'Atlassian n\'a pas pu être joint : rien n\'a été enregistré, réessayez.',
         },
       },
+      githubOAuth: {
+        connect: 'Connecter GitHub',
+        connecting: 'Redirection vers GitHub…',
+        connectHint: 'Un écran de consentement GitHub, et vos écritures GitHub se font sous votre propre compte. Aucun jeton à créer, à coller ni à desceller.',
+        useTokenInstead: 'Utiliser un jeton à la place',
+        useConnectInstead: 'Revenir à la connexion GitHub',
+        replaceTokenHint: 'Connecter GitHub remplace le jeton enregistré.',
+        connectedAs: 'Connecté à GitHub en tant que {account}',
+        connectedNoAccount: 'Connecté à GitHub',
+        instanceNote: 'Cette connexion ne couvre que github.com : pour GitHub Enterprise, utilisez un jeton personnel.',
+        disconnect: 'Déconnecter',
+        disconnectConfirm: 'Oublier la connexion GitHub ? L\'accès est aussi révoqué chez GitHub, et vos écritures GitHub seront refusées jusqu\'à une nouvelle connexion.',
+        disconnectedTitle: 'Connexion GitHub perdue',
+        disconnectedBody: 'GitHub a refusé votre accès : vous l\'avez révoqué, ou l\'application n\'est plus autorisée. Vos écritures GitHub sont refusées jusqu\'à ce que vous reconnectiez GitHub.',
+        reconnect: 'Reconnecter GitHub',
+        notConfiguredHint: 'La connexion GitHub n\'est pas disponible sur ce serveur : demandez à un admin de la configurer, ou enregistrez un jeton.',
+        stateConnected: 'Connecté via GitHub',
+        stateDisconnected: 'Connexion perdue',
+        stateNotConnected: 'Non connecté',
+        dismiss: 'Fermer',
+        connectFailed: 'La connexion GitHub n\'a pas pu démarrer',
+        outcomeTitle: 'Connexion GitHub',
+        outcomes: {
+          connected: 'GitHub est connecté : vos écritures se font sous votre compte.',
+          cancelled: 'Connexion annulée sur l\'écran GitHub : rien n\'a été enregistré.',
+          invalid: 'La tentative de connexion a expiré ou n\'est pas valable : recommencez.',
+          unreachable: 'GitHub n\'a pas pu être joint : rien n\'a été enregistré, réessayez.',
+        },
+      },
+      gitlabOAuth: {
+        connect: 'Connecter GitLab',
+        connecting: 'Redirection vers GitLab…',
+        connectHint: 'Un écran de consentement GitLab, et vos écritures GitLab se font sous votre propre compte. Aucun jeton à créer, à coller ni à desceller.',
+        useTokenInstead: 'Utiliser un jeton à la place',
+        useConnectInstead: 'Revenir à la connexion GitLab',
+        replaceTokenHint: 'Connecter GitLab remplace le jeton enregistré.',
+        connectedAs: 'Connecté à GitLab en tant que {account}',
+        connectedNoAccount: 'Connecté à GitLab',
+        instanceNote: 'Cette connexion ne couvre que gitlab.com : pour une instance GitLab auto-hébergée, utilisez un jeton personnel.',
+        disconnect: 'Déconnecter',
+        disconnectConfirm: 'Oublier la connexion GitLab ? L\'accès est aussi révoqué chez GitLab, et vos écritures GitLab seront refusées jusqu\'à une nouvelle connexion.',
+        disconnectedTitle: 'Connexion GitLab perdue',
+        disconnectedBody: 'GitLab a refusé de renouveler votre accès : vous l\'avez révoqué, ou l\'application n\'est plus autorisée. Vos écritures GitLab sont refusées jusqu\'à ce que vous reconnectiez GitLab.',
+        reconnect: 'Reconnecter GitLab',
+        notConfiguredHint: 'La connexion GitLab n\'est pas disponible sur ce serveur : demandez à un admin de la configurer, ou enregistrez un jeton.',
+        stateConnected: 'Connecté via GitLab',
+        stateDisconnected: 'Connexion perdue',
+        stateNotConnected: 'Non connecté',
+        dismiss: 'Fermer',
+        connectFailed: 'La connexion GitLab n\'a pas pu démarrer',
+        outcomeTitle: 'Connexion GitLab',
+        outcomes: {
+          connected: 'GitLab est connecté : vos écritures se font sous votre compte.',
+          cancelled: 'Connexion annulée sur l\'écran GitLab : rien n\'a été enregistré.',
+          invalid: 'La tentative de connexion a expiré ou n\'est pas valable : recommencez.',
+          unreachable: 'GitLab n\'a pas pu être joint : rien n\'a été enregistré, réessayez.',
+        },
+      },
       form: {
         accountEmail: "E-mail du compte",
         accountEmailPlaceholder: "prenom.nom@exemple.com",
@@ -1800,6 +1928,53 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         cleared: 'Application OAuth Jira effacée',
         loadFailed: 'Impossible de lire l\'application OAuth Jira',
         saveFailed: 'Application OAuth Jira non enregistrée',
+      },
+      githubOAuth: {
+        title: 'Connexion GitHub (OAuth App)',
+        intro: 'L\'OAuth App enregistrée sur GitHub (Settings → Developer settings → OAuth Apps). Une fois configurée, chacun connecte son compte GitHub depuis son profil au lieu de coller un jeton. Elle ne couvre que github.com.',
+        note: 'Une organisation qui applique les restrictions d\'accès des OAuth Apps (« OAuth app access restrictions ») doit approuver l\'application dans ses paramètres d\'accès tiers, sinon ses dépôts privés restent invisibles aux connexions.',
+        clientId: 'Identifiant client',
+        clientSecret: 'Secret client',
+        secretSet: 'Secret enregistré : laissez vide pour le garder',
+        secretPlaceholder: 'Secret de l\'application',
+        redirectUrl: 'URL de rappel',
+        redirectHint: 'Celle déclarée sur l\'application, en HTTPS : https://<votre serveur>/auth/github/callback',
+        scopes: 'Portées demandées à la connexion',
+        sourceStored: 'Enregistrée sur cette page',
+        sourceEnvironment: 'Lue dans l\'environnement du serveur',
+        sourceEnvironmentIncomplete: 'Environnement du serveur incomplet : l\'identifiant, le secret et l\'URL de retour sont requis',
+        sourceNone: 'Non configurée : les profils proposent le jeton',
+        unreadable: 'Le secret enregistré ne s\'ouvre plus avec la clé du serveur : saisissez-le à nouveau.',
+        save: 'Enregistrer',
+        clear: 'Effacer',
+        confirmClear: 'Effacer l\'application OAuth GitHub ? Plus personne ne pourra connecter GitHub depuis son profil.',
+        saved: 'Application OAuth GitHub enregistrée',
+        cleared: 'Application OAuth GitHub effacée',
+        loadFailed: 'Impossible de lire l\'application OAuth GitHub',
+        saveFailed: 'Application OAuth GitHub non enregistrée',
+      },
+      gitlabOAuth: {
+        title: 'Connexion GitLab (OAuth gitlab.com)',
+        intro: 'L\'application confidentielle enregistrée sur gitlab.com, au niveau d\'un groupe ou d\'un utilisateur. Une fois configurée, chacun connecte son compte GitLab depuis son profil au lieu de coller un jeton. Elle ne couvre que gitlab.com.',
+        clientId: 'Identifiant client',
+        clientSecret: 'Secret client',
+        secretSet: 'Secret enregistré : laissez vide pour le garder',
+        secretPlaceholder: 'Secret de l\'application',
+        redirectUrl: 'URL de rappel',
+        redirectHint: 'Celle déclarée sur l\'application, en HTTPS : https://<votre serveur>/auth/gitlab/callback',
+        scopes: 'Portées à déclarer sur l\'application',
+        sourceStored: 'Enregistrée sur cette page',
+        sourceEnvironment: 'Lue dans l\'environnement du serveur',
+        sourceEnvironmentIncomplete: 'Environnement du serveur incomplet : l\'identifiant, le secret et l\'URL de retour sont requis',
+        sourceNone: 'Non configurée : les profils proposent le jeton',
+        unreadable: 'Le secret enregistré ne s\'ouvre plus avec la clé du serveur : saisissez-le à nouveau.',
+        save: 'Enregistrer',
+        clear: 'Effacer',
+        confirmClear: 'Effacer l\'application OAuth GitLab ? Les connexions existantes ne pourront plus se renouveler.',
+        saved: 'Application OAuth GitLab enregistrée',
+        cleared: 'Application OAuth GitLab effacée',
+        loadFailed: 'Impossible de lire l\'application OAuth GitLab',
+        saveFailed: 'Application OAuth GitLab non enregistrée',
       },
       serverCredentials: {
         title: 'Accès trackers du serveur',
@@ -2587,6 +2762,64 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
           unreachable: 'Atlassian could not be reached: nothing was stored, try again.',
         },
       },
+      githubOAuth: {
+        connect: 'Connect GitHub',
+        connecting: 'Redirecting to GitHub…',
+        connectHint: 'One GitHub consent screen, and your GitHub writes are made under your own account. No token to create, paste or unseal.',
+        useTokenInstead: 'Use a token instead',
+        useConnectInstead: 'Back to Connect GitHub',
+        replaceTokenHint: 'Connecting GitHub replaces the stored token.',
+        connectedAs: 'Connected to GitHub as {account}',
+        connectedNoAccount: 'Connected to GitHub',
+        instanceNote: 'This connection covers github.com only: for GitHub Enterprise, use a personal token.',
+        disconnect: 'Disconnect',
+        disconnectConfirm: 'Forget the GitHub connection? The access is also revoked on GitHub, and your GitHub writes will be refused until you connect again.',
+        disconnectedTitle: 'GitHub connection lost',
+        disconnectedBody: 'GitHub refused your access: you revoked it, or the app is no longer authorised. Your GitHub writes are refused until you reconnect GitHub.',
+        reconnect: 'Reconnect GitHub',
+        notConfiguredHint: 'GitHub connection is not available on this server: ask an admin to configure it, or save a token.',
+        stateConnected: 'Connected through GitHub',
+        stateDisconnected: 'Connection lost',
+        stateNotConnected: 'Not connected',
+        dismiss: 'Dismiss',
+        connectFailed: 'GitHub connection could not start',
+        outcomeTitle: 'GitHub connection',
+        outcomes: {
+          connected: 'GitHub is connected: your writes are made under your account.',
+          cancelled: 'Connection cancelled on the GitHub screen: nothing was stored.',
+          invalid: 'The connection attempt expired or is not valid: try again.',
+          unreachable: 'GitHub could not be reached: nothing was stored, try again.',
+        },
+      },
+      gitlabOAuth: {
+        connect: 'Connect GitLab',
+        connecting: 'Redirecting to GitLab…',
+        connectHint: 'One GitLab consent screen, and your GitLab writes are made under your own account. No token to create, paste or unseal.',
+        useTokenInstead: 'Use a token instead',
+        useConnectInstead: 'Back to Connect GitLab',
+        replaceTokenHint: 'Connecting GitLab replaces the stored token.',
+        connectedAs: 'Connected to GitLab as {account}',
+        connectedNoAccount: 'Connected to GitLab',
+        instanceNote: 'This connection covers gitlab.com only: for a self-hosted GitLab instance, use a personal token.',
+        disconnect: 'Disconnect',
+        disconnectConfirm: 'Forget the GitLab connection? The access is also revoked on GitLab, and your GitLab writes will be refused until you connect again.',
+        disconnectedTitle: 'GitLab connection lost',
+        disconnectedBody: 'GitLab refused to renew your access: you revoked it, or the app is no longer authorised. Your GitLab writes are refused until you reconnect GitLab.',
+        reconnect: 'Reconnect GitLab',
+        notConfiguredHint: 'GitLab connection is not available on this server: ask an admin to configure it, or save a token.',
+        stateConnected: 'Connected through GitLab',
+        stateDisconnected: 'Connection lost',
+        stateNotConnected: 'Not connected',
+        dismiss: 'Dismiss',
+        connectFailed: 'GitLab connection could not start',
+        outcomeTitle: 'GitLab connection',
+        outcomes: {
+          connected: 'GitLab is connected: your writes are made under your account.',
+          cancelled: 'Connection cancelled on the GitLab screen: nothing was stored.',
+          invalid: 'The connection attempt expired or is not valid: try again.',
+          unreachable: 'GitLab could not be reached: nothing was stored, try again.',
+        },
+      },
       form: {
         accountEmail: 'Account email',
         accountEmailPlaceholder: 'firstname.lastname@example.com',
@@ -2753,6 +2986,53 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         cleared: 'Jira OAuth app cleared',
         loadFailed: 'Could not read the Jira OAuth app',
         saveFailed: 'Jira OAuth app not saved',
+      },
+      githubOAuth: {
+        title: 'GitHub connection (OAuth App)',
+        intro: 'The OAuth App registered on GitHub (Settings → Developer settings → OAuth Apps). Once configured, everyone connects their GitHub account from their profile instead of pasting a token. It covers github.com only.',
+        note: 'An organisation that enforces "OAuth app access restrictions" must approve the app in its third-party access settings, or its private repositories stay invisible to connections.',
+        clientId: 'Client ID',
+        clientSecret: 'Client secret',
+        secretSet: 'Secret saved: leave empty to keep it',
+        secretPlaceholder: 'The app\'s secret',
+        redirectUrl: 'Callback URL',
+        redirectHint: 'The one declared on the app, over HTTPS: https://<your server>/auth/github/callback',
+        scopes: 'Scopes asked for on connection',
+        sourceStored: 'Saved on this page',
+        sourceEnvironment: 'Read from the server environment',
+        sourceEnvironmentIncomplete: 'Server environment incomplete: the client id, secret and callback URL are all required',
+        sourceNone: 'Not configured: profiles offer the token',
+        unreadable: 'The saved secret no longer opens with the server key: enter it again.',
+        save: 'Save',
+        clear: 'Clear',
+        confirmClear: 'Clear the GitHub OAuth app? Nobody will be able to connect GitHub from their profile any more.',
+        saved: 'GitHub OAuth app saved',
+        cleared: 'GitHub OAuth app cleared',
+        loadFailed: 'Could not read the GitHub OAuth app',
+        saveFailed: 'GitHub OAuth app not saved',
+      },
+      gitlabOAuth: {
+        title: 'GitLab connection (gitlab.com OAuth)',
+        intro: 'The confidential application registered on gitlab.com, owned by a group or a user. Once configured, everyone connects their GitLab account from their profile instead of pasting a token. It covers gitlab.com only.',
+        clientId: 'Client ID',
+        clientSecret: 'Client secret',
+        secretSet: 'Secret saved: leave empty to keep it',
+        secretPlaceholder: 'The app\'s secret',
+        redirectUrl: 'Callback URL',
+        redirectHint: 'The one declared on the app, over HTTPS: https://<your server>/auth/gitlab/callback',
+        scopes: 'Scopes to declare on the app',
+        sourceStored: 'Saved on this page',
+        sourceEnvironment: 'Read from the server environment',
+        sourceEnvironmentIncomplete: 'Server environment incomplete: the client id, secret and callback URL are all required',
+        sourceNone: 'Not configured: profiles offer the token',
+        unreadable: 'The saved secret no longer opens with the server key: enter it again.',
+        save: 'Save',
+        clear: 'Clear',
+        confirmClear: 'Clear the GitLab OAuth app? Existing connections will no longer renew.',
+        saved: 'GitLab OAuth app saved',
+        cleared: 'GitLab OAuth app cleared',
+        loadFailed: 'Could not read the GitLab OAuth app',
+        saveFailed: 'GitLab OAuth app not saved',
       },
       serverCredentials: {
         title: 'Server tracker credentials',
