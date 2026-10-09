@@ -165,8 +165,8 @@ The question was clarified over three rounds in `docs/clarifications/732.md`.
 - Known limits of `refresh_skills`. It rewrites the direct copies even while
   a run is active on the workstation, unlike the desktop's **Initialize**,
   which refuses with 409 until the executions stop. `refresh_skills` and
-  `sync_config` hold a lock of their own from the fetch of the projects'
-  configurations to the write, so two quick saves are written in order;
+  `sync_config` hold a lock of their own from the fetch of the project's own
+  configuration, through the other projects', to the write, so two quick saves are written in order;
   `prepareMu`, which runs wait on, is taken for the write only. The server's
   fan-out (`internal/handlers/skill_refresh.go`) sends one operation per user, routed
   by user and project, so a second workstation of the same user, connected
