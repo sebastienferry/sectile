@@ -16,10 +16,15 @@ import (
 	"tasks/internal/agentattach"
 	"tasks/internal/agentexec"
 	"tasks/internal/agentmcp"
+	"tasks/internal/runner"
 	"tasks/internal/version"
 )
 
 func main() {
+	// Sectile Desktop opened from the Finder hands the agent launchd's PATH,
+	// where neither ~/.local/bin nor Homebrew is: every role looks its CLIs up
+	// through the extended one.
+	runner.ExtendProcessPath()
 	args := os.Args[1:]
 	if len(args) > 0 {
 		switch args[0] {

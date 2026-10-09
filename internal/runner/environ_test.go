@@ -2,6 +2,9 @@ package runner
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -51,5 +54,47 @@ func TestAChildEnvironmentCarriesOnePathEndingWithTheInheritedOne(t *testing.T) 
 	}
 	if !strings.HasSuffix(paths[0], inherited) {
 		t.Fatalf("PATH %q does not end with the inherited %q", paths[0], inherited)
+	}
+}
+
+// Sectile Desktop opened from the Finder starts the agent with launchd's PATH.
+// exec.Command resolves a bare "claude" against the agent's own PATH, so a CLI
+// installed in ~/.local/bin was "not found" until the agent extended it.
+func TestTheAgentFindsACliInstalledOutsideLaunchdPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("launchd's PATH is a macOS concern")
+	}
+	home := t.TempDir()
+	bin := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+	if _, err := exec.LookPath("claude"); err == nil {
+		t.Fatal("the fixture already finds claude on launchd's PATH")
+	}
+
+	ExtendProcessPath()
+
+	got, err := exec.LookPath("claude")
+	if err != nil {
+		t.Fatalf("claude is still not found on %q: %v", os.Getenv("PATH"), err)
+	}
+	if got != filepath.Join(bin, "claude") {
+		t.Fatalf("found %s, want the one in ~/.local/bin", got)
+	}
+	// The inherited directories stay, each once.
+	dirs := filepath.SplitList(os.Getenv("PATH"))
+	if !slices.Contains(dirs, "/usr/sbin") {
+		t.Fatalf("an inherited directory was dropped: %q", os.Getenv("PATH"))
+	}
+	for i, dir := range dirs {
+		if slices.Contains(dirs[i+1:], dir) {
+			t.Fatalf("%s appears twice in %q", dir, os.Getenv("PATH"))
+		}
 	}
 }
