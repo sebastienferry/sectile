@@ -50,7 +50,7 @@ The question was clarified over three rounds in `docs/clarifications/732.md`.
   pickup_issues' Steps are their inlined stages, overridden through each
   stage. Macro skills and `/transition` are replaced whole only.
 - **Full replacement stays the compatible kind.** The server stores the kind
-  in `project_skills.override_kind` (migration 47): `''` is a full replacement,
+  in `project_skills.override_kind` (migration 51): `''` is a full replacement,
   which every existing row keeps, and `work` is work only. A save that names
   no kind creates a work-only override when the skill takes one and keeps an
   existing row's kind; an explicit `''` switches back to full replacement. An
