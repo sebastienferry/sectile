@@ -121,7 +121,28 @@ archive against the release's `SHA256SUMS` and removes the quarantine mark
 itself, so the steps below are not needed. See
 [ADR 0055](../docs/adrs/0055-sectile-desktop-is-installed-from-a-homebrew-tap.md).
 
-To install by hand, or on Linux or Windows: every release `vX.Y.Z` publishes a Sectile Desktop archive per platform. Each
+On Windows, 64-bit, install and upgrade it with [Scoop](https://scoop.sh),
+which needs no administrator rights and adds **Sectile** to the Start menu:
+
+```powershell
+scoop bucket add sectile https://github.com/sebastienferry/scoop-sectile
+scoop install sectile/sectile
+scoop update sectile
+```
+
+The manifest comes from the bucket
+[`sebastienferry/scoop-sectile`](https://github.com/sebastienferry/scoop-sectile),
+which follows the GitHub Releases the same way. See
+[ADR 0056](../docs/adrs/0056-sectile-desktop-is-installed-from-a-scoop-bucket.md).
+
+Before upgrading with either, quit Sectile and stop its agent, which outlives
+the window and would keep running the old binary:
+`pkill -f 'Sectile.app/Contents/Resources/sectile-agent'` on macOS,
+`Stop-Process -Name sectile-agent` on Windows. A release published in the last
+few hours may need `brew update` or `scoop update` first, so the package
+manager sees it.
+
+To install by hand, or on Linux: every release `vX.Y.Z` publishes a Sectile Desktop archive per platform. Each
 one holds the app and the Sectile agent built for the same platform, so nothing
 else needs installing: no Node, no Go, no clone of this repository.
 
