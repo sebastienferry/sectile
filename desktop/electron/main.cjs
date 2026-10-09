@@ -36,7 +36,7 @@ function validConnection(value){
 }
 async function api(route,method='GET',body){
  if(!connection)throw Error('Connect to the local agent first')
- const response=await fetch(connection.url+route,{method,headers:{Authorization:'Bearer '+connection.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(route==="/desktop/create-task"?120000:route==="/desktop/run-folder"?45000:route.startsWith("/desktop/tasks")&&method==="POST"?60000:route.startsWith("/desktop/project?")&&method==="POST"?420000:15000),redirect:'error'})
+ const response=await fetch(connection.url+route,{method,headers:{Authorization:'Bearer '+connection.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(route==="/desktop/create-task"?120000:route==="/desktop/run-folder"?45000:route.startsWith("/desktop/tasks")&&(method==="POST"||method==="PUT")?60000:route.startsWith("/desktop/project?")&&method==="POST"?420000:15000),redirect:'error'})
  if(!response.ok){
   const detail=await response.text().catch(()=>'')
   // Display plain API errors; preserve structured refusals for callers that read their fields.
