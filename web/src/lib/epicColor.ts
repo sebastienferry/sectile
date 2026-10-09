@@ -1,18 +1,12 @@
 import type { Project } from '../types/index.ts'
 import { ACCENT_COLORS, type AccentDefinition } from './accents.ts'
+import { epicColorIndex } from '../../../shared/epicColor.mjs'
 
 /**
- * 32-bit FNV-1a over the UTF-16 code units of `value`. Changing it repaints
- * every epic on every board, which is why a test pins its output.
+ * 32-bit FNV-1a over the UTF-16 code units of a key, shared with the desktop
+ * app so a macro keeps one colour in both clients.
  */
-export function fnv1a(value: string): number {
-  let hash = 0x811c9dc5
-  for (let i = 0; i < value.length; i++) {
-    hash ^= value.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return hash >>> 0
-}
+export { fnv1a } from '../../../shared/epicColor.mjs'
 
 /**
  * The palette entry an epic is painted with, or null when the task has no
@@ -21,9 +15,8 @@ export function fnv1a(value: string): number {
  * a colour once the palette is exhausted.
  */
 export function epicColor(parentKey?: string | null): AccentDefinition | null {
-  const key = (parentKey ?? '').trim()
-  if (!key) return null
-  return ACCENT_COLORS[fnv1a(key) % ACCENT_COLORS.length]
+  const index = epicColorIndex(parentKey)
+  return index < 0 ? null : ACCENT_COLORS[index]
 }
 
 /** The hex colour of an epic, or null when the task has no parent. */

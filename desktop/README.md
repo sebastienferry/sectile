@@ -779,6 +779,28 @@ that column; the first activation sorts ascending (Priority: descending) and a
 second one reverses it. Identity ascending remains the final tie-break. The
 ordering lasts for the window session and resets when the pane is reopened.
 
+**Open board** in a project's menu, or **Project board** in the command palette,
+shows the project's tasks in the six workflow columns (New, Clarified,
+Specified, Implemented, Reviewed, Finished), finished tasks included, in the
+same slot as the Tickets pane: opening one closes the other, and **Close board**
+or Escape returns as **Close tickets** does. A task with a finished or done
+status sits in Finished, as the Tickets pane already treats it; any other task
+is placed as the web board places it: an explicit workflow label, then the
+stage the project maps its tracker column to (the agent's `/desktop/project` answers that mapping as
+`board`), then its status; an agent without it places tasks from labels and
+status alone. Within a column cards follow the Tickets pane's default order.
+The Finished column starts collapsed into a strip that keeps its count, and
+cards start **Condensed** (key, title, run state, actions menu); **Full** adds
+the macro, priority, labels, pull request and assignee. Both choices are kept
+in this workstation's storage for every project. A card carries its macro's
+colour when the project enables macro colours, and the same actions menu as a
+Tickets row. With an agent that lists the `stage-move` capability, dragging a
+card onto another column, or onto the Finished strip, moves the task: its
+workflow label, status and tracker status change as a move on the web board
+changes them, through `POST /desktop/tasks/stage-move`; nothing is launched and
+no stage report is recorded. A refused move leaves the card in place and shows
+the server's message.
+
 Each row ends with **Run: <next step>**, which launches the task's next
 workflow step with the project's configured execution mode, and a **…** menu
 offering **Pickup (full chain)**, the other server skills, **Discussion (no
@@ -927,6 +949,7 @@ other launch, and **Add another** in the same project.
 
 Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette. One list
 searches the desktop's actions (**New task**, **Tasks list**, **Add project**,
+**Project board**,
 the sidebar, Settings, the web interface, each with its shortcut), the projects
 added to this
 workstation, to open their tasks, and the executions the sidebar shows, by task

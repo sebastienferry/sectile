@@ -70,6 +70,7 @@ import { isViewAvailable } from '../lib/optionalViews'
 import { canOpenEpicInRoadmap, isTicketView, projectOfTask, returnView } from '../lib/roadmapFocus'
 import { sendsServerSearch } from '../lib/taskQuery'
 import { isMacPlatform, sidebarShortcutAction } from '../../../shared/sidebarShortcut.mjs'
+import { stageMove } from '../../../shared/workflowStage.mjs'
 import {
   coreFailures,
   failureDetail,
@@ -3837,35 +3838,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const task = tasks.find(t => t.id === taskId || t.key === taskId)
     if (!task) return null
 
-    const currentLabels = task.labels || []
-    const targetLabel = `#${targetStage.replace(/^#+/, '')}`
-    const cleanLabels = currentLabels.filter(
-      l => !['untouched', 'new', 'clarified', 'specified', 'implemented', 'reviewed', 'finished', 'closed'].includes(l.toLowerCase().replace(/^#+/, ''))
-    )
-    cleanLabels.push(targetLabel)
-
     // Stage and internal status are the same six-way split, so the fold needs no
     // per-project configuration; the server holds the same table. The tracker
     // status follows the stage mapping of the ticket's tracker in the board's
-    // project, which the server is told (#741).
+    // project, which the server is told (#741). The desktop board makes the same
+    // move through the same helper (#806).
     const stageProject = stageProjectOf(task)
     const proj = projectForTracker(projects.find(p => p.id === (stageProject || task.projectId)) || currentProject, task.trackerId)
-    const mappedStatus: Status = INTERNAL_STATUS_BY_STAGE[targetStage] ?? task.status
-
-    // Determine target tracker status if project has stageColumns mapping
-    let mappedTrackerStatus = task.trackerStatus
-    if (proj?.stageColumns && proj.stageColumns[targetStage]?.length) {
-      const colName = proj.stageColumns[targetStage][0]
-      const col = proj.trackerColumns?.find(c => c.name === colName)
-      if (col?.statuses?.length) {
-        mappedTrackerStatus = col.statuses[0]
-      } else if (colName) {
-        mappedTrackerStatus = colName
-      }
-    }
+    const move = stageMove(task, targetStage, proj)
+    const targetLabel = move.labels[move.labels.length - 1]
+    const mappedStatus = move.status as Status
+    const mappedTrackerStatus = move.trackerStatus
 
     const updated = await updateTask(task.id, {
-      labels: cleanLabels,
+      labels: move.labels,
       status: mappedStatus,
       ...(mappedTrackerStatus ? { trackerStatus: mappedTrackerStatus } : {}),
       ...(stageProject ? { stageProjectId: stageProject } : {}),

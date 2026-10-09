@@ -27,6 +27,8 @@ import { STAGES, taskStage, nextTaskStep, skillLabel } from './workflow.mjs'
 import { launchModeOverride, modeSelect } from './skill-mode.mjs'
 import { launchModeFor, relaunchProject, launchErrorText, NO_RUN_PROJECT } from './run-project.mjs'
 import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-list-order.mjs'
+import { EMPTY_BOARD, boardOptions, saveBoardOption, boardColumns, boardCardLabels, cardEpicColor } from './board.mjs'
+import { stageMove, trackerBoard } from '../../shared/workflowStage.mjs'
 import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-console.mjs'
 import { previewLines } from './command-preview.mjs'
 import { sandboxSettings, whitelistEditor } from './sandbox-settings.mjs'
@@ -99,6 +101,10 @@ function refusedActiveRun(message){
 const taskTitles=new Map()
 // The workflow stage of each listed task, read with its title; absent when unknown.
 const taskStages=new Map()
+// The board data of a project (/desktop/project's board field), kept from the
+// last tickets list or board that read it, so the sidebar's grouping by stage
+// places a task where they do (#806).
+const projectBoards=new Map()
 const skillResults=new Map(),loadingSkillResults=new Set()
 // When each run's skill result was last read, and in what state the run was.
 const skillResultReads=new Map()
@@ -707,6 +713,7 @@ function projectMenu(project,waitingCount=0){
  const queued=queueProjects.has(project.id)
  const items=[
   {label:'Open tasks',run:()=>openTickets(project.id)},
+  {label:'Open board',run:()=>openBoard(project.id)},
   {label:(queued?'Show tasks':'Show execution queue')+(waitingCount?' · '+waitingCount+' waiting':''),run:()=>toggleQueue(project.id)},
   {label:'Group by stage',checked:stageGroupedProjects.has(project.id),run:()=>toggleStageGrouping(project.id)},
   {label:'New task…',run:()=>newProjectTask(project.id)},
@@ -2920,6 +2927,7 @@ async function openTickets(projectID,initialQuery=''){
  if(!agentConnected){showDialog('Tickets');paragraph('Connect to the local agent to browse this project\u2019s tickets.');return}
  const opener=document.activeElement
  if(dialog.open)dialog.close()
+ ticketsView?.closeOpenMenu?.()
  const project=projects.find(item=>item.id===projectID)
  const view={projectID,projectName:project?.name||projectID,sort:{...DEFAULT_SORT},tasks:[],info:null,query:'',rows:new Map(),submitting:new Set(),compose:null,generation:0,opener:opener&&opener!==document.body?opener:null}
  ticketsOpen=true;ticketsView=view;ticketsPane.hidden=false;ticketsPane.replaceChildren()
@@ -2948,6 +2956,7 @@ async function openTickets(projectID,initialQuery=''){
    const [tasks,info,taskEngines]=await Promise.all([api.serverTasks(projectID,searchText,true),api.project(projectID),engines])
    if(!isCurrent())return
    view.tasks=tasks.filter(task=>!isFinishedTask(task));view.info=info;view.query=searchText;view.engines=taskEngines
+   if(info.board)projectBoards.set(projectID,info.board)
    renderTicketsTable(view)
   }catch(err){if(isCurrent()){const message=document.createElement('p');message.setAttribute('role','alert');message.textContent='Could not load open tasks: '+err.message+'. Use Search to retry.';list.replaceChildren(message)}}
   finally{if(isCurrent())list.setAttribute('aria-busy','false')}
@@ -3024,6 +3033,35 @@ function ticketRow(view,task){
  more.setAttribute('aria-haspopup','menu');more.setAttribute('aria-expanded','false');more.setAttribute('aria-label','More actions for '+key)
  const menu=document.createElement('div');menu.className='ticket-menu';menu.setAttribute('role','menu');menu.setAttribute('aria-label','Actions for '+key);menu.hidden=true
  const entry={task,row,state,run,more,menu,actions}
+ taskActionsMenu(view,entry)
+ run.onclick=()=>{if(run.dataset.skillId)submitTicketLaunch(view,entry,run.dataset.skillId,'','').catch(()=>{})}
+ actions.append(run,more,menu)
+ const stageCell=cell('ticket-stage',taskStage(task,view.info.board));if(task.trackerStatus)stageCell.title='Tracker status: '+task.trackerStatus
+ // The key opens the task in Sectile, the same gesture the sidebar task number
+ // offers, so the identity means the same thing on both surfaces.
+ const keyCell=cell('ticket-key')
+ const keyLink=document.createElement('button');keyLink.type='button';keyLink.className='task-number';keyLink.textContent=key
+ keyLink.title='Open task in Sectile';keyLink.setAttribute('aria-label','Open '+key+' in Sectile')
+ keyLink.onclick=()=>api.openTask(task.id).catch(error)
+ keyCell.append(keyLink)
+ row.append(stateCell,keyCell,titleCell,stageCell,priorityCell)
+ if(view.engines){
+  const engineCell=cell('ticket-engine')
+  const toggle=document.createElement('button');toggle.type='button';toggle.className='engine-toggle'
+  toggle.onclick=()=>switchTaskEngine(view,entry)
+  entry.engine=toggle;engineCell.append(toggle);row.append(engineCell)
+  renderEngineToggle(view,entry)
+ }
+ row.append(prCell,actions)
+ view.rows.set(task.id,entry)
+ updateTicketRow(view,entry)
+ return row
+}
+// The actions menu of a task: a tickets row's and a board card's (#806), so
+// both offer the same entries with the same handlers. It works on the row's
+// entry: its task, its menu opener and the menu itself.
+function taskActionsMenu(view,entry){
+ const {task,more,menu}=entry
  // The menu is a popup, so it must swallow the gestures that dismiss a popup.
  // Focus can sit on the opener rather than inside the menu - a mouse click on a
  // project with no launchable skill leaves it there - and the menu's own
@@ -3074,7 +3112,7 @@ function ticketRow(view,task){
  const items=[]
  if(skills.some(item=>item.id==='pickup'))items.push({label:'Pickup (full chain)',skillId:'pickup'})
  for(const item of skills)if(item.id!=='pickup')items.push({label:item.command||item.id,skillId:item.id})
- if(taskStage(task)==='implemented'){
+ if(taskStage(task,view.info.board)==='implemented'){
   items.push({label:'Skip to Handoff…',transition:'reviewed'})
  }
  items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Discussion in native terminal',nativeTerminal:true},{label:'Custom instructions…',compose:true},{label:'Launch…',dialog:true})
@@ -3102,28 +3140,6 @@ function ticketRow(view,task){
   else if(event.key==='ArrowUp'){event.preventDefault();options[(index-1+options.length)%options.length]?.focus()}
  }
  menu.addEventListener('focusout',event=>{if(!menu.contains(event.relatedTarget)&&event.relatedTarget!==more)closeMenu()})
- run.onclick=()=>{if(run.dataset.skillId)submitTicketLaunch(view,entry,run.dataset.skillId,'','').catch(()=>{})}
- actions.append(run,more,menu)
- const stageCell=cell('ticket-stage',taskStage(task));if(task.trackerStatus)stageCell.title='Tracker status: '+task.trackerStatus
- // The key opens the task in Sectile, the same gesture the sidebar task number
- // offers, so the identity means the same thing on both surfaces.
- const keyCell=cell('ticket-key')
- const keyLink=document.createElement('button');keyLink.type='button';keyLink.className='task-number';keyLink.textContent=key
- keyLink.title='Open task in Sectile';keyLink.setAttribute('aria-label','Open '+key+' in Sectile')
- keyLink.onclick=()=>api.openTask(task.id).catch(error)
- keyCell.append(keyLink)
- row.append(stateCell,keyCell,titleCell,stageCell,priorityCell)
- if(view.engines){
-  const engineCell=cell('ticket-engine')
-  const toggle=document.createElement('button');toggle.type='button';toggle.className='engine-toggle'
-  toggle.onclick=()=>switchTaskEngine(view,entry)
-  entry.engine=toggle;engineCell.append(toggle);row.append(engineCell)
-  renderEngineToggle(view,entry)
- }
- row.append(prCell,actions)
- view.rows.set(task.id,entry)
- updateTicketRow(view,entry)
- return row
 }
 // The engine icon of a row: the monogram of its task engine, a tooltip naming
 // it, and a highlight when the task left its project default engine (#510).
@@ -3199,8 +3215,10 @@ function closeCompose(view){
 function openCompose(view,entry,initial=null,focusPrompt=true){
  closeCompose(view)
  const key=entry.task.key||entry.task.id
- const row=document.createElement('tr');row.className='ticket-compose'
- const cell=document.createElement('td');cell.colSpan=ticketColumns(view).length
+ // A board card has no table around it, so its form is a plain block (#806).
+ const board=view.kind==='board'
+ const row=document.createElement(board?'div':'tr');row.className=board?'ticket-compose board-compose':'ticket-compose'
+ const cell=document.createElement(board?'div':'td');if(!board)cell.colSpan=ticketColumns(view).length
  const prompt=document.createElement('textarea');prompt.placeholder='What should the agent do?';prompt.setAttribute('aria-label','Custom instructions')
  const mode=modeSelect(document,'Execution mode for '+key)
  const launch=document.createElement('button');launch.type='button';launch.textContent='Launch';launch.disabled=!view.info.configured
@@ -3257,6 +3275,239 @@ async function submitNativeDiscussion(view,entry){
   await refresh()
  }catch(err){view.status.textContent='Could not launch native terminal for '+key+': '+launchErrorText(err);throw err}
  finally{view.submitting.delete(entry.task.id);if(view.rows.get(entry.task.id)===entry)updateTicketRow(view,entry)}
+}
+
+// The project board (#806): one project's tasks in the six workflow columns,
+// as the web board shows them. It takes the tickets pane's slot, so one full
+// page shows at a time and closing it restores the workspace and the focus as
+// closing the tickets list does. Its cards are tickets rows in another shape:
+// the same entry, the same actions menu and the same launch paths.
+const STAGE_NAMES={new:'New',clarified:'Clarified',specified:'Specified',implemented:'Implemented',reviewed:'Reviewed',finished:'Finished'}
+async function openBoard(projectID,initialQuery=''){
+ selectedProject=projectID
+ if(!agentConnected){showDialog('Board');paragraph('Connect to the local agent to see this project’s board.');return}
+ const opener=document.activeElement
+ if(dialog.open)dialog.close()
+ ticketsView?.closeOpenMenu?.()
+ const project=projects.find(item=>item.id===projectID)
+ const view={kind:'board',projectID,projectName:project?.name||projectID,tasks:[],info:null,board:EMPTY_BOARD,canMove:false,options:boardOptions(localStorage),query:'',rows:new Map(),submitting:new Set(),moving:new Set(),dragging:null,compose:null,engines:null,generation:0,opener:opener&&opener!==document.body?opener:null}
+ ticketsOpen=true;ticketsView=view;ticketsPane.hidden=false;ticketsPane.replaceChildren()
+ document.querySelector('#workspace article').hidden=true
+ document.querySelector('#workspace').hidden=false;document.querySelector('#setup').hidden=true
+ const heading=document.createElement('h2');heading.textContent='Board · '+view.projectName
+ const display=boardDisplayToggle(view)
+ const close=document.createElement('button');close.type='button';close.textContent='Close board';close.onclick=()=>closeTickets()
+ const toolbar=document.createElement('div');toolbar.className='tickets-toolbar board-toolbar';toolbar.append(heading,display,close)
+ const search=document.createElement('form'),query=document.createElement('input'),submit=document.createElement('button')
+ query.placeholder='Search by title or task key';query.setAttribute('aria-label','Search server tasks');submit.textContent='Search'
+ query.value=initialQuery
+ search.append(query,submit)
+ const status=document.createElement('p');status.className='tickets-status';status.setAttribute('role','status')
+ const list=document.createElement('div');list.className='board-area'
+ view.status=status;view.list=list
+ ticketsPane.append(toolbar,search,status,list)
+ query.focus()
+ async function load(){
+  const current=++view.generation,searchText=query.value.trim()
+  const isCurrent=()=>current===view.generation&&ticketsView===view&&ticketsOpen
+  list.textContent='Loading the board…';list.setAttribute('aria-busy','true');view.rows.clear();view.compose=null;status.textContent=''
+  try{
+   // Finished tasks included: the board has a column for them. An agent
+   // without the stage-move capability leaves the cards where they are.
+   const canMove=api.status().then(agent=>!!agent.capabilities?.includes('stage-move')).catch(()=>false)
+   const [tasks,info,movable]=await Promise.all([api.serverTasks(projectID,searchText,false),api.project(projectID),canMove])
+   if(!isCurrent())return
+   view.tasks=tasks;view.info=info;view.board=info.board||EMPTY_BOARD;view.canMove=movable;view.query=searchText
+   if(info.board)projectBoards.set(projectID,info.board)
+   renderBoard(view)
+  }catch(err){if(isCurrent()){const message=document.createElement('p');message.setAttribute('role','alert');message.textContent='Could not load the board: '+startFailure(err)+'. Use Search to retry.';list.replaceChildren(message)}}
+  finally{if(isCurrent())list.setAttribute('aria-busy','false')}
+ }
+ view.load=load
+ search.onsubmit=event=>{event.preventDefault();load()}
+ await load()
+}
+// Condensed or full cards, remembered on this workstation for every project.
+function boardDisplayToggle(view){
+ const group=document.createElement('div');group.className='board-display';group.setAttribute('role','radiogroup');group.setAttribute('aria-label','Card display')
+ const buttons=[['condensed','Condensed'],['full','Full']].map(([value,label])=>{
+  const button=document.createElement('button');button.type='button';button.setAttribute('role','radio');button.textContent=label;button.dataset.display=value
+  button.onclick=()=>choose(value)
+  return button
+ })
+ const sync=()=>{for(const button of buttons){const on=button.dataset.display===view.options.cardDisplay;button.setAttribute('aria-checked',String(on));button.tabIndex=on?0:-1}}
+ function choose(value,focus=false){
+  if(view.options.cardDisplay!==value){view.options.cardDisplay=value;saveBoardOption(localStorage,'cardDisplay',value);if(view.info)renderBoard(view)}
+  sync()
+  if(focus)buttons.find(button=>button.dataset.display===value)?.focus()
+ }
+ // A radio group moves with the arrow keys, as the platform's own does.
+ group.onkeydown=event=>{
+  if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key))return
+  event.preventDefault()
+  choose(view.options.cardDisplay==='full'?'condensed':'full',true)
+ }
+ sync();group.append(...buttons)
+ return group
+}
+function renderBoard(view){
+ const {list}=view
+ view.closeOpenMenu?.()
+ // Instructions being typed are the user's work, not render state, so they
+ // survive the rebuild, as they do in the tickets list.
+ const pending=view.compose?{...view.compose}:null
+ list.replaceChildren();view.rows.clear();view.compose=null
+ if(!view.info.configured){const notice=document.createElement('p');notice.textContent='Configure a local repository before launching tasks.';list.append(notice)}
+ if(!view.tasks.length){
+  const empty=document.createElement('p');empty.className='board-empty'
+  empty.textContent=view.query?'No tasks match “'+view.query+'”.':'This project has no tasks.'
+  list.append(empty)
+ }
+ // An agent without the stage move leaves the cards in place; say why rather
+ // than let a drag silently fail to start.
+ if(!view.canMove&&view.tasks.length){const hint=document.createElement('p');hint.className='board-hint';hint.textContent='Moving cards between stages needs a newer local agent. Restart the agent from Settings to update it.';list.append(hint)}
+ const grid=document.createElement('div');grid.className='board';grid.dataset.display=view.options.cardDisplay
+ for(const {stage,tasks} of boardColumns(view.tasks,view.board)){
+  if(stage==='finished'&&view.options.hideFinished){grid.append(collapsedFinished(view,tasks.length));continue}
+  const column=document.createElement('section');column.className='board-column';column.dataset.stage=stage
+  column.setAttribute('aria-label',STAGE_NAMES[stage]+' column, '+tasks.length+(tasks.length===1?' task':' tasks'))
+  const header=document.createElement('header');header.className='board-column-header'
+  const name=document.createElement('h3');name.textContent=STAGE_NAMES[stage]
+  const count=document.createElement('span');count.className='board-count';count.textContent=String(tasks.length);count.setAttribute('aria-hidden','true')
+  header.append(name,count)
+  if(stage==='finished'){
+   const hide=document.createElement('button');hide.type='button';hide.className='board-hide-finished';hide.textContent='Hide finished'
+   hide.onclick=()=>{setFinishedHidden(view,true);list.querySelector('.board-collapsed')?.focus()}
+   header.append(hide)
+  }
+  const body=document.createElement('div');body.className='board-column-body'
+  for(const task of tasks)body.append(boardCard(view,task))
+  column.append(header,body)
+  if(view.canMove)acceptBoardDrop(view,column,stage)
+  grid.append(column)
+ }
+ list.append(grid)
+ if(pending&&view.rows.has(pending.taskId))openCompose(view,view.rows.get(pending.taskId),pending,false)
+}
+function setFinishedHidden(view,hidden){
+ view.options.hideFinished=hidden;saveBoardOption(localStorage,'hideFinished',hidden)
+ renderBoard(view)
+}
+// The finished column, collapsed: a narrow strip with its name and count. It
+// expands on a click and still takes a dropped card, staying collapsed.
+function collapsedFinished(view,count){
+ const strip=document.createElement('button');strip.type='button';strip.className='board-collapsed';strip.dataset.stage='finished'
+ strip.setAttribute('aria-label','Show finished tasks ('+count+')')
+ const name=document.createElement('span');name.className='board-collapsed-name';name.textContent=STAGE_NAMES.finished
+ const number=document.createElement('span');number.className='board-count';number.textContent=String(count)
+ strip.append(name,number)
+ strip.onclick=()=>{setFinishedHidden(view,false);view.list.querySelector('.board-hide-finished')?.focus()}
+ if(view.canMove)acceptBoardDrop(view,strip,'finished')
+ return strip
+}
+function boardCard(view,task){
+ const key=task.key||task.id,full=view.options.cardDisplay==='full'
+ const card=document.createElement('article');card.className='board-card';card.dataset.taskId=task.id;card.dataset.display=view.options.cardDisplay
+ card.setAttribute('aria-label',key+(task.title?' '+task.title:''))
+ const color=cardEpicColor(task,view.board)
+ // The colour is data, not a theme token: it is the macro's, in both themes.
+ if(color){card.classList.add('has-epic');card.style.borderLeftColor=color}
+ const line=document.createElement('div');line.className='board-card-line'
+ const keyLabel=document.createElement('span');keyLabel.className='board-card-key';keyLabel.textContent=key
+ // The title opens the task in Sectile, as a tickets row's key does: selecting
+ // a card never launches anything.
+ const title=document.createElement('button');title.type='button';title.className='board-card-title';title.textContent=task.title||key
+ title.title=task.title||'';title.setAttribute('aria-label','Open '+key+' in Sectile')
+ title.onclick=()=>api.openTask(task.id).catch(error)
+ const state=document.createElement('span');state.className='run-state'
+ const actions=document.createElement('div');actions.className='board-card-actions'
+ // The next step is in the menu; the run button only carries the state the
+ // shared row code keeps, and is not shown on a card.
+ const run=document.createElement('button');run.type='button';run.className='ticket-run'
+ const more=document.createElement('button');more.type='button';more.className='ticket-more';more.textContent='…'
+ more.setAttribute('aria-haspopup','menu');more.setAttribute('aria-expanded','false');more.setAttribute('aria-label','More actions for '+key)
+ const menu=document.createElement('div');menu.className='ticket-menu';menu.setAttribute('role','menu');menu.setAttribute('aria-label','Actions for '+key);menu.hidden=true
+ actions.append(more,menu)
+ // A condensed card holds on one line; a full one gives the title a line of
+ // its own, so a long title wraps across the card's width.
+ if(full){line.append(keyLabel,state,actions);card.append(line,title,boardCardDetails(task))}
+ else{line.append(keyLabel,title,state,actions);card.append(line)}
+ const entry={task,row:card,state,run,more,menu,actions}
+ taskActionsMenu(view,entry)
+ if(view.canMove){
+  const busy=view.moving.has(task.id)
+  card.draggable=!busy
+  if(busy)card.setAttribute('aria-busy','true')
+  card.ondragstart=event=>{
+   if(view.moving.has(task.id)){event.preventDefault();return}
+   view.dragging=task.id;card.classList.add('dragging')
+   event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',task.id)
+  }
+  card.ondragend=()=>{view.dragging=null;card.classList.remove('dragging');for(const target of view.list.querySelectorAll('.drop-target'))target.classList.remove('drop-target')}
+ }
+ view.rows.set(task.id,entry)
+ updateTicketRow(view,entry)
+ return card
+}
+// What a full card adds: the macro, the priority, the labels other than the
+// workflow ones, the pull request and the assignee.
+function boardCardDetails(task){
+ const details=document.createElement('div');details.className='board-card-details'
+ const key=task.key||task.id
+ if(task.parentKey){const parent=document.createElement('span');parent.className='board-card-parent';parent.textContent=task.parentKey;parent.title='Macro '+task.parentKey;details.append(parent)}
+ if(task.priority){
+  const priority=document.createElement('span');priority.className='board-card-priority'
+  const dot=document.createElement('span');dot.className='priority-dot';dot.dataset.priority=String(task.priority).toLowerCase();dot.setAttribute('aria-hidden','true')
+  priority.append(dot,document.createTextNode(task.priority));details.append(priority)
+ }
+ for(const label of boardCardLabels(task)){const chip=document.createElement('span');chip.className='board-card-label';chip.textContent=label;details.append(chip)}
+ if(task.prUrl&&/^https?:\/\//i.test(task.prUrl)){
+  const pr=document.createElement('button');pr.type='button';pr.className='pr-indicator'
+  const [link,...others]=repositoryPullRequests(task);renderPullRequestIndicator(pr,link,prLabel(link.url)+' for '+key)
+  pr.onclick=()=>api.openPR(link.url).catch(error);details.append(pr)
+  if(others.length)details.append(otherPullRequestsBadge(others))
+ }
+ if(task.assignee){const assignee=document.createElement('span');assignee.className='board-card-assignee';assignee.textContent=task.assignee;assignee.title='Assignee';details.append(assignee)}
+ return details
+}
+function acceptBoardDrop(view,target,stage){
+ target.ondragover=event=>{
+  if(!view.dragging)return
+  event.preventDefault();event.dataTransfer.dropEffect='move';target.classList.add('drop-target')
+ }
+ target.ondragleave=event=>{if(!target.contains(event.relatedTarget))target.classList.remove('drop-target')}
+ target.ondrop=event=>{
+  event.preventDefault();target.classList.remove('drop-target')
+  const taskId=view.dragging||event.dataTransfer.getData('text/plain')
+  view.dragging=null
+  if(taskId)moveBoardCard(view,taskId,stage).catch(()=>{})
+ }
+}
+// A drop moves the task to the column's stage as the web board does: its
+// workflow label, internal status and tracker status, computed by the shared
+// rules from the stage mapping of the ticket's tracker. It records no stage
+// report and launches no skill. A refused move leaves the card where it was.
+async function moveBoardCard(view,taskId,stage){
+ const task=view.tasks.find(item=>item.id===taskId)
+ if(!task||view.moving.has(taskId)||taskStage(task,view.board)===stage)return
+ const key=task.key||task.id,name=STAGE_NAMES[stage]
+ const move=stageMove(task,stage,{...view.board,...trackerBoard(view.board,task.trackerId)})
+ view.moving.add(taskId)
+ const card=view.rows.get(taskId)?.row
+ if(card){card.draggable=false;card.setAttribute('aria-busy','true')}
+ view.status.textContent='Moving '+key+' to '+name+'…'
+ try{
+  await api.moveTaskStage(view.projectID,taskId,move)
+  view.moving.delete(taskId)
+  if(ticketsView!==view)return
+  await view.load()
+  if(ticketsView===view)view.status.textContent=key+' moved to '+name
+ }catch(err){
+  view.moving.delete(taskId)
+  if(ticketsView!==view)return
+  renderBoard(view)
+  view.status.textContent='Could not move '+key+' to '+name+': '+startFailure(err)
+ }
 }
 
 document.querySelector('#rerun').onclick=()=>{
@@ -3357,7 +3608,7 @@ async function refreshPRs(executions){
      const task=tasks.find(task=>task.id===run.taskId)
      if(task?.title?.trim())taskTitles.set(run.taskId,task.title.trim())
      else taskTitles.delete(run.taskId)
-     const stage=task&&taskStage(task)
+     const stage=task&&taskStage(task,projectBoards.get(projectID))
      if(STAGES.includes(stage))taskStages.set(run.taskId,stage)
      else taskStages.delete(run.taskId)
      if(task?.prUrl&&/^https?:\/\//i.test(task.prUrl))pullRequests.set(run.taskId,repositoryPullRequests(task))
@@ -3445,6 +3696,7 @@ function paletteEntries(){
   {group:'action',label:'New task',detail:'Create a task in a project',hint:newTaskShortcutLabel(mac),run:()=>quickAdd()},
   {group:'action',label:'Tasks list',detail:'Browse the open tasks of a project',run:()=>openTicketsFromPalette()},
   {group:'action',label:'Add project',detail:'Connect a project of the server to this workstation',run:()=>openAddProject()},
+  {group:'action',label:'Project board',detail:'See a project\u2019s tasks by workflow stage',run:()=>openBoardFromPalette()},
   {group:'action',label:(document.querySelector('#workspace').classList.contains('sidebar-hidden')?'Show':'Hide')+' the sidebar',hint:sidebarShortcutLabel(mac),run:()=>{dialog.close();toggleSidebar()}},
   {group:'action',label:'Settings',hint:configShortcutLabel(mac),run:()=>{dialog.close();openSettings('Profile')}},
   {group:'action',label:'Open the web interface',run:()=>{dialog.close();api.openBoard().catch(error)}},
@@ -3463,19 +3715,23 @@ function paletteEntries(){
 // The tickets list needs a project. The selected one answers that, and a single
 // configured project answers it too; otherwise the palette asks rather than
 // guessing which project the user meant.
-async function openTicketsFromPalette(){
+const openTicketsFromPalette=()=>openProjectPageFromPalette('Tasks list','Choose the project whose tasks you want to browse.',openTickets)
+const openBoardFromPalette=()=>openProjectPageFromPalette('Project board','Choose the project whose board you want to see.',openBoard)
+// A palette action on a project's page: the selected project's, or the only
+// project's, and otherwise the user picks one.
+async function openProjectPageFromPalette(title,prompt,open){
  if(!projects.length){
-  try{await loadProjects()}catch(err){showDialog('Tasks list');paragraph(err.message);return}
+  try{await loadProjects()}catch(err){showDialog(title);paragraph(err.message);return}
  }
  const known=projects.filter(project=>!hiddenProject(project.id))
  const chosen=known.find(project=>project.id===selectedProject)||(known.length===1?known[0]:null)
- if(chosen){dialog.close();openTickets(chosen.id);return}
- showDialog('Tasks list')
+ if(chosen){dialog.close();open(chosen.id);return}
+ showDialog(title)
  if(!known.length){paragraph('Add a project before browsing its tasks.');return}
- paragraph('Choose the project whose tasks you want to browse.')
+ paragraph(prompt)
  for(const project of known){
   const button=document.createElement('button');button.className='discovered-project';button.textContent=project.name
-  button.onclick=()=>openTickets(project.id)
+  button.onclick=()=>open(project.id)
   dialogBody.append(button)
  }
  dialogBody.querySelector('.discovered-project')?.focus()
