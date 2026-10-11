@@ -20,8 +20,8 @@ Distinct workstations authenticated as the same user currently replace each othe
 
 ## Impact
 
-Server dispatcher, registration/dispatch handlers, shared dispatch and operation contracts, contract documentation and automated tests. No presence table, schema migration, distributed cluster, tracker synchronization change or agent execution/worktree redesign. A graphical device picker is outside this server task; callers can supply the optional field and receive actionable selection errors.
+Server dispatcher, registration/dispatch handlers, shared dispatch and operation contracts, contract documentation and automated tests. Preserve and adapt the existing presence table and cluster routing from GitHub main; introduce no new presence service or cluster architecture. Update the existing presence key with a compatibility migration. No tracker synchronization change or agent execution/worktree redesign. A graphical device picker is outside this server task; callers can supply the optional field and receive actionable selection errors.
 
 ## Open Questions
 
-None. Round 2 supersedes Round 1's proposed automatic most-recent-device routing.
+None. Round 2 supersedes Round 1's proposed automatic most-recent-device routing. The owner subsequently directed this task to start from GitHub main, superseding the old-baseline assumption that persistence and clustering were absent.

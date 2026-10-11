@@ -65,3 +65,36 @@ Cancellation SHALL retain existing owner/admin authorization and run/task checks
 - **GIVEN** fallback includes a silent device and a reachable owner
 - **WHEN** the owner confirms within the shared cancellation deadline
 - **THEN** the silent device does not prevent successful cancellation.
+
+### Requirement: Device-aware existing replica routing
+Existing persisted presence and cross-instance forwarding SHALL preserve independent user/device connections. Selection SHALL consider all live devices of the user across replicas and SHALL route a command once to the instance holding the selected device. Existing internal authentication, project eligibility and selected-device capability checks SHALL remain enforced.
+
+#### Scenario: Distinct devices on different instances
+- **GIVEN** device A is connected to instance 1 and device B to instance 2 for the same user
+- **WHEN** either instance receives a dispatch without deviceId
+- **THEN** it returns the same selection-required error and both connections stay active.
+
+#### Scenario: Remote explicit dispatch
+- **GIVEN** the selected device is held by another live instance
+- **WHEN** a command targets its deviceId
+- **THEN** the receiving instance forwards once to that device and preserves its confirmation or typed failure.
+
+#### Scenario: Cross-instance same-device rebound
+- **GIVEN** an existing connection for a user/device on instance 1
+- **WHEN** that same user/device reconnects on instance 2
+- **THEN** only the displaced connection receives Session Rebound and distinct devices remain online.
+
+#### Scenario: Delayed cross-instance cleanup
+- **GIVEN** a displaced device connection has already been replaced again
+- **WHEN** its delayed close or disconnect notification arrives
+- **THEN** the newer connection and its live presence remain intact.
+
+#### Scenario: Existing presence upgrade
+- **GIVEN** an existing store with project-keyed presence rows
+- **WHEN** it is upgraded to the device-aware server
+- **THEN** one row per user/device is retained with its latest connection metadata, other devices remain distinct, and disconnected records do not become connected.
+
+#### Scenario: Selected device lacks capability
+- **GIVEN** the explicitly selected device cannot execute the requested operation
+- **WHEN** the command is dispatched
+- **THEN** existing compatibility diagnostics are returned without selecting another workstation.

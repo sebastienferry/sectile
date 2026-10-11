@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Outbound Agent WebSocket Registration
-The Sectile server SHALL accept outbound WebSocket connection requests at `/ws/agent-connect` with valid authentication and SHALL distinguish simultaneous workstations by authenticated user and effective device identity. Presence SHALL remain in memory without a presence database or distributed cluster.
+The Sectile server SHALL accept outbound WebSocket connection requests at `/ws/agent-connect` with valid authentication and SHALL distinguish simultaneous workstations by authenticated user and effective device identity. The local connection registry SHALL remain in memory. Existing persisted presence and cross-instance routing SHALL be retained and SHALL use the same user/device identity.
 
 #### Scenario: Successful agent connection registration
 - **GIVEN** a local daemon with a valid user authentication token
