@@ -64,7 +64,8 @@ permission outside the workspace sandbox. All final checks below exited 0.
 - [x] `git diff --check`.
 
 Existing frontend lint and bundle-size warnings are in unchanged code.
-GitHub reports no CI checks; the evidence above is local validation.
+The evidence above is local validation; GitHub CI status is verified separately
+on the same PR after publication and readiness.
 
 ## Reviewer attention
 
