@@ -139,6 +139,7 @@ func TestHandleAgentStatus(t *testing.T) {
 	h := handlers.NewHandler(database)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/agent/status", nil)
+	req.AddCookie(defaultSession(t, database))
 	rr := httptest.NewRecorder()
 	h.HandleAgentStatus(rr, req)
 
@@ -252,6 +253,7 @@ func TestHandleAgentConnect_WebSocketHandshake(t *testing.T) {
 
 	// Check status API now reports the connected agent
 	statusReq := httptest.NewRequest(http.MethodGet, "/api/agent/status", nil)
+	statusReq.AddCookie(defaultSession(t, database))
 	statusRR := httptest.NewRecorder()
 	h.HandleAgentStatus(statusRR, statusReq)
 
@@ -618,7 +620,9 @@ func TestHandleAgentConnectKeepsTheAnnouncedBuild(t *testing.T) {
 		var last string
 		for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 			rr := httptest.NewRecorder()
-			h.HandleAgentStatus(rr, httptest.NewRequest(http.MethodGet, "/api/agent/status", nil))
+			req := httptest.NewRequest(http.MethodGet, "/api/agent/status", nil)
+			req.AddCookie(defaultSession(t, database))
+			h.HandleAgentStatus(rr, req)
 			var res struct {
 				Agents []handlers.AgentConnInfo `json:"agents"`
 			}

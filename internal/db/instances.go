@@ -160,6 +160,7 @@ func (d *DB) recoverInterruptedRuns() {
 	}
 	_, _ = d.conn.Exec("DELETE FROM server_instances;")
 	_, _ = d.conn.Exec("DELETE FROM agent_presence;")
+	_, _ = d.conn.Exec("DELETE FROM agent_workstation_presence;")
 }
 
 // reclaimDeadInstances ends the unfinished work of instances not seen since the
@@ -201,6 +202,9 @@ func (d *DB) reclaimDeadInstances(now time.Time) (int64, error) {
 	// until then nothing may be forwarded to an instance that is gone.
 	if _, err := d.conn.Exec(`DELETE FROM agent_presence WHERE instance_id NOT IN (SELECT id FROM server_instances)`); err != nil {
 		return 0, fmt.Errorf("forgetting the agents of dead instances: %w", err)
+	}
+	if _, err := d.conn.Exec(`DELETE FROM agent_workstation_presence WHERE instance_id NOT IN (SELECT id FROM server_instances)`); err != nil {
+		return 0, err
 	}
 	ended, _ := jobs.RowsAffected()
 	canceled, _ := runs.RowsAffected()

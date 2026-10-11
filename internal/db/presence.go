@@ -19,12 +19,17 @@ import (
 
 // AgentLocation is where an agent slot is held.
 type AgentLocation struct {
-	UserID      string
-	ProjectID   string
-	InstanceID  string
-	Address     string
-	DeviceID    string
-	ConnectedAt time.Time
+	ConnectionID       string
+	LastPingAt         time.Time
+	InventoryState     string
+	InventoryUpdatedAt *time.Time
+	ProjectIDs         []string
+	UserID             string
+	ProjectID          string
+	InstanceID         string
+	Address            string
+	DeviceID           string
+	ConnectedAt        time.Time
 }
 
 // internalTokenLabel is what the internal bearer is derived from.

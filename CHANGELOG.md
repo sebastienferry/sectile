@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Connected workstation availability by project.** The agent status API reports which connected workstations have an accessible local checkout for each project. Availability updates when local mappings or checkouts change. (#818)
 - Keep multiple workstations connected simultaneously; select a workstation with `deviceId` when dispatching while several are connected. (#817)
 
 ## [0.4.5] - 2026-10-09

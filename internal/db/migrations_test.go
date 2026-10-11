@@ -32,6 +32,7 @@ func forgetSchemaVersion(t *testing.T, d *DB) {
 	_, _ = d.conn.Exec("DROP TABLE auto_sync_projects")
 	_, _ = d.conn.Exec("DROP TABLE auto_sync_state")
 	_, _ = d.conn.Exec("DROP TABLE agent_presence")
+	_, _ = d.conn.Exec("DROP TABLE IF EXISTS agent_workstation_presence")
 	_, _ = d.conn.Exec("ALTER TABLE server_instances DROP COLUMN address")
 	_, _ = d.conn.Exec("DROP INDEX idx_activities_one_active_run")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN concurrent")
@@ -102,12 +103,13 @@ func dropCredentialAccountColumn(d *DB) {
 	undoTrackerMigration(d)
 }
 
-// undoTrackerMigration removes what migration 49 and the tracker adoption add
+// undoTrackerMigration removes the schema added since tracker adoption
 // (#741), for the fixtures that put a database back before them and reopen it.
 // SQLite refuses to drop a column an index still names, so the indexes go
 // first.
 func undoTrackerMigration(d *DB) {
 	for _, statement := range []string{
+		"DROP TABLE IF EXISTS agent_workstation_presence",
 		"DROP TABLE IF EXISTS trackers",
 		"DROP TABLE IF EXISTS project_trackers",
 		"DROP TABLE IF EXISTS task_aliases",
@@ -403,6 +405,7 @@ func TestAStampedDatabaseStillGainsALaterColumn(t *testing.T) {
 	_, _ = d.conn.Exec("DROP TABLE auto_sync_projects")
 	_, _ = d.conn.Exec("DROP TABLE auto_sync_state")
 	_, _ = d.conn.Exec("DROP TABLE agent_presence")
+	_, _ = d.conn.Exec("DROP TABLE IF EXISTS agent_workstation_presence")
 	_, _ = d.conn.Exec("DROP INDEX idx_activities_one_active_run")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN concurrent")
 	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_macro_running")

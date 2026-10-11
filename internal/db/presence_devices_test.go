@@ -12,8 +12,9 @@ func checkPresenceDeviceUpgrade(t *testing.T, d *DB) {
 	// Recreate the deployed version-50 table with populated legacy rows.
 	for _, query := range []string{
 		`DROP TABLE agent_presence`,
+		`DROP TABLE IF EXISTS agent_workstation_presence`,
 		`CREATE TABLE agent_presence (user_id TEXT NOT NULL, project_id TEXT NOT NULL, instance_id TEXT NOT NULL, device_id TEXT NOT NULL DEFAULT '', connected_at DATETIME NOT NULL, disconnected_at DATETIME, PRIMARY KEY (user_id, project_id))`,
-		`DELETE FROM schema_migrations WHERE version = 51`,
+		`DELETE FROM schema_migrations WHERE version >= 51`,
 	} {
 		if _, err := d.conn.Exec(query); err != nil {
 			t.Fatal(err)
@@ -65,7 +66,7 @@ func checkPresenceDeviceUpgrade(t *testing.T, d *DB) {
 	if _, err := d.conn.Exec(`INSERT INTO agent_presence (user_id,project_id,instance_id,device_id,connected_at) VALUES ('u','another','holder','laptop',?)`, newer); err == nil {
 		t.Fatal("duplicate user/device accepted")
 	}
-	if err := d.applyMigrations(migrations, 51); err != nil {
+	if err := d.applyMigrations(migrations, migrations[len(migrations)-1].version); err != nil {
 		t.Fatalf("repeated migration: %v", err)
 	}
 }

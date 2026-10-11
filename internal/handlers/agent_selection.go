@@ -51,7 +51,7 @@ func (d *AgentDispatcher) userRoutes(userID string) []*AgentRoute {
 	d.mu.RUnlock()
 	if d.cluster != nil {
 		self := d.cluster.directory.InstanceID()
-		for _, location := range d.cluster.directory.ConnectedAgentLocations() {
+		for _, location := range d.cluster.locations() {
 			if location.UserID != userID {
 				continue
 			}

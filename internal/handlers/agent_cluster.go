@@ -129,17 +129,24 @@ func (c *agentCluster) recentlyConnected(userID, projectID string) bool {
 // agentConnected records a new local connection, and asks the instance that
 // held the slot before, if another, to close its connection as a single
 // instance does on a rebind.
-func (c *agentCluster) agentConnected(ac *AgentConn) {
+func (c *agentCluster) agentConnected(ac *AgentConn) error {
 	if c == nil {
-		return
+		return nil
 	}
-	previous, had, err := c.directory.AgentConnected(ac.UserID, ac.ProjectID, ac.DeviceID, ac.ConnectedAt)
+	var previous db.AgentLocation
+	var had bool
+	var err error
+	if directory, ok := c.directory.(WorkstationDirectory); ok {
+		previous, had, err = directory.WorkstationConnected(db.AgentLocation{ConnectionID: ac.ConnectionID, UserID: ac.UserID, ProjectID: ac.ProjectID, DeviceID: ac.DeviceID, ConnectedAt: ac.ConnectedAt})
+	} else {
+		previous, had, err = c.directory.AgentConnected(ac.UserID, ac.ProjectID, ac.DeviceID, ac.ConnectedAt)
+	}
 	if err != nil {
 		log.Printf("[AgentDispatcher] %v", err)
-		return
+		return err
 	}
-	if !had {
-		return
+	if !had || previous.InstanceID == c.directory.InstanceID() {
+		return nil
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -149,6 +156,7 @@ func (c *agentCluster) agentConnected(ac *AgentConn) {
 				ac.UserID, ac.ProjectID, previous.InstanceID, err)
 		}
 	}()
+	return nil
 }
 
 func (c *agentCluster) agentDisconnected(ac *AgentConn) {
@@ -159,14 +167,15 @@ func (c *agentCluster) agentDisconnected(ac *AgentConn) {
 
 // internalRequest is the body of every internal call.
 type internalRequest struct {
-	DeviceID    string                   `json:"deviceId,omitempty"`
-	ConnectedAt time.Time                `json:"connectedAt,omitempty"`
-	UserID      string                   `json:"userId,omitempty"`
-	ProjectID   string                   `json:"projectId,omitempty"`
-	TaskID      string                   `json:"taskId,omitempty"`
-	Type        string                   `json:"type,omitempty"`
-	Payload     json.RawMessage          `json:"payload,omitempty"`
-	Operation   *agentprotocol.Operation `json:"operation,omitempty"`
+	ConnectionID string                   `json:"connectionId,omitempty"`
+	DeviceID     string                   `json:"deviceId,omitempty"`
+	ConnectedAt  time.Time                `json:"connectedAt,omitempty"`
+	UserID       string                   `json:"userId,omitempty"`
+	ProjectID    string                   `json:"projectId,omitempty"`
+	TaskID       string                   `json:"taskId,omitempty"`
+	Type         string                   `json:"type,omitempty"`
+	Payload      json.RawMessage          `json:"payload,omitempty"`
+	Operation    *agentprotocol.Operation `json:"operation,omitempty"`
 }
 
 // internalResponse is the answer of every internal call.
@@ -180,6 +189,8 @@ type internalResponse struct {
 // answer is reported as such and never retried: the work may have reached the
 // agent, and running it twice is worse than asking the user to retry.
 func (c *agentCluster) forward(ctx context.Context, location db.AgentLocation, verb string, body internalRequest) (json.RawMessage, error) {
+	body.ConnectionID = location.ConnectionID
+
 	launch := verb == "dispatch-and-wait" || (verb == "operation" && body.Operation != nil && (body.Operation.Action == "execute_skill" || body.Operation.Action == "open_terminal"))
 	if c == nil {
 		return nil, ErrNoAgentConnected
@@ -316,7 +327,7 @@ func (d *AgentDispatcher) serveInternal(ctx context.Context, verb string, req in
 		d.mu.RLock()
 		ac := d.agents[agentKey{UserID: userID, DeviceID: req.DeviceID}]
 		d.mu.RUnlock()
-		if ac != nil && ac.ConnectedAt.Equal(req.ConnectedAt) {
+		if ac != nil && ac.ConnectedAt.Equal(req.ConnectedAt) && (req.ConnectionID == "" || ac.ConnectionID == req.ConnectionID) {
 			ac.Close(4001, "Session Rebound")
 		}
 		return nil, nil
@@ -326,7 +337,7 @@ func (d *AgentDispatcher) serveInternal(ctx context.Context, verb string, req in
 		deviceID = req.Operation.DeviceID
 	}
 	ac := d.Lookup(userID, projectID, deviceID)
-	if ac == nil || (!req.ConnectedAt.IsZero() && !ac.ConnectedAt.Equal(req.ConnectedAt)) {
+	if ac == nil || (req.ConnectionID != "" && ac.ConnectionID != req.ConnectionID) || (!req.ConnectedAt.IsZero() && !ac.ConnectedAt.Equal(req.ConnectedAt)) {
 		return nil, fmt.Errorf("%w for user %s on project %s on this instance", ErrNoAgentConnected, userID, projectID)
 	}
 	switch verb {
