@@ -45,25 +45,28 @@ const (
 )
 
 type TaskActivity struct {
-	DeviceID    string     `json:"deviceId,omitempty"`
-	ID          string     `json:"id"`
-	TaskID      string     `json:"taskId"`
-	ProjectID   string     `json:"projectId,omitempty"`
-	TaskKey     string     `json:"taskKey,omitempty"`
-	TaskTitle   string     `json:"taskTitle,omitempty"`
-	SkillID     string     `json:"skillId"`
-	SkillName   string     `json:"skillName"`
-	Action      string     `json:"action"`
-	Status      string     `json:"status"` // "queued", "pending", "running", "completed", "failed", "canceled"
-	Summary     string     `json:"summary"`
-	Output      string     `json:"output"` // Real AI or CLI Markdown / logs
-	Steps       []string   `json:"steps"`
-	Prompt      string     `json:"prompt,omitempty"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	StartedAt   *time.Time `json:"startedAt,omitempty"`
-	CompletedAt *time.Time `json:"completedAt,omitempty"`
-	Error       string     `json:"error,omitempty"`
-	Duration    string     `json:"duration,omitempty"`
+	RemoteRunID   string     `json:"-"`
+	DispatchState string     `json:"-"`
+	DeviceLabel   string     `json:"deviceLabel,omitempty"`
+	DeviceID      string     `json:"deviceId,omitempty"`
+	ID            string     `json:"id"`
+	TaskID        string     `json:"taskId"`
+	ProjectID     string     `json:"projectId,omitempty"`
+	TaskKey       string     `json:"taskKey,omitempty"`
+	TaskTitle     string     `json:"taskTitle,omitempty"`
+	SkillID       string     `json:"skillId"`
+	SkillName     string     `json:"skillName"`
+	Action        string     `json:"action"`
+	Status        string     `json:"status"` // "queued", "pending", "running", "completed", "failed", "canceled"
+	Summary       string     `json:"summary"`
+	Output        string     `json:"output"` // Real AI or CLI Markdown / logs
+	Steps         []string   `json:"steps"`
+	Prompt        string     `json:"prompt,omitempty"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	StartedAt     *time.Time `json:"startedAt,omitempty"`
+	CompletedAt   *time.Time `json:"completedAt,omitempty"`
+	Error         string     `json:"error,omitempty"`
+	Duration      string     `json:"duration,omitempty"`
 	// CredentialMissing names the provider ("github", "gitlab", "jira") a
 	// failed tracker write was refused for, because the person who asked for
 	// it has no token of their own there (#645). Empty otherwise.

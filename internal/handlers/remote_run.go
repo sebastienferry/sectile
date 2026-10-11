@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"tasks/internal/agentconfig"
 	"tasks/internal/db"
 	"tasks/internal/models"
@@ -29,6 +30,10 @@ func (h *Handler) handleCancelRemoteRun(w http.ResponseWriter, r *http.Request, 
 		writeError(w, 400, "runId is required")
 		return
 	}
+	h.cancelExecution(w, r, taskID, input.RunID, input.Force)
+}
+
+func (h *Handler) cancelExecution(w http.ResponseWriter, r *http.Request, taskID, runID string, force bool) {
 	task, err := h.db.GetTaskByID(taskID)
 	if writeTaskKeyAmbiguous(w, err) {
 		return
@@ -37,8 +42,16 @@ func (h *Handler) handleCancelRemoteRun(w http.ResponseWriter, r *http.Request, 
 		writeError(w, 404, "Task not found")
 		return
 	}
-	run, err := h.db.GetActivityByID(input.RunID)
-	if err != nil || run == nil || run.TaskID != task.ID || run.SkillID != "remote_run" || run.Status != "running" {
+	run, err := h.db.GetActivityByID(runID)
+	if err != nil || run == nil || run.TaskID != task.ID || (run.Status != "running" && run.Status != "queued" && run.Status != "pending") {
+		writeError(w, 409, "Active remote execution not found")
+		return
+	}
+	if run.SkillID != "remote_run" {
+		if db.IsTaskRunSkill(run.SkillID) || run.SkillID == "agent_launch" {
+			h.cancelTaskLaunch(w, r, run, force)
+			return
+		}
 		writeError(w, 409, "Active remote execution not found")
 		return
 	}
@@ -66,11 +79,81 @@ func (h *Handler) handleCancelRemoteRun(w http.ResponseWriter, r *http.Request, 
 		userID = caller.UserID
 	}
 
+	if activity, canceled, err := h.db.CancelUndispatchedRun(run.ID); err != nil {
+		writeError(w, 409, err.Error())
+		return
+	} else if canceled {
+		h.BroadcastEvent(Event{Type: "agent_step_status"})
+		writeJSON(w, 200, activity)
+		return
+	}
+	unconfirmedDispatch := false
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		state, err := h.db.RunDispatchState(run.ID)
+		if err != nil {
+			writeError(w, 409, err.Error())
+			return
+		}
+		if state != "dispatching" {
+			break
+		}
+		if !time.Now().Before(deadline) || r.Context().Err() != nil {
+			if force {
+				unconfirmedDispatch = true
+				break
+			}
+			writeError(w, 502, "Le lancement n’est pas encore confirmé ; réessayez l’annulation ou fermez explicitement le suivi de force")
+			return
+		}
+		select {
+		case <-r.Context().Done():
+			writeError(w, 502, "L’annulation n’a pas été confirmée")
+			return
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	if run.DeviceID != "" {
+		h.agentDispatcher.rememberRun(run.ID, userID, run.DeviceID)
+	}
+	projectID := run.RunProjectID
+	if projectID == "" {
+		projectID = task.ProjectID
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	dispatchErr := h.agentDispatcher.DispatchAndWait(ctx, userID, task.ProjectID, task.ID, agentconfig.Dispatch{
-		SchemaVersion: agentconfig.Version, TaskID: task.ID, RunID: run.ID, Action: "cancel_run",
-	})
+	var dispatchErr error
+	if unconfirmedDispatch {
+		dispatchErr = ErrLaunchUnconfirmed
+	} else if run.DeviceID != "" {
+		dispatchErr = h.agentDispatcher.CancelRunOn(ctx, userID, projectID, task.ID, run.ID, run.DeviceID)
+	} else {
+		dispatchErr = h.agentDispatcher.DispatchAndWait(ctx, userID, projectID, task.ID, agentconfig.Dispatch{
+			SchemaVersion: agentconfig.Version, TaskID: task.ID, RunID: run.ID, Action: "cancel_run",
+		})
+	}
+
+	// Without a persisted assignment, replies from online peers cannot rule out
+	// a paired workstation that is offline. Such a legacy run requires force.
+	if run.DeviceID == "" && errors.Is(dispatchErr, ErrRunNotOwned) {
+		devices, err := h.db.ListDeviceCredentials(userID)
+		if err != nil {
+			dispatchErr = err
+		} else {
+			online := map[string]bool{}
+			for _, agent := range h.agentDispatcher.ConnectedAgents() {
+				if agent.UserID == userID {
+					online[agent.DeviceID] = true
+				}
+			}
+			for _, device := range devices {
+				if !online[device.ID] {
+					dispatchErr = ErrNoAgentConnected
+					break
+				}
+			}
+		}
+	}
 
 	note := "Execution stopped by the local agent"
 	switch {
@@ -78,7 +161,7 @@ func (h *Handler) handleCancelRemoteRun(w http.ResponseWriter, r *http.Request, 
 	case errors.Is(dispatchErr, ErrRunNotOwned):
 		log.Printf("[RemoteRun] Closing orphaned run %s on task %s: the agent does not have it", run.ID, task.ID)
 		note = "Execution closed: the local agent restarted and no longer had this run"
-	case input.Force:
+	case force:
 		log.Printf("[RemoteRun] Force closing run %s on task %s: %v", run.ID, task.ID, dispatchErr)
 		note = "Execution closed without reaching the local agent; any local process was left running"
 	default:
@@ -99,6 +182,7 @@ func (h *Handler) handleCancelRemoteRun(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	h.agentDispatcher.ForgetRun(run.ID)
+	h.BroadcastEvent(Event{Type: "agent_step_status"})
 	writeJSON(w, 200, activity)
 }
 
@@ -114,7 +198,11 @@ func (h *Handler) closeClientRun(w http.ResponseWriter, r *http.Request, task *m
 	if !ok {
 		return
 	}
-	activity, err := h.db.FinishRemoteRunAs(caller.Actor(), caller.IsAdmin(), task.ID, run.ID, "canceled", models.RunDisconnectNote)
+	note := models.RunDisconnectNote
+	if strings.HasPrefix(r.URL.Path, "/api/activities/") {
+		note = "Execution canceled from the activities view"
+	}
+	activity, err := h.db.FinishRemoteRunAs(caller.Actor(), caller.IsAdmin(), task.ID, run.ID, "canceled", note)
 	if errors.Is(err, db.ErrRunNotYours) {
 		writeError(w, http.StatusForbidden, msgNotOwner)
 		return
@@ -126,5 +214,42 @@ func (h *Handler) closeClientRun(w http.ResponseWriter, r *http.Request, task *m
 	h.mcpSessions.ReleaseRun(run.ID)
 	log.Printf("[RemoteRun] Closed client run %s on task %s from the board", run.ID, task.ID)
 	h.agentDispatcher.ForgetRun(run.ID)
+	h.BroadcastEvent(Event{Type: "agent_step_status"})
 	writeJSON(w, 200, activity)
+}
+
+// A queued task launcher can be canceled only before claim. Once claimed, stop
+// the remote run it transferred to, or report that the launch is unconfirmed.
+func (h *Handler) cancelTaskLaunch(w http.ResponseWriter, r *http.Request, launch *models.TaskActivity, force bool) {
+	if _, ok := h.requireOwnerOrAdmin(w, r, launch.UserID); !ok {
+		return
+	}
+	if launch.Status != "queued" && launch.Status != "pending" && launch.Status != "running" {
+		writeError(w, 409, "L’exécution n’est plus active")
+		return
+	}
+	canceled, err := h.db.CancelQueuedActivity(launch.ID)
+	if err != nil {
+		writeError(w, 409, err.Error())
+		return
+	}
+	if canceled {
+		h.BroadcastEvent(Event{Type: "agent_step_status"})
+		writeJSON(w, 200, map[string]string{"message": "Activité annulée avec succès"})
+		return
+	}
+	runID, active, err := h.db.LaunchRemoteRun(launch.ID)
+	if err != nil {
+		writeError(w, 409, err.Error())
+		return
+	}
+	if !active {
+		writeError(w, 409, "L’exécution n’est plus active")
+		return
+	}
+	if runID == "" {
+		writeError(w, 502, "Le lancement n’est pas encore confirmé ; réessayez l’annulation")
+		return
+	}
+	h.cancelExecution(w, r, launch.TaskID, runID, force)
 }

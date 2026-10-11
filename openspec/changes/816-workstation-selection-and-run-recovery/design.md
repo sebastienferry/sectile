@@ -40,3 +40,11 @@ AppContext.tsx centralizes discovery, selection and retries; RunProjectPicker.ts
 
 ## Validation
 Extend agent inventory/device selection tests, remote_run_test.go, activity cancellation/ownership tests, migration/persistence tests and batch tests. Use real restart/migration databases as required by docs/TESTING.md. Browser tests should follow run-project-picker.browser.mjs and batch pickup fixtures, asserting actual requests, rendered attribution and recovery behavior. Run OpenSpec strict validation now; implementation runs the repository Go/web checks and relevant browser suites. No new child process launcher is needed; any introduced command must obey agentexec.Hidden and its Windows test convention.
+
+## Implementation refinements
+
+- Migration 54 adds `device_label`, an internal `dispatch_state`, and exact `remote_run_id` launcher linkage. The latter arbitrates admission against cancellation in shared SQL: `admitted` can be canceled atomically, `dispatching` requires bounded acknowledgment before ordinary stopping, and `dispatched` retains process-stop semantics. The unique active-run index is unchanged. Queue entries transfer to a remote run only while their original launcher remains active; cancellation follows that recorded child ID rather than whichever newer run is active on the task.
+- Reconnect reconciliation snapshots older dispatched runs pinned to the authenticated owner/device before requesting the full supervisor list. A failed pull, unknown legacy assignment, new admission or dispatch in progress supplies no orphan evidence. A successful list that omits a pinned candidate permits closure through normal handback.
+- Batch membership retains the existing single execution-project rule. Every member must belong to that resolved project before discovery/admission, so the common eligibility set is that project's reported devices; no new cross-project batch semantics are introduced.
+- Current availability is displayed only for the viewer's own assigned active runs. The status endpoint isolates callers, so a colleague's invisible workstation is not incorrectly labeled offline. Historical labels remain snapshots.
+- Task retries use the ordinary admission path and preserve recorded prompt, mode, model and batch members. Ordinary tracker/server retries and macro launches retain their prior routes.

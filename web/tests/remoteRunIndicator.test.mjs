@@ -10,50 +10,50 @@ function run(overrides) {
 }
 
 test('no remote run leaves the indicator hidden', () => {
-  assert.equal(deriveRunIndicator([], 'task-1', NOW), null)
+  assert.equal(deriveRunIndicator([], 'task-1', NOW, { role: 'admin' }), null)
   const other = run({ skillId: 'tracker_op' })
-  assert.equal(deriveRunIndicator([other], 'task-1', NOW), null)
+  assert.equal(deriveRunIndicator([other], 'task-1', NOW, { role: 'admin' }), null)
   assert.equal(deriveRunIndicator([run({})], 'task-2', NOW), null)
 })
 
 test('a running run outranks a queued one and counts both', () => {
-  const indicator = deriveRunIndicator([run({ id: 'a', status: 'queued' }), run({ id: 'b' })], 'task-1', NOW)
+  const indicator = deriveRunIndicator([run({ id: 'a', status: 'queued' }), run({ id: 'b' })], 'task-1', NOW, { role: 'admin' })
   assert.equal(indicator.state, 'running')
   assert.equal(indicator.count, 1)
   assert.deepEqual(indicator.cancelableRunIds, ['b'])
 })
 
 test('queued runs are grouped under a single indicator', () => {
-  const indicator = deriveRunIndicator([run({ id: 'a', status: 'queued' }), run({ id: 'b', status: 'queued' })], 'task-1', NOW)
+  const indicator = deriveRunIndicator([run({ id: 'a', status: 'queued' }), run({ id: 'b', status: 'queued' })], 'task-1', NOW, { role: 'admin' })
   assert.equal(indicator.state, 'queued')
   assert.equal(indicator.count, 2)
   assert.deepEqual(indicator.cancelableRunIds, ['a', 'b'])
 })
 
 test('a run that is not agent-owned offers no cancellation', () => {
-  const indicator = deriveRunIndicator([run({ action: 'Scheduled execution' })], 'task-1', NOW)
+  const indicator = deriveRunIndicator([run({ action: 'Scheduled execution' })], 'task-1', NOW, { role: 'admin' })
   assert.equal(indicator.state, 'running')
   assert.deepEqual(indicator.cancelableRunIds, [])
 })
 
 test('a cancelled run stays visible for the window then disappears', () => {
   const justCanceled = run({ status: 'canceled', completedAt: new Date(NOW - CANCELED_VISIBILITY_MS).toISOString() })
-  const visible = deriveRunIndicator([justCanceled], 'task-1', NOW)
+  const visible = deriveRunIndicator([justCanceled], 'task-1', NOW, { role: 'admin' })
   assert.equal(visible.state, 'canceled')
   assert.deepEqual(visible.cancelableRunIds, [])
 
   const expired = run({ status: 'canceled', completedAt: new Date(NOW - CANCELED_VISIBILITY_MS - 1).toISOString() })
-  assert.equal(deriveRunIndicator([expired], 'task-1', NOW), null)
+  assert.equal(deriveRunIndicator([expired], 'task-1', NOW, { role: 'admin' }), null)
 })
 
 test('a cancelled run without a usable end timestamp is ignored', () => {
-  assert.equal(deriveRunIndicator([run({ status: 'canceled' })], 'task-1', NOW), null)
-  assert.equal(deriveRunIndicator([run({ status: 'canceled', completedAt: 'not-a-date' })], 'task-1', NOW), null)
+  assert.equal(deriveRunIndicator([run({ status: 'canceled' })], 'task-1', NOW, { role: 'admin' }), null)
+  assert.equal(deriveRunIndicator([run({ status: 'canceled', completedAt: 'not-a-date' })], 'task-1', NOW, { role: 'admin' }), null)
 })
 
 test('an active run hides a recent cancellation', () => {
   const activities = [run({ id: 'a', status: 'canceled', completedAt: new Date(NOW).toISOString() }), run({ id: 'b', status: 'queued' })]
-  const indicator = deriveRunIndicator(activities, 'task-1', NOW)
+  const indicator = deriveRunIndicator(activities, 'task-1', NOW, { role: 'admin' })
   assert.equal(indicator.state, 'queued')
 })
 
@@ -61,7 +61,7 @@ const WAITED = new Date(NOW - 4 * 60_000).toISOString()
 
 test('a waiting run outranks a running one and still counts both', () => {
   const activities = [run({ id: 'a' }), run({ id: 'b', waitingSince: WAITED })]
-  const indicator = deriveRunIndicator(activities, 'task-1', NOW)
+  const indicator = deriveRunIndicator(activities, 'task-1', NOW, { role: 'admin' })
   assert.equal(indicator.state, 'waiting')
   // The task has two live runs; the label must not claim it has one.
   assert.equal(indicator.count, 2)
@@ -72,11 +72,11 @@ test('a waiting run outranks a running one and still counts both', () => {
 test('the longest wait is the one reported', () => {
   const later = new Date(NOW - 60_000).toISOString()
   const activities = [run({ id: 'a', waitingSince: later }), run({ id: 'b', waitingSince: WAITED })]
-  assert.equal(deriveRunIndicator(activities, 'task-1', NOW).waitingSince, WAITED)
+  assert.equal(deriveRunIndicator(activities, 'task-1', NOW, { role: 'admin' }).waitingSince, WAITED)
 })
 
 test('resuming returns the indicator to running', () => {
-  const indicator = deriveRunIndicator([run({ id: 'a', waitingSince: undefined })], 'task-1', NOW)
+  const indicator = deriveRunIndicator([run({ id: 'a', waitingSince: undefined })], 'task-1', NOW, { role: 'admin' })
   assert.equal(indicator.state, 'running')
   assert.equal(indicator.waitingSince, undefined)
 })
@@ -85,13 +85,13 @@ test('a waiting mark left on a run that is no longer running is ignored', () => 
   // The state is read off the run, not off the timestamp: a stale mark on a
   // finished run must never make it look alive.
   const finished = run({ status: 'completed', waitingSince: WAITED })
-  assert.equal(deriveRunIndicator([finished], 'task-1', NOW), null)
+  assert.equal(deriveRunIndicator([finished], 'task-1', NOW, { role: 'admin' }), null)
   const queued = run({ status: 'queued', waitingSince: WAITED })
-  assert.equal(deriveRunIndicator([queued], 'task-1', NOW).state, 'queued')
+  assert.equal(deriveRunIndicator([queued], 'task-1', NOW, { role: 'admin' }).state, 'queued')
 })
 
 test('a waiting run without a usable timestamp still shows as waiting', () => {
-  const indicator = deriveRunIndicator([run({ waitingSince: 'not-a-date' })], 'task-1', NOW)
+  const indicator = deriveRunIndicator([run({ waitingSince: 'not-a-date' })], 'task-1', NOW, { role: 'admin' })
   assert.equal(indicator.state, 'waiting')
   assert.equal(indicator.waitingSince, undefined)
 })
@@ -142,10 +142,10 @@ const SILENCE = 'Execution reported - No MCP call for 4h0m0s: the client may be 
 
 test('a silent run outranks a working one, and a waiting run outranks both (#319)', () => {
   const silent = run({ id: 'a', summary: SILENCE })
-  assert.equal(deriveRunIndicator([silent, run({ id: 'b' })], 'task-1', NOW).state, 'silent')
-  assert.equal(deriveRunIndicator([silent, run({ id: 'b', waitingSince: WAITED })], 'task-1', NOW).state, 'waiting')
+  assert.equal(deriveRunIndicator([silent, run({ id: 'b' })], 'task-1', NOW, { role: 'admin' }).state, 'silent')
+  assert.equal(deriveRunIndicator([silent, run({ id: 'b', waitingSince: WAITED })], 'task-1', NOW, { role: 'admin' }).state, 'waiting')
   // A silence that has since become a wait is shown as the wait.
-  assert.equal(deriveRunIndicator([run({ summary: SILENCE, waitingSince: WAITED })], 'task-1', NOW).state, 'waiting')
+  assert.equal(deriveRunIndicator([run({ summary: SILENCE, waitingSince: WAITED })], 'task-1', NOW, { role: 'admin' }).state, 'waiting')
 })
 
 test('a client run is closable by its owner and by an admin only', () => {
@@ -172,7 +172,7 @@ test('an agent run is stoppable, never closable, and a cancelled run offers neit
 test('the longest wait is the one the indicator reports', () => {
   const first = run({ id: 'a', waitingSince: '2026-01-01T11:00:00Z' })
   const asking = run({ id: 'b', waitingSince: '2026-01-01T11:30:00Z' })
-  const indicator = deriveRunIndicator([asking, first], 'task-1', NOW)
+  const indicator = deriveRunIndicator([asking, first], 'task-1', NOW, { role: 'admin' })
   assert.equal(indicator.state, 'waiting')
   assert.equal(indicator.waitingSince, '2026-01-01T11:00:00Z')
 })

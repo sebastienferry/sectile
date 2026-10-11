@@ -1,3 +1,4 @@
+import { mayCancelExecution } from './workstations.ts'
 import type { TaskActivity } from '../types'
 import { isSilentSummary } from '../../../shared/runStates.ts'
 
@@ -79,7 +80,7 @@ export function deriveRunIndicator(
   // accessible label report the whole picture, not only the blocked part.
   const running = runs.filter(run => run.status === 'running')
   const silent = running.filter(isSilent)
-  const queued = runs.filter(run => run.status === 'queued')
+  const queued = runs.filter(run => (run.status === 'queued' || run.status === 'pending'))
   const canceled = runs.filter(run => isVisibleCancellation(run, now))
 
   const selected: [RunIndicatorState, TaskActivity[]] | null =
@@ -96,15 +97,14 @@ export function deriveRunIndicator(
   // blocked run is still a live run, and stopping it is still its owner's call.
   const cancelableRunIds = state === 'canceled'
     ? []
-    : selectedRuns.filter(run => run.action === AGENT_OWNED_ACTION).map(run => run.id)
+    : selectedRuns.filter(run => run.action === AGENT_OWNED_ACTION && mayCancelExecution(run, viewer)).map(run => run.id)
   // The server decides in the end; this only avoids offering a button that
   // would be refused. An ownerless run is an admin's, as on the server.
-  const isAdmin = viewer?.role === 'admin'
   const closableRunIds = state === 'canceled'
     ? []
     : selectedRuns
-      .filter(run => run.status === 'running' && run.action === CLIENT_ACTION)
-      .filter(run => isAdmin || (!!viewer?.userId && run.userId === viewer.userId))
+      .filter(run => run.action === CLIENT_ACTION)
+      .filter(run => mayCancelExecution(run, viewer))
       .map(run => run.id)
 
   // The earliest wait is the one reported: it is the longest, and the one the
@@ -136,7 +136,7 @@ export function activeTaskIds(activities: TaskActivity[]): Set<string> {
   const active = new Set<string>()
   for (const activity of activities) {
     if (activity.skillId !== REMOTE_RUN_SKILL) continue
-    if (activity.status === 'running' || activity.status === 'queued') active.add(activity.taskId)
+    if (activity.status === 'running' || activity.status === 'queued' || activity.status === 'pending') active.add(activity.taskId)
   }
   return active
 }

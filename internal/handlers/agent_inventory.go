@@ -54,6 +54,7 @@ func (d *AgentDispatcher) acceptInventory(ac *AgentConn, p agentprotocol.Project
 }
 
 type AvailableWorkstation struct {
+	Label       string    `json:"label"`
 	DeviceID    string    `json:"deviceId"`
 	ConnectedAt time.Time `json:"connectedAt"`
 	LastPingAt  time.Time `json:"lastPingAt"`

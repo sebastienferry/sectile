@@ -21,6 +21,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { ProfileModal } from './components/ProfileModal'
 import { AdminView } from './components/AdminView'
 import { TrackerBacklogView } from './components/TrackerBacklogView'
+import { WorkstationPicker } from './components/WorkstationPicker'
 import { RunProjectPicker } from './components/RunProjectPicker'
 import { ProjectModal } from './components/ProjectModal'
 import { ProjectOverviewModal } from './components/ProjectOverviewModal'
@@ -140,6 +141,7 @@ const MainContent: React.FC = () => {
       <ProjectOverviewModal />
       <BoardViewModal />
       <RunProjectPicker />
+      <WorkstationPicker />
 
 
       <CommandPalette />

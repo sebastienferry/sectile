@@ -786,6 +786,11 @@ var migrations = []migration{
 			"CREATE INDEX task_launch_affinity ON task_activities(task_id, run_project_id, user_id, skill_id, status, created_at, id);",
 		},
 	},
+	{version: 54, name: "task_activities.device_label", statements: []string{
+		"ALTER TABLE task_activities ADD COLUMN device_label TEXT NOT NULL DEFAULT '';",
+		"ALTER TABLE task_activities ADD COLUMN dispatch_state TEXT NOT NULL DEFAULT '';",
+		"ALTER TABLE task_activities ADD COLUMN remote_run_id TEXT NOT NULL DEFAULT '';",
+	}},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

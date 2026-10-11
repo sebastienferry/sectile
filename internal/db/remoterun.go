@@ -32,7 +32,10 @@ const (
 // read when the run ends to tell a run that handed the workflow back from one
 // that merely exited.
 type RunLaunch struct {
-	DeviceID string
+	LaunchActivityID string
+	Prompt           string
+	DeviceLabel      string
+	DeviceID         string
 	// Mode is the resolved execution mode, autonomous or interactive. Empty when
 	// the launcher did not resolve one, as for a run a standalone CLI declares.
 	Mode string
@@ -125,23 +128,30 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 	// No project_id: the activity is attached to the task, and the task is what
 	// carries the project. Writing both would be two sources of truth for one
 	// attachment, and the schema refuses it outright.
-	activity := &models.TaskActivity{ID: uuid.NewString(), TaskID: task.ID, RunProjectID: runProject, DeviceID: launch.DeviceID,
+	activity := &models.TaskActivity{ID: uuid.NewString(), TaskID: task.ID, RunProjectID: runProject, DeviceID: launch.DeviceID, DeviceLabel: launch.DeviceLabel,
 		SkillID: "remote_run", SkillName: skill, Action: RunActionClient,
 		Status: "running", Summary: "Execution reported by a local agent or native client",
-		CreatedAt: now, StartedAt: &now, Steps: []string{}, UserID: strings.TrimSpace(launch.UserID),
+		CreatedAt: now, StartedAt: &now, Steps: []string{}, Prompt: launch.Prompt, UserID: strings.TrimSpace(launch.UserID),
 		// What the launcher resolved. The agent corrects it through
 		// SetRemoteRunEngine once it has built the real command line.
 		Provider: strings.TrimSpace(launch.Provider), Model: strings.TrimSpace(launch.Model)}
 	if agentOwned {
 		activity.Action = RunActionAgent
+		activity.DispatchState = "admitted"
 		activity.Concurrent = launch.Force
 	} else {
 		// A client declaring its own run is never refused (#308): the session
 		// is already running, and refusing would only lose track of it.
 		activity.Concurrent = true
 	}
-	if err := d.AddTaskActivity(*activity); err != nil {
-		return nil, d.taskBusy(task, err)
+	var insertErr error
+	if launch.LaunchActivityID != "" {
+		insertErr = d.addLaunchedRemoteRun(*activity, launch.LaunchActivityID)
+	} else {
+		insertErr = d.AddTaskActivity(*activity)
+	}
+	if insertErr != nil {
+		return nil, d.taskBusy(task, insertErr)
 	}
 	launch.Stage = d.StageOfTask(task)
 	if launch.Mode != "" || launch.Stage != "" || launch.ChainStop != "" {
@@ -328,10 +338,10 @@ func (d *DB) finishRemoteRun(taskKey, runID, status, note string, authorize func
 	// A run still queued is closable too: the agent calls a launcher run queued
 	// while it waits for a slot, and the session holding its runId may be the
 	// one reporting how it ended (#499).
-	closable := "status IN ('running', 'queued')"
+	closable := "status IN ('running', 'queued', 'pending')"
 	args := []any{status, "%" + models.RunSilencePrefix + "%", " \u2014 ", note, note, time.Now(), runID, task.ID}
 	if authorize != nil {
-		closable = "(status IN ('running', 'queued') OR (status='canceled' AND summary LIKE ?))"
+		closable = "(status IN ('running', 'queued', 'pending') OR (status='canceled' AND summary LIKE ?))"
 		args = append(args, "%"+models.RunDisconnectNote+"%")
 	}
 	result, err := d.conn.Exec("UPDATE task_activities SET status=?, summary="+summaryExpr+", completed_at=?, waiting_since=NULL, waiting_session='' WHERE id=? AND task_id=? AND skill_id='remote_run' AND "+closable, args...)
@@ -427,7 +437,7 @@ func (d *DB) SyncRemoteRunStatusFor(ownerID, activityID, taskID, projectID, task
 				status, summary, activityID)
 		} else {
 			// A terminal status ends the run, and a terminal run is never waiting.
-			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ?, waiting_since = NULL, waiting_session = '' WHERE id = ?`,
+			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ?, waiting_since = NULL, waiting_session = '' WHERE id = ? AND status NOT IN ('completed', 'failed', 'canceled')`,
 				status, summary, activityID)
 		}
 		if err == nil && ownerID != "" {

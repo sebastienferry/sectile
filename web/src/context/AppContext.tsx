@@ -509,7 +509,9 @@ interface AppContextType {
   moveTask: (id: string, newStatus: Status, newPosition: number) => Promise<void>
   moveTaskWorkflowStage: (taskId: string, targetStage: WorkflowStage) => Promise<Task | null>
   deleteTask: (id: string) => Promise<boolean>
-  runSkill: (taskId: string, skillId: string, prompt?: string, opts?: { withComments?: boolean; mode?: SkillMode; model?: string; projectId?: string }) => Promise<TaskActivity | null>
+  runSkill: (taskId: string, skillId: string, prompt?: string, opts?: { withComments?: boolean; mode?: SkillMode; model?: string; projectId?: string; deviceId?: string }) => Promise<TaskActivity | null>
+  workstationChoice: { candidates: Workstation[]; refresh: () => Promise<void> } | null
+  chooseWorkstation: (deviceId: string | null) => void
   /**
    * A launch on a ticket of several projects waiting for the person to pick
    * the project the run works for (#741); null when none is.
@@ -597,6 +599,7 @@ import { localizeActivityText } from '../lib/activityText'
 import { batchSummary } from '../lib/roadmap'
 import { projectForTracker } from '../lib/stageMapping'
 import { createLatestRequest } from '../lib/latestRequest'
+import { commonWorkstations, type Workstation } from '../lib/workstations'
 import { staleFilters } from '../lib/filterPruning'
 import { readProjectHistory, recordProjectOpening, writeProjectHistory, type ProjectOpening } from '../lib/projectHistory'
 
@@ -626,6 +629,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     runProjectResolver.current = null
     setRunProjectChoice(null)
     resolve?.(projectId)
+  }, [])
+  const [workstationChoice, setWorkstationChoice] = useState<{ candidates: Workstation[]; refresh: () => Promise<void> } | null>(null)
+  const workstationResolver = useRef<((deviceId: string | null) => void) | null>(null)
+  const chooseWorkstation = useCallback((deviceId: string | null) => {
+    const resolve = workstationResolver.current
+    workstationResolver.current = null
+    setWorkstationChoice(null)
+    resolve?.(deviceId)
   }, [])
   const [backlogTrackerId, setBacklogTrackerId] = useState<string | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
@@ -3867,26 +3878,77 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return updated
   }
 
+  const selectWorkstation = async (projectIds: string[], requested?: string): Promise<string | null> => {
+    const discover = async () => {
+      const groups = await Promise.all([...new Set(projectIds)].map(async projectId => {
+        const response = await fetch(`${API_BASE}/agent/status?projectId=${encodeURIComponent(projectId)}`)
+        if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || t.workstationPicker.empty)
+        return ((await response.json()).availableWorkstations || []) as Workstation[]
+      }))
+      return commonWorkstations(groups)
+    }
+    const candidates = await discover()
+    if (!candidates.length) throw new Error(t.workstationPicker.empty)
+    if (requested) {
+      if (!candidates.some(device => device.deviceId === requested)) throw new Error(t.workstationPicker.unavailable)
+      return requested
+    }
+    if (candidates.length === 1) return candidates[0].deviceId
+    return new Promise(resolve => {
+      workstationResolver.current?.(null)
+      workstationResolver.current = resolve
+      const refresh = async () => {
+        try {
+          const candidates = await discover()
+          if (workstationResolver.current === resolve) setWorkstationChoice(current => current ? { candidates, refresh } : null)
+        } catch (error) { addToast({ type: 'error', title: t.toasts.error, description: String(error) }) }
+      }
+      setWorkstationChoice({ candidates, refresh })
+    })
+  }
+
   const runSkill = async (
     taskId: string,
     skillId: string,
     prompt?: string,
-    opts?: { withComments?: boolean; mode?: SkillMode; model?: string; batchTaskIds?: string[]; projectId?: string }
+    opts?: { withComments?: boolean; mode?: SkillMode; model?: string; batchTaskIds?: string[]; projectId?: string; deviceId?: string }
   ): Promise<TaskActivity | null> => {
     // The run works for the project of the board it is launched from (#741);
     // elsewhere the server takes the ticket's only project, or asks.
-    const launched = tasks.find(task => task.id === taskId)
-    const runProjectId = opts?.projectId || boardRunProject(launched, selectedProjectId, projects)
+    let launched = tasks.find(task => task.id === taskId) || (selectedTask?.id === taskId ? selectedTask : undefined)
+    let runProjectId = opts?.projectId || boardRunProject(launched, selectedProjectId, projects)
     setIsSkillRunning(true)
     setRunningSkillId(skillId)
 
     try {
+      if (!launched) {
+        const response = await fetch(`${API_BASE}/tasks/${encodeURIComponent(taskId)}`)
+        if (!response.ok) throw new Error(t.operations.notifications.skillFailedFallback)
+        const task = await response.json()
+        if (!task?.id) throw new Error(t.operations.notifications.skillFailedFallback)
+        launched = task
+        runProjectId ||= boardRunProject(launched, selectedProjectId, projects)
+      }
+      if (!runProjectId && launched) {
+        const ids = (launched.projectIds?.length ? launched.projectIds : [launched.projectId]).filter((id): id is string => Boolean(id))
+        if (ids.length === 1) runProjectId = ids[0]
+        else if (opts?.mode !== 'autonomous' && !opts?.batchTaskIds?.length) {
+          runProjectId = await askRunProject(launched.key, ids.map(id => ({ id, name: projects.find(p => p.id === id)?.name || id }))) || undefined
+          if (!runProjectId) return null
+        }
+      }
+      // Project ambiguity is resolved before discovery; unattended refusal still belongs to the server.
+      let deviceId = opts?.deviceId
+      if (runProjectId) {
+        const members = opts?.batchTaskIds?.map(id => tasks.find(task => task.id === id)) || []
+        if (members.some(task => !task || !(task.projectIds?.length ? task.projectIds : [task.projectId]).includes(runProjectId!))) throw new Error(t.workstationPicker.empty)
+        deviceId = await selectWorkstation([runProjectId], opts?.deviceId) || undefined
+        if (!deviceId) return null
+      }
       const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/run-skill`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // `mode` et `model` absents veulent dire « pas de surcharge » : la
-        // précédence retombe sur la skill puis sur le projet. Ce n'est pas
-        // « interactif », ni « défaut du CLI ».
+        // Absent mode and model retain the skill and project defaults.
         body: JSON.stringify({
           skillId,
           prompt,
@@ -3897,6 +3959,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           // batch run so each one shows it (#522).
           batchTaskIds: opts?.batchTaskIds?.length ? opts.batchTaskIds : undefined,
           projectId: runProjectId || undefined,
+          deviceId,
         }),
       })
       if (!res.ok) {
@@ -3909,7 +3972,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if ('candidates' in refusal) {
           const chosen = await askRunProject(launched?.key || taskId, refusal.candidates)
           if (!chosen) return null
-          return await runSkill(taskId, skillId, prompt, { ...opts, projectId: chosen })
+          return await runSkill(taskId, skillId, prompt, { ...opts, projectId: chosen, deviceId: undefined })
         }
         throw new Error(refusal.error)
       }
@@ -3949,11 +4012,34 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const retryActivity = async (id: string, projectId?: string): Promise<void> => {
     try {
+      const activity = activities.find(act => act.id === id)
+      let task = tasks.find(task => task.id === activity?.taskId)
+      let deviceId: string | undefined
+      if (activity?.taskId && !activity.skillId.startsWith('sync_') && !['tracker_op', 'tracker_update'].includes(activity.skillId)) {
+        projectId ||= activity.runProjectId
+        if (!projectId && !task) {
+          const response = await fetch(`${API_BASE}/tasks/${encodeURIComponent(activity.taskId)}`)
+          if (!response.ok) throw new Error(t.operations.notifications.retryFailed)
+          const resolved = await response.json()
+          if (!resolved?.id) throw new Error(t.operations.notifications.retryFailed)
+          task = resolved
+        }
+        const ids = (task?.projectIds?.length ? task.projectIds : task ? [task.projectId] : []).filter((id): id is string => Boolean(id))
+        if (!projectId && ids.length === 1) projectId = ids[0]
+        if (!projectId && ids.length > 1) {
+          projectId = await askRunProject(task!.key, ids.map(id => ({ id, name: projects.find(p => p.id === id)?.name || id }))) || undefined
+          if (!projectId) return
+        }
+        if (projectId) {
+          deviceId = await selectWorkstation([projectId]) || undefined
+          if (!deviceId) return
+        }
+      }
       // A run recorded without its project, on a ticket of several, is
       // refused like a launch is (#741): the person picks the project and the
       // retry is made again for it.
       const res = await fetch(`${API_BASE}/activities/${id}/retry`, projectId
-        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId }) }
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, deviceId }) }
         : { method: 'POST' })
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}))
@@ -4517,6 +4603,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         moveTask,
         deleteTask,
         runSkill,
+        workstationChoice,
+        chooseWorkstation,
         runProjectChoice,
         chooseRunProject,
         backlogTrackerId,

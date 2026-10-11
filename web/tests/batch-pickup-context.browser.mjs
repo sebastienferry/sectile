@@ -46,6 +46,7 @@ try {
     let body
     if (url.pathname === '/api/tasks') body = tasks
     else if (url.pathname === '/api/projects') body = [{ id: 'p', name: 'Fixture', bookmarked: true }]
+    else if (url.pathname === '/api/agent/status') body = {availableWorkstations:[{deviceId:'mac',label:'Mac'}],agents:[]}
     else if (url.pathname === '/api/activities') body = []
     else if (url.pathname === '/api/activities/stats') body = {}
     else if (url.pathname.endsWith('/run-skill')) {
@@ -71,6 +72,7 @@ try {
   assert.equal(requests.length, 1)
   assert.equal(requests[0].url, '/api/tasks/two/run-skill')
   assert.equal(requests[0].body.skillId, 'pickup_issues')
+  assert.equal(requests[0].body.deviceId, 'mac')
   assert.ok(requests[0].body.prompt.startsWith('/pickup-issues two one\n'))
   assert.ok(requests[0].body.prompt.includes('.tasks/worktrees/batch-chosen'))
   assert.deepEqual(requests[0].body.batchTaskIds, ['two', 'one'], 'the batch tickets reach the server in the chosen order')

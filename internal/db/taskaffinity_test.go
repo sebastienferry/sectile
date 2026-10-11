@@ -104,7 +104,7 @@ func checkActivityDeviceMigration(t *testing.T, d *DB) {
 	if err := d.AddTaskActivity(models.TaskActivity{ID: "legacy-device", TaskID: task.ID, SkillID: "agent_launch", Status: "completed", Summary: "Old summary (invented-device)", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	for _, query := range []string{"DROP INDEX task_launch_affinity", "ALTER TABLE task_activities DROP COLUMN device_id", "DELETE FROM schema_migrations WHERE version=53"} {
+	for _, query := range []string{"DROP INDEX task_launch_affinity", "ALTER TABLE task_activities DROP COLUMN device_id", "ALTER TABLE task_activities DROP COLUMN device_label", "ALTER TABLE task_activities DROP COLUMN dispatch_state", "ALTER TABLE task_activities DROP COLUMN remote_run_id", "DELETE FROM schema_migrations WHERE version>=53"} {
 		if _, err := d.conn.Exec(query); err != nil {
 			t.Fatal(err)
 		}
@@ -116,7 +116,7 @@ func checkActivityDeviceMigration(t *testing.T, d *DB) {
 	if err != nil || legacy == nil || legacy.DeviceID != "" {
 		t.Fatalf("legacy identity guessed: %+v %v", legacy, err)
 	}
-	if err := d.applyMigrations(migrations, 53); err != nil {
+	if err := d.applyMigrations(migrations, migrations[len(migrations)-1].version); err != nil {
 		t.Fatal(err)
 	}
 }

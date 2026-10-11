@@ -1,9 +1,11 @@
+import { WorkstationAttribution } from './WorkstationAttribution'
+import { ExecutionRecovery } from './ExecutionRecovery'
 import React, { useState, useMemo } from 'react'
 import {
   Activity,
+  XCircle,
   RotateCcw,
   Trash2,
-  XCircle,
   CheckCircle2,
   Clock,
   AlertTriangle,
@@ -58,7 +60,6 @@ export const ActivitiesView: React.FC = () => {
     fetchActivities,
     fetchActivityStats,
     retryActivity,
-    cancelActivity,
     deleteActivity,
     clearCompletedActivities,
     setSelectedTask,
@@ -449,7 +450,6 @@ export const ActivitiesView: React.FC = () => {
             filteredActivities.map(act => {
               const isSelected = selectedActivity?.id === act.id
               const isRunning = act.status === 'running'
-              const isQueued = act.status === 'queued' || act.status === 'pending'
 
               return (
                 <div
@@ -516,6 +516,7 @@ export const ActivitiesView: React.FC = () => {
                   </div>
 
                   {/* Summary / Output Snippet */}
+                  <WorkstationAttribution run={act} />
                   {act.summary && (
                     <p className="text-xs text-[var(--text-secondary)] mt-2.5 line-clamp-2 bg-[var(--bg-tertiary)]/40 p-2 rounded-xl border border-[var(--border-color)]/60 font-mono text-[11px]">
                       {localized(act.summary)}
@@ -558,15 +559,7 @@ export const ActivitiesView: React.FC = () => {
 
 
                       {/* Cancel Button */}
-                      {(isQueued || isRunning) && (
-                        <button
-                          onClick={() => cancelActivity(act.id)}
-                          className="p-1 rounded-lg hover:bg-rose-500/15 text-rose-400 transition-colors"
-                          title={t.activities.detail.cancel}
-                        >
-                          <XCircle size={13} />
-                        </button>
-                      )}
+                      <ExecutionRecovery run={act} />
 
                       {/* Delete Button */}
                       <button
@@ -626,16 +619,8 @@ export const ActivitiesView: React.FC = () => {
                   </button>
                 )}
 
-                {(selectedActivity.status === 'queued' || selectedActivity.status === 'running') && (
-                  <button
-                    onClick={() => cancelActivity(selectedActivity.id)}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 transition-colors"
-                    title={t.activities.detail.cancel}
-                  >
-                    <XCircle size={12} />
-                    <span>{t.activities.detail.cancel}</span>
-                  </button>
-                )}
+                <WorkstationAttribution run={selectedActivity} />
+                <ExecutionRecovery run={selectedActivity} />
 
                 <button
                   onClick={() => setSelectedActivity(null)}
