@@ -36,3 +36,11 @@
 - PostgreSQL timestamp generations are normalized to microseconds. Migration 51 and transactional takeover were exercised against an isolated PostgreSQL 17 database as well as SQLite.
 - Validation: `make test` passed (Go suites, formatting, 732 web tests, TypeScript and lint); `go test -race ./internal/handlers/...` passed; `go vet ./...` passed; `make build-server build-agent` passed; desktop `npm test` passed (280 tests); strict OpenSpec validation and `git diff --check` passed. Existing web lint and bundle-size warnings remain; no web source was changed.
 - Deployment requires updating server replicas together and reconnecting agents. A graphical device picker, new clustering architecture and persistent run-device ownership remain outside the accepted scope. Agent v1 targeting fields are additive.
+
+## Adjustment review (2026-10-11)
+
+- Verified existing PR #817 is open, matches this task branch, and includes current origin/main. Retrieved PR comments, reviews and inline comments successfully; all were empty, so no external feedback required a disposition.
+- Fixed review finding: unreadable relay confirmations and transport failures for launch operations now retain the shared unconfirmed-launch error instead of implying definite failure.
+- Fixed review finding: queued launches no longer close their remote run on an unconfirmed dispatch. The agent can still report its terminal outcome. Added regression coverage for truncated confirmations, launch-operation transport failures and queued-run completion after acknowledgment loss.
+- Validation passed: make test (all Go suites, formatting, 732 web tests, TypeScript and lint), handler race checks, go vet, server/agent builds, 280 desktop tests, PostgreSQL 17 presence migration/generation/concurrent takeover checks, strict OpenSpec validation and git diff --check. Existing web lint and bundle-size warnings remain.
+- Reviewer focus: cancellation candidate completeness, generation-safe cross-instance takeover, and coordinated deployment of migration 51. Merge remains the owner's decision.

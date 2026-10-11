@@ -483,7 +483,7 @@ type pendingAgentLaunch struct {
 // ErrLaunchUnconfirmed reports a launch whose confirmation never arrived. The
 // agent may well be running the skill, so the caller must not record the run as
 // failed: only the agent knows how it ends.
-var ErrLaunchUnconfirmed = errors.New("launch not confirmed")
+var ErrLaunchUnconfirmed = agentprotocol.ErrLaunchUnconfirmed
 
 // ErrRunNotOwned reports a non-owner acknowledgment. Cancellation promotes it
 // to orphan evidence only after every candidate replies and no known owner

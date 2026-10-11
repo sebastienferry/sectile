@@ -7,6 +7,10 @@ import (
 	"fmt"
 )
 
+// ErrLaunchUnconfirmed means a launch may have reached the agent; callers must
+// keep its run open until the agent reports an outcome.
+var ErrLaunchUnconfirmed = errors.New("launch not confirmed")
+
 // Operation names a local capability; directories are resolved by the agent from project identity.
 type Operation struct {
 	DeviceID string `json:"deviceId,omitempty"`

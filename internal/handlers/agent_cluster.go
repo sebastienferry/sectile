@@ -180,6 +180,7 @@ type internalResponse struct {
 // answer is reported as such and never retried: the work may have reached the
 // agent, and running it twice is worse than asking the user to retry.
 func (c *agentCluster) forward(ctx context.Context, location db.AgentLocation, verb string, body internalRequest) (json.RawMessage, error) {
+	launch := verb == "dispatch-and-wait" || (verb == "operation" && body.Operation != nil && (body.Operation.Action == "execute_skill" || body.Operation.Action == "open_terminal"))
 	if c == nil {
 		return nil, ErrNoAgentConnected
 	}
@@ -208,7 +209,7 @@ func (c *agentCluster) forward(ctx context.Context, location db.AgentLocation, v
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.client.Do(req)
 	if err != nil {
-		if verb == "dispatch-and-wait" {
+		if launch {
 			return nil, fmt.Errorf("%w: the server instance holding the local agent (%s) did not confirm the dispatch: %w", ErrLaunchUnconfirmed, location.InstanceID, err)
 		}
 		return nil, fmt.Errorf("the server instance holding the local agent (%s) did not answer: %w", location.InstanceID, err)
@@ -216,6 +217,10 @@ func (c *agentCluster) forward(ctx context.Context, location db.AgentLocation, v
 	defer resp.Body.Close()
 	var answer internalResponse
 	if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil {
+		if launch {
+			// Losing the response body does not prove the agent failed to launch.
+			return nil, fmt.Errorf("%w: the server instance holding the local agent (%s) answered %s without a readable confirmation: %w", ErrLaunchUnconfirmed, location.InstanceID, resp.Status, err)
+		}
 		return nil, fmt.Errorf("the server instance holding the local agent (%s) answered %s without a readable body: %w", location.InstanceID, resp.Status, err)
 	}
 	if answer.Error == "" {

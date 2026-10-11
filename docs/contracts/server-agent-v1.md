@@ -1573,8 +1573,10 @@ for its own workstation. This supplies explicit targeting without a graphical
 picker. The authenticated user still bounds every selection.
 
 Run launch ownership is kept in memory before sending and retained across
-socket loss and unconfirmed launches. Cancellation tries the recorded launch
-device first, then searches the owner's project-compatible devices concurrently
+socket loss and unconfirmed launches. Queued launches also keep their remote run open when dispatch
+confirmation is lost, including transport failures and unreadable responses
+from a holding replica. Cancellation tries the recorded launch device first,
+then searches the owner's project-compatible devices concurrently
 within the existing 15-second deadline. Each candidate has its own correlation
 ID. A silent non-owner cannot delay another device's confirmation. Only a
 complete nonempty set of `RunNotOwned` responses, with no known disconnected

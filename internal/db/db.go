@@ -4684,7 +4684,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 				agentprotocol.Operation{UserID: job.ActingUser, DeviceID: device, ProjectID: runProject, TaskID: task.ID, Action: "execute_skill", SkillID: job.SkillID, Prompt: job.Prompt, RunID: run.ID, Mode: job.Mode, Model: job.Model},
 				nil,
 			)
-			if err != nil {
+			if err != nil && !errors.Is(err, agentprotocol.ErrLaunchUnconfirmed) {
 				_, _ = d.FinishRemoteRun(task.ID, run.ID, "failed", err.Error())
 			}
 		}

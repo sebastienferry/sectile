@@ -446,3 +446,49 @@ func TestUnconfirmedRemoteDispatchRetainsLaunchOwnership(t *testing.T) {
 		t.Fatalf("unconfirmed=%v owner=%s", err, c[1].dispatcher.runDevice("run", "u"))
 	}
 }
+
+func TestUnreadableRemoteLaunchConfirmationRetainsOwnership(t *testing.T) {
+	c := newCluster(t, "A", "B")
+	connectClusterAgent(t, c[0].dispatcher, "u", "all", "owner")
+	route, err := c[1].dispatcher.SelectRoute("u", "p", "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A proxy may truncate the response after the holding instance launched.
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"value":`))
+	}))
+	defer broken.Close()
+	route.remote.Address = broken.URL
+	err = c[1].dispatcher.dispatchAndWaitRoute(context.Background(), route, "u", "p", "task", agentconfig.Dispatch{Action: "implement", RunID: "run"})
+	if !errors.Is(err, ErrLaunchUnconfirmed) || c[1].dispatcher.runDevice("run", "u") != "owner" {
+		t.Fatalf("unconfirmed=%v owner=%s", err, c[1].dispatcher.runDevice("run", "u"))
+	}
+}
+
+func TestRemoteOperationLaunchTransportFailuresAreUnconfirmed(t *testing.T) {
+	c := newCluster(t, "A", "B")
+	connectClusterAgent(t, c[0].dispatcher, "u", "all", "owner")
+	route, err := c[1].dispatcher.SelectRoute("u", "p", "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"value":`))
+	}))
+	defer broken.Close()
+	for _, action := range []string{"execute_skill", "open_terminal", "git_status"} {
+		for _, unreachable := range []bool{false, true} {
+			location := *route.remote
+			location.Address = broken.URL
+			if unreachable {
+				location.Address = "http://127.0.0.1:0"
+			}
+			_, err := c[1].dispatcher.cluster.operation(context.Background(), location, agentprotocol.Operation{UserID: "u", ProjectID: "p", Action: action})
+			wantUnconfirmed := action != "git_status"
+			if err == nil || errors.Is(err, ErrLaunchUnconfirmed) != wantUnconfirmed {
+				t.Fatalf("action=%s unreachable=%v: %v", action, unreachable, err)
+			}
+		}
+	}
+}
