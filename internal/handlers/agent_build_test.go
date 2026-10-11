@@ -156,8 +156,8 @@ func TestAnOutdatedAgentHeldByAnotherInstanceReadsTheSame(t *testing.T) {
 func TestAgentStatusReportsTheBuildOnTheHoldingInstanceOnly(t *testing.T) {
 	c := newCluster(t, "A", "B")
 	connectClusterAgentBuild(t, c[0].dispatcher, "u1", "current", "laptop", announcedBuild("v1.0.0", "abc"))
-	connectClusterAgentBuild(t, c[0].dispatcher, "u1", "old", "laptop", announcedBuild("v0.9.0", "", "pr_evidence"))
-	connectClusterAgentBuild(t, c[0].dispatcher, "u1", "legacy", "laptop", AgentBuild{})
+	connectClusterAgentBuild(t, c[0].dispatcher, "u1", "old", "old-laptop", announcedBuild("v0.9.0", "", "pr_evidence"))
+	connectClusterAgentBuild(t, c[0].dispatcher, "u1", "legacy", "legacy-laptop", AgentBuild{})
 
 	byProject := func(infos []AgentConnInfo) map[string]AgentConnInfo {
 		out := map[string]AgentConnInfo{}

@@ -256,7 +256,7 @@ func TestWebSkillRequiresLocalAgent(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/tasks/"+task.ID+"/run-skill", strings.NewReader(`{"skillId":"clarify"}`))
 	response := httptest.NewRecorder()
 	h.HandleTaskDetail(response, request)
-	if response.Code != http.StatusConflict {
+	if response.Code != http.StatusPreconditionRequired {
 		t.Fatalf("%d %s", response.Code, response.Body.String())
 	}
 	activities, err := database.GetTaskActivities(task.ID)

@@ -40,8 +40,8 @@ func TestSharedWorkstationDirectoryAndExactForwarding(t *testing.T) {
 	}
 	a := connectClusterAgent(t, dispatchers[0], "u", "all", "a")
 	b := connectClusterAgent(t, dispatchers[1], "u", "all", "b")
-	first := dispatchers[0].Lookup("u", "p")
-	second := dispatchers[1].Lookup("u", "p")
+	first := dispatchers[0].Lookup("u", "p", "a")
+	second := dispatchers[1].Lookup("u", "p", "b")
 	p := agentprotocol.ProjectInventory{SchemaVersion: 1, ProjectIDs: []string{"p"}}
 	if err := dispatchers[0].acceptInventory(first, p); err != nil {
 		t.Fatal(err)
@@ -64,8 +64,8 @@ func TestSharedWorkstationDirectoryAndExactForwarding(t *testing.T) {
 			old = l
 		}
 	}
-	replacement := connectClusterAgent(t, dispatchers[1], "u", "all", "a")
-	replacementConn := dispatchers[1].Lookup("u", "p")
+	replacement := connectClusterAgent(t, dispatchers[1], "u", "p", "a")
+	replacementConn := dispatchers[1].Lookup("u", "p", "a")
 	if err := dispatchers[1].acceptInventory(replacementConn, p); err != nil {
 		t.Fatal(err)
 	}
@@ -99,8 +99,14 @@ func TestDistinctDeviceKeepsPendingOperationOwner(t *testing.T) {
 	}()
 	request := readAgentMessage(t, a)
 	b := connectClusterAgent(t, d, "u", "all", "b")
-	if d.Lookup("u", "p").DeviceID != "b" {
-		t.Fatal("latest compatibility route not selected")
+	if err := d.acceptInventory(d.Lookup("u", "p", "a"), agentprotocol.ProjectInventory{SchemaVersion: 1, ProjectIDs: []string{"p"}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.AvailableWorkstations("u", "p")) != 1 {
+		t.Fatal("expected only A to advertise P")
+	}
+	if _, err := d.SelectRoute("u", "p", ""); !errors.Is(err, ErrDeviceRequired) {
+		t.Fatalf("ambiguous dispatch should require device selection: %v", err)
 	}
 	// A reply from B cannot complete A's pending request.
 	if err := b.WriteJSON(AgentMessage{Type: "workspace_result", MsgID: request.MsgID, Payload: []byte(`{"value":null}`)}); err != nil {
@@ -124,7 +130,7 @@ func TestDistinctDeviceKeepsPendingOperationOwner(t *testing.T) {
 	}
 	b.Close()
 	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
-		if d.Lookup("u", "p").DeviceID == "a" {
+		if ac := d.Lookup("u", "p"); ac != nil && ac.DeviceID == "a" {
 			return
 		}
 	}
@@ -164,7 +170,7 @@ func TestInventoryDirectoryFailureKeepsPublishedSnapshot(t *testing.T) {
 	d := NewAgentDispatcher()
 	d.SetCluster(directory, clusterToken, nil)
 	_ = connectClusterAgent(t, d, "u", "all", "a")
-	ac := d.Lookup("u", "p")
+	ac := d.Lookup("u", "p", "a")
 	if err := d.acceptInventory(ac, agentprotocol.ProjectInventory{SchemaVersion: 1, ProjectIDs: []string{"p"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -184,15 +190,14 @@ func TestInventoryDirectoryFailureKeepsPublishedSnapshot(t *testing.T) {
 	}
 }
 
-func TestWorkstationTimestampsIncludeAllLiveScopes(t *testing.T) {
+func TestWorkstationTimestampsExcludeForeignUsers(t *testing.T) {
 	now := time.Now().UTC()
 	agents := []AgentConnInfo{
 		{UserID: "u", DeviceID: "a", InventoryState: "reported", AvailableProjectIDs: []string{"p"}, ConnectedAt: now, LastPingAt: now},
-		{UserID: "u", DeviceID: "a", InventoryState: "unknown", ConnectedAt: now.Add(-time.Hour), LastPingAt: now.Add(time.Minute)},
 		{UserID: "foreign", DeviceID: "a", InventoryState: "reported", AvailableProjectIDs: []string{"p"}, ConnectedAt: now.Add(-2 * time.Hour), LastPingAt: now.Add(2 * time.Minute)},
 	}
 	got := workstations(agents, "u", "p")
-	if len(got) != 1 || !got[0].ConnectedAt.Equal(agents[1].ConnectedAt) || !got[0].LastPingAt.Equal(agents[1].LastPingAt) {
+	if len(got) != 1 || !got[0].ConnectedAt.Equal(agents[0].ConnectedAt) || !got[0].LastPingAt.Equal(agents[0].LastPingAt) {
 		t.Fatalf("aggregate=%+v", got)
 	}
 }
@@ -212,7 +217,7 @@ func TestFailedReplacementRegistrationWithdrawsOldSession(t *testing.T) {
 	d := NewAgentDispatcher()
 	d.SetCluster(directory, clusterToken, nil)
 	old := connectClusterAgent(t, d, "u", "all", "a")
-	if err := d.acceptInventory(d.Lookup("u", "p"), agentprotocol.ProjectInventory{SchemaVersion: 1, ProjectIDs: []string{"p"}}); err != nil {
+	if err := d.acceptInventory(d.Lookup("u", "p", "a"), agentprotocol.ProjectInventory{SchemaVersion: 1, ProjectIDs: []string{"p"}}); err != nil {
 		t.Fatal(err)
 	}
 	directory.failConnect = true

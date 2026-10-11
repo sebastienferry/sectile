@@ -110,7 +110,12 @@ func TestRelayInventoryLifecycleAndStatusPrivacy(t *testing.T) {
 	}
 	another := dial("a", "default")
 	send(another, p.ID)
-	await(p.ID, 3, 2)
+	_ = a.SetReadDeadline(time.Now().Add(time.Second))
+	var rebound handlers.AgentMessage
+	if err := a.ReadJSON(&rebound); !websocket.IsCloseError(err, 4001) {
+		t.Fatalf("scope replacement did not close old session: %v", err)
+	}
+	await(p.ID, 2, 2)
 	// A malformed or unknown project leaves the previous complete snapshot intact.
 	if err := b.WriteJSON(handlers.AgentMessage{Type: agentprotocol.ProjectInventoryType, Payload: []byte(`{"schemaVersion":1,"projectIds":null}`)}); err != nil {
 		t.Fatal(err)
@@ -124,8 +129,10 @@ func TestRelayInventoryLifecycleAndStatusPrivacy(t *testing.T) {
 	if err := b.ReadJSON(&rejected); err != nil || rejected.Type != "error" {
 		t.Fatalf("unknown project rejection=%+v %v", rejected, err)
 	}
-	await(p.ID, 3, 2)
-	send(a)
+	await(p.ID, 2, 2)
+	send(another)
+	await(p.ID, 1, 1)
+	send(another, p.ID)
 	await(p.ID, 2, 2)
 	replacement := dial("b", "all")
 	send(replacement, q.ID)

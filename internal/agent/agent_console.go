@@ -157,6 +157,7 @@ func (d *agentDaemon) consoleEnv(run *controlledRun, folders []models.FolderMapE
 		"SECTILE_TASK_BRANCH": "", "SECTILE_TASK_WORKTREE": "", "SECTILE_REMOTE_MODE": "",
 		"SECTILE_PROJECT_ID": run.desktop.ProjectID,
 		"SECTILE_AGENT_URL":  d.link.serverURL, "SECTILE_SERVER_URL": d.link.serverURL,
+		"SECTILE_DEVICE_ID":    d.link.deviceID,
 		"SECTILE_AGENT_TOKEN":  d.link.token,
 		"SECTILE_LOOPBACK_URL": d.loopback.url,
 	}

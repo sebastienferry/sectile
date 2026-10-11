@@ -744,6 +744,26 @@ var migrations = []migration{
 	},
 	{
 		version: 51,
+		name:    "agent_presence.device_key",
+		statements: []string{
+			`CREATE TABLE agent_presence_devices (
+    user_id TEXT NOT NULL, project_id TEXT NOT NULL, instance_id TEXT NOT NULL,
+    device_id TEXT NOT NULL DEFAULT 'unknown', connected_at DATETIME NOT NULL,
+    disconnected_at DATETIME, PRIMARY KEY (user_id, device_id)
+   );`,
+			`INSERT INTO agent_presence_devices (user_id, project_id, instance_id, device_id, connected_at, disconnected_at)
+    SELECT user_id, project_id, instance_id, normalized_device, connected_at, disconnected_at FROM (
+     SELECT user_id, project_id, instance_id, COALESCE(NULLIF(device_id, ''), 'unknown') AS normalized_device,
+      connected_at, disconnected_at,
+      ROW_NUMBER() OVER (PARTITION BY user_id, COALESCE(NULLIF(device_id, ''), 'unknown') ORDER BY connected_at DESC, project_id ASC) AS rank
+     FROM agent_presence
+    ) legacy WHERE rank = 1;`,
+			`DROP TABLE agent_presence;`,
+			`ALTER TABLE agent_presence_devices RENAME TO agent_presence;`,
+		},
+	},
+	{
+		version: 52,
 		name:    "agent_workstation_presence",
 		statements: []string{
 			`CREATE TABLE agent_workstation_presence (
@@ -753,7 +773,7 @@ var migrations = []migration{
     inventory_state TEXT NOT NULL DEFAULT 'unknown', inventory_updated_at DATETIME,
     inventory_json TEXT NOT NULL DEFAULT '[]'
    );`,
-			`CREATE UNIQUE INDEX agent_workstation_identity ON agent_workstation_presence(user_id, device_id, project_scope);`,
+			`CREATE UNIQUE INDEX agent_workstation_identity ON agent_workstation_presence(user_id, device_id);`,
 			`CREATE INDEX agent_workstation_user ON agent_workstation_presence(user_id);`,
 			`CREATE INDEX agent_workstation_instance ON agent_workstation_presence(instance_id);`,
 		},

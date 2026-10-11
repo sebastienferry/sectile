@@ -27,10 +27,10 @@ The agent SHALL announce on each connection/reconnection, refresh following succ
 - **THEN** the server receives an explicit empty inventory and records no available projects for that connection
 
 ### Requirement: Track connected devices safely
-The server SHALL associate availability with the authenticated user, device and live connection. Distinct devices SHALL coexist. Availability SHALL disappear when its owning connection unregisters, including keepalive teardown, and SHALL NOT persist as offline availability. Multiple live scopes for one device SHALL contribute a union without duplicate workstation entries.
+The server SHALL associate availability with the authenticated user, device and live connection. Distinct devices SHALL coexist. Availability SHALL disappear when its owning connection unregisters, including keepalive teardown, and SHALL NOT persist as offline availability. Each user/device SHALL have one live connection; a scope change SHALL replace its previous connection and withdraw its old inventory.
 
 #### Scenario: Replaced connection teardown
-- **GIVEN** a new connection replaces the same user/device/scope session
+- **GIVEN** a new connection replaces the same user/device session, including a different project scope
 - **WHEN** the old connection sends an inventory or unregisters late
 - **THEN** the new connection and its inventory are unaffected
 
@@ -53,7 +53,7 @@ The server SHALL associate availability with the authenticated user, device and 
 An authenticated caller SHALL be able to query the connected workstations advertising a project they can access. The response SHALL be isolated to that caller's user and contain unique devices. No available workstation SHALL produce an empty result. Inaccessible or unknown projects SHALL be refused.
 
 #### Scenario: Overlapping availability
-- **GIVEN** A and B advertise P and A has multiple connections advertising P
+- **GIVEN** A and B each advertise P
 - **WHEN** their user queries P
 - **THEN** A and B each appear once
 
@@ -71,7 +71,7 @@ Inventory and availability responses SHALL contain project/device identifiers an
 - **THEN** the complete snapshot is rejected and cannot overwrite accepted availability
 
 ### Requirement: Preserve execution compatibility
-This feature SHALL expose availability without automatically selecting a workstation from that inventory. Existing dispatch semantics SHALL remain available through a compatibility route. An operation, launch, cancellation or response SHALL remain tied to its actual owning connection. Legacy connections without inventory SHALL have unknown availability and SHALL NOT be reported as verified available for any project.
+This feature SHALL expose availability without automatically selecting a workstation from that inventory. Main’s device selection semantics SHALL be preserved: multiple connected devices require explicit deviceId, while a single eligible device remains dispatch-compatible. An operation, launch, cancellation or response SHALL remain tied to its actual owning connection. Legacy connections without inventory SHALL have unknown availability and SHALL NOT be reported as verified available for any project.
 
 #### Scenario: Legacy wildcard agent
 - **GIVEN** a connected legacy agent registers all/default and sends no inventory
@@ -80,5 +80,10 @@ This feature SHALL expose availability without automatically selecting a worksta
 
 #### Scenario: A new device connects during an operation
 - **GIVEN** an operation was assigned to A
-- **WHEN** B connects or becomes the compatibility route
+- **WHEN** B connects
 - **THEN** the pending operation and its responses remain bound to A
+
+#### Scenario: Inventory cannot choose a workstation
+- **GIVEN** A and B are connected and only A advertises P
+- **WHEN** a new execution requests P without deviceId
+- **THEN** explicit workstation selection is required and no command is sent

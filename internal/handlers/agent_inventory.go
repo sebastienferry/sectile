@@ -71,20 +71,6 @@ func workstations(agents []AgentConnInfo, userID, projectID string) []AvailableW
 		}
 		devices[a.DeviceID] = w
 	}
-	// A device's timestamps describe all its live scopes, even unknown inventories.
-	for _, a := range agents {
-		w, exists := devices[a.DeviceID]
-		if a.UserID != userID || !exists {
-			continue
-		}
-		if a.ConnectedAt.Before(w.ConnectedAt) {
-			w.ConnectedAt = a.ConnectedAt
-		}
-		if a.LastPingAt.After(w.LastPingAt) {
-			w.LastPingAt = a.LastPingAt
-		}
-		devices[a.DeviceID] = w
-	}
 
 	out := make([]AvailableWorkstation, 0, len(devices))
 	for _, w := range devices {
@@ -159,7 +145,7 @@ func (c *agentCluster) sessionDisconnected(ac *AgentConn) {
 			log.Printf("[AgentDispatcher] Retrait de la session locale impossible : %v", err)
 		}
 	} else {
-		c.agentDisconnected(ac.UserID, ac.ProjectID, ac.DeviceID)
+		c.agentDisconnected(ac)
 	}
 }
 func (d *AgentDispatcher) sessionPing(ac *AgentConn) {

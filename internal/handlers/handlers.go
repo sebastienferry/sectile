@@ -97,10 +97,23 @@ func NewHandler(database *db.DB) *Handler {
 	h.mcpSessions.SetKeepalive(mcpKeepaliveInterval(), mcpKeepaliveFailures())
 	if database != nil {
 		database.SetAgentOperations(h.agentDispatcher.CallOperation)
+		database.SetAgentSelection(func(userID, projectID, deviceID string) (string, error) {
+			if userID == "" {
+				userID = ImplicitUser
+			}
+			route, err := h.agentDispatcher.SelectRoute(userID, projectID, deviceID)
+			if err != nil {
+				return "", err
+			}
+			return route.DeviceID, nil
+		})
 		h.mcpSessions.SetWaiter(database)
 		h.mcpSessions.SetInstance(database.InstanceID())
 		database.RegisterWaitListener(h.pushRunWaiting)
 		database.RegisterPostBackListener(func(task *models.Task, activity *models.TaskActivity, err error) {
+			if activity != nil && activity.SkillID == "remote_run" && (activity.Status == "completed" || activity.Status == "failed" || activity.Status == "canceled") {
+				h.agentDispatcher.ForgetRun(activity.ID)
+			}
 			errStr := ""
 			if err != nil {
 				errStr = err.Error()
@@ -151,7 +164,7 @@ func (h *Handler) sendRunWaiting(task *models.Task, activity *models.TaskActivit
 		return
 	}
 	_ = h.agentDispatcher.Dispatch(activity.UserID, projectID, agentprotocol.RunWaitingType, taskID,
-		agentprotocol.RunWaiting{RunID: activity.ID, WaitingSince: activity.WaitingSince})
+		agentprotocol.RunWaiting{RunID: activity.ID, WaitingSince: activity.WaitingSince}, h.agentDispatcher.runDevice(activity.ID, activity.UserID))
 }
 
 // resendRunWaits sends a reconnected agent the waiting state of every live run
@@ -252,6 +265,9 @@ func (h *Handler) deliverRelayedEvent(msg db.BusMessage) {
 	if msg.ActivityID != "" {
 		if activity, err := h.db.GetActivityByID(msg.ActivityID); err == nil {
 			event.Activity = activity
+			if activity != nil && (activity.Status == "completed" || activity.Status == "failed" || activity.Status == "canceled") {
+				h.agentDispatcher.ForgetRun(activity.ID)
+			}
 		}
 	}
 	h.broadcastLocal(event)
@@ -2279,6 +2295,12 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(rawPath, "/migrate"):
 		subAction = "migrate"
 		id = strings.TrimSuffix(rawPath, "/migrate")
+	case strings.HasSuffix(rawPath, "/tty-external"):
+		subAction = "tty-external"
+		id = strings.TrimSuffix(rawPath, "/tty-external")
+	case strings.HasSuffix(rawPath, "/terminal-external"):
+		subAction = "terminal-external"
+		id = strings.TrimSuffix(rawPath, "/terminal-external")
 	case strings.HasSuffix(rawPath, "/tty-agent"):
 		subAction = "tty-agent"
 		id = strings.TrimSuffix(rawPath, "/tty-agent")
@@ -2484,7 +2506,10 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		userID := h.webSessionUser(r)
-		ac := h.agentDispatcher.waitForRoute(r.Context(), userID, projectID, defaultAgentReconnectGrace)
+		ac, selectionErr := h.agentDispatcher.waitForSelectedRoute(r.Context(), userID, projectID, req.DeviceID, defaultAgentReconnectGrace)
+		if writeDeviceSelectionError(w, selectionErr) {
+			return
+		}
 
 		// 1. If a local agent daemon is connected, delegate the execution directly to it!
 		if ac != nil {
@@ -2567,8 +2592,8 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			launchCtx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 			defer cancel()
-			err := h.agentDispatcher.DispatchAndWait(launchCtx, ac.UserID, ac.ProjectID, task.ID, agentconfig.Dispatch{
-				SchemaVersion: agentconfig.Version, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
+			err := h.agentDispatcher.dispatchAndWaitRoute(launchCtx, ac, userID, projectID, task.ID, agentconfig.Dispatch{
+				SchemaVersion: agentconfig.Version, DeviceID: ac.DeviceID, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
 				SkillID: req.SkillID, Action: req.SkillID, Prompt: req.Prompt, RunID: remoteRun.ID,
 				Mode: mode, Model: strings.TrimSpace(req.Model),
 			})
@@ -2607,7 +2632,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "L'agent local se reconnecte. Réessayez le lancement dans quelques secondes.")
 			return
 		}
-		writeError(w, http.StatusConflict, "Connect the local agent to launch this skill.")
+		writeError(w, http.StatusPreconditionRequired, "Connect the local agent to launch this skill.")
 		return
 	}
 
@@ -2741,7 +2766,8 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	// already running in the task's session.
 	if subAction == "tty-skill" && r.Method == http.MethodPost {
 		var req struct {
-			SkillID string `json:"skillId"`
+			SkillID  string `json:"skillId"`
+			DeviceID string `json:"deviceId,omitempty"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		if strings.TrimSpace(req.SkillID) == "" {
@@ -2754,8 +2780,12 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		if err == nil && task != nil {
 			userID := h.webSessionUser(r)
-			if ac := h.agentDispatcher.Route(userID, task.ProjectID); ac != nil {
-				err := h.agentDispatcher.Dispatch(userID, task.ProjectID, "dispatch_step", task.ID, map[string]string{
+			ac, selectionErr := h.agentDispatcher.SelectRoute(userID, task.ProjectID, req.DeviceID)
+			if writeDeviceSelectionError(w, selectionErr) {
+				return
+			}
+			if ac != nil {
+				err := h.agentDispatcher.dispatchRoute(ac, userID, task.ProjectID, "dispatch_step", task.ID, map[string]string{
 					"taskKey": task.Key, "taskId": task.ID, "projectId": task.ProjectID, "skillId": req.SkillID, "action": req.SkillID,
 				})
 				if err != nil {
@@ -2779,14 +2809,22 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/tasks/{id}/tty-external: open a native external terminal for the task
 	if (subAction == "tty-external" || subAction == "terminal-external") && r.Method == http.MethodPost {
 		var req struct {
-			Command string `json:"command"`
-			SkillID string `json:"skillId"`
+			Command  string `json:"command"`
+			SkillID  string `json:"skillId"`
+			DeviceID string `json:"deviceId,omitempty"`
 		}
 		if r.Body != nil {
 			_ = json.NewDecoder(r.Body).Decode(&req)
 		}
-		res, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), id, req.Command, req.SkillID)
+		res, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), id, req.Command, req.SkillID, req.DeviceID)
 		if err != nil {
+			if writeDeviceSelectionError(w, err) {
+				return
+			}
+			if errors.Is(err, ErrNoAgentConnected) {
+				writeError(w, 428, err.Error())
+				return
+			}
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -3697,6 +3735,9 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 		projectID = "default"
 	}
 	deviceID := r.URL.Query().Get("deviceId")
+	if deviceID == "" && credential.Device != nil {
+		deviceID = credential.Device.ID
+	}
 	if deviceID == "" {
 		deviceID = "unknown"
 	}
@@ -3741,7 +3782,7 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	// Read loop: handle messages from the local agent (pty_output, step_status,
 	// heartbeat responses). The loop exits when the connection closes.
 	defer func() {
-		h.agentDispatcher.Unregister(userID, projectID, conn)
+		h.agentDispatcher.Unregister(userID, deviceID, conn)
 		_ = conn.Close()
 		h.BroadcastEvent(Event{
 			Type: "agent_disconnected",
@@ -3867,6 +3908,7 @@ func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
+		DeviceID  string          `json:"deviceId,omitempty"`
 		UserID    string          `json:"userId"`
 		ProjectID string          `json:"projectId"`
 		TaskID    string          `json:"taskId"`
@@ -3892,13 +3934,16 @@ func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
 		req.ProjectID = "default"
 	}
 
-	ac := h.agentDispatcher.Route(req.UserID, req.ProjectID)
+	ac, selectionErr := h.agentDispatcher.SelectRoute(req.UserID, req.ProjectID, req.DeviceID)
+	if writeDeviceSelectionError(w, selectionErr) {
+		return
+	}
 	if ac == nil {
 		writeError(w, http.StatusPreconditionRequired, "No local agent connected. Start 'sectile-agent' on your workstation.")
 		return
 	}
 
-	if err := h.agentDispatcher.Dispatch(req.UserID, req.ProjectID, req.Action, req.TaskID, req.Payload); err != nil {
+	if err := h.agentDispatcher.dispatchRoute(ac, req.UserID, req.ProjectID, req.Action, req.TaskID, req.Payload); err != nil {
 		writeError(w, http.StatusBadGateway, fmt.Sprintf("Failed to dispatch to local agent: %v", err))
 		return
 	}
@@ -3915,6 +3960,11 @@ func (h *Handler) pullAndApplyAgentTasks(ac *AgentConn) {
 		return
 	}
 	log.Printf("[AgentConnect] Pulled %d running/queued tasks from agent %s", len(tasks), ac.DeviceID)
+	for _, task := range tasks {
+		if task.Status == "running" || task.Status == "queued" {
+			h.agentDispatcher.rememberRun(task.ID, ac.UserID, ac.DeviceID)
+		}
+	}
 	h.ApplyAgentRunningTasksFor(ac.UserID, tasks)
 	h.resendRunWaits(ac.UserID, tasks)
 }
@@ -3926,6 +3976,11 @@ func (h *Handler) pullAndApplyRemoteAgentTasks(location db.AgentLocation) {
 	if err != nil {
 		log.Printf("[AgentConnect] Could not pull running tasks from %s on instance %s: %v", location.DeviceID, location.InstanceID, err)
 		return
+	}
+	for _, task := range tasks {
+		if task.Status == "running" || task.Status == "queued" {
+			h.agentDispatcher.rememberRun(task.ID, location.UserID, location.DeviceID)
+		}
 	}
 	h.ApplyAgentRunningTasksFor(location.UserID, tasks)
 	h.resendRunWaits(location.UserID, tasks)
@@ -4087,6 +4142,7 @@ func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		TaskID    string `json:"taskId"`
+		DeviceID  string `json:"deviceId,omitempty"`
 		ProjectID string `json:"projectId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -4104,7 +4160,10 @@ func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 		}
 		req.ProjectID = task.ProjectID
 	}
-	if err := h.db.AgentOperation(agentprotocol.Operation{UserID: h.webSessionUser(r), ProjectID: req.ProjectID, TaskID: req.TaskID, Action: "open_editor"}, nil); err != nil {
+	if err := h.db.AgentOperation(agentprotocol.Operation{DeviceID: req.DeviceID, UserID: h.webSessionUser(r), ProjectID: req.ProjectID, TaskID: req.TaskID, Action: "open_editor"}, nil); err != nil {
+		if writeDeviceSelectionError(w, err) {
+			return
+		}
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -4117,9 +4176,10 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var req struct {
-		TaskID  string `json:"taskId"`
-		SkillID string `json:"skillId"`
-		Command string `json:"command"`
+		TaskID   string `json:"taskId"`
+		SkillID  string `json:"skillId"`
+		DeviceID string `json:"deviceId,omitempty"`
+		Command  string `json:"command"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -4129,8 +4189,15 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "Select a task to open an agent console")
 		return
 	}
-	result, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), req.TaskID, req.Command, req.SkillID)
+	result, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), req.TaskID, req.Command, req.SkillID, req.DeviceID)
 	if err != nil {
+		if writeDeviceSelectionError(w, err) {
+			return
+		}
+		if errors.Is(err, ErrNoAgentConnected) {
+			writeError(w, 428, err.Error())
+			return
+		}
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -4139,11 +4206,11 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 
 // LaunchTaskExternalTerminal serves callers with no HTTP request of their own,
 // which is why it names the implicit user rather than resolving one.
-func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID string) (map[string]interface{}, error) {
-	return h.launchTaskExternalTerminal(context.Background(), ImplicitUser, taskID, command, skillID)
+func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID string, deviceID ...string) (map[string]interface{}, error) {
+	return h.launchTaskExternalTerminal(context.Background(), ImplicitUser, taskID, command, skillID, firstDevice(deviceID))
 }
 
-func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID, command, skillID string) (map[string]interface{}, error) {
+func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID, command, skillID string, deviceID ...string) (map[string]interface{}, error) {
 	task, err := h.db.GetTaskByID(taskID)
 	if errors.Is(err, db.ErrTaskKeyAmbiguous) {
 		return nil, err
@@ -4161,12 +4228,16 @@ func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID
 	if userID == "" {
 		userID = ImplicitUser
 	}
-	if ac := h.agentDispatcher.Route(userID, projectID); ac != nil {
+	ac, selectionErr := h.agentDispatcher.SelectRoute(userID, projectID, firstDevice(deviceID))
+	if selectionErr != nil {
+		return nil, selectionErr
+	}
+	if ac != nil {
 		log.Printf("🚀 [LaunchTaskExternalTerminal] Delegating external terminal launch to connected agent (%s)", ac.DeviceID)
 		launchCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 		defer cancel()
-		err := h.agentDispatcher.DispatchAndWait(launchCtx, userID, projectID, task.ID, agentconfig.Dispatch{
-			SchemaVersion: agentconfig.Version, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
+		err := h.agentDispatcher.dispatchAndWaitRoute(launchCtx, ac, userID, projectID, task.ID, agentconfig.Dispatch{
+			SchemaVersion: agentconfig.Version, DeviceID: ac.DeviceID, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
 			SkillID: skillID, Action: "open_terminal", Command: command, Prompt: command,
 		})
 		if err != nil {

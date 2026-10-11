@@ -21,17 +21,17 @@ preserved. The existing `feat/814` branch and draft PR #818 were reused.
 | `internal/agent/agent_inventory_test.go` | Mapping, fallback, scope, disconnected/deleted checkout, corrupt settings, discovery failure/recovery, periodic refresh and canceled worker coverage. |
 | `internal/agent/agent.go` | Send the initial snapshot before readiness; tie the worker to the original relay's lifetime while preserving heartbeat timing. |
 | `internal/agent/agent_desktop.go` | Notify after successful mapping/disconnect changes. |
-| `internal/handlers/agent_dispatcher.go` | Separate live sessions from compatibility routes; replace only the same device/scope; retain guarded teardown even after replacement; fall back to another live route. |
+| `internal/handlers/agent_dispatcher.go` | Separate live sessions from compatibility routes; preserve main device identity across scope changes and explicit selection; retain guarded teardown. |
 | `internal/handlers/agent_inventory.go` | Authorize complete snapshots; publish shared state before memory updates; expose unique workstations; maintain batched heartbeat presence and log directory failures. |
 | `internal/handlers/agent_cluster.go` | Forward exact session IDs; refuse stale work without retargeting; close only the replaced session; reconnect after failed directory registration. |
 | `internal/handlers/handlers.go` | Handle inventory frames; require authentication and user isolation for status; filter authorized project availability. |
-| `internal/handlers/agent_inventory_test.go` | Real relay clients with disjoint/overlapping inventories, multiple scopes, empty withdrawals, rejected snapshots, legacy unknown state, reconnect and privacy. |
+| `internal/handlers/agent_inventory_test.go` | Real relay clients with disjoint/overlapping inventories, scope replacement, empty withdrawals, rejected snapshots, legacy unknown state, reconnect and privacy. |
 | `internal/handlers/agent_inventory_internal_test.go` | Two instances on a shared directory; exact forwarding, stale close/reply guards, original operation ownership, timestamp aggregation and failed directory writes/registration. |
 | `internal/handlers/agent_dispatcher_test.go` | Update status fixtures to authenticate and replacement fixtures to use the same device. |
-| `internal/db/migrations.go` | Migration 51 adds the ephemeral workstation session table and identity/user/instance indexes. |
-| `internal/db/workstations.go` | Atomic identity claim; guarded inventory/ping/removal; live-instance queries and inventory-independent route lookup. |
-| `internal/db/workstations_test.go` | SQLite and PostgreSQL session coexistence, replacement, empty snapshots, guarded teardown, route fallback and stale-instance exclusion. |
-| `internal/db/presence.go` | Carry session IDs and preserve exact/default/all/empty compatibility precedence. |
+| `internal/db/migrations.go` | Migration 52 adds the ephemeral workstation session table and identity/user/instance indexes. |
+| `internal/db/workstations.go` | Atomic identity claim; guarded inventory/ping/removal; live-instance queries and main device presence synchronization. |
+| `internal/db/workstations_test.go` | SQLite and PostgreSQL session coexistence, replacement, empty snapshots, guarded teardown, remaining device routing and stale-instance exclusion. |
+| `internal/db/presence.go` | Carry session IDs and preserve main explicit device selection. |
 | `internal/db/instances.go` | Remove workstation rows on single-process restart and dead-instance reclamation. |
 | `internal/db/credentialunlocks.go` | Count all live devices when retaining credential unlocks and preserve departure timestamps. |
 | `internal/db/migrate.go` | Document exclusion of ephemeral relay sessions from database export. |
@@ -96,3 +96,7 @@ readiness probe, cloning, hardware inventory or offline history was added.
 All server replicas must be upgraded before simultaneous device retention is
 guaranteed. Legacy agents keep dispatch compatibility with unknown inventory.
 The PR stays draft; implementation does not mark the task reviewed or merge it.
+
+## Adjustment integration
+
+Owner selected main’s merged #813 behavior on 2026-10-11. The current specification and implementation preserve one connection per user/device, scope-change replacement and explicit device selection. Historical verification above predates integration; final evidence is recorded in review.md.

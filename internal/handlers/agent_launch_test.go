@@ -28,7 +28,7 @@ func launchConnection(t *testing.T, d *AgentDispatcher) *websocket.Conn {
 		ac := d.Register("default", "project", "workstation-7", conn)
 		close(ready)
 		defer conn.Close()
-		defer d.Unregister(ac.UserID, ac.ProjectID, conn)
+		defer d.Unregister(ac.UserID, ac.DeviceID, conn)
 		for {
 			var msg AgentMessage
 			if conn.ReadJSON(&msg) != nil {

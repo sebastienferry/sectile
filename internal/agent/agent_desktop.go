@@ -1693,6 +1693,7 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		"SECTILE_REMOTE_MODE":   "true",
 		"SECTILE_AGENT_URL":     d.link.serverURL,
 		"SECTILE_SERVER_URL":    d.link.serverURL,
+		"SECTILE_DEVICE_ID":     d.link.deviceID,
 		"SECTILE_AGENT_TOKEN":   d.link.token,
 		"SECTILE_LOOPBACK_URL":  d.loopback.url,
 		"SECTILE_PROJECT_ID":    input.ProjectID,

@@ -33,3 +33,18 @@ func TestBridgeClientNamesTheLaunchedRun(t *testing.T) {
 		}
 	}
 }
+
+func TestBridgeClientCarriesExplicitDeviceSelection(t *testing.T) {
+	t.Setenv("SECTILE_DEVICE_ID", "workstation-a")
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { got = r.Header.Get(agentprotocol.DeviceIDHeader) }))
+	defer server.Close()
+	resp, err := bridgeHTTPClient("secret", "").Get(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got != "workstation-a" {
+		t.Fatalf("device header=%q", got)
+	}
+}

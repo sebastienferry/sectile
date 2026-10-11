@@ -370,8 +370,8 @@ report and answers 409 to the others.
 
 A macro run is stopped with `POST /api/projects/{id}/macros/{key}/cancel-run`
 `{runId, force}`, which dispatches `cancel_run` with no task to the owner's agent,
-under the same rules as a task run: an agent that no longer has the run closes it
-as orphaned, and an unreachable agent needs `force`.
+under the same rules as a task run: all eligible devices must deny ownership
+before orphan closure, and incomplete evidence needs `force`.
 
 A pull request can live in a repository other than the project's (#392): a
 project without a code remote, or not mono-repo, may name one through `prUrl`.
@@ -1250,8 +1250,8 @@ reports `{"mode", "role", "signedIn", ...}`, where `mode` is `oidc`, `local` or
 - Executions carry `userId` and `userName`. Everyone reads every run;
   `POST /api/tasks/{id}/cancel-run` is refused with `403` to anyone but the
   owner and admins, and the cancel is dispatched to the **owner's** agent, so a
-  run is closed as orphaned only when the agent that should hold it says it does
-  not. A run without recorded owner predates ownership and is admin-only.
+  run is closed as orphaned only after every candidate denies ownership and no
+  known owner is disconnected. A run without recorded owner predates ownership and is admin-only.
 - `POST /api/agent/dispatch` routes to the caller's own agent whatever `userId`
   the body names; only an admin may address another user's agent.
 - The MCP `finish_run` tool refuses a run owned by another user, for the same
@@ -1570,10 +1570,9 @@ edits, checkout loss and changed project visibility are reflected within
 Workers send only through their original connection; reconnect starts with
 unknown inventory until an accepted snapshot arrives.
 
-Distinct device sessions coexist. Only a matching user/device/connection-scope
-session is replaced, and stale updates or teardown cannot affect its successor.
-A missing device ID retains the legacy `unknown` slot behavior. A device with
-multiple scopes contributes the union of its live snapshots.
+Distinct device sessions coexist. A matching user/device session is replaced even
+when its project scope changes, and stale updates or teardown cannot affect its successor.
+A missing device ID retains the legacy `unknown` slot behavior. Each device has one live scope; its replacement starts with unknown inventory.
 
 Authenticated `GET /api/agent/status` returns only the caller's agents, retaining
 existing connection/build/operation fields and adding `inventoryState`
@@ -1586,13 +1585,13 @@ and receive `availableWorkstations`, sorted and deduplicated by `deviceId`:
 {"agents":[],"availableWorkstations":[]}
 ```
 
-Each workstation entry has `deviceId`, the earliest live `connectedAt` and the
-latest live `lastPingAt` among all its live scopes. Unknown/inaccessible
+Each workstation entry has `deviceId`, its current connection’s `connectedAt` and
+`lastPingAt`. Unknown/inaccessible
 projects return 403. No query parameter selects another user. Legacy relays
 with no inventory remain connected with unknown availability and contribute
 no verified project availability.
 
-Shared servers use migration 51's ephemeral `agent_workstation_presence`
+Shared servers use migration 52's ephemeral `agent_workstation_presence`
 directory. Accepted inventories publish atomically before appearing in queries;
 failed writes retain the previous published snapshot and are retried on the
 next agent refresh. Queries join live `server_instances`, hide crashed instances
@@ -1602,11 +1601,69 @@ No offline inventory history is retained or copied by database export.
 is guaranteed.** Agents may be upgraded independently; old servers ignore the
 additive relay message.
 
-Availability does not select execution targets. Compatibility routing remains
-local-first, with exact/default/all/empty scope precedence and the latest
-registration in each scope; departure falls back to the newest remaining
-session. A legacy dispatch can still fail local validation even when another
+Availability does not select execution targets. Main's explicit workstation
+selection applies: when multiple devices connect, supply deviceId; a single
+eligible device remains compatible with existing dispatch.
+A legacy dispatch can still fail local validation even when another
 workstation advertises availability. Operations, launch confirmations,
 cancellation and task pulls stay bound to their selected connection; new
 internal forwarded requests carry the exact server-generated connection ID
 and refuse a replaced session instead of retargeting it.
+## Concurrent workstations and explicit device selection (#813)
+
+Connections are unique by authenticated user and effective device identity,
+independently of project registration. The effective identity is the nonempty
+`deviceId` connection query parameter, otherwise the paired credential ID,
+otherwise `unknown`. Distinct devices remain connected together. Only a new
+connection for the same user/device closes the displaced connection with
+`4001 Session Rebound`. Socket and connection-generation guards prevent delayed
+unregister, disconnect, or cross-instance close requests from removing a replacement.
+
+Skill launches (tasks and macros), generic dispatch, external terminal launches,
+`agentconfig.Dispatch`, and `agentprotocol.Operation` accept optional `deviceId`.
+Single-workstation requests may omit it. With several connected devices for the
+user, omission returns HTTP **428** and a diagnostic requesting selection.
+An explicit unknown or project-ineligible device returns HTTP **400**. Errors
+list only the authorized user's eligible devices in stable order. A disconnected
+skill launch without selection returns **428**; a recent reconnect retains its
+existing retry diagnostic. Project eligibility remains exact or wildcard
+(`all`, `default`, empty). Commands never select by recent activity or broadcast,
+and neither rejected selection creates a run nor sends a command.
+
+The selected local socket or remote connection generation is pinned through
+validation and sending. Selection counts devices across all live replicas,
+deduplicated by user/device. Internal calls carry `deviceId` and `connectedAt`,
+remain authenticated, and execute only on that instance's exact connection.
+An outdated selected device keeps its compatibility error; no other device is
+substituted. Existing connection-bound acknowledgment guards remain in effect.
+
+For MCP calls that perform local operations, `prepare_task_spec_worktree`,
+`prepare_repository_worktree`, and `prepare_macro_worktree` accept optional
+`deviceId`. The stdio bridge sends `X-Sectile-Device-ID` from
+`SECTILE_DEVICE_ID`; launched consoles receive the daemon's actual connection
+identity in that environment variable. The local gateway sets the same header
+for its own workstation. This supplies explicit targeting without a graphical
+picker. The authenticated user still bounds every selection.
+
+Run launch ownership is kept in memory before sending and retained across
+socket loss and unconfirmed launches. Queued launches also keep their remote run open when dispatch
+confirmation is lost, including transport failures and unreadable responses
+from a holding replica. Cancellation tries the recorded launch device first,
+then searches the owner's project-compatible devices concurrently
+within the existing 15-second deadline. Each candidate has its own correlation
+ID. A silent non-owner cannot delay another device's confirmation. Only a
+complete nonempty set of `RunNotOwned` responses, with no known disconnected
+owner, permits orphan closure. Timeout, send failure, disconnection, or no
+candidates leaves the run open unless force was explicitly requested. Force
+still states that any local process may remain running. Restart or cancellation
+on another replica uses fallback when launch ownership is unknown.
+
+Migration 51 rekeys the existing presence table by `(user_id, device_id)` on
+SQLite and PostgreSQL. It normalizes empty identities to `unknown`, keeps the
+newest legacy row per user/device, breaks timestamp ties by ascending project
+ID, and preserves disconnected state. Takeover is serialized transactionally.
+**Upgrade all server replicas together and reconnect agents:** old project-keyed
+servers cannot safely share the new presence contract during a rolling upgrade.
+The optional agent fields remain additive version-1 fields; older clients
+continue to work for single-workstation users. No graphical picker, new cluster
+architecture, or persisted run-device column is introduced.

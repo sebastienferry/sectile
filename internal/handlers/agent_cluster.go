@@ -32,9 +32,8 @@ import (
 // implements it.
 type AgentDirectory interface {
 	InstanceID() string
-	AgentConnected(userID, projectID, deviceID string) (db.AgentLocation, bool, error)
-	AgentDisconnected(userID, projectID, deviceID string)
-	AgentOwner(userID, projectID string) (db.AgentLocation, bool)
+	AgentConnected(userID, projectID, deviceID string, generation ...time.Time) (db.AgentLocation, bool, error)
+	AgentDisconnected(userID, projectID, deviceID string, generation ...time.Time)
 	AgentRecentlyConnected(userID, projectID string, since time.Time) bool
 	ConnectedAgentLocations() []db.AgentLocation
 }
@@ -91,40 +90,8 @@ func (d *AgentDispatcher) SetCluster(directory AgentDirectory, token string, tok
 
 // Route returns where an agent slot can be reached, without waiting, or nil.
 func (d *AgentDispatcher) Route(userID, projectID string) *AgentRoute {
-	if ac := d.Lookup(userID, projectID); ac != nil {
-		return &AgentRoute{UserID: ac.UserID, ProjectID: ac.ProjectID, DeviceID: ac.DeviceID, local: ac}
-	}
-	if location, ok := d.cluster.owner(userID, projectID); ok {
-		return &AgentRoute{UserID: location.UserID, ProjectID: location.ProjectID, DeviceID: location.DeviceID, remote: &location}
-	}
-	return nil
-}
-
-// waitForRoute is Route with the reconnection grace WaitForAgent gives a local
-// agent, extended to an agent reconnecting through another instance.
-func (d *AgentDispatcher) waitForRoute(ctx context.Context, userID, projectID string, grace time.Duration) *AgentRoute {
-	if route := d.Route(userID, projectID); route != nil {
-		return route
-	}
-	if !d.agentWasRecentlyConnected(userID, projectID) {
-		return nil
-	}
-	deadline := time.NewTimer(grace)
-	defer deadline.Stop()
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-deadline.C:
-			return nil
-		case <-ticker.C:
-			if route := d.Route(userID, projectID); route != nil {
-				return route
-			}
-		}
-	}
+	route, _ := d.SelectRoute(userID, projectID, "")
+	return route
 }
 
 // RemoteAgents lists the agents other instances hold.
@@ -134,7 +101,7 @@ func (d *AgentDispatcher) RemoteAgents() []db.AgentLocation {
 	}
 	self := d.cluster.directory.InstanceID()
 	var out []db.AgentLocation
-	for _, location := range d.cluster.locations() {
+	for _, location := range d.cluster.directory.ConnectedAgentLocations() {
 		if location.InstanceID != self {
 			out = append(out, location)
 		}
@@ -155,19 +122,6 @@ func (d *AgentDispatcher) PullRemoteTasks(ctx context.Context, location db.Agent
 	return tasks, nil
 }
 
-func (c *agentCluster) owner(userID, projectID string) (db.AgentLocation, bool) {
-	if c == nil {
-		return db.AgentLocation{}, false
-	}
-	location, ok := c.directory.AgentOwner(userID, projectID)
-	if !ok || location.InstanceID == c.directory.InstanceID() {
-		// This instance's own record without a local connection is a
-		// departure in progress, not somewhere to forward to.
-		return db.AgentLocation{}, false
-	}
-	return location, true
-}
-
 func (c *agentCluster) recentlyConnected(userID, projectID string) bool {
 	return c != nil && c.directory.AgentRecentlyConnected(userID, projectID, time.Now().UTC().Add(-agentAbsenceIsRecent))
 }
@@ -185,9 +139,10 @@ func (c *agentCluster) agentConnected(ac *AgentConn) error {
 	if directory, ok := c.directory.(WorkstationDirectory); ok {
 		previous, had, err = directory.WorkstationConnected(db.AgentLocation{ConnectionID: ac.ConnectionID, UserID: ac.UserID, ProjectID: ac.ProjectID, DeviceID: ac.DeviceID, ConnectedAt: ac.ConnectedAt})
 	} else {
-		previous, had, err = c.directory.AgentConnected(ac.UserID, ac.ProjectID, ac.DeviceID)
+		previous, had, err = c.directory.AgentConnected(ac.UserID, ac.ProjectID, ac.DeviceID, ac.ConnectedAt)
 	}
 	if err != nil {
+		log.Printf("[AgentDispatcher] %v", err)
 		return err
 	}
 	if !had || previous.InstanceID == c.directory.InstanceID() {
@@ -196,7 +151,7 @@ func (c *agentCluster) agentConnected(ac *AgentConn) error {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if _, err := c.forward(ctx, previous, "close", internalRequest{UserID: ac.UserID, ProjectID: ac.ProjectID}); err != nil && !errors.Is(err, ErrNoAgentConnected) {
+		if _, err := c.forward(ctx, previous, "close", internalRequest{UserID: ac.UserID, DeviceID: previous.DeviceID, ConnectedAt: previous.ConnectedAt}); err != nil && !errors.Is(err, ErrNoAgentConnected) {
 			log.Printf("[AgentDispatcher] Could not close the previous connection of user=%s project=%s on instance %s: %v",
 				ac.UserID, ac.ProjectID, previous.InstanceID, err)
 		}
@@ -204,15 +159,17 @@ func (c *agentCluster) agentConnected(ac *AgentConn) error {
 	return nil
 }
 
-func (c *agentCluster) agentDisconnected(userID, projectID, deviceID string) {
+func (c *agentCluster) agentDisconnected(ac *AgentConn) {
 	if c != nil {
-		c.directory.AgentDisconnected(userID, projectID, deviceID)
+		c.directory.AgentDisconnected(ac.UserID, ac.ProjectID, ac.DeviceID, ac.ConnectedAt)
 	}
 }
 
 // internalRequest is the body of every internal call.
 type internalRequest struct {
 	ConnectionID string                   `json:"connectionId,omitempty"`
+	DeviceID     string                   `json:"deviceId,omitempty"`
+	ConnectedAt  time.Time                `json:"connectedAt,omitempty"`
 	UserID       string                   `json:"userId,omitempty"`
 	ProjectID    string                   `json:"projectId,omitempty"`
 	TaskID       string                   `json:"taskId,omitempty"`
@@ -232,6 +189,9 @@ type internalResponse struct {
 // answer is reported as such and never retried: the work may have reached the
 // agent, and running it twice is worse than asking the user to retry.
 func (c *agentCluster) forward(ctx context.Context, location db.AgentLocation, verb string, body internalRequest) (json.RawMessage, error) {
+	body.ConnectionID = location.ConnectionID
+
+	launch := verb == "dispatch-and-wait" || (verb == "operation" && body.Operation != nil && (body.Operation.Action == "execute_skill" || body.Operation.Action == "open_terminal"))
 	if c == nil {
 		return nil, ErrNoAgentConnected
 	}
@@ -241,7 +201,13 @@ func (c *agentCluster) forward(ctx context.Context, location db.AgentLocation, v
 	if strings.TrimSpace(location.Address) == "" {
 		return nil, fmt.Errorf("the local agent is connected to server instance %s, which advertises no internal address", location.InstanceID)
 	}
-	body.ConnectionID = location.ConnectionID
+	body.DeviceID = location.DeviceID
+	body.ConnectedAt = location.ConnectedAt
+	if body.Operation != nil {
+		copy := *body.Operation
+		copy.DeviceID = location.DeviceID
+		body.Operation = &copy
+	}
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
@@ -254,11 +220,18 @@ func (c *agentCluster) forward(ctx context.Context, location db.AgentLocation, v
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.client.Do(req)
 	if err != nil {
+		if launch {
+			return nil, fmt.Errorf("%w: the server instance holding the local agent (%s) did not confirm the dispatch: %w", ErrLaunchUnconfirmed, location.InstanceID, err)
+		}
 		return nil, fmt.Errorf("the server instance holding the local agent (%s) did not answer: %w", location.InstanceID, err)
 	}
 	defer resp.Body.Close()
 	var answer internalResponse
 	if err := json.NewDecoder(resp.Body).Decode(&answer); err != nil {
+		if launch {
+			// Losing the response body does not prove the agent failed to launch.
+			return nil, fmt.Errorf("%w: the server instance holding the local agent (%s) answered %s without a readable confirmation: %w", ErrLaunchUnconfirmed, location.InstanceID, resp.Status, err)
+		}
 		return nil, fmt.Errorf("the server instance holding the local agent (%s) answered %s without a readable body: %w", location.InstanceID, resp.Status, err)
 	}
 	if answer.Error == "" {
@@ -346,39 +319,26 @@ func (d *AgentDispatcher) serveInternal(ctx context.Context, verb string, req in
 			userID = ImplicitUser
 		}
 	}
-	var ac *AgentConn
-	if req.ConnectionID != "" {
-		if directory, ok := d.cluster.directory.(WorkstationDirectory); ok && verb != "close" {
-			live := false
-			for _, l := range directory.ConnectedWorkstations() {
-				if l.ConnectionID == req.ConnectionID && l.InstanceID == d.cluster.directory.InstanceID() {
-					live = true
-					break
-				}
-			}
-			if !live {
-				return nil, ErrNoAgentConnected
-			}
-		}
-		d.mu.RLock()
-		ac = d.live[req.ConnectionID]
-		d.mu.RUnlock()
-		if ac != nil && ac.UserID != userID {
-			ac = nil
-		}
-	} else if verb == "close" {
-		d.mu.RLock()
-		ac = d.agents[agentKey{UserID: userID, ProjectID: projectID}]
-		d.mu.RUnlock()
-	} else {
-		ac = d.Lookup(userID, projectID)
-	}
-	if ac == nil {
-		return nil, ErrNoAgentConnected
+	if req.DeviceID == "" || req.ConnectedAt.IsZero() {
+		return nil, fmt.Errorf("%w: device identity and generation required", ErrNoAgentConnected)
 	}
 	if verb == "close" {
-		ac.Close(4001, "Session Rebound")
+		// Only the exact displaced generation may be closed.
+		d.mu.RLock()
+		ac := d.agents[agentKey{UserID: userID, DeviceID: req.DeviceID}]
+		d.mu.RUnlock()
+		if ac != nil && ac.ConnectedAt.Equal(req.ConnectedAt) && (req.ConnectionID == "" || ac.ConnectionID == req.ConnectionID) {
+			ac.Close(4001, "Session Rebound")
+		}
 		return nil, nil
+	}
+	deviceID := req.DeviceID
+	if req.Operation != nil {
+		deviceID = req.Operation.DeviceID
+	}
+	ac := d.Lookup(userID, projectID, deviceID)
+	if ac == nil || (req.ConnectionID != "" && ac.ConnectionID != req.ConnectionID) || (!req.ConnectedAt.IsZero() && !ac.ConnectedAt.Equal(req.ConnectedAt)) {
+		return nil, fmt.Errorf("%w for user %s on project %s on this instance", ErrNoAgentConnected, userID, projectID)
 	}
 	switch verb {
 	case "operation":
@@ -394,7 +354,7 @@ func (d *AgentDispatcher) serveInternal(ctx context.Context, verb string, req in
 		if json.Unmarshal(req.Payload, &dispatch) == nil {
 			payload = dispatch
 		}
-		return nil, d.dispatchAndWaitLocal(ctx, ac, req.UserID, req.TaskID, payload)
+		return nil, d.dispatchAndWaitRoute(ctx, &AgentRoute{DeviceID: ac.DeviceID, local: ac}, req.UserID, projectID, req.TaskID, payload)
 	case "pull":
 		tasks, err := d.PullTasks(ctx, ac)
 		if err != nil {

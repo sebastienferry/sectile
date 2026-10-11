@@ -1302,8 +1302,9 @@ type Skill struct {
 }
 
 type RunSkillRequest struct {
-	SkillID string `json:"skillId"`
-	Prompt  string `json:"prompt,omitempty"`
+	DeviceID string `json:"deviceId,omitempty"`
+	SkillID  string `json:"skillId"`
+	Prompt   string `json:"prompt,omitempty"`
 	// Mode is the one-off execution mode override for this launch only. Empty
 	// means no override, which is not the same as "interactive": the precedence
 	// still falls through to the skill and then to the project.

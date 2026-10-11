@@ -27,10 +27,16 @@ func TestWorkstationDirectoryRetainsDevicesAndGuardsSessions(t *testing.T) {
 	}
 	replacement := first
 	replacement.ConnectionID = "replacement"
+	replacement.ProjectID = "new-scope"
 	replacement.ConnectedAt = now.Add(2 * time.Millisecond)
 	old, had, err := b.WorkstationConnected(replacement)
 	if err != nil || !had || old.ConnectionID != "first" || old.InstanceID != a.InstanceID() {
 		t.Fatalf("replacement = %+v %v %v", old, had, err)
+	}
+	for _, l := range a.ConnectedWorkstations() {
+		if l.DeviceID == "a" && (l.ProjectID != "new-scope" || l.InventoryState != "unknown" || len(l.ProjectIDs) != 0) {
+			t.Fatalf("replacement retained old scope or inventory: %+v", l)
+		}
 	}
 	if err := a.WorkstationInventory("first", []string{"leaked"}, now); err == nil {
 		t.Fatal("accepted replaced inventory")
@@ -48,7 +54,7 @@ func TestWorkstationDirectoryRetainsDevicesAndGuardsSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner, ok := a.AgentOwner("u", "p")
-	if !ok || owner.ConnectionID != "second" {
+	if !ok || owner.DeviceID != "b" {
 		t.Fatalf("route did not fall back: %+v %v", owner, ok)
 	}
 	if _, err := a.conn.Exec(`UPDATE server_instances SET last_seen=? WHERE id=?`, now.Add(-2*instanceDeadAfter), b.InstanceID()); err != nil {
@@ -102,6 +108,7 @@ func TestPostgresWorkstationSessions(t *testing.T) {
 	}
 	replacement := first
 	replacement.ConnectionID = "pg-replacement"
+	replacement.ProjectID = "new-scope"
 	replacement.ConnectedAt = now.Add(2 * time.Millisecond)
 	old, had, err := b.WorkstationConnected(replacement)
 	if err != nil || !had || old.ConnectionID != first.ConnectionID {
@@ -113,7 +120,7 @@ func TestPostgresWorkstationSessions(t *testing.T) {
 	if err := b.WorkstationDisconnected(replacement.ConnectionID); err != nil {
 		t.Fatal(err)
 	}
-	if owner, ok := a.AgentOwner(first.UserID, "p"); !ok || owner.ConnectionID != second.ConnectionID {
+	if owner, ok := a.AgentOwner(first.UserID, "p"); !ok || owner.DeviceID != second.DeviceID {
 		t.Fatalf("fallback=%+v %v", owner, ok)
 	}
 	if err := b.WorkstationDisconnected(second.ConnectionID); err != nil {

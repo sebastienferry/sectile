@@ -101,6 +101,7 @@ func (c Config) DropsSpecArtifacts() bool { return c.SpecArtifacts == "drop" }
 // Dispatch carries launch intent only. Execution settings are fetched separately.
 // A zero version is accepted for legacy senders; new senders always emit Version.
 type Dispatch struct {
+	DeviceID      string `json:"deviceId,omitempty"`
 	RunID         string `json:"runId,omitempty"`
 	SchemaVersion int    `json:"schemaVersion,omitempty"`
 	TaskID        string `json:"taskId"`

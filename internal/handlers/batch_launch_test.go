@@ -250,8 +250,8 @@ func TestLaunchAnywayOnABatchMember(t *testing.T) {
 		expect string
 	}{
 		// No agent is connected, so getting past the guard ends on that refusal.
-		{"the owner forces through", bob, http.StatusConflict, "Connect the local agent"},
-		{"an admin forces through", alice, http.StatusConflict, "Connect the local agent"},
+		{"the owner forces through", bob, http.StatusPreconditionRequired, "Connect the local agent"},
+		{"an admin forces through", alice, http.StatusPreconditionRequired, "Connect the local agent"},
 		{"a third party is refused", carol, http.StatusForbidden, msgNotOwner},
 	} {
 		status, body := call(t, server, c.cookie, http.MethodPost, "/api/tasks/"+member.ID+"/run-skill", `{"skillId":"clarify","force":true}`)

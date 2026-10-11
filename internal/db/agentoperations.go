@@ -17,6 +17,9 @@ func (d *DB) callAgent(op agentprotocol.Operation, result any) error {
 }
 
 func (d *DB) callAgentContext(parent context.Context, op agentprotocol.Operation, result any) error {
+	if op.DeviceID == "" {
+		op.DeviceID = agentprotocol.DeviceIDFromContext(parent)
+	}
 	if d.agentOperations == nil {
 		return fmt.Errorf("local operation requires a connected agent")
 	}
@@ -109,4 +112,10 @@ func (d *DB) EnsureTaskGitBranch(repoPath string, task *models.Task) (string, er
 
 func (d *DB) AgentOperation(op agentprotocol.Operation, result any) error {
 	return d.callAgent(op, result)
+}
+
+// SetAgentSelection validates queued launch targeting before a remote run is
+// recorded. The selected device is then carried to the operation dispatch.
+func (d *DB) SetAgentSelection(selectDevice func(userID, projectID, deviceID string) (string, error)) {
+	d.agentSelection = selectDevice
 }

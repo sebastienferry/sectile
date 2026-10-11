@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// WorkstationConnected atomically claims only the authenticated device/scope slot.
+// WorkstationConnected atomically claims only the authenticated device slot.
 // The no-op upsert locks that identity until the replacement and route commit.
 func (d *DB) WorkstationConnected(l AgentLocation) (AgentLocation, bool, error) {
 	tx, err := d.conn.Begin()
@@ -18,22 +18,21 @@ func (d *DB) WorkstationConnected(l AgentLocation) (AgentLocation, bool, error) 
 	old := AgentLocation{UserID: l.UserID, ProjectID: l.ProjectID, DeviceID: l.DeviceID}
 	err = tx.QueryRow(`INSERT INTO agent_workstation_presence
  (connection_id,user_id,device_id,project_scope,instance_id,connected_at,last_ping_at)
- VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id,device_id,project_scope)
+ VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id,device_id)
  DO UPDATE SET connection_id = agent_workstation_presence.connection_id
- RETURNING connection_id,instance_id,connected_at`, l.ConnectionID, l.UserID, l.DeviceID, l.ProjectID, d.instanceID, l.ConnectedAt, l.ConnectedAt).Scan(&old.ConnectionID, &old.InstanceID, &old.ConnectedAt)
+ RETURNING connection_id,instance_id,connected_at,project_scope`, l.ConnectionID, l.UserID, l.DeviceID, l.ProjectID, d.instanceID, l.ConnectedAt, l.ConnectedAt).Scan(&old.ConnectionID, &old.InstanceID, &old.ConnectedAt, &old.ProjectID)
 	if err != nil {
 		return old, false, err
 	}
 	had := old.ConnectionID != l.ConnectionID
 	if had {
-		if _, err = tx.Exec(`UPDATE agent_workstation_presence SET connection_id=?,instance_id=?,connected_at=?,last_ping_at=?,inventory_state='unknown',inventory_updated_at=NULL,inventory_json='[]' WHERE connection_id=?`, l.ConnectionID, d.instanceID, l.ConnectedAt, l.ConnectedAt, old.ConnectionID); err != nil {
+		if _, err = tx.Exec(`UPDATE agent_workstation_presence SET connection_id=?,instance_id=?,connected_at=?,last_ping_at=?,project_scope=?,inventory_state='unknown',inventory_updated_at=NULL,inventory_json='[]' WHERE connection_id=?`, l.ConnectionID, d.instanceID, l.ConnectedAt, l.ConnectedAt, l.ProjectID, old.ConnectionID); err != nil {
 			return old, false, err
 		}
 		_ = tx.QueryRow(`SELECT address FROM server_instances WHERE id=?`, old.InstanceID).Scan(&old.Address)
 	}
 	if _, err = tx.Exec(`INSERT INTO agent_presence(user_id,project_id,instance_id,device_id,connected_at,disconnected_at)
- VALUES(?,?,?,?,?,NULL) ON CONFLICT(user_id,project_id) DO UPDATE SET instance_id=excluded.instance_id,device_id=excluded.device_id,connected_at=excluded.connected_at,disconnected_at=NULL
- WHERE agent_presence.connected_at <= excluded.connected_at`, l.UserID, l.ProjectID, d.instanceID, l.DeviceID, l.ConnectedAt); err != nil {
+ VALUES(?,?,?,?,?,NULL) ON CONFLICT(user_id,device_id) DO UPDATE SET project_id=excluded.project_id,instance_id=excluded.instance_id,connected_at=excluded.connected_at,disconnected_at=NULL`, l.UserID, l.ProjectID, d.instanceID, l.DeviceID, l.ConnectedAt); err != nil {
 		return old, false, err
 	}
 	return old, had, tx.Commit()
@@ -66,7 +65,8 @@ func (d *DB) WorkstationDisconnected(id string) error {
 	}
 	defer tx.Rollback()
 	var user, scope, device string
-	err = tx.QueryRow(`DELETE FROM agent_workstation_presence WHERE connection_id=? AND instance_id=? RETURNING user_id,project_scope,device_id`, id, d.instanceID).Scan(&user, &scope, &device)
+	var connected time.Time
+	err = tx.QueryRow(`DELETE FROM agent_workstation_presence WHERE connection_id=? AND instance_id=? RETURNING user_id,project_scope,device_id,connected_at`, id, d.instanceID).Scan(&user, &scope, &device, &connected)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -78,18 +78,8 @@ func (d *DB) WorkstationDisconnected(id string) error {
 	if _, err = tx.Exec(`UPDATE user_credential_unlocks SET agent_seen_at=? WHERE user_id=? AND (agent_seen_at IS NULL OR agent_seen_at < ?)`, now, user, now); err != nil {
 		return err
 	}
-	// Lock the compatibility row before selecting its newest remaining owner.
-	if _, err = tx.Exec(`UPDATE agent_presence SET disconnected_at=disconnected_at WHERE user_id=? AND project_id=?`, user, scope); err != nil {
-		return err
-	}
-	var instance string
-	var connected time.Time
-	err = tx.QueryRow(`SELECT p.instance_id,p.device_id,p.connected_at FROM agent_workstation_presence p JOIN server_instances i ON i.id=p.instance_id WHERE p.user_id=? AND p.project_scope=? AND i.last_seen>=? ORDER BY p.connected_at DESC LIMIT 1`, user, scope, now.Add(-instanceDeadAfter)).Scan(&instance, &device, &connected)
-	if errors.Is(err, sql.ErrNoRows) {
-		_, err = tx.Exec(`UPDATE agent_presence SET disconnected_at=? WHERE user_id=? AND project_id=?`, now, user, scope)
-	} else if err == nil {
-		_, err = tx.Exec(`UPDATE agent_presence SET instance_id=?,device_id=?,connected_at=?,disconnected_at=NULL WHERE user_id=? AND project_id=?`, instance, device, connected, user, scope)
-	}
+	// Retire only this exact device generation; another device remains untouched.
+	_, err = tx.Exec(`UPDATE agent_presence SET disconnected_at=? WHERE user_id=? AND device_id=? AND instance_id=? AND disconnected_at IS NULL AND connected_at=?`, now, user, device, d.instanceID, connected)
 	if err != nil {
 		return err
 	}
@@ -119,14 +109,4 @@ func (d *DB) ConnectedWorkstations() []AgentLocation {
 		out = append(out, l)
 	}
 	return out
-}
-
-// workstationHolder resolves a compatibility route without consulting inventory.
-func (d *DB) workstationHolder(userID, scope string) (AgentLocation, bool) {
-	l := AgentLocation{UserID: userID, ProjectID: scope}
-	err := d.conn.QueryRow(`SELECT p.connection_id,p.instance_id,i.address,p.device_id,p.connected_at,p.last_ping_at
- FROM agent_workstation_presence p JOIN server_instances i ON i.id=p.instance_id
- WHERE p.user_id=? AND p.project_scope=? AND i.last_seen>=?
- ORDER BY p.connected_at DESC LIMIT 1`, userID, scope, time.Now().UTC().Add(-instanceDeadAfter)).Scan(&l.ConnectionID, &l.InstanceID, &l.Address, &l.DeviceID, &l.ConnectedAt, &l.LastPingAt)
-	return l, err == nil
 }

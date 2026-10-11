@@ -6,11 +6,11 @@
 - [x] Send connection snapshot, configuration-triggered refresh and 30-second revalidation with a bounded cancellable worker. Test empty withdrawal, external edits, recovery, reconnect and no stale writes; preserve heartbeat deadlines.
 
 ## 2. Server lifecycle and compatibility
-- [x] Store simultaneous device connections and atomic per-connection authorized snapshots; test A-only/B-only and overlapping availability, same-slot replacement, duplicate scopes, empty withdrawal and unknown legacy state.
+- [x] Store simultaneous device connections and atomic per-connection authorized snapshots; test A-only/B-only and overlapping availability, same-slot replacement, replacement across scopes, empty withdrawal and unknown legacy state.
 - [x] Implement deduplicated AvailableWorkstations with authenticated project visibility and exact-connection stale update/unregister protection. Test user isolation and teardown/timeout.
-- [x] Preserve latest-connection compatibility routes and wildcard ordering; audit all dispatcher callers, snapshot/pull consumers and cancellation/PTY flows. Bind each launch/operation/result to one exact connection. Test registration during dispatch and late replies from replaced sessions.
+- [x] Preserve main’s explicit workstation selection and one connection per user/device; audit all dispatcher callers, snapshot/pull consumers and cancellation/PTY flows. Bind each launch/operation/result to one exact connection. Test registration during dispatch and late replies from replaced sessions.
 
-- [x] Add the ephemeral shared-session directory migration and guarded update/remove operations. Preserve compatibility routes, credential presence and instance cleanup; test SQLite migration, PostgreSQL presence and two-server same-device replacement versus distinct-device coexistence.
+- [x] Add the ephemeral shared-session directory migration and guarded update/remove operations. Preserve device routing, credential presence and instance cleanup; test SQLite migration, PostgreSQL presence and two-server same-device replacement versus distinct-device coexistence.
 - [x] Bind forwarded operations to exact connection IDs; test stale replies/teardown and failed directory writes without switching the run owner.
 
 ## 3. Query and documentation
