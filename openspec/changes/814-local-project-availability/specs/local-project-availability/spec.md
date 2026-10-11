@@ -34,6 +34,16 @@ The server SHALL associate availability with the authenticated user, device and 
 - **WHEN** the old connection sends an inventory or unregisters late
 - **THEN** the new connection and its inventory are unaffected
 
+#### Scenario: Workstations connect to different server instances
+- **GIVEN** A and B connect to different healthy instances of the upgraded server
+- **WHEN** both advertise P and the user queries P on either instance
+- **THEN** both devices appear once and neither connection replaces the other
+
+#### Scenario: Server instance stops answering
+- **GIVEN** a server instance owns A's relay and stops answering
+- **WHEN** existing server-instance liveness detection marks it stale
+- **THEN** A is no longer reported available even without graceful relay teardown
+
 #### Scenario: One device disconnects
 - **GIVEN** A and B both advertise P
 - **WHEN** A disconnects and its connection is removed

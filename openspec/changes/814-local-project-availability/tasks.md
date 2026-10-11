@@ -10,8 +10,12 @@
 - [ ] Implement deduplicated AvailableWorkstations with authenticated project visibility and exact-connection stale update/unregister protection. Test user isolation and teardown/timeout.
 - [ ] Preserve latest-connection compatibility routes and wildcard ordering; audit all dispatcher callers, snapshot/pull consumers and cancellation/PTY flows. Bind each launch/operation/result to one exact connection. Test registration during dispatch and late replies from replaced sessions.
 
+- [ ] Add the ephemeral shared-session directory migration and guarded update/remove operations. Preserve compatibility routes, credential presence and instance cleanup; test SQLite migration, PostgreSQL presence and two-server same-device replacement versus distinct-device coexistence.
+- [ ] Bind forwarded operations to exact connection IDs; test stale replies/teardown and failed directory writes without switching the run owner.
+
 ## 3. Query and documentation
-- [ ] Extend authenticated agent status with inventory fields and project-filtered availableWorkstations; test unauthorized/unknown project, foreign-user inventory, empty responses, aggregation, ordering and old field compatibility.
+- [ ] Extend authenticated agent status with inventory fields and project-filtered availableWorkstations; test unauthorized/unknown project, foreign-user inventory, empty responses, aggregation, ordering and old field compatibility, including existing build announcements and cross-server results.
+- [ ] Add an English user-facing changelog entry under Unreleased during implementation for connected workstation availability; this specification-only PR changes no runtime behavior.
 - [ ] Update server-agent contract with wire examples, update/freshness semantics, readiness limits, legacy behavior and routing non-goal.
 
 ## 4. Acceptance validation

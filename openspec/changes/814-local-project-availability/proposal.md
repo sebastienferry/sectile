@@ -13,10 +13,10 @@ The server sees an agent connection but cannot tell which projects have accessib
 Available means an accessible Git checkout under existing local mappings/fallback and not locally disconnected. Paths remain local. An empty inventory withdraws all availability. Reconnect and disconnect cannot overwrite another live session.
 
 ## Non-goals
-Automatic workstation selection, a picker, cloning/provisioning, dependency or credential readiness checks, hardware/provider/CLI inventories, durable offline history and database migrations.
+Automatic workstation selection, a picker, cloning/provisioning, dependency or credential readiness checks, hardware/provider/CLI inventories, durable offline history.
 
 ## Impact
-Go agent, shared relay protocol, connection dispatcher/status handler and tests; server-agent contract documentation. No production implementation occurs during specification.
+Go agent, shared relay protocol, connection dispatcher/status handler and tests; server-agent contract documentation. A live-session directory migration is needed for existing shared-server deployments. No production implementation occurs during specification.
 
 ## Decisions
 Owner confirmed all three scope decisions on 2026-10-11 (“oui aux trois”); see docs/clarifications/814.md. No open product questions.
