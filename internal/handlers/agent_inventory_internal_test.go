@@ -41,9 +41,10 @@ func TestSharedWorkstationDirectoryAndExactForwarding(t *testing.T) {
 		dispatchers[i].SetCluster(stores[i], clusterToken, nil)
 	}
 	a := connectClusterAgent(t, dispatchers[0], "u", "all", "a")
-	b := connectClusterAgent(t, dispatchers[1], "u", "all", "b")
+	// A concrete legacy registration must not override the reported inventory.
+	b := connectClusterAgent(t, dispatchers[1], "u", "q", "b")
 	first := dispatchers[0].Lookup("u", "p", "a")
-	second := dispatchers[1].Lookup("u", "p", "b")
+	second := dispatchers[1].Lookup("u", "q", "b")
 	p := agentprotocol.ProjectInventory{SchemaVersion: 1, ProjectIDs: []string{"p"}}
 	if err := dispatchers[0].acceptInventory(first, p); err != nil {
 		t.Fatal(err)

@@ -340,6 +340,13 @@ func (d *AgentDispatcher) serveInternal(ctx context.Context, verb string, req in
 		deviceID = req.Operation.DeviceID
 	}
 	ac := d.Lookup(userID, projectID, deviceID)
+	if verb == "dispatch-and-wait" && req.TaskLaunch {
+		// Task eligibility comes from the canonical session's reported inventory,
+		// not its legacy registration project. Dispatch revalidates that inventory.
+		d.mu.RLock()
+		ac = d.agents[agentKey{UserID: userID, DeviceID: deviceID}]
+		d.mu.RUnlock()
+	}
 	if ac == nil || (req.ConnectionID != "" && ac.ConnectionID != req.ConnectionID) || (!req.ConnectedAt.IsZero() && !ac.ConnectedAt.Equal(req.ConnectedAt)) {
 		return nil, fmt.Errorf("%w for user %s on project %s on this instance", ErrNoAgentConnected, userID, projectID)
 	}
