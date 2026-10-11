@@ -1660,6 +1660,7 @@ export const TaskDetailModal: React.FC = () => {
                   : localizeActivityText(latestActivity.summary, locale)}
               </span>
             </div>
+            {latestActivity.deviceId && <div className="text-xs font-mono">{format(t.shell.remoteRun.workstation, { device: latestActivity.deviceId })}</div>}
             {latestActivity.output && (
               <pre className="whitespace-pre-wrap text-[11px] text-slate-300 font-mono">
                 {latestActivity.output}
@@ -1685,6 +1686,7 @@ export const TaskDetailModal: React.FC = () => {
                 <div className="flex items-center gap-2 truncate">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
                   <span className="font-bold text-[11px] text-[var(--text-primary)]">{localizeActivityText(act.skillName, locale)}</span>
+                  {act.deviceId && <span className="text-[10px] font-mono" title={format(t.shell.remoteRun.workstation, { device: act.deviceId })}>{format(t.shell.remoteRun.workstation, { device: act.deviceId })}</span>}
                   {runEngineLabel(act) && (
                     <span className="text-[10px] font-mono text-[var(--text-muted)]">{runEngineLabel(act)}</span>
                   )}

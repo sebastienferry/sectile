@@ -45,6 +45,7 @@ const (
 )
 
 type TaskActivity struct {
+	DeviceID    string     `json:"deviceId,omitempty"`
 	ID          string     `json:"id"`
 	TaskID      string     `json:"taskId"`
 	ProjectID   string     `json:"projectId,omitempty"`
@@ -1302,9 +1303,10 @@ type Skill struct {
 }
 
 type RunSkillRequest struct {
-	DeviceID string `json:"deviceId,omitempty"`
-	SkillID  string `json:"skillId"`
-	Prompt   string `json:"prompt,omitempty"`
+	TargetDeviceID string `json:"targetDeviceId,omitempty"`
+	DeviceID       string `json:"deviceId,omitempty"`
+	SkillID        string `json:"skillId"`
+	Prompt         string `json:"prompt,omitempty"`
 	// Mode is the one-off execution mode override for this launch only. Empty
 	// means no override, which is not the same as "interactive": the precedence
 	// still falls through to the skill and then to the project.
@@ -1480,4 +1482,16 @@ type BoardViewRequest struct {
 	Name       *string   `json:"name,omitempty"`
 	ProjectIDs *[]string `json:"projectIds,omitempty"`
 	Labels     *[]string `json:"labels,omitempty"`
+}
+
+// NormalizeTargetDevice retains the legacy selector while rejecting ambiguity.
+func (r *RunSkillRequest) NormalizeTargetDevice() error {
+	r.DeviceID, r.TargetDeviceID = strings.TrimSpace(r.DeviceID), strings.TrimSpace(r.TargetDeviceID)
+	if r.DeviceID != "" && r.TargetDeviceID != "" && r.DeviceID != r.TargetDeviceID {
+		return fmt.Errorf("deviceId et targetDeviceId désignent des postes différents")
+	}
+	if r.TargetDeviceID != "" {
+		r.DeviceID = r.TargetDeviceID
+	}
+	return nil
 }

@@ -34,9 +34,9 @@ func batchBody(ids ...string) string {
 
 // launchBatch posts a batch launch while a fake agent acknowledges the dispatch,
 // and returns the answer.
-func launchBatch(t *testing.T, server *httptest.Server, cookie *http.Cookie, key string, lead string, body string) (int, string) {
+func launchBatch(t *testing.T, h *Handler, server *httptest.Server, cookie *http.Cookie, key string, lead string, body string) (int, string) {
 	t.Helper()
-	conn := connectAgentAs(t, server, key, "default")
+	conn := connectAgentAs(t, server, key, "default", h)
 	type answer struct {
 		status int
 		body   string
@@ -77,7 +77,7 @@ func TestBatchLaunchRecordsItsMembers(t *testing.T) {
 	}
 	lead, second, third := guardTask(t, database, "Lead"), guardTask(t, database, "Second"), guardTask(t, database, "Third")
 
-	status, body := launchBatch(t, server, alice, key, lead.ID, batchBody(lead.ID, second.ID, third.ID))
+	status, body := launchBatch(t, h, server, alice, key, lead.ID, batchBody(lead.ID, second.ID, third.ID))
 	if status != http.StatusOK {
 		t.Fatalf("batch launch: %d %s", status, body)
 	}
@@ -100,6 +100,13 @@ func TestBatchLaunchRecordsItsMembers(t *testing.T) {
 		if batch.Position != i+1 || batch.State != want || batch.LeadKey != lead.Key || batch.RunID != response.Task.Batch.RunID {
 			t.Fatalf("batch of %s = %+v", member.Key, batch)
 		}
+	}
+	if response.Activity.DeviceID != "laptop" {
+		t.Fatalf("batch launch device: %+v", response.Activity)
+	}
+	memberRun, err := database.StartRemoteRunBy(aliceID, second.ID, "pickup_issues", response.Task.Batch.RunID)
+	if err != nil || memberRun.DeviceID != "laptop" {
+		t.Fatalf("batch adoption lost lead workstation: %+v %v", memberRun, err)
 	}
 	// Only the lead carries runs: the other tickets have nothing recorded.
 	if n := activityCount(t, database, second.ID); n != 0 {
@@ -250,8 +257,8 @@ func TestLaunchAnywayOnABatchMember(t *testing.T) {
 		expect string
 	}{
 		// No agent is connected, so getting past the guard ends on that refusal.
-		{"the owner forces through", bob, http.StatusPreconditionRequired, "Connect the local agent"},
-		{"an admin forces through", alice, http.StatusPreconditionRequired, "Connect the local agent"},
+		{"the owner forces through", bob, http.StatusPreconditionRequired, "Aucun poste connecté"},
+		{"an admin forces through", alice, http.StatusPreconditionRequired, "Aucun poste connecté"},
 		{"a third party is refused", carol, http.StatusForbidden, msgNotOwner},
 	} {
 		status, body := call(t, server, c.cookie, http.MethodPost, "/api/tasks/"+member.ID+"/run-skill", `{"skillId":"clarify","force":true}`)

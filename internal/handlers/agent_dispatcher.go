@@ -544,13 +544,27 @@ func (d *AgentDispatcher) DispatchAndWait(ctx context.Context, userID, projectID
 }
 
 func (d *AgentDispatcher) dispatchAndWaitRoute(ctx context.Context, route *AgentRoute, userID, projectID, taskID string, payload any) error {
+	if route.taskLaunch {
+		// Revalidate the same canonical session immediately before sending. A
+		// displaced connection must not receive work after its replacement.
+		valid := false
+		for _, candidate := range d.taskRoutes(userID, projectID) {
+			if candidate.DeviceID == route.DeviceID && candidate.local == route.local &&
+				(candidate.remote == nil && route.remote == nil || candidate.remote != nil && route.remote != nil && candidate.remote.ConnectionID == route.remote.ConnectionID) {
+				valid = true
+			}
+		}
+		if !valid {
+			return ErrNoAgentConnected
+		}
+	}
 	dispatch, _ := payload.(agentconfig.Dispatch)
 	if dispatch.RunID != "" && dispatch.Action != "cancel_run" {
 		d.rememberRun(dispatch.RunID, userID, route.DeviceID)
 	}
 	var err error
 	if route.remote != nil {
-		err = d.cluster.dispatchAndWait(ctx, *route.remote, userID, projectID, taskID, payload)
+		err = d.cluster.dispatchAndWait(ctx, *route.remote, userID, projectID, taskID, payload, route.taskLaunch)
 	} else {
 		err = d.dispatchAndWaitLocal(ctx, route.local, userID, taskID, payload)
 	}

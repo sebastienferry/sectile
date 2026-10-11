@@ -3856,8 +3856,8 @@ func insertTaskActivity(conn activityExecutor, instanceID string, act models.Tas
 	}
 	_, err := conn.Exec(`
 		INSERT INTO task_activities (id, task_id, project_id, run_project_id, tracker_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error,
-			created_at, waiting_since, user_id, run_provider, run_model, instance_id, concurrent)
-		VALUES (?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			created_at, waiting_since, user_id, run_provider, run_model, instance_id, concurrent, device_id)
+		VALUES (?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		act.ID,
 		act.TaskID,
@@ -3882,6 +3882,7 @@ func insertTaskActivity(conn activityExecutor, instanceID string, act models.Tas
 		act.Model,
 		instanceID,
 		boolToInt(act.Concurrent),
+		act.DeviceID,
 	)
 	return err
 }
@@ -3922,7 +3923,7 @@ func (d *DB) activitiesAttachedTo(column, id string) ([]models.TaskActivity, err
 	rows, err := d.conn.Query(`
 		SELECT a.id, COALESCE(a.task_id, ''), COALESCE(a.project_id, ''), a.skill_id, a.skill_name, a.action, a.status, a.summary, a.output, a.steps, a.prompt, a.started_at, a.completed_at, a.error, a.created_at, a.waiting_since, a.waiting_reason,
 		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model, a.concurrent, a.credential_missing,
-		       COALESCE(a.run_project_id, ''), COALESCE(a.tracker_id, '')
+		       COALESCE(a.run_project_id, ''), COALESCE(a.tracker_id, ''), a.device_id
 		FROM task_activities a LEFT JOIN users u ON u.id = a.user_id WHERE `+column+` = ? ORDER BY a.created_at DESC
 	`, id)
 	if err != nil {
@@ -3965,6 +3966,7 @@ func (d *DB) activitiesAttachedTo(column, id string) ([]models.TaskActivity, err
 			&a.CredentialMissing,
 			&a.RunProjectID,
 			&a.TrackerID,
+			&a.DeviceID,
 		)
 		if err != nil {
 			continue
@@ -6007,7 +6009,7 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
 		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since, a.waiting_reason,
 		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model, a.credential_missing,
-		       COALESCE(a.run_project_id, ''), COALESCE(a.tracker_id, '')
+		       COALESCE(a.run_project_id, ''), COALESCE(a.tracker_id, ''), a.device_id
 		FROM task_activities a
 		LEFT JOIN tasks t ON a.task_id = t.id
 		LEFT JOIN users u ON u.id = a.user_id
@@ -6062,6 +6064,7 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 			&a.CredentialMissing,
 			&a.RunProjectID,
 			&a.TrackerID,
+			&a.DeviceID,
 		)
 		if err != nil {
 			continue
@@ -6123,7 +6126,7 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
 		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since, a.waiting_reason,
 		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model, a.concurrent, a.credential_missing,
-		       COALESCE(a.run_project_id, ''), COALESCE(a.tracker_id, '')
+		       COALESCE(a.run_project_id, ''), COALESCE(a.tracker_id, ''), a.device_id
 		FROM task_activities a
 		LEFT JOIN tasks t ON a.task_id = t.id
 		LEFT JOIN users u ON u.id = a.user_id
@@ -6157,6 +6160,7 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 		&a.CredentialMissing,
 		&a.RunProjectID,
 		&a.TrackerID,
+		&a.DeviceID,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {

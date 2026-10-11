@@ -32,6 +32,7 @@ const (
 // read when the run ends to tell a run that handed the workflow back from one
 // that merely exited.
 type RunLaunch struct {
+	DeviceID string
 	// Mode is the resolved execution mode, autonomous or interactive. Empty when
 	// the launcher did not resolve one, as for a run a standalone CLI declares.
 	Mode string
@@ -124,7 +125,7 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 	// No project_id: the activity is attached to the task, and the task is what
 	// carries the project. Writing both would be two sources of truth for one
 	// attachment, and the schema refuses it outright.
-	activity := &models.TaskActivity{ID: uuid.NewString(), TaskID: task.ID, RunProjectID: runProject,
+	activity := &models.TaskActivity{ID: uuid.NewString(), TaskID: task.ID, RunProjectID: runProject, DeviceID: launch.DeviceID,
 		SkillID: "remote_run", SkillName: skill, Action: RunActionClient,
 		Status: "running", Summary: "Execution reported by a local agent or native client",
 		CreatedAt: now, StartedAt: &now, Steps: []string{}, UserID: strings.TrimSpace(launch.UserID),
@@ -399,8 +400,16 @@ func (d *DB) SyncRemoteRunStatusFor(ownerID, activityID, taskID, projectID, task
 	}
 
 	d.mu.Lock()
-	var existingID, currentStatus string
-	err = d.conn.QueryRow("SELECT id, status FROM task_activities WHERE id = ?", activityID).Scan(&existingID, &currentStatus)
+	var existingID, currentStatus, existingSkill string
+	err = d.conn.QueryRow("SELECT id, status, skill_id FROM task_activities WHERE id = ?", activityID).Scan(&existingID, &currentStatus, &existingSkill)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		d.mu.Unlock()
+		return nil, err
+	}
+	if err == nil && existingSkill != "remote_run" {
+		d.mu.Unlock()
+		return nil, fmt.Errorf("activity is not a remote run")
+	}
 	now := time.Now()
 
 	if err == nil && existingID != "" {

@@ -1090,7 +1090,11 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	// The project travels with the launch: the server records it on the run
 	// and refuses a ticket of several projects launched without one (#741).
-	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force, "projectId": projectID})
+	if strings.TrimSpace(d.link.deviceID) == "" {
+		http.Error(w, "Identité du poste local indisponible", http.StatusBadRequest)
+		return
+	}
+	body := mustJSON(map[string]any{"targetDeviceId": d.link.deviceID, "skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force, "projectId": projectID})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)

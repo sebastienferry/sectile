@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"encoding/json"
+	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/db"
 
@@ -57,6 +59,35 @@ func TestSharedWorkstationDirectoryAndExactForwarding(t *testing.T) {
 			t.Fatal("foreign inventory leaked")
 		}
 	}
+	// Task routing sees the same strict inventory on both replicas and sends
+	// only to the selected remote session, retaining that device on failure.
+	for _, dispatcher := range dispatchers {
+		route, err := dispatcher.selectTaskRoute(context.Background(), "u", "p", "", "a", 0)
+		if err != nil || route.DeviceID != "a" {
+			t.Fatalf("replica affinity: %+v %v", route, err)
+		}
+	}
+	route, err := dispatchers[0].selectTaskRoute(context.Background(), "u", "p", "b", "a", 0)
+	if err != nil || route.remote == nil {
+		t.Fatalf("explicit remote route: %+v %v", route, err)
+	}
+	result := make(chan error, 1)
+	go func() {
+		result <- dispatchers[0].dispatchAndWaitRoute(context.Background(), route, "u", "p", "task", agentconfig.Dispatch{Action: "implement", RunID: "remote-task-run"})
+	}()
+	message := readAgentMessage(t, b)
+	ack, _ := json.Marshal(map[string]string{"status": "completed"})
+	if err := b.WriteJSON(AgentMessage{MsgID: message.MsgID, Type: "step_status", Payload: ack}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("remote task launch not confirmed")
+	}
 	locations := stores[0].ConnectedWorkstations()
 	var old db.AgentLocation
 	for _, l := range locations {
@@ -77,7 +108,7 @@ func TestSharedWorkstationDirectoryAndExactForwarding(t *testing.T) {
 	if err := dispatchers[0].acceptInventory(first, p); err == nil {
 		t.Fatal("stale snapshot accepted")
 	}
-	_, err := dispatchers[1].cluster.forward(context.Background(), old, "pull", internalRequest{UserID: "u", ProjectID: "all"})
+	_, err = dispatchers[1].cluster.forward(context.Background(), old, "pull", internalRequest{UserID: "u", ProjectID: "all"})
 	if !errors.Is(err, ErrNoAgentConnected) {
 		t.Fatalf("stale forward retargeted: %v", err)
 	}

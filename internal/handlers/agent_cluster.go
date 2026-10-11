@@ -41,11 +41,13 @@ type AgentDirectory interface {
 // AgentRoute is where an agent slot can be reached from here: on a local
 // connection, or through another instance.
 type AgentRoute struct {
-	UserID    string
-	ProjectID string
-	DeviceID  string
-	local     *AgentConn
-	remote    *db.AgentLocation
+	connectedAt time.Time
+	taskLaunch  bool
+	UserID      string
+	ProjectID   string
+	DeviceID    string
+	local       *AgentConn
+	remote      *db.AgentLocation
 }
 
 // agentCluster is nil on a server that shares its store with nobody, and every
@@ -167,6 +169,7 @@ func (c *agentCluster) agentDisconnected(ac *AgentConn) {
 
 // internalRequest is the body of every internal call.
 type internalRequest struct {
+	TaskLaunch   bool                     `json:"taskLaunch,omitempty"`
 	ConnectionID string                   `json:"connectionId,omitempty"`
 	DeviceID     string                   `json:"deviceId,omitempty"`
 	ConnectedAt  time.Time                `json:"connectedAt,omitempty"`
@@ -265,12 +268,12 @@ func (c *agentCluster) dispatch(location db.AgentLocation, userID, projectID, ms
 	return err
 }
 
-func (c *agentCluster) dispatchAndWait(ctx context.Context, location db.AgentLocation, userID, projectID, taskID string, payload any) error {
+func (c *agentCluster) dispatchAndWait(ctx context.Context, location db.AgentLocation, userID, projectID, taskID string, payload any, taskLaunch bool) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	_, err = c.forward(ctx, location, "dispatch-and-wait", internalRequest{UserID: userID, ProjectID: projectID, TaskID: taskID, Payload: raw})
+	_, err = c.forward(ctx, location, "dispatch-and-wait", internalRequest{UserID: userID, ProjectID: projectID, TaskID: taskID, Payload: raw, TaskLaunch: taskLaunch})
 	return err
 }
 
@@ -354,7 +357,7 @@ func (d *AgentDispatcher) serveInternal(ctx context.Context, verb string, req in
 		if json.Unmarshal(req.Payload, &dispatch) == nil {
 			payload = dispatch
 		}
-		return nil, d.dispatchAndWaitRoute(ctx, &AgentRoute{DeviceID: ac.DeviceID, local: ac}, req.UserID, projectID, req.TaskID, payload)
+		return nil, d.dispatchAndWaitRoute(ctx, &AgentRoute{DeviceID: ac.DeviceID, local: ac, taskLaunch: req.TaskLaunch}, req.UserID, projectID, req.TaskID, payload)
 	case "pull":
 		tasks, err := d.PullTasks(ctx, ac)
 		if err != nil {

@@ -310,7 +310,7 @@ func TestHandleTaskDetail_RunSkill_DispatchesToAgent(t *testing.T) {
 	task, err := database.CreateTask(models.CreateTaskRequest{
 		Title:       "Test task",
 		Description: "Testing agent dispatch",
-		ProjectID:   "custom-proj-uuid-123",
+		ProjectID:   "default",
 		Priority:    "high",
 	})
 	if err != nil {
@@ -338,6 +338,24 @@ func TestHandleTaskDetail_RunSkill_DispatchesToAgent(t *testing.T) {
 	}
 	defer conn.Close()
 
+	rawInventory, _ := json.Marshal(agentprotocol.ProjectInventory{SchemaVersion: agentprotocol.InventoryVersion, ProjectIDs: []string{"default"}})
+	if err := conn.WriteJSON(handlers.AgentMessage{Type: agentprotocol.ProjectInventoryType, Payload: rawInventory}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/agent/status?projectId=default", nil)
+		req.AddCookie(defaultSession(t, database))
+		h.HandleAgentStatus(rr, req)
+		if strings.Contains(rr.Body.String(), `"inventoryState":"reported"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("inventory not reported: %s", rr.Body.String())
+		}
+		time.Sleep(time.Millisecond)
+	}
 	// Trigger run-skill via HTTP POST /api/tasks/:id/run-skill
 	runSkillBody := `{"skillId":"clarify"}`
 	runSkillReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/tasks/"+task.ID+"/run-skill", strings.NewReader(runSkillBody))
