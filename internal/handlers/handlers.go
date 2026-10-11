@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -3780,6 +3781,7 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 
 		switch msg.Type {
 		case "heartbeat":
+			h.agentDispatcher.sessionPing(ac)
 			_ = ac.Send(AgentMessage{
 				MsgID: msg.MsgID,
 				Type:  "heartbeat",
@@ -3797,6 +3799,8 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 			h.BroadcastEvent(Event{
 				Type: "agent_step_status",
 			})
+		case agentprotocol.ProjectInventoryType:
+			h.receiveProjectInventory(ac, msg, len(msgData))
 		case "running_tasks":
 			h.agentDispatcher.ReportRunningTasks(ac, msg)
 		case agentprotocol.RunAnsweredType:
@@ -3826,9 +3830,31 @@ func (h *Handler) HandleAgentStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"agents": h.agentDispatcher.ConnectedAgents(),
-	})
+	caller, ok := h.requireSession(w, r)
+	if !ok {
+		return
+	}
+	projectID := r.URL.Query().Get("projectId")
+	if projectID != "" && !h.inventoryProjectAllowed(caller.UserID, projectID) {
+		writeError(w, http.StatusForbidden, "Projet inaccessible")
+		return
+	}
+	snapshot := h.agentDispatcher.ConnectedAgents()
+	agents := make([]AgentConnInfo, 0)
+	for _, info := range snapshot {
+		if info.UserID != caller.UserID {
+			continue
+		}
+		if projectID != "" && !slices.Contains(info.AvailableProjectIDs, projectID) {
+			continue
+		}
+		agents = append(agents, info)
+	}
+	response := map[string]any{"agents": agents}
+	if projectID != "" {
+		response["availableWorkstations"] = workstations(snapshot, caller.UserID, projectID)
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 // HandleAgentDispatch allows the Web UI to send a workflow command to the

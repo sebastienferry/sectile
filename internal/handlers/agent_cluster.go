@@ -134,7 +134,7 @@ func (d *AgentDispatcher) RemoteAgents() []db.AgentLocation {
 	}
 	self := d.cluster.directory.InstanceID()
 	var out []db.AgentLocation
-	for _, location := range d.cluster.directory.ConnectedAgentLocations() {
+	for _, location := range d.cluster.locations() {
 		if location.InstanceID != self {
 			out = append(out, location)
 		}
@@ -175,17 +175,23 @@ func (c *agentCluster) recentlyConnected(userID, projectID string) bool {
 // agentConnected records a new local connection, and asks the instance that
 // held the slot before, if another, to close its connection as a single
 // instance does on a rebind.
-func (c *agentCluster) agentConnected(ac *AgentConn) {
+func (c *agentCluster) agentConnected(ac *AgentConn) error {
 	if c == nil {
-		return
+		return nil
 	}
-	previous, had, err := c.directory.AgentConnected(ac.UserID, ac.ProjectID, ac.DeviceID)
+	var previous db.AgentLocation
+	var had bool
+	var err error
+	if directory, ok := c.directory.(WorkstationDirectory); ok {
+		previous, had, err = directory.WorkstationConnected(db.AgentLocation{ConnectionID: ac.ConnectionID, UserID: ac.UserID, ProjectID: ac.ProjectID, DeviceID: ac.DeviceID, ConnectedAt: ac.ConnectedAt})
+	} else {
+		previous, had, err = c.directory.AgentConnected(ac.UserID, ac.ProjectID, ac.DeviceID)
+	}
 	if err != nil {
-		log.Printf("[AgentDispatcher] %v", err)
-		return
+		return err
 	}
-	if !had {
-		return
+	if !had || previous.InstanceID == c.directory.InstanceID() {
+		return nil
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -195,6 +201,7 @@ func (c *agentCluster) agentConnected(ac *AgentConn) {
 				ac.UserID, ac.ProjectID, previous.InstanceID, err)
 		}
 	}()
+	return nil
 }
 
 func (c *agentCluster) agentDisconnected(userID, projectID, deviceID string) {
@@ -205,12 +212,13 @@ func (c *agentCluster) agentDisconnected(userID, projectID, deviceID string) {
 
 // internalRequest is the body of every internal call.
 type internalRequest struct {
-	UserID    string                   `json:"userId,omitempty"`
-	ProjectID string                   `json:"projectId,omitempty"`
-	TaskID    string                   `json:"taskId,omitempty"`
-	Type      string                   `json:"type,omitempty"`
-	Payload   json.RawMessage          `json:"payload,omitempty"`
-	Operation *agentprotocol.Operation `json:"operation,omitempty"`
+	ConnectionID string                   `json:"connectionId,omitempty"`
+	UserID       string                   `json:"userId,omitempty"`
+	ProjectID    string                   `json:"projectId,omitempty"`
+	TaskID       string                   `json:"taskId,omitempty"`
+	Type         string                   `json:"type,omitempty"`
+	Payload      json.RawMessage          `json:"payload,omitempty"`
+	Operation    *agentprotocol.Operation `json:"operation,omitempty"`
 }
 
 // internalResponse is the answer of every internal call.
@@ -233,6 +241,7 @@ func (c *agentCluster) forward(ctx context.Context, location db.AgentLocation, v
 	if strings.TrimSpace(location.Address) == "" {
 		return nil, fmt.Errorf("the local agent is connected to server instance %s, which advertises no internal address", location.InstanceID)
 	}
+	body.ConnectionID = location.ConnectionID
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
@@ -337,20 +346,39 @@ func (d *AgentDispatcher) serveInternal(ctx context.Context, verb string, req in
 			userID = ImplicitUser
 		}
 	}
-	if verb == "close" {
-		// A rebind names the exact slot it took over. The project fallbacks
-		// would close an agent registered for every project instead.
-		d.mu.RLock()
-		ac := d.agents[agentKey{UserID: userID, ProjectID: projectID}]
-		d.mu.RUnlock()
-		if ac != nil {
-			ac.Close(4001, "Session Rebound")
+	var ac *AgentConn
+	if req.ConnectionID != "" {
+		if directory, ok := d.cluster.directory.(WorkstationDirectory); ok && verb != "close" {
+			live := false
+			for _, l := range directory.ConnectedWorkstations() {
+				if l.ConnectionID == req.ConnectionID && l.InstanceID == d.cluster.directory.InstanceID() {
+					live = true
+					break
+				}
+			}
+			if !live {
+				return nil, ErrNoAgentConnected
+			}
 		}
-		return nil, nil
+		d.mu.RLock()
+		ac = d.live[req.ConnectionID]
+		d.mu.RUnlock()
+		if ac != nil && ac.UserID != userID {
+			ac = nil
+		}
+	} else if verb == "close" {
+		d.mu.RLock()
+		ac = d.agents[agentKey{UserID: userID, ProjectID: projectID}]
+		d.mu.RUnlock()
+	} else {
+		ac = d.Lookup(userID, projectID)
 	}
-	ac := d.Lookup(userID, projectID)
 	if ac == nil {
-		return nil, fmt.Errorf("%w for user %s on project %s on this instance", ErrNoAgentConnected, userID, projectID)
+		return nil, ErrNoAgentConnected
+	}
+	if verb == "close" {
+		ac.Close(4001, "Session Rebound")
+		return nil, nil
 	}
 	switch verb {
 	case "operation":

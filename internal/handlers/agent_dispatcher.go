@@ -55,13 +55,16 @@ const (
 // AgentConn represents a single connected local agent daemon. The connection
 // belongs to the user who authenticated and covers one project workspace.
 type AgentConn struct {
-	done        chan struct{}
-	closeOnce   sync.Once
-	UserID      string
-	ProjectID   string
-	DeviceID    string
-	Conn        *websocket.Conn
-	ConnectedAt time.Time
+	ConnectionID       string
+	inventory          agentprotocol.ProjectInventory
+	inventoryUpdatedAt time.Time
+	done               chan struct{}
+	closeOnce          sync.Once
+	UserID             string
+	ProjectID          string
+	DeviceID           string
+	Conn               *websocket.Conn
+	ConnectedAt        time.Time
 	// Build is what the agent announced when it connected. It is set once at
 	// registration and never changes; a rebind builds a new AgentConn.
 	Build AgentBuild
@@ -185,19 +188,20 @@ func (ac *AgentConn) Keepalive(interval time.Duration) {
 	}
 }
 
-// agentKey uniquely identifies a connected agent slot.
+// agentKey identifies a compatibility routing slot.
 type agentKey struct {
 	UserID    string
 	ProjectID string
 }
 
-// AgentDispatcher manages connected local agent daemons. It enforces a strict
-// 1:1 mapping between (userID, projectID) and an active WebSocket connection.
+// AgentDispatcher retains live device sessions separately from compatibility routes.
 // When a user triggers a workflow action on the remote Web UI, the dispatcher
 // routes the command to the matching local agent.
 type AgentDispatcher struct {
 	operations   map[string]*pendingOperation
 	agents       map[agentKey]*AgentConn
+	live         map[string]*AgentConn
+	connections  map[*websocket.Conn]*AgentConn
 	pending      map[string]*pendingAgentLaunch
 	pendingPulls map[string]*pendingTaskPull
 	// lastConnected remembers when a slot last held an agent, so an absence
@@ -213,15 +217,16 @@ type AgentDispatcher struct {
 func NewAgentDispatcher() *AgentDispatcher {
 	return &AgentDispatcher{
 		agents:        make(map[agentKey]*AgentConn),
+		live:          make(map[string]*AgentConn),
+		connections:   make(map[*websocket.Conn]*AgentConn),
 		pending:       make(map[string]*pendingAgentLaunch),
 		pendingPulls:  make(map[string]*pendingTaskPull),
 		lastConnected: make(map[agentKey]time.Time),
 	}
 }
 
-// Register binds a local agent WebSocket to a (userID, projectID) slot. If an
-// existing connection occupies the slot, it is terminated with close code 4001
-// (Session Rebound) and replaced by the new connection.
+// Register retains a device session and updates the compatibility route. Only
+// an existing session for the same user, device and scope is replaced.
 func (d *AgentDispatcher) Register(userID, projectID, deviceID string, conn *websocket.Conn) *AgentConn {
 	return d.RegisterBuild(userID, projectID, deviceID, AgentBuild{}, conn)
 }
@@ -229,7 +234,10 @@ func (d *AgentDispatcher) Register(userID, projectID, deviceID string, conn *web
 // RegisterBuild is Register for an agent whose announced build is known.
 func (d *AgentDispatcher) RegisterBuild(userID, projectID, deviceID string, build AgentBuild, conn *websocket.Conn) *AgentConn {
 	ac := d.registerLocal(userID, projectID, deviceID, build, conn)
-	d.cluster.agentConnected(ac)
+	if err := d.cluster.agentConnected(ac); err != nil {
+		log.Printf("[AgentDispatcher] Enregistrement de la session locale impossible : %v", err)
+		ac.Close(websocket.CloseTryAgainLater, "Présence locale indisponible")
+	}
 	return ac
 }
 
@@ -239,23 +247,36 @@ func (d *AgentDispatcher) registerLocal(userID, projectID, deviceID string, buil
 
 	key := agentKey{UserID: userID, ProjectID: projectID}
 
-	if existing, ok := d.agents[key]; ok {
-		log.Printf("[AgentDispatcher] Rebinding agent for user=%s project=%s (old device=%s, new device=%s)",
-			userID, projectID, existing.DeviceID, deviceID)
-		existing.Close(4001, "Session Rebound")
+	if deviceID == "" {
+		deviceID = "unknown"
+	}
+	if d.live == nil {
+		d.live = make(map[string]*AgentConn)
+	}
+	for id, existing := range d.live {
+		if existing.UserID == userID && existing.ProjectID == projectID && existing.DeviceID == deviceID {
+			existing.Close(4001, "Session Rebound")
+			delete(d.live, id)
+		}
 	}
 
 	ac := &AgentConn{
-		done:        make(chan struct{}),
-		UserID:      userID,
-		ProjectID:   projectID,
-		DeviceID:    deviceID,
-		Conn:        conn,
-		ConnectedAt: time.Now(),
-		Build:       build,
+		ConnectionID: uuid.NewString(),
+		done:         make(chan struct{}),
+		UserID:       userID,
+		ProjectID:    projectID,
+		DeviceID:     deviceID,
+		Conn:         conn,
+		ConnectedAt:  time.Now(),
+		Build:        build,
 	}
 	ac.Touch()
 	d.agents[key] = ac
+	d.live[ac.ConnectionID] = ac
+	if d.connections == nil {
+		d.connections = make(map[*websocket.Conn]*AgentConn)
+	}
+	d.connections[conn] = ac
 	if d.lastConnected == nil {
 		d.lastConnected = make(map[agentKey]time.Time)
 	}
@@ -270,16 +291,28 @@ func (d *AgentDispatcher) registerLocal(userID, projectID, deviceID string, buil
 func (d *AgentDispatcher) Unregister(userID, projectID string, conn *websocket.Conn) {
 	d.mu.Lock()
 	key := agentKey{UserID: userID, ProjectID: projectID}
-	existing, ok := d.agents[key]
-	removed := ok && existing.Conn == conn
-	if removed {
+	existing := d.connections[conn]
+	if existing != nil && (existing.UserID != userID || existing.ProjectID != projectID) {
+		existing = nil
+	}
+	if existing != nil {
+		delete(d.connections, conn)
 		existing.closeOnce.Do(func() { close(existing.done) })
+		if d.live[existing.ConnectionID] == existing {
+			delete(d.live, existing.ConnectionID)
+		}
+	}
+	if existing != nil && d.agents[key] == existing {
 		delete(d.agents, key)
-		log.Printf("[AgentDispatcher] Agent unregistered: user=%s project=%s", userID, projectID)
+		for _, ac := range d.live {
+			if ac.UserID == userID && ac.ProjectID == projectID && (d.agents[key] == nil || ac.ConnectedAt.After(d.agents[key].ConnectedAt)) {
+				d.agents[key] = ac
+			}
+		}
 	}
 	d.mu.Unlock()
-	if removed {
-		d.cluster.agentDisconnected(userID, projectID, existing.DeviceID)
+	if existing != nil {
+		d.cluster.sessionDisconnected(existing)
 	}
 }
 
@@ -408,8 +441,8 @@ func (d *AgentDispatcher) ConnectedAgents() []AgentConnInfo {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	out := make([]AgentConnInfo, 0, len(d.agents))
-	for _, ac := range d.agents {
+	out := make([]AgentConnInfo, 0, len(d.live))
+	for _, ac := range d.live {
 		info := AgentConnInfo{
 			UserID:      ac.UserID,
 			ProjectID:   ac.ProjectID,
@@ -418,6 +451,7 @@ func (d *AgentDispatcher) ConnectedAgents() []AgentConnInfo {
 			LastPingAt:  ac.LastSeen(),
 		}
 		info.describeBuild(ac.Build)
+		info.describeInventory(ac)
 		out = append(out, info)
 	}
 	return out
@@ -428,8 +462,8 @@ func (d *AgentDispatcher) ActiveConnections() []*AgentConn {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	out := make([]*AgentConn, 0, len(d.agents))
-	for _, ac := range d.agents {
+	out := make([]*AgentConn, 0, len(d.live))
+	for _, ac := range d.live {
 		out = append(out, ac)
 	}
 	return out
@@ -438,11 +472,15 @@ func (d *AgentDispatcher) ActiveConnections() []*AgentConn {
 // AgentConnInfo is a read-only snapshot of an agent connection for API responses.
 
 type AgentConnInfo struct {
-	UserID      string    `json:"userId"`
-	ProjectID   string    `json:"projectId"`
-	DeviceID    string    `json:"deviceId"`
-	ConnectedAt time.Time `json:"connectedAt"`
-	LastPingAt  time.Time `json:"lastPingAt"`
+	ConnectionID        string     `json:"-"`
+	InventoryState      string     `json:"inventoryState"`
+	AvailableProjectIDs []string   `json:"availableProjectIds"`
+	InventoryUpdatedAt  *time.Time `json:"inventoryUpdatedAt,omitempty"`
+	UserID              string     `json:"userId"`
+	ProjectID           string     `json:"projectId"`
+	DeviceID            string     `json:"deviceId"`
+	ConnectedAt         time.Time  `json:"connectedAt"`
+	LastPingAt          time.Time  `json:"lastPingAt"`
 	// InstanceID names the server instance holding the connection, when
 	// several share the database.
 	InstanceID string `json:"instanceId,omitempty"`
@@ -470,16 +508,29 @@ func (info *AgentConnInfo) describeBuild(build AgentBuild) {
 // clusterAgents lists the agents of every live instance. A connection held
 // here reports its last ping; one held elsewhere reports when it connected.
 func (d *AgentDispatcher) clusterAgents() []AgentConnInfo {
-	locations := d.cluster.directory.ConnectedAgentLocations()
+	locations := d.cluster.locations()
 	out := make([]AgentConnInfo, 0, len(locations))
 	for _, l := range locations {
-		info := AgentConnInfo{UserID: l.UserID, ProjectID: l.ProjectID, DeviceID: l.DeviceID, ConnectedAt: l.ConnectedAt, LastPingAt: l.ConnectedAt, InstanceID: l.InstanceID}
+		info := AgentConnInfo{ConnectionID: l.ConnectionID, InventoryState: l.InventoryState, AvailableProjectIDs: l.ProjectIDs, InventoryUpdatedAt: l.InventoryUpdatedAt, UserID: l.UserID, ProjectID: l.ProjectID, DeviceID: l.DeviceID, ConnectedAt: l.ConnectedAt, LastPingAt: l.LastPingAt, InstanceID: l.InstanceID}
 		d.mu.RLock()
-		if ac, ok := d.agents[agentKey{UserID: l.UserID, ProjectID: l.ProjectID}]; ok {
+		ac := d.live[l.ConnectionID]
+		if l.ConnectionID == "" {
+			ac = d.agents[agentKey{UserID: l.UserID, ProjectID: l.ProjectID}]
+		}
+		if ac != nil && ac.DeviceID == l.DeviceID {
 			info.LastPingAt = ac.LastSeen()
 			info.describeBuild(ac.Build)
 		}
 		d.mu.RUnlock()
+		if info.InventoryState == "" {
+			info.InventoryState = "unknown"
+		}
+		if info.AvailableProjectIDs == nil {
+			info.AvailableProjectIDs = []string{}
+		}
+		if info.LastPingAt.IsZero() {
+			info.LastPingAt = info.ConnectedAt
+		}
 		out = append(out, info)
 	}
 	return out

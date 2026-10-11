@@ -690,6 +690,7 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	if !agentconfig.Resolve(config, settings).DropsSpecArtifacts() {
 		clearSpecExclusions(r.Context(), config, settings, input.Path)
 	}
+	d.inventory.notify()
 	w.WriteHeader(204)
 }
 
@@ -755,6 +756,7 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	d.inventory.notify()
 	// The settings file generated from its sandbox values goes too (#700).
 	if _, err := agentconfig.ClaudeSettingsFile(id, nil); err != nil {
 		log.Printf("[Agent] Could not remove the Claude settings of project %s: %v", id, err)

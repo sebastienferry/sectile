@@ -34,17 +34,20 @@ const presentBrowser = `EXISTS (SELECT 1 FROM web_sessions s
 // last sign of life is at or after the parameter: now while it is held by a
 // live instance (which heartbeats every few seconds), its instance's last
 // heartbeat when that instance died holding it, its disconnection otherwise.
-const presentAgent = `EXISTS (SELECT 1 FROM agent_presence p
+const presentAgent = `EXISTS (SELECT 1 FROM (SELECT user_id,instance_id,connected_at,disconnected_at FROM agent_presence UNION ALL SELECT user_id,instance_id,connected_at,NULL AS disconnected_at FROM agent_workstation_presence) p
 	LEFT JOIN server_instances i ON i.id = p.instance_id
 	WHERE p.user_id = user_credential_unlocks.user_id
 	  AND COALESCE(p.disconnected_at, i.last_seen, p.connected_at) >= ?)`
 
 // connectedAgent is true when the user named by the outer row has an agent
-// connected to a live instance right now. Parameter: the liveness cutoff.
-const connectedAgent = `EXISTS (SELECT 1 FROM agent_presence p
+// connected to a live instance right now. Parameters: the liveness cutoff
+// for the workstation and legacy directories.
+const connectedAgent = `(EXISTS (SELECT 1 FROM agent_workstation_presence p
+ JOIN server_instances i ON i.id = p.instance_id
+ WHERE p.user_id = user_credential_unlocks.user_id AND i.last_seen >= ?) OR EXISTS (SELECT 1 FROM agent_presence p
 	JOIN server_instances i ON i.id = p.instance_id
 	WHERE p.user_id = user_credential_unlocks.user_id
-	  AND p.disconnected_at IS NULL AND i.last_seen >= ?)`
+	  AND p.disconnected_at IS NULL AND i.last_seen >= ?))`
 
 // ForgetIdleUnlocks deletes every unlock whose owner's last presence is older
 // than the idle window at now, and says how many it forgot. It is one
@@ -94,7 +97,7 @@ func (d *DB) ForgetUnlocksIfAbsent(userID string, now time.Time) error {
 		WHERE user_id = ?
 		  AND NOT `+presentBrowser+`
 		  AND NOT `+connectedAgent,
-		userID, now, now.Add(-unlockIdleWindow), now.Add(-instanceDeadAfter))
+		userID, now, now.Add(-unlockIdleWindow), now.Add(-instanceDeadAfter), now.Add(-instanceDeadAfter))
 	return err
 }
 
@@ -118,7 +121,7 @@ func (d *DB) ForgetUserUnlocks(userID string) error {
 // passes now, since every instance row was written by an earlier process.
 func (d *DB) keepAgentPresenceInUnlocks(liveSince time.Time) error {
 	const lastSign = `COALESCE(p.disconnected_at, i.last_seen, p.connected_at)`
-	const forgotten = `FROM agent_presence p LEFT JOIN server_instances i ON i.id = p.instance_id
+	const forgotten = `FROM (SELECT user_id,instance_id,connected_at,disconnected_at FROM agent_presence UNION ALL SELECT user_id,instance_id,connected_at,NULL AS disconnected_at FROM agent_workstation_presence) p LEFT JOIN server_instances i ON i.id = p.instance_id
 		WHERE p.user_id = user_credential_unlocks.user_id
 		  AND (i.id IS NULL OR i.last_seen < ?)`
 	_, err := d.conn.Exec(`UPDATE user_credential_unlocks

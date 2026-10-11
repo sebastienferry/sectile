@@ -1535,3 +1535,78 @@ while at least one saved provider selects it. Origin and Host validation remain
 in force. `/api/`, desktop/control routes and remote surfaces keep their existing
 authentication. Agent restart refreshes saved registrations to the current local
 port; automatic task setup preserves the selected mode. See ADR 0023.
+
+## Connected workstation project inventory
+
+After registration, before announcing readiness, the agent sends an additive
+relay message (independent of the engine capability report):
+
+```json
+{"msgId":"","type":"project_inventory","payload":{"schemaVersion":1,"projectIds":["project-a","project-b"]}}
+```
+
+The array is a complete replacement, sorted and deduplicated. An explicit
+`[]` withdraws every project. Missing/null arrays, unsupported versions,
+more than 4096 entries, messages over 1 MiB, unknown projects and projects
+outside the authenticated user's visibility or the connection's concrete
+scope are rejected atomically with a generic `error` reply. The previous
+accepted snapshot remains available and the healthy relay stays connected.
+Identity comes from the registered connection, never from the payload.
+
+Available means an accessible Git checkout under the workstation's existing
+mapping or current-repository fallback, and not locally disconnected. Paths,
+command templates, credentials and hardware/tool information remain local.
+This does not promise that execution dependencies or credentials are ready.
+All/default connections discover every authorized project; concrete
+connections advertise only their own project. Global discovery/settings
+failure or a computation timeout produces an empty withdrawal, followed by a
+retry. No checkout is cloned or provisioned by this feature.
+
+Successful Desktop mapping/disconnect writes trigger a coalesced refresh.
+A separate cancellable worker also refreshes every 30 seconds, including
+unchanged snapshots, with a 10-second computation budget. External settings
+edits, checkout loss and changed project visibility are reflected within
+40 seconds on a healthy relay. Git checks never run in the heartbeat writer.
+Workers send only through their original connection; reconnect starts with
+unknown inventory until an accepted snapshot arrives.
+
+Distinct device sessions coexist. Only a matching user/device/connection-scope
+session is replaced, and stale updates or teardown cannot affect its successor.
+A missing device ID retains the legacy `unknown` slot behavior. A device with
+multiple scopes contributes the union of its live snapshots.
+
+Authenticated `GET /api/agent/status` returns only the caller's agents, retaining
+existing connection/build/operation fields and adding `inventoryState`
+(`unknown` or `reported`), `availableProjectIds` (always an array) and
+`inventoryUpdatedAt` (only after an accepted report). Anonymous calls return
+401. Add `?projectId=<ID>` to filter agents advertising an accessible project
+and receive `availableWorkstations`, sorted and deduplicated by `deviceId`:
+
+```json
+{"agents":[],"availableWorkstations":[]}
+```
+
+Each workstation entry has `deviceId`, the earliest live `connectedAt` and the
+latest live `lastPingAt` among all its live scopes. Unknown/inaccessible
+projects return 403. No query parameter selects another user. Legacy relays
+with no inventory remain connected with unknown availability and contribute
+no verified project availability.
+
+Shared servers use migration 51's ephemeral `agent_workstation_presence`
+directory. Accepted inventories publish atomically before appearing in queries;
+failed writes retain the previous published snapshot and are retried on the
+next agent refresh. Queries join live `server_instances`, hide crashed instances
+at the existing liveness threshold and discard their rows through the reaper.
+No offline inventory history is retained or copied by database export.
+**Every server replica must be upgraded before simultaneous device retention
+is guaranteed.** Agents may be upgraded independently; old servers ignore the
+additive relay message.
+
+Availability does not select execution targets. Compatibility routing remains
+local-first, with exact/default/all/empty scope precedence and the latest
+registration in each scope; departure falls back to the newest remaining
+session. A legacy dispatch can still fail local validation even when another
+workstation advertises availability. Operations, launch confirmations,
+cancellation and task pulls stay bound to their selected connection; new
+internal forwarded requests carry the exact server-generated connection ID
+and refuse a replaced session instead of retargeting it.

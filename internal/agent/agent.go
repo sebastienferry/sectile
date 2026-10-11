@@ -64,6 +64,7 @@ const (
 // agentDaemon runs the local Sectile agent that connects outward to a remote
 // Sectile server and executes workflow steps locally inside Git worktrees.
 type agentDaemon struct {
+	inventory inventoryNotifier
 	// operations tracks in-flight workspace operations the server may cancel.
 	operations operationRegistry
 	// queue owns every live execution and the process lifecycle flags that
@@ -566,20 +567,6 @@ func (d *agentDaemon) connect(ctx context.Context) (bool, error) {
 	}
 	// The workstation defaults take over the server's values once (#305).
 	d.seedSettings(ctx, agentconfig.Config{})
-	if d.link.projectID == "all" {
-		projects, err := d.discoverProjects(ctx)
-		if err != nil {
-			return false, fmt.Errorf("project discovery: %w", err)
-		}
-		for _, p := range projects.Projects {
-			_, _, err := d.localProjectRoot(ctx, agentconfig.Config{ProjectID: p.ID, GitRemoteURL: p.GitRemoteURL})
-			if err != nil {
-				log.Printf("[Agent] Project %s (%s) requires a local mapping: %v", p.Name, p.ID, err)
-			} else {
-				log.Printf("[Agent] Local project available: %s (%s)", p.Name, p.ID)
-			}
-		}
-	}
 	if d.link.projectID != "" && d.link.projectID != "default" && d.link.projectID != "all" {
 		// The configuration is read to check the contract; it is no longer
 		// installed on connection (#267).
@@ -615,19 +602,18 @@ func (d *agentDaemon) connect(ctx context.Context) (bool, error) {
 
 	stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stopClose()
+	heartbeatCtx, heartbeatCancel := context.WithCancel(ctx)
+	defer heartbeatCancel()
+	go d.heartbeatLoop(heartbeatCtx, conn, agentHeartbeatInterval)
+	installKeepalive(heartbeatCtx, conn)
+	d.sendProjectInventory(heartbeatCtx, conn)
+	go d.inventoryLoop(heartbeatCtx, conn)
 	d.resendAnswers(conn)
 	d.reportCapabilitiesLater()
 	log.Printf("[Agent] Connected to remote server")
 	fmt.Printf("\n✅ [Agent] Connecté avec succès au serveur Sectile (%s)\n", d.link.serverURL)
 	fmt.Printf("   Projet: [%s] | Machine: [%s]\n", d.link.projectID, d.link.deviceID)
 	fmt.Printf("   Prêt ! Les compétences déclenchées sur l'interface web s'exécuteront ici.\n\n")
-
-	// Start heartbeat sender.
-	heartbeatCtx, heartbeatCancel := context.WithCancel(ctx)
-	defer heartbeatCancel()
-	go d.heartbeatLoop(heartbeatCtx, conn, agentHeartbeatInterval)
-
-	installKeepalive(heartbeatCtx, conn)
 
 	// Message read loop.
 	for {

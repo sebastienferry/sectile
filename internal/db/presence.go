@@ -23,12 +23,17 @@ var agentProjectFallbacks = []string{"default", "all", ""}
 
 // AgentLocation is where an agent slot is held.
 type AgentLocation struct {
-	UserID      string
-	ProjectID   string
-	InstanceID  string
-	Address     string
-	DeviceID    string
-	ConnectedAt time.Time
+	ConnectionID       string
+	LastPingAt         time.Time
+	InventoryState     string
+	InventoryUpdatedAt *time.Time
+	ProjectIDs         []string
+	UserID             string
+	ProjectID          string
+	InstanceID         string
+	Address            string
+	DeviceID           string
+	ConnectedAt        time.Time
 }
 
 // internalTokenLabel is what the internal bearer is derived from.
@@ -84,6 +89,9 @@ func (d *DB) AgentDisconnected(userID, projectID, deviceID string) {
 // project, falling back to an agent registered for every project.
 func (d *DB) AgentOwner(userID, projectID string) (AgentLocation, bool) {
 	for _, slot := range append([]string{projectID}, agentProjectFallbacks...) {
+		if location, ok := d.workstationHolder(userID, slot); ok {
+			return location, true
+		}
 		if location, ok := d.agentHolder(userID, slot); ok {
 			return location, true
 		}

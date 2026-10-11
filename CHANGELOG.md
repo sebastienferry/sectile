@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- **Connected workstation availability by project.** Multiple workstations can stay connected for the same user, and the agent status API reports which have an accessible local checkout for each project. Availability updates when local mappings or checkouts change. (#818)
+
 ## [0.4.5] - 2026-10-09
 
 ### Added

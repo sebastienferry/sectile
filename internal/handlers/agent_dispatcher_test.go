@@ -111,12 +111,12 @@ func TestAgentDispatcher_SessionRebound(t *testing.T) {
 	// Register device 1
 	dispatcher.Register("user1", "proj1", "device1", conn1)
 
-	// Register device 2 on same user/project -> should rebind and close device 1 with 4001
-	dispatcher.Register("user1", "proj1", "device2", conn2)
+	// Reconnect the same device/scope: only that session is replaced.
+	dispatcher.Register("user1", "proj1", "device1", conn2)
 
 	active := dispatcher.Lookup("user1", "proj1")
-	if active == nil || active.DeviceID != "device2" {
-		t.Errorf("expected active agent to be device2, got %v", active)
+	if active == nil || active.DeviceID != "device1" {
+		t.Errorf("expected active agent to be device1, got %v", active)
 	}
 
 	// Verify conn1 received close message or was closed
@@ -139,6 +139,7 @@ func TestHandleAgentStatus(t *testing.T) {
 	h := handlers.NewHandler(database)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/agent/status", nil)
+	req.AddCookie(defaultSession(t, database))
 	rr := httptest.NewRecorder()
 	h.HandleAgentStatus(rr, req)
 
@@ -252,6 +253,7 @@ func TestHandleAgentConnect_WebSocketHandshake(t *testing.T) {
 
 	// Check status API now reports the connected agent
 	statusReq := httptest.NewRequest(http.MethodGet, "/api/agent/status", nil)
+	statusReq.AddCookie(defaultSession(t, database))
 	statusRR := httptest.NewRecorder()
 	h.HandleAgentStatus(statusRR, statusReq)
 
@@ -618,7 +620,9 @@ func TestHandleAgentConnectKeepsTheAnnouncedBuild(t *testing.T) {
 		var last string
 		for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 			rr := httptest.NewRecorder()
-			h.HandleAgentStatus(rr, httptest.NewRequest(http.MethodGet, "/api/agent/status", nil))
+			req := httptest.NewRequest(http.MethodGet, "/api/agent/status", nil)
+			req.AddCookie(defaultSession(t, database))
+			h.HandleAgentStatus(rr, req)
 			var res struct {
 				Agents []handlers.AgentConnInfo `json:"agents"`
 			}

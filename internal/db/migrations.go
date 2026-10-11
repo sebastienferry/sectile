@@ -742,6 +742,22 @@ var migrations = []migration{
 			"ALTER TABLE project_trackers ADD COLUMN stage_columns TEXT NOT NULL DEFAULT '{}';",
 		},
 	},
+	{
+		version: 51,
+		name:    "agent_workstation_presence",
+		statements: []string{
+			`CREATE TABLE agent_workstation_presence (
+    connection_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL, device_id TEXT NOT NULL, project_scope TEXT NOT NULL,
+    instance_id TEXT NOT NULL, connected_at DATETIME NOT NULL, last_ping_at DATETIME NOT NULL,
+    inventory_state TEXT NOT NULL DEFAULT 'unknown', inventory_updated_at DATETIME,
+    inventory_json TEXT NOT NULL DEFAULT '[]'
+   );`,
+			`CREATE UNIQUE INDEX agent_workstation_identity ON agent_workstation_presence(user_id, device_id, project_scope);`,
+			`CREATE INDEX agent_workstation_user ON agent_workstation_presence(user_id);`,
+			`CREATE INDEX agent_workstation_instance ON agent_workstation_presence(instance_id);`,
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is
