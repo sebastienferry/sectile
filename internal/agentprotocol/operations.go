@@ -1,6 +1,7 @@
 package agentprotocol
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 
 // Operation names a local capability; directories are resolved by the agent from project identity.
 type Operation struct {
+	DeviceID string `json:"deviceId,omitempty"`
 	// UserID names the agent owner to reach. Empty means the deployment's
 	// single implicit user, which is what a server without an identity
 	// provider has.
@@ -141,4 +143,17 @@ func IsUnknownOperationReply(reply, operation string) bool {
 // what lets the server recognise them.
 func UnknownOperationReply(operation string) string {
 	return fmt.Sprintf("unknown local operation %q", operation)
+}
+
+// DeviceIDHeader carries an explicit workstation selection through the MCP bridge.
+const DeviceIDHeader = "X-Sectile-Device-ID"
+
+type deviceContextKey struct{}
+
+func WithDeviceID(ctx context.Context, deviceID string) context.Context {
+	return context.WithValue(ctx, deviceContextKey{}, deviceID)
+}
+func DeviceIDFromContext(ctx context.Context) string {
+	deviceID, _ := ctx.Value(deviceContextKey{}).(string)
+	return deviceID
 }

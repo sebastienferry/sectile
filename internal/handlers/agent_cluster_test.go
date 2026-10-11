@@ -31,29 +31,38 @@ type instanceView struct {
 
 func (v *instanceView) InstanceID() string { return v.id }
 
-func (v *instanceView) AgentConnected(userID, projectID, deviceID string) (db.AgentLocation, bool, error) {
+func (v *instanceView) AgentConnected(userID, projectID, deviceID string, generation ...time.Time) (db.AgentLocation, bool, error) {
 	v.shared.mu.Lock()
 	defer v.shared.mu.Unlock()
-	key := agentKey{UserID: userID, ProjectID: projectID}
+	key := agentKey{UserID: userID, DeviceID: deviceID}
 	previous, had := v.shared.rows[key]
-	v.shared.rows[key] = db.AgentLocation{UserID: userID, ProjectID: projectID, InstanceID: v.id, Address: v.address, DeviceID: deviceID, ConnectedAt: time.Now()}
+	now := time.Now()
+	if len(generation) > 0 {
+		now = generation[0]
+	}
+	v.shared.rows[key] = db.AgentLocation{UserID: userID, ProjectID: projectID, InstanceID: v.id, Address: v.address, DeviceID: deviceID, ConnectedAt: now}
 	return previous, had && previous.InstanceID != v.id, nil
 }
 
-func (v *instanceView) AgentDisconnected(userID, projectID, deviceID string) {
+func (v *instanceView) AgentDisconnected(userID, projectID, deviceID string, generation ...time.Time) {
 	v.shared.mu.Lock()
 	defer v.shared.mu.Unlock()
-	key := agentKey{UserID: userID, ProjectID: projectID}
-	if row, ok := v.shared.rows[key]; ok && row.InstanceID == v.id && row.DeviceID == deviceID {
+	key := agentKey{UserID: userID, DeviceID: deviceID}
+	if row, ok := v.shared.rows[key]; ok && row.InstanceID == v.id && row.DeviceID == deviceID && (len(generation) == 0 || row.ConnectedAt.Equal(generation[0])) {
 		delete(v.shared.rows, key)
 	}
 }
 
 func (v *instanceView) AgentOwner(userID, projectID string) (db.AgentLocation, bool) {
-	v.shared.mu.Lock()
-	defer v.shared.mu.Unlock()
-	row, ok := v.shared.rows[agentKey{UserID: userID, ProjectID: projectID}]
-	return row, ok
+	var selected db.AgentLocation
+	count := 0
+	for _, row := range v.ConnectedAgentLocations() {
+		if row.UserID == userID {
+			count++
+			selected = row
+		}
+	}
+	return selected, count == 1 && projectEligible(selected.ProjectID, projectID)
 }
 
 func (v *instanceView) AgentRecentlyConnected(userID, projectID string, since time.Time) bool {
@@ -114,7 +123,7 @@ func connectClusterAgentBuild(t *testing.T, d *AgentDispatcher, userID, projectI
 		ac := d.RegisterBuild(userID, projectID, deviceID, build, conn)
 		close(registered)
 		defer conn.Close()
-		defer d.Unregister(ac.UserID, ac.ProjectID, conn)
+		defer d.Unregister(ac.UserID, ac.DeviceID, conn)
 		for {
 			var msg AgentMessage
 			if conn.ReadJSON(&msg) != nil {
@@ -279,7 +288,7 @@ func TestAnInstanceThatDoesNotAnswerFailsExplicitly(t *testing.T) {
 	c := newCluster(t, "A", "B")
 	gone := httptest.NewServer(http.NotFoundHandler())
 	gone.Close()
-	c[1].view.shared.rows[agentKey{UserID: "default", ProjectID: "project"}] = db.AgentLocation{
+	c[1].view.shared.rows[agentKey{UserID: "default", DeviceID: "laptop"}] = db.AgentLocation{
 		UserID: "default", ProjectID: "project", InstanceID: "A", Address: gone.URL, DeviceID: "laptop",
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -31,7 +31,7 @@ func operationConnectionBuild(t *testing.T, d *AgentDispatcher, build AgentBuild
 		ac := d.RegisterBuild("default", "project", "test", build, conn)
 		registered <- ac
 		defer conn.Close()
-		defer d.Unregister(ac.UserID, ac.ProjectID, conn)
+		defer d.Unregister(ac.UserID, ac.DeviceID, conn)
 		for {
 			var msg AgentMessage
 			if conn.ReadJSON(&msg) != nil {

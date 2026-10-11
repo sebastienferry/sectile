@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"tasks/internal/agentconfig"
@@ -22,7 +23,10 @@ func (d *AgentDispatcher) CallOperation(ctx context.Context, op agentprotocol.Op
 	if userID == "" {
 		userID = ImplicitUser
 	}
-	route := d.waitForRoute(ctx, userID, op.ProjectID, defaultAgentReconnectGrace)
+	route, err := d.waitForSelectedRoute(ctx, userID, op.ProjectID, op.DeviceID, defaultAgentReconnectGrace)
+	if err != nil && !errors.Is(err, ErrNoAgentConnected) {
+		return nil, err
+	}
 	if route == nil {
 		if d.agentWasRecentlyConnected(userID, op.ProjectID) {
 			// Saying only "no local agent connected" reads as a configuration
@@ -31,6 +35,7 @@ func (d *AgentDispatcher) CallOperation(ctx context.Context, op agentprotocol.Op
 		}
 		return nil, fmt.Errorf("%w for project %s", ErrNoAgentConnected, op.ProjectID)
 	}
+	op.DeviceID = route.DeviceID
 	if route.remote != nil {
 		return d.cluster.operation(ctx, *route.remote, op)
 	}
@@ -46,7 +51,7 @@ func (d *AgentDispatcher) callOperationLocal(ctx context.Context, ac *AgentConn,
 		}
 		// On the connection already resolved: an operation forwarded here must
 		// not be forwarded again if the slot changes hands meanwhile.
-		err := d.dispatchAndWaitLocal(ctx, ac, ac.UserID, op.TaskID, agentconfig.Dispatch{SchemaVersion: agentconfig.Version, TaskID: op.TaskID, TaskKey: op.TaskID, ProjectID: op.ProjectID, SkillID: op.SkillID, Action: action, Prompt: op.Prompt, RunID: op.RunID, Mode: op.Mode, Model: op.Model})
+		err := d.dispatchAndWaitRoute(ctx, &AgentRoute{DeviceID: ac.DeviceID, local: ac}, ac.UserID, op.ProjectID, op.TaskID, agentconfig.Dispatch{DeviceID: ac.DeviceID, SchemaVersion: agentconfig.Version, TaskID: op.TaskID, TaskKey: op.TaskID, ProjectID: op.ProjectID, SkillID: op.SkillID, Action: action, Prompt: op.Prompt, RunID: op.RunID, Mode: op.Mode, Model: op.Model})
 		return json.RawMessage("null"), err
 	}
 	// Refused here rather than relayed: an agent too old for the operation
