@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Task skills can target a workstation with `targetDeviceId` or `deviceId`. Automatic routing retains task affinity, Desktop runs locally, and activity history records the workstation. Only connected workstations reporting the project qualify; unavailable affinity requires an explicit override. (#819)
+
 - **Connected workstation availability by project.** The agent status API reports which connected workstations have an accessible local checkout for each project. Availability updates when local mappings or checkouts change. (#818)
 - Keep multiple workstations connected simultaneously; select a workstation with `deviceId` when dispatching while several are connected. (#817)
 

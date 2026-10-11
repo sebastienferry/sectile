@@ -88,7 +88,7 @@ func call(t *testing.T, server *httptest.Server, cookie *http.Cookie, method, pa
 }
 
 // connectAgentAs opens a fake agent for the user the key names.
-func connectAgentAs(t *testing.T, server *httptest.Server, key, projectID string) *websocket.Conn {
+func connectAgentAs(t *testing.T, server *httptest.Server, key, projectID string, inventoryHandlers ...*Handler) *websocket.Conn {
 	t.Helper()
 	u, _ := url.Parse(server.URL)
 	u.Scheme = "ws"
@@ -99,6 +99,22 @@ func connectAgentAs(t *testing.T, server *httptest.Server, key, projectID string
 		t.Fatalf("agent dial: %v", err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
+	if len(inventoryHandlers) > 0 {
+		h := inventoryHandlers[0]
+		deadline := time.Now().Add(time.Second)
+		for {
+			for _, ac := range h.agentDispatcher.ActiveConnections() {
+				if ac.DeviceID == "laptop" && ac.ProjectID == projectID {
+					reportTaskInventory(t, h.agentDispatcher, ac.UserID, ac.DeviceID, projectID)
+					return conn
+				}
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("agent did not register")
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
 	return conn
 }
 

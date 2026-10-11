@@ -1241,7 +1241,7 @@ func TestDesktopLaunchForwardsTheProjectOfTheBoard(t *testing.T) {
 	d := &agentDaemon{
 		repoRoot: root,
 		loopback: loopbackServer{desktopToken: "private"},
-		link:     serverLink{serverURL: srv.URL, projectID: "p"},
+		link:     serverLink{serverURL: srv.URL, projectID: "p", deviceID: "local-desktop"},
 	}
 	launch := func(input map[string]any) *httptest.ResponseRecorder {
 		raw, _ := json.Marshal(input)
@@ -1255,14 +1255,24 @@ func TestDesktopLaunchForwardsTheProjectOfTheBoard(t *testing.T) {
 	if w := launch(map[string]any{"taskID": "task-1", "skillID": "custom", "prompt": "go"}); w.Code != http.StatusOK {
 		t.Fatalf("a ticket of the board's project is launchable: %d %s", w.Code, w.Body.String())
 	}
-	if len(forwarded) != 1 || forwarded[0]["projectId"] != "p" {
+	if len(forwarded) != 1 || forwarded[0]["projectId"] != "p" || forwarded[0]["targetDeviceId"] != "local-desktop" {
 		t.Fatalf("the launch must name the project of the board: %+v", forwarded)
+	}
+	if w := launch(map[string]any{"taskID": "task-1", "skillID": "custom", "prompt": "go", "force": true, "targetDeviceId": "other"}); w.Code != http.StatusOK {
+		t.Fatalf("forced local launch: %d %s", w.Code, w.Body.String())
+	}
+	if len(forwarded) != 2 || forwarded[1]["targetDeviceId"] != "local-desktop" || forwarded[1]["force"] != true {
+		t.Fatalf("local pin was overridden: %+v", forwarded)
+	}
+	d.link.deviceID = ""
+	if w := launch(map[string]any{"taskID": "task-1", "skillID": "custom", "prompt": "go"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("missing identity: %d", w.Code)
 	}
 	// A ticket the project does not show is refused before the server.
 	if w := launch(map[string]any{"taskID": "task-2", "skillID": "custom", "prompt": "go"}); w.Code != http.StatusBadRequest {
 		t.Fatalf("a ticket of another project must be refused: %d %s", w.Code, w.Body.String())
 	}
-	if len(forwarded) != 1 {
+	if len(forwarded) != 2 {
 		t.Fatalf("a refused launch reached the server: %+v", forwarded)
 	}
 }

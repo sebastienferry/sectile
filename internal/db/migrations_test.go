@@ -108,6 +108,8 @@ func dropCredentialAccountColumn(d *DB) {
 // SQLite refuses to drop a column an index still names, so the indexes go
 // first.
 func undoTrackerMigration(d *DB) {
+	_, _ = d.conn.Exec("DROP INDEX IF EXISTS task_launch_affinity")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN device_id")
 	for _, statement := range []string{
 		"DROP TABLE IF EXISTS agent_workstation_presence",
 		"DROP TABLE IF EXISTS trackers",

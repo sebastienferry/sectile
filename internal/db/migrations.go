@@ -778,6 +778,14 @@ var migrations = []migration{
 			`CREATE INDEX agent_workstation_instance ON agent_workstation_presence(instance_id);`,
 		},
 	},
+	{
+		version: 53,
+		name:    "task_activities.device_id",
+		statements: []string{
+			"ALTER TABLE task_activities ADD COLUMN device_id TEXT NOT NULL DEFAULT '';",
+			"CREATE INDEX task_launch_affinity ON task_activities(task_id, run_project_id, user_id, skill_id, status, created_at, id);",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

@@ -33,7 +33,7 @@ func TestSkillLaunchWaitsForReconnectingAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	task := guardTask(t, database, "Reconnect launch")
-	dropped := connectAgentAs(t, server, key, "default")
+	dropped := connectAgentAs(t, server, key, "default", h)
 	_ = dropped.Close()
 	waitForDisconnectedAgent(t, h, userID)
 
@@ -43,7 +43,7 @@ func TestSkillLaunchWaitsForReconnectingAgent(t *testing.T) {
 	}
 	answers := make(chan response, 1)
 	go func() {
-		status, body := call(t, server, cookie, http.MethodPost, "/api/tasks/"+task.ID+"/run-skill", `{"skillId":"clarify"}`)
+		status, body := call(t, server, cookie, http.MethodPost, "/api/tasks/"+task.ID+"/run-skill", `{"skillId":"clarify","targetDeviceId":"laptop"}`)
 		answers <- response{status, body}
 	}()
 	time.Sleep(150 * time.Millisecond)
@@ -52,7 +52,7 @@ func TestSkillLaunchWaitsForReconnectingAgent(t *testing.T) {
 		t.Fatalf("launch failed before reconnection: %d %s", answer.status, answer.body)
 	default:
 	}
-	conn := connectAgentAs(t, server, key, "default")
+	conn := connectAgentAs(t, server, key, "default", h)
 	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	var dispatch AgentMessage
 	if err := conn.ReadJSON(&dispatch); err != nil {
@@ -82,12 +82,12 @@ func TestSkillLaunchReconnectTimeoutRecordsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	task := guardTask(t, database, "Timeout launch")
-	dropped := connectAgentAs(t, server, key, "default")
+	dropped := connectAgentAs(t, server, key, "default", h)
 	_ = dropped.Close()
 	waitForDisconnectedAgent(t, h, userID)
 
-	status, body := call(t, server, cookie, http.MethodPost, "/api/tasks/"+task.ID+"/run-skill", `{"skillId":"clarify"}`)
-	if status != http.StatusConflict || !strings.Contains(body, "se reconnecte") {
+	status, body := call(t, server, cookie, http.MethodPost, "/api/tasks/"+task.ID+"/run-skill", `{"skillId":"clarify","targetDeviceId":"laptop"}`)
+	if status != http.StatusBadRequest || !strings.Contains(body, "indisponible") {
 		t.Fatalf("missing reconnect guidance: %d %s", status, body)
 	}
 	if count := activityCount(t, database, task.ID); count != 0 {
@@ -105,12 +105,12 @@ func TestCanceledSkillLaunchWaitRecordsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	task := guardTask(t, database, "Canceled reconnect launch")
-	dropped := connectAgentAs(t, server, key, "default")
+	dropped := connectAgentAs(t, server, key, "default", h)
 	_ = dropped.Close()
 	waitForDisconnectedAgent(t, h, userID)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	req := httptest.NewRequest(http.MethodPost, "/api/tasks/"+task.ID+"/run-skill", strings.NewReader(`{"skillId":"clarify"}`)).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/"+task.ID+"/run-skill", strings.NewReader(`{"skillId":"clarify","targetDeviceId":"laptop"}`)).WithContext(ctx)
 	req.AddCookie(cookie)
 	recorder := httptest.NewRecorder()
 	done := make(chan struct{})

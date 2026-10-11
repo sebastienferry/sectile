@@ -85,6 +85,8 @@ export interface TaskActivity {
   projectId?: string
   /** The tracker a synchronisation read (#741). */
   trackerId?: string
+  /** The workstation selected when the run was launched. */
+  deviceId?: string
   /** The project a task run works for (#741). */
   runProjectId?: string
   taskKey?: string

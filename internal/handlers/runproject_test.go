@@ -55,7 +55,7 @@ func TestARunSkillOnATwoProjectTicketAsksWhichProject(t *testing.T) {
 	}
 
 	status, body = call(t, server, alice, http.MethodPost, path, `{"skillId":"clarify","projectId":"`+bidder.ID+`"}`)
-	if strings.Contains(body, "candidates") || !strings.Contains(body, "Connect the local agent") {
+	if strings.Contains(body, "candidates") || !strings.Contains(body, "Aucun poste connecté") {
 		t.Fatalf("a launch from Bidder's board: %d %s", status, body)
 	}
 }

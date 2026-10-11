@@ -2397,6 +2397,10 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid skill request: "+err.Error())
 			return
 		}
+		if err := req.NormalizeTargetDevice(); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if req.SkillID == "" {
 			writeError(w, http.StatusBadRequest, "Skill ID is required")
 			return
@@ -2506,8 +2510,13 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		userID := h.webSessionUser(r)
-		ac, selectionErr := h.agentDispatcher.waitForSelectedRoute(r.Context(), userID, projectID, req.DeviceID, defaultAgentReconnectGrace)
+		ac, selectionErr := h.selectTaskLaunchRoute(r.Context(), task.ID, userID, projectID, req.DeviceID)
 		if writeDeviceSelectionError(w, selectionErr) {
+			return
+		}
+
+		if selectionErr != nil {
+			writeError(w, http.StatusInternalServerError, "Impossible de sélectionner le poste : "+selectionErr.Error())
 			return
 		}
 
@@ -2535,6 +2544,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				UserID:    userID,
 				Force:     req.Force && active != nil,
 				ProjectID: projectID,
+				DeviceID:  ac.DeviceID,
 			})
 			if writeTaskBusy(w, runErr) {
 				return
@@ -2543,14 +2553,16 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			activityID := uuid.New().String()
 			now := time.Now()
 			act := models.TaskActivity{
-				ID:        activityID,
-				TaskID:    task.ID,
-				SkillID:   "agent_launch",
-				SkillName: req.SkillID,
-				Action:    fmt.Sprintf("Exécution de %s sur l'agent local", req.SkillID),
-				Status:    string(models.ActivityStatusRunning),
-				Summary:   fmt.Sprintf("Exécution en cours sur l'agent local (%s)", ac.DeviceID),
-				Output:    "",
+				ID:           activityID,
+				TaskID:       task.ID,
+				RunProjectID: projectID,
+				DeviceID:     ac.DeviceID,
+				SkillID:      "agent_launch",
+				SkillName:    req.SkillID,
+				Action:       fmt.Sprintf("Exécution de %s sur l'agent local", req.SkillID),
+				Status:       string(models.ActivityStatusRunning),
+				Summary:      fmt.Sprintf("Exécution en cours sur l'agent local (%s)", ac.DeviceID),
+				Output:       "",
 				Steps: []string{
 					fmt.Sprintf("Tâche ciblée : %s - %s", task.Key, task.Title),
 					fmt.Sprintf("Déléguée à l'agent local (%s)...", ac.DeviceID),
@@ -2560,7 +2572,13 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				StartedAt: &now,
 				UserID:    userID,
 			}
-			_ = h.db.AddTaskActivity(act)
+			if err := h.db.AddTaskActivity(act); err != nil {
+				if remoteRun != nil {
+					_, _ = h.db.FinishRemoteRun(task.ID, remoteRun.ID, "failed", err.Error())
+				}
+				writeError(w, http.StatusInternalServerError, "Impossible de conserver le lancement")
+				return
+			}
 
 			if runErr != nil {
 				act.Status = "failed"
@@ -2614,7 +2632,10 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 					_, _ = h.db.FinishRemoteRun(task.ID, remoteRun.ID, "failed", err.Error())
 				}
 			}
-			_ = h.db.FinishAgentLaunch(act)
+			if finishErr := h.db.FinishAgentLaunch(act); finishErr != nil {
+				writeError(w, http.StatusInternalServerError, "Impossible de conserver la confirmation du lancement")
+				return
+			}
 			if err != nil {
 				writeError(w, http.StatusBadGateway, "Erreur lors de la délégation à l'agent local: "+err.Error())
 				return

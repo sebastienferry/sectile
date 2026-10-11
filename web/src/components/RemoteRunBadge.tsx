@@ -70,6 +70,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   const stateLabel = strings.states[state] + (waited ? format(strings.waitedFor, { duration: waited }) : '')
     + (count > 1 ? ` (${count})` : '') + (skills ? ` (${skills})` : '')
     + (owners ? format(strings.startedBy, { owners }) : '')
+    + [...new Set(runs.map(run => run.deviceId).filter(Boolean))].map(device => ` · ${format(strings.workstation, { device: device! })}`).join('')
 
   // closing marks a client run being closed rather than an agent run being
   // stopped: there is no agent to be unreachable, so no force is ever offered.
