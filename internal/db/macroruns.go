@@ -256,6 +256,7 @@ func (d *DB) FinishMacroRunAs(caller Actor, admin bool, projectID, macroKey, run
 		return nil, fmt.Errorf("remote run not found or already finished with another status")
 	}
 	activity.MacroKey = macro.Key
+	d.notifyPostBackListeners(nil, activity, nil)
 	return activity, nil
 }
 

@@ -68,7 +68,7 @@ func TestAgentDispatcher_RegisterAndLookup(t *testing.T) {
 	}
 
 	// Unregister
-	dispatcher.Unregister("user1", "proj1", conn)
+	dispatcher.Unregister("user1", "laptop", conn)
 	if ac := dispatcher.Lookup("user1", "proj1"); ac != nil {
 		t.Errorf("expected agent to be unregistered, got %v", ac)
 	}
@@ -111,12 +111,12 @@ func TestAgentDispatcher_SessionRebound(t *testing.T) {
 	// Register device 1
 	dispatcher.Register("user1", "proj1", "device1", conn1)
 
-	// Register device 2 on same user/project -> should rebind and close device 1 with 4001
-	dispatcher.Register("user1", "proj1", "device2", conn2)
+	// Reconnect the same device under another project: only its slot rebounds.
+	dispatcher.Register("user1", "proj2", "device1", conn2)
 
-	active := dispatcher.Lookup("user1", "proj1")
-	if active == nil || active.DeviceID != "device2" {
-		t.Errorf("expected active agent to be device2, got %v", active)
+	active := dispatcher.Lookup("user1", "proj2")
+	if active == nil || active.DeviceID != "device1" {
+		t.Errorf("expected active agent to be device1, got %v", active)
 	}
 
 	// Verify conn1 received close message or was closed

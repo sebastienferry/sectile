@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- Keep multiple workstations connected simultaneously; select a workstation with `deviceId` when dispatching while several are connected. (#817)
+
 ## [0.4.5] - 2026-10-09
 
 ### Added

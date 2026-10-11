@@ -38,13 +38,19 @@ func clientLabel() string {
 // request, so the server still recognizes the run after the bridge had to
 // initialize a new session (#498).
 type runHeaderTransport struct {
-	runID string
-	base  http.RoundTripper
+	runID    string
+	deviceID string
+	base     http.RoundTripper
 }
 
 func (t runHeaderTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	clone := r.Clone(r.Context())
-	clone.Header.Set(agentprotocol.RunIDHeader, t.runID)
+	if t.runID != "" {
+		clone.Header.Set(agentprotocol.RunIDHeader, t.runID)
+	}
+	if t.deviceID != "" {
+		clone.Header.Set(agentprotocol.DeviceIDHeader, t.deviceID)
+	}
 	return t.base.RoundTrip(clone)
 }
 
@@ -52,8 +58,9 @@ func (t runHeaderTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 // when the bridge runs inside a console the agent launched for a run.
 func bridgeHTTPClient(token, runID string) *http.Client {
 	client := agenthttp.Client(token)
-	if runID = strings.TrimSpace(runID); runID != "" {
-		client.Transport = runHeaderTransport{runID: runID, base: client.Transport}
+	deviceID := strings.TrimSpace(os.Getenv("SECTILE_DEVICE_ID"))
+	if runID = strings.TrimSpace(runID); runID != "" || deviceID != "" {
+		client.Transport = runHeaderTransport{runID: runID, deviceID: deviceID, base: client.Transport}
 	}
 	return client
 }

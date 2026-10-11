@@ -99,7 +99,7 @@ func TestLaunchProceedsWithoutAnActiveRun(t *testing.T) {
 	}
 
 	status, body := call(t, server, alice, http.MethodPost, "/api/tasks/"+free.ID+"/run-skill", `{"skillId":"clarify"}`)
-	if status != http.StatusConflict || !strings.Contains(body, "Connect the local agent") {
+	if status != http.StatusPreconditionRequired || !strings.Contains(body, "Connect the local agent") {
 		t.Fatalf("a launch on a free task was stopped by the guard: %d %s", status, body)
 	}
 
@@ -139,8 +139,8 @@ func TestForceWaivesTheDuplicateCheckOnly(t *testing.T) {
 		status int
 		expect string
 	}{
-		{"the owner forces through", bob, `{"skillId":"clarify","force":true}`, http.StatusConflict, "Connect the local agent"},
-		{"an admin forces through", alice, `{"skillId":"clarify","force":true}`, http.StatusConflict, "Connect the local agent"},
+		{"the owner forces through", bob, `{"skillId":"clarify","force":true}`, http.StatusPreconditionRequired, "Connect the local agent"},
+		{"an admin forces through", alice, `{"skillId":"clarify","force":true}`, http.StatusPreconditionRequired, "Connect the local agent"},
 		{"a third party is refused", carol, `{"skillId":"clarify","force":true}`, http.StatusForbidden, msgNotOwner},
 		{"force does not waive the mode check", bob, `{"skillId":"clarify","force":true,"mode":"telepathic"}`, http.StatusBadRequest, ""},
 	} {

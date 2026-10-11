@@ -13,18 +13,10 @@ import (
 )
 
 // handleCancelRemoteRun stops an execution the server believes is running.
-//
-// Stopping used to require the agent to confirm, and treated every other
-// answer as a failure. An agent that restarted no longer knows the run, so it
-// answered that it does not own it, the request failed, and the run stayed
-// open for good: the task became impossible to stop, and each retry repeated
-// the same exchange.
-//
-// The agent's answers are now read for what they say. One of them, "I do not
-// have this run", comes from a reachable agent stating it is running nothing,
-// which is exactly what identifies an orphan; the run is then closed. An agent
-// that cannot be reached says nothing at all, and closing the run there would
-// claim a stop nobody witnessed, so it takes an explicit force.
+// A single non-owner reply is insufficient with concurrent workstations.
+// Cancellation searches the owner's devices within one bounded deadline;
+// only complete non-ownership evidence permits closing an orphan. Incomplete
+// evidence requires an explicit force and says the process may remain running.
 func (h *Handler) handleCancelRemoteRun(w http.ResponseWriter, r *http.Request, taskID string) {
 	var input struct {
 		RunID string `json:"runId"`
@@ -106,6 +98,7 @@ func (h *Handler) handleCancelRemoteRun(w http.ResponseWriter, r *http.Request, 
 		writeError(w, 409, err.Error())
 		return
 	}
+	h.agentDispatcher.ForgetRun(run.ID)
 	writeJSON(w, 200, activity)
 }
 
@@ -132,5 +125,6 @@ func (h *Handler) closeClientRun(w http.ResponseWriter, r *http.Request, task *m
 	}
 	h.mcpSessions.ReleaseRun(run.ID)
 	log.Printf("[RemoteRun] Closed client run %s on task %s from the board", run.ID, task.ID)
+	h.agentDispatcher.ForgetRun(run.ID)
 	writeJSON(w, 200, activity)
 }

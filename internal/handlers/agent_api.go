@@ -14,6 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"tasks/internal/agentconfig"
+	"tasks/internal/agentprotocol"
 	"tasks/internal/db"
 	"tasks/internal/taskmcp"
 )
@@ -288,7 +289,7 @@ func (h *Handler) mcpCaller(header http.Header) (taskmcp.Caller, bool) {
 	p := h.principalFor(credential.UserID)
 	// A key paired to no device is the shared server key: it names the
 	// implicit account, not a person, so its tracker writes are refused.
-	return taskmcp.Caller{UserID: p.UserID, Name: p.Name, Role: p.Role, Anonymous: credential.Device == nil}, true
+	return taskmcp.Caller{UserID: p.UserID, DeviceID: header.Get(agentprotocol.DeviceIDHeader), Name: p.Name, Role: p.Role, Anonymous: credential.Device == nil}, true
 }
 
 // HandleMCPSessions reports the clients currently connected to the MCP

@@ -131,6 +131,7 @@ func (l *ProjectLimiter) Release(projectID string) {
 
 type DB struct {
 	agentOperations AgentOperations
+	agentSelection  func(userID, projectID, deviceID string) (string, error)
 	trackers        *trackerapi.Client
 	trackerRegistry *tracker.Registry
 	// serverKey opens the credentials a user did not seal behind a passphrase.
@@ -4670,15 +4671,20 @@ func (d *DB) processSkillJob(job SkillJob) {
 		if location, ok := d.AgentOwner(job.ActingUser, runProject); ok {
 			device = location.DeviceID
 		}
+		if d.agentSelection != nil {
+			device, err = d.agentSelection(job.ActingUser, runProject, "")
+		}
 		provider, model := d.ResolveTaskEngine(runProject, job.ActingUser, device, job.SkillID, job.Model)
-		run, err = d.StartAgentRun(task.ID, job.SkillID, RunLaunch{Mode: job.Mode, Model: model, Provider: provider, ChainStop: job.ChainStopStage, ProjectID: runProject})
+		if err == nil {
+			run, err = d.StartAgentRun(task.ID, job.SkillID, RunLaunch{UserID: job.ActingUser, Mode: job.Mode, Model: model, Provider: provider, ChainStop: job.ChainStopStage, ProjectID: runProject})
+		}
 		if err == nil {
 			err = d.callAgentContext(
 				ctx,
-				agentprotocol.Operation{ProjectID: runProject, TaskID: task.ID, Action: "execute_skill", SkillID: job.SkillID, Prompt: job.Prompt, RunID: run.ID, Mode: job.Mode, Model: job.Model},
+				agentprotocol.Operation{UserID: job.ActingUser, DeviceID: device, ProjectID: runProject, TaskID: task.ID, Action: "execute_skill", SkillID: job.SkillID, Prompt: job.Prompt, RunID: run.ID, Mode: job.Mode, Model: job.Model},
 				nil,
 			)
-			if err != nil {
+			if err != nil && !errors.Is(err, agentprotocol.ErrLaunchUnconfirmed) {
 				_, _ = d.FinishRemoteRun(task.ID, run.ID, "failed", err.Error())
 			}
 		}

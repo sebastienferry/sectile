@@ -4,6 +4,7 @@ package taskmcp
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -18,7 +19,8 @@ import (
 )
 
 type taskInput struct {
-	TaskKey string `json:"taskKey" jsonschema:"Task key or ID"`
+	DeviceID string `json:"deviceId,omitempty" jsonschema:"optional workstation selection for local operations"`
+	TaskKey  string `json:"taskKey" jsonschema:"Task key or ID"`
 }
 type transitionInput struct {
 	TaskKey string `json:"taskKey"`
@@ -114,6 +116,7 @@ func resumesWaits(method string, req mcp.Request) bool {
 }
 
 type repositoryWorktreeInput struct {
+	DeviceID   string `json:"deviceId,omitempty"`
 	TaskKey    string `json:"taskKey" jsonschema:"task key or ID"`
 	Repository string `json:"repository" jsonschema:"one of the project's repositories or the remote of a Git folder attached to the project on the caller's workstation, as a remote URL or a host/path identity; with the project's Any repository option on, any repository's remote URL or host/path"`
 	Path       string `json:"path,omitempty" jsonschema:"absolute path of a local checkout of the repository, whose origin is that repository; used only when the caller's workstation has the project's Any repository option on and no mapped or attached folder already holds it"`
@@ -125,6 +128,7 @@ type recordPullRequestInput struct {
 }
 
 type macroWorktreeInput struct {
+	DeviceID  string `json:"deviceId,omitempty"`
 	ProjectID string `json:"projectId" jsonschema:"project primary key"`
 	MacroKey  string `json:"macroKey" jsonschema:"macro key, for example M-7"`
 }
@@ -270,9 +274,10 @@ func callProject(database *db.DB, sessions *SessionRegistry, req *mcp.CallToolRe
 // Caller is the user behind an MCP call, resolved by the host from the bearer
 // credential of the HTTP request that carried it.
 type Caller struct {
-	UserID string
-	Name   string
-	Role   string
+	UserID   string
+	DeviceID string
+	Name     string
+	Role     string
 	// Anonymous says the credential names no person, like the shared server
 	// key: the call may read and report runs, never write to a tracker.
 	Anonymous bool
@@ -354,6 +359,20 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 						}
 					}
 				}
+			}
+			if call, ok := req.(*mcp.CallToolRequest); ok {
+				deviceID := callerOf(resolve, call).DeviceID
+				var selection struct {
+					DeviceID string `json:"deviceId"`
+				}
+				if call.Params != nil {
+					raw, _ := json.Marshal(call.Params.Arguments)
+					_ = json.Unmarshal(raw, &selection)
+					if selection.DeviceID != "" {
+						deviceID = selection.DeviceID
+					}
+				}
+				ctx = agentprotocol.WithDeviceID(ctx, deviceID)
 			}
 			result, err := next(ctx, method, req)
 			// The store's refusals reach a session in English (#741).

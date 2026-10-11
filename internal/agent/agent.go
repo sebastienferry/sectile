@@ -509,6 +509,7 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 	proxy := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
 		pr.SetURL(upstream)
 		pr.Out.Header.Set("Authorization", "Bearer "+d.link.token)
+		pr.Out.Header.Set(agentprotocol.DeviceIDHeader, d.link.deviceID)
 	}}
 	forward := func(w http.ResponseWriter, r *http.Request) {
 		// Reject browser requests before attaching the daemon's credential.
@@ -1295,6 +1296,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		"SECTILE_REMOTE_MODE":   "true",
 		"SECTILE_AGENT_URL":     d.link.serverURL,
 		"SECTILE_SERVER_URL":    d.link.serverURL,
+		"SECTILE_DEVICE_ID":     d.link.deviceID,
 		"SECTILE_AGENT_TOKEN":   d.link.token,
 		// The loopback is the only address a hook running inside this session
 		// can report to without knowing anything about the server deployment.

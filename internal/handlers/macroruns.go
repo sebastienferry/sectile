@@ -65,7 +65,10 @@ func (h *Handler) handleMacroRunSkill(w http.ResponseWriter, r *http.Request, pr
 	}
 
 	userID := h.webSessionUser(r)
-	ac := h.agentDispatcher.Route(userID, project.ID)
+	ac, selectionErr := h.agentDispatcher.SelectRoute(userID, project.ID, req.DeviceID)
+	if writeDeviceSelectionError(w, selectionErr) {
+		return
+	}
 	if ac == nil {
 		writeError(w, http.StatusFailedDependency, "Connectez l'agent local pour lancer cette compétence.")
 		return
@@ -83,8 +86,8 @@ func (h *Handler) handleMacroRunSkill(w http.ResponseWriter, r *http.Request, pr
 	log.Printf("🚀 [Dispatch] Delegating macro skill %s on %s (%s) to connected local agent (device=%s)", skillID, macroKey, project.ID, ac.DeviceID)
 	launchCtx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
-	err = h.agentDispatcher.DispatchAndWait(launchCtx, ac.UserID, ac.ProjectID, "", agentconfig.Dispatch{
-		SchemaVersion: agentconfig.Version, ProjectID: project.ID, MacroKey: macroKey, MacroTitle: title,
+	err = h.agentDispatcher.dispatchAndWaitRoute(launchCtx, ac, userID, project.ID, "", agentconfig.Dispatch{
+		SchemaVersion: agentconfig.Version, DeviceID: ac.DeviceID, ProjectID: project.ID, MacroKey: macroKey, MacroTitle: title,
 		SkillID: skillID, Action: skillID, Prompt: strings.TrimSpace(req.Prompt), RunID: run.ID,
 		Mode: models.SkillModeInteractive, Model: strings.TrimSpace(req.Model),
 	})
@@ -188,6 +191,7 @@ func (h *Handler) handleMacroCancelRun(w http.ResponseWriter, r *http.Request, p
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
+	h.agentDispatcher.ForgetRun(active.ID)
 	writeJSON(w, http.StatusOK, activity)
 }
 

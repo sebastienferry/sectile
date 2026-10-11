@@ -187,22 +187,25 @@ func (ac *AgentConn) Keepalive(interval time.Duration) {
 
 // agentKey uniquely identifies a connected agent slot.
 type agentKey struct {
-	UserID    string
-	ProjectID string
+	UserID   string
+	DeviceID string
 }
 
 // AgentDispatcher manages connected local agent daemons. It enforces a strict
-// 1:1 mapping between (userID, projectID) and an active WebSocket connection.
+// 1:1 mapping between (userID, deviceID) and an active WebSocket connection.
 // When a user triggers a workflow action on the remote Web UI, the dispatcher
 // routes the command to the matching local agent.
 type AgentDispatcher struct {
-	operations   map[string]*pendingOperation
-	agents       map[agentKey]*AgentConn
-	pending      map[string]*pendingAgentLaunch
-	pendingPulls map[string]*pendingTaskPull
+	registrationMu sync.Mutex
+	operations     map[string]*pendingOperation
+	agents         map[agentKey]*AgentConn
+	pending        map[string]*pendingAgentLaunch
+	pendingPulls   map[string]*pendingTaskPull
 	// lastConnected remembers when a slot last held an agent, so an absence
 	// can be told apart from a project that never had one.
 	lastConnected map[agentKey]time.Time
+	lastProjects  map[agentKey]string
+	runOwners     map[string]agentKey
 	mu            sync.RWMutex
 	// cluster forwards work for agents other server instances hold; nil when
 	// this instance shares its store with nobody. See agent_cluster.go.
@@ -216,10 +219,12 @@ func NewAgentDispatcher() *AgentDispatcher {
 		pending:       make(map[string]*pendingAgentLaunch),
 		pendingPulls:  make(map[string]*pendingTaskPull),
 		lastConnected: make(map[agentKey]time.Time),
+		lastProjects:  make(map[agentKey]string),
+		runOwners:     make(map[string]agentKey),
 	}
 }
 
-// Register binds a local agent WebSocket to a (userID, projectID) slot. If an
+// Register binds a local agent WebSocket to a (userID, deviceID) slot. If an
 // existing connection occupies the slot, it is terminated with close code 4001
 // (Session Rebound) and replaced by the new connection.
 func (d *AgentDispatcher) Register(userID, projectID, deviceID string, conn *websocket.Conn) *AgentConn {
@@ -228,22 +233,20 @@ func (d *AgentDispatcher) Register(userID, projectID, deviceID string, conn *web
 
 // RegisterBuild is Register for an agent whose announced build is known.
 func (d *AgentDispatcher) RegisterBuild(userID, projectID, deviceID string, build AgentBuild, conn *websocket.Conn) *AgentConn {
+	d.registrationMu.Lock()
+	defer d.registrationMu.Unlock()
 	ac := d.registerLocal(userID, projectID, deviceID, build, conn)
 	d.cluster.agentConnected(ac)
 	return ac
 }
 
 func (d *AgentDispatcher) registerLocal(userID, projectID, deviceID string, build AgentBuild, conn *websocket.Conn) *AgentConn {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	key := agentKey{UserID: userID, ProjectID: projectID}
-
-	if existing, ok := d.agents[key]; ok {
-		log.Printf("[AgentDispatcher] Rebinding agent for user=%s project=%s (old device=%s, new device=%s)",
-			userID, projectID, existing.DeviceID, deviceID)
-		existing.Close(4001, "Session Rebound")
+	if deviceID == "" {
+		deviceID = "unknown"
 	}
+	d.mu.Lock()
+	key := agentKey{UserID: userID, DeviceID: deviceID}
+	existing := d.agents[key]
 
 	ac := &AgentConn{
 		done:        make(chan struct{}),
@@ -251,7 +254,7 @@ func (d *AgentDispatcher) registerLocal(userID, projectID, deviceID string, buil
 		ProjectID:   projectID,
 		DeviceID:    deviceID,
 		Conn:        conn,
-		ConnectedAt: time.Now(),
+		ConnectedAt: time.Now().UTC().Truncate(time.Microsecond),
 		Build:       build,
 	}
 	ac.Touch()
@@ -260,6 +263,14 @@ func (d *AgentDispatcher) registerLocal(userID, projectID, deviceID string, buil
 		d.lastConnected = make(map[agentKey]time.Time)
 	}
 	d.lastConnected[key] = time.Now()
+	if d.lastProjects == nil {
+		d.lastProjects = make(map[agentKey]string)
+	}
+	d.lastProjects[key] = projectID
+	d.mu.Unlock()
+	if existing != nil {
+		existing.Close(4001, "Session Rebound")
+	}
 
 	log.Printf("[AgentDispatcher] Agent registered: user=%s project=%s device=%s", userID, projectID, deviceID)
 	return ac
@@ -267,44 +278,40 @@ func (d *AgentDispatcher) registerLocal(userID, projectID, deviceID string, buil
 
 // Unregister removes an agent connection. It only removes the entry if the
 // stored connection matches, to avoid racing with a rebind.
-func (d *AgentDispatcher) Unregister(userID, projectID string, conn *websocket.Conn) {
+func (d *AgentDispatcher) Unregister(userID, deviceID string, conn *websocket.Conn) {
 	d.mu.Lock()
-	key := agentKey{UserID: userID, ProjectID: projectID}
+	key := agentKey{UserID: userID, DeviceID: deviceID}
 	existing, ok := d.agents[key]
 	removed := ok && existing.Conn == conn
 	if removed {
 		existing.closeOnce.Do(func() { close(existing.done) })
 		delete(d.agents, key)
-		log.Printf("[AgentDispatcher] Agent unregistered: user=%s project=%s", userID, projectID)
+		log.Printf("[AgentDispatcher] Agent unregistered: user=%s project=%s", userID, existing.ProjectID)
 	}
 	d.mu.Unlock()
 	if removed {
-		d.cluster.agentDisconnected(userID, projectID, existing.DeviceID)
+		d.cluster.agentDisconnected(existing)
 	}
 }
 
 // Lookup returns the connected agent for a given user and project, or nil if
 // no agent is connected.
-func (d *AgentDispatcher) Lookup(userID, projectID string) *AgentConn {
+func (d *AgentDispatcher) Lookup(userID, projectID string, deviceID ...string) *AgentConn {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-
-	// 1. Exact match
-	if ac, ok := d.agents[agentKey{UserID: userID, ProjectID: projectID}]; ok {
-		return ac
+	var selected *AgentConn
+	for _, ac := range d.agents {
+		if ac.UserID != userID || (firstDevice(deviceID) != "" && ac.DeviceID != firstDevice(deviceID)) {
+			continue
+		}
+		if selected != nil {
+			return nil
+		}
+		selected = ac
 	}
-
-	// 2. Wildcard / default project registered by the agent
-	if ac, ok := d.agents[agentKey{UserID: userID, ProjectID: "default"}]; ok {
-		return ac
+	if selected != nil && projectEligible(selected.ProjectID, projectID) {
+		return selected
 	}
-	if ac, ok := d.agents[agentKey{UserID: userID, ProjectID: "all"}]; ok {
-		return ac
-	}
-	if ac, ok := d.agents[agentKey{UserID: userID, ProjectID: ""}]; ok {
-		return ac
-	}
-
 	return nil
 }
 
@@ -314,32 +321,11 @@ func (d *AgentDispatcher) Lookup(userID, projectID string) *AgentConn {
 // broken stage transition. The wait also ends on the caller's context, so it
 // never outlives the deadline the caller already chose.
 func (d *AgentDispatcher) WaitForAgent(ctx context.Context, userID, projectID string, grace time.Duration) *AgentConn {
-	if ac := d.Lookup(userID, projectID); ac != nil {
-		return ac
-	}
-	if !d.agentWasRecentlyConnected(userID, projectID) {
-		// Nothing has ever answered here, or not for a long time. Waiting
-		// would make a server with no agent slow instead of clear.
+	route, err := d.waitForSelectedRoute(ctx, userID, projectID, "", grace)
+	if err != nil {
 		return nil
 	}
-	deadline := time.NewTimer(grace)
-	defer deadline.Stop()
-	// Polling is enough for a wait measured in seconds and keeps the registry
-	// free of per-waiter subscriptions.
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-deadline.C:
-			return nil
-		case <-ticker.C:
-			if ac := d.Lookup(userID, projectID); ac != nil {
-				return ac
-			}
-		}
-	}
+	return route.local
 }
 
 // agentWasRecentlyConnected reports whether a slot held an agent recently
@@ -348,32 +334,32 @@ func (d *AgentDispatcher) WaitForAgent(ctx context.Context, userID, projectID st
 // counts too.
 func (d *AgentDispatcher) agentWasRecentlyConnected(userID, projectID string) bool {
 	d.mu.RLock()
-	defer d.mu.RUnlock()
-	for _, key := range []agentKey{
-		{UserID: userID, ProjectID: projectID},
-		{UserID: userID, ProjectID: "default"},
-		{UserID: userID, ProjectID: "all"},
-		{UserID: userID, ProjectID: ""},
-	} {
-		if at, ok := d.lastConnected[key]; ok && time.Since(at) < agentAbsenceIsRecent {
+	for key, at := range d.lastConnected {
+		if key.UserID == userID && projectEligible(d.lastProjects[key], projectID) && time.Since(at) < agentAbsenceIsRecent {
+			d.mu.RUnlock()
 			return true
 		}
 	}
+	d.mu.RUnlock()
 	// The agent may have been, or be reconnecting, on another instance.
 	return d.cluster.recentlyConnected(userID, projectID)
 }
 
 // Dispatch sends a command message to the user's connected local agent. It
 // returns an error if no agent is connected or the send fails.
-func (d *AgentDispatcher) Dispatch(userID, projectID string, msgType string, taskID string, payload interface{}) error {
-	ac := d.Lookup(userID, projectID)
-	if ac == nil {
-		if location, ok := d.cluster.owner(userID, projectID); ok {
-			return d.cluster.dispatch(location, userID, projectID, msgType, taskID, payload)
-		}
-		return fmt.Errorf("no local agent connected for user %s on project %s", userID, projectID)
+func (d *AgentDispatcher) Dispatch(userID, projectID string, msgType string, taskID string, payload interface{}, deviceID ...string) error {
+	route, err := d.SelectRoute(userID, projectID, firstDevice(deviceID))
+	if err != nil {
+		return err
 	}
-	return d.dispatchLocal(ac, userID, msgType, taskID, payload)
+	return d.dispatchRoute(route, userID, projectID, msgType, taskID, payload)
+}
+
+func (d *AgentDispatcher) dispatchRoute(route *AgentRoute, userID, projectID, msgType, taskID string, payload any) error {
+	if route.remote != nil {
+		return d.cluster.dispatch(*route.remote, userID, projectID, msgType, taskID, payload)
+	}
+	return d.dispatchLocal(route.local, userID, msgType, taskID, payload)
 }
 
 // dispatchLocal sends a command to a connection held here.
@@ -393,7 +379,7 @@ func (d *AgentDispatcher) dispatchLocal(ac *AgentConn, userID, msgType, taskID s
 
 	if err := ac.Send(msg); err != nil {
 		// Connection broken: clean up and report.
-		d.Unregister(ac.UserID, ac.ProjectID, ac.Conn)
+		d.Unregister(ac.UserID, ac.DeviceID, ac.Conn)
 		return fmt.Errorf("failed to send message to local agent: %w", err)
 	}
 	return nil
@@ -475,7 +461,7 @@ func (d *AgentDispatcher) clusterAgents() []AgentConnInfo {
 	for _, l := range locations {
 		info := AgentConnInfo{UserID: l.UserID, ProjectID: l.ProjectID, DeviceID: l.DeviceID, ConnectedAt: l.ConnectedAt, LastPingAt: l.ConnectedAt, InstanceID: l.InstanceID}
 		d.mu.RLock()
-		if ac, ok := d.agents[agentKey{UserID: l.UserID, ProjectID: l.ProjectID}]; ok {
+		if ac, ok := d.agents[agentKey{UserID: l.UserID, DeviceID: l.DeviceID}]; ok && l.InstanceID == d.cluster.directory.InstanceID() && ac.ConnectedAt.Equal(l.ConnectedAt) {
 			info.LastPingAt = ac.LastSeen()
 			info.describeBuild(ac.Build)
 		}
@@ -497,12 +483,11 @@ type pendingAgentLaunch struct {
 // ErrLaunchUnconfirmed reports a launch whose confirmation never arrived. The
 // agent may well be running the skill, so the caller must not record the run as
 // failed: only the agent knows how it ends.
-var ErrLaunchUnconfirmed = errors.New("launch not confirmed")
+var ErrLaunchUnconfirmed = agentprotocol.ErrLaunchUnconfirmed
 
-// ErrRunNotOwned reports an agent that answered it does not have the run it
-// was asked to cancel. Unlike every other failure here it is good news: the
-// agent is reachable and states it is running nothing, so the recorded run is
-// an orphan the server can close.
+// ErrRunNotOwned reports a non-owner acknowledgment. Cancellation promotes it
+// to orphan evidence only after every candidate replies and no known owner
+// is disconnected.
 var ErrRunNotOwned = errors.New("agent does not own the run")
 
 // ErrNoAgentConnected reports that nobody was there to ask.
@@ -511,14 +496,32 @@ var ErrNoAgentConnected = errors.New("no local agent connected")
 // DispatchAndWait confirms a terminal launch before the HTTP caller reports
 // success. Responses are bound to the connection that received the command.
 func (d *AgentDispatcher) DispatchAndWait(ctx context.Context, userID, projectID, taskID string, payload any) error {
-	route := d.waitForRoute(ctx, userID, projectID, defaultAgentReconnectGrace)
-	if route == nil {
-		return ErrNoAgentConnected
+	dispatch, _ := payload.(agentconfig.Dispatch)
+	if dispatch.Action == "cancel_run" {
+		return d.CancelRun(ctx, userID, projectID, taskID, dispatch.RunID)
 	}
+	route, err := d.waitForSelectedRoute(ctx, userID, projectID, dispatch.DeviceID, defaultAgentReconnectGrace)
+	if err != nil {
+		return err
+	}
+	return d.dispatchAndWaitRoute(ctx, route, userID, projectID, taskID, payload)
+}
+
+func (d *AgentDispatcher) dispatchAndWaitRoute(ctx context.Context, route *AgentRoute, userID, projectID, taskID string, payload any) error {
+	dispatch, _ := payload.(agentconfig.Dispatch)
+	if dispatch.RunID != "" && dispatch.Action != "cancel_run" {
+		d.rememberRun(dispatch.RunID, userID, route.DeviceID)
+	}
+	var err error
 	if route.remote != nil {
-		return d.cluster.dispatchAndWait(ctx, *route.remote, userID, projectID, taskID, payload)
+		err = d.cluster.dispatchAndWait(ctx, *route.remote, userID, projectID, taskID, payload)
+	} else {
+		err = d.dispatchAndWaitLocal(ctx, route.local, userID, taskID, payload)
 	}
-	return d.dispatchAndWaitLocal(ctx, route.local, userID, taskID, payload)
+	if err != nil && !errors.Is(err, ErrLaunchUnconfirmed) && dispatch.Action != "cancel_run" {
+		d.ForgetRun(dispatch.RunID)
+	}
+	return err
 }
 
 // dispatchAndWaitLocal confirms a launch on a connection held here.
@@ -548,8 +551,8 @@ func (d *AgentDispatcher) dispatchAndWaitLocal(ctx context.Context, ac *AgentCon
 		}
 		return nil
 	case <-ac.done:
-		return fmt.Errorf("agent disconnected before confirming terminal launch of %s after %s; check the local agent (%s) before retrying",
-			action, waited(started), ac.DeviceID)
+		return fmt.Errorf("%w: agent disconnected before confirming terminal launch of %s after %s; check the local agent (%s) before retrying",
+			ErrLaunchUnconfirmed, action, waited(started), ac.DeviceID)
 	case <-ctx.Done():
 		log.Printf("[AgentDispatcher] Launch of %s on device=%s not confirmed after %s: %v", action, ac.DeviceID, waited(started), ctx.Err())
 		return fmt.Errorf("%w: %s was not confirmed after %s; the local agent (%s) may still be running it, so its run stays open: %w",
