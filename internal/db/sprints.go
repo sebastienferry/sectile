@@ -160,7 +160,8 @@ func (d *DB) CreateProjectSprints(ctx context.Context, projectID, pattern string
 
 // UpdateProjectSprint renames, re-dates or changes the state of one sprint.
 // Closing with MoveOpenTo moves the sprint's unfinished work items first, to the
-// next sprint or to the backlog, so that nothing is left behind in a closed one.
+// next sprint, a chosen one or the backlog, so that nothing is left behind in a
+// closed one.
 func (d *DB) UpdateProjectSprint(ctx context.Context, projectID, sprintID string, patch models.SprintPatch) (*models.TrackerSprint, error) {
 	proj, err := d.sprintProject(ctx, projectID)
 	if err != nil || proj == nil {
@@ -184,7 +185,11 @@ func (d *DB) UpdateProjectSprint(ctx context.Context, projectID, sprintID string
 		if !closing {
 			return nil, fmt.Errorf("le déplacement des tickets ouverts n'accompagne que la clôture d'un sprint")
 		}
-		if err := d.moveOpenWork(ctx, proj, ts, current, strings.TrimSpace(*patch.MoveOpenTo)); err != nil {
+		targetID := ""
+		if patch.MoveOpenToSprint != nil {
+			targetID = strings.TrimSpace(*patch.MoveOpenToSprint)
+		}
+		if err := d.moveOpenWork(ctx, proj, ts, current, strings.TrimSpace(*patch.MoveOpenTo), targetID); err != nil {
 			return nil, err
 		}
 	}
@@ -221,8 +226,9 @@ func (d *DB) sprintTasksScopeUnsafe(proj *models.Project) (string, []any) {
 }
 
 // moveOpenWork moves the unfinished work items of a sprint on the tracker,
-// then locally, before the sprint closes.
-func (d *DB) moveOpenWork(ctx context.Context, proj *models.Project, ts tracker.TicketingSystem, sprint models.TrackerSprint, destination string) error {
+// then locally, before the sprint closes. chosenID names the target of a
+// "sprint" destination.
+func (d *DB) moveOpenWork(ctx context.Context, proj *models.Project, ts tracker.TicketingSystem, sprint models.TrackerSprint, destination, chosenID string) error {
 	targetID, targetName := "", ""
 	switch destination {
 	case "backlog":
@@ -232,8 +238,23 @@ func (d *DB) moveOpenWork(ctx context.Context, proj *models.Project, ts tracker.
 			return fmt.Errorf("aucun sprint à venir après « %s » : créez-en un, ou déplacez vers le backlog", sprint.Name)
 		}
 		targetID, targetName = next.ID, next.Name
+	case "sprint":
+		// Refused here, before the tracker is called, so that nothing moves.
+		if chosenID == "" {
+			return fmt.Errorf("aucun sprint de destination choisi pour les tickets ouverts de « %s »", sprint.Name)
+		}
+		chosen, found := findSprint(proj.Sprints, chosenID)
+		switch {
+		case !found:
+			return fmt.Errorf("sprint de destination %s inconnu de ce projet : synchronisez le board", chosenID)
+		case chosen.ID == sprint.ID:
+			return fmt.Errorf("les tickets ouverts de « %s » ne peuvent pas rester dans le sprint clôturé : choisissez un autre sprint", sprint.Name)
+		case chosen.State == "closed":
+			return fmt.Errorf("« %s » est clôturé : choisissez un sprint ouvert, ou le backlog", chosen.Name)
+		}
+		targetID, targetName = chosen.ID, chosen.Name
 	default:
-		return fmt.Errorf("destination invalide %q : next ou backlog", destination)
+		return fmt.Errorf("destination invalide %q : next, sprint ou backlog", destination)
 	}
 	d.mu.RLock()
 	scope, scopeArgs := d.sprintTasksScopeUnsafe(proj)

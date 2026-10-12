@@ -217,6 +217,73 @@ func TestClosingASprintMovesItsOpenWorkFirst(t *testing.T) {
 	}
 }
 
+func TestClosingASprintMovesItsOpenWorkToTheChosenSprint(t *testing.T) {
+	database, fake, project := sprintDB(t, "5")
+	sprints := []models.TrackerSprint{
+		{ID: "1", Name: "Sprint 1", State: "active", StartDate: "2026-10-05T09:00:00+02:00"},
+		{ID: "2", Name: "Sprint 2", State: "future", StartDate: "2026-10-19T09:00:00+02:00"},
+		{ID: "3", Name: "Sprint 3", State: "future", StartDate: "2026-11-02T09:00:00+02:00"},
+	}
+	if _, err := database.UpdateProject(project.ID, models.UpdateProjectRequest{Sprints: &sprints}); err != nil {
+		t.Fatal(err)
+	}
+	open, _ := database.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "Open", Source: "local"})
+	database.mu.Lock()
+	_, _ = database.conn.Exec("UPDATE tasks SET sprint = 'Sprint 1', source = 'jira' WHERE id = ?", open.ID)
+	database.mu.Unlock()
+
+	closed, destination, target := "closed", "sprint", "3"
+	sprint, err := database.UpdateProjectSprint(context.Background(), project.ID, "1", models.SprintPatch{State: &closed, MoveOpenTo: &destination, MoveOpenToSprint: &target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sprint.State != "closed" || len(fake.order) != 2 || fake.order[0] != "move" {
+		t.Fatalf("the open work moves before the close: %v %+v", fake.order, sprint)
+	}
+	if keys := fake.moved["3"]; len(keys) != 1 || keys[0] != open.Key || len(fake.moved["2"]) != 0 {
+		t.Fatalf("the open work item must go to the chosen sprint, not the next one, got %v", fake.moved)
+	}
+	moved, _ := database.GetTaskByID(open.ID)
+	if moved.Sprint != "Sprint 3" {
+		t.Fatalf("the moved work item must name the chosen sprint, got %q", moved.Sprint)
+	}
+}
+
+func TestClosingASprintRefusesAWrongTargetBeforeMoving(t *testing.T) {
+	database, fake, project := sprintDB(t, "5")
+	sprints := []models.TrackerSprint{
+		{ID: "1", Name: "Sprint 1", State: "active", StartDate: "2026-10-05T09:00:00+02:00"},
+		{ID: "0", Name: "Sprint 0", State: "closed", StartDate: "2026-09-21T09:00:00+02:00"},
+		{ID: "2", Name: "Sprint 2", State: "future", StartDate: "2026-10-19T09:00:00+02:00"},
+	}
+	if _, err := database.UpdateProject(project.ID, models.UpdateProjectRequest{Sprints: &sprints}); err != nil {
+		t.Fatal(err)
+	}
+	open, _ := database.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "Open", Source: "local"})
+	database.mu.Lock()
+	_, _ = database.conn.Exec("UPDATE tasks SET sprint = 'Sprint 1', source = 'jira' WHERE id = ?", open.ID)
+	database.mu.Unlock()
+
+	closed, destination := "closed", "sprint"
+	ptr := func(s string) *string { return &s }
+	for name, target := range map[string]*string{"missing": nil, "empty": ptr(" "), "unknown": ptr("9"), "closing": ptr("1"), "closed": ptr("0")} {
+		patch := models.SprintPatch{State: &closed, MoveOpenTo: &destination, MoveOpenToSprint: target}
+		if _, err := database.UpdateProjectSprint(context.Background(), project.ID, "1", patch); err == nil {
+			t.Fatalf("%s target: the close must be refused", name)
+		}
+		if len(fake.order) != 0 {
+			t.Fatalf("%s target: nothing may be moved or closed, got %v", name, fake.order)
+		}
+	}
+	reread, _ := database.GetProjectByID(project.ID)
+	if sp, _ := findSprint(reread.Sprints, "1"); sp.State != "active" {
+		t.Fatalf("the sprint must stay open, got %+v", sp)
+	}
+	if task, _ := database.GetTaskByID(open.ID); task.Sprint != "Sprint 1" {
+		t.Fatalf("the open work item must not move, got %q", task.Sprint)
+	}
+}
+
 func TestClosingASprintThatNeverStartedMovesNothing(t *testing.T) {
 	database, fake, project := sprintDB(t, "5")
 	sprints := []models.TrackerSprint{

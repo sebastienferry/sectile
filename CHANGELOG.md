@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- Closing a sprint from the Timeline lets you pick which open sprint receives its unfinished work, not only the next one; the sprint you pick can be started automatically. (#821)
+
 ## [0.5.0] - 2026-10-12
 
 ### Added

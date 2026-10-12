@@ -302,13 +302,17 @@ type TrackerSprint struct {
 // SprintPatch changes a tracker sprint. A nil field is left as it is. Dates
 // are YYYY-MM-DD or RFC3339; State is "active", "future" or "closed".
 // MoveOpenTo only goes with closing: "next" moves the sprint's unfinished work
-// items to the following sprint first, "backlog" to the backlog.
+// items to the following sprint first, "backlog" to the backlog, and "sprint"
+// to the sprint MoveOpenToSprint names by id.
 type SprintPatch struct {
 	Name       *string `json:"name,omitempty"`
 	Start      *string `json:"start,omitempty"`
 	End        *string `json:"end,omitempty"`
 	State      *string `json:"state,omitempty"`
 	MoveOpenTo *string `json:"moveOpenTo,omitempty"`
+	// MoveOpenToSprint is kept apart from MoveOpenTo so that a sprint id is
+	// never read as one of its keywords.
+	MoveOpenToSprint *string `json:"moveOpenToSprint,omitempty"`
 }
 
 // MacroMeta is the macro-level data Sectile owns. Macros are containers referenced by their children

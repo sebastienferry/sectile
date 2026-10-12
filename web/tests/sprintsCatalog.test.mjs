@@ -10,13 +10,15 @@ test('the close dialog keeps its French wording and reads in English', () => {
   assert.equal(format(fr.close.heading, { name: 'Sprint 4' }), 'Clôturer Sprint 4')
   assert.equal(fr.close.subtitle, 'Bilan du cycle et réaffectation des tâches restantes')
   assert.equal(fr.close.confirm, 'Confirmer la clôture')
-  assert.equal(format(fr.close.toNext, { name: 'Sprint 5' }), 'Transférer vers Sprint 5 (Recommandé)')
+  assert.equal(fr.close.toSprint, 'Transférer vers un sprint (Recommandé)')
+  assert.equal(format(fr.close.targetActive, { name: 'Sprint 5' }), 'Sprint 5 (en cours)')
   assert.equal(fr.close.toBacklog, 'Renvoyer vers le Backlog général')
   assert.equal(fr.close.keep, 'Conserver dans ce sprint clôturé')
 
   assert.equal(format(en.close.heading, { name: 'Sprint 4' }), 'Close Sprint 4')
   assert.equal(en.close.confirm, 'Confirm closing')
-  assert.equal(format(en.close.toNext, { name: 'Sprint 5' }), 'Move to Sprint 5 (recommended)')
+  assert.equal(en.close.toSprint, 'Move to a sprint (recommended)')
+  assert.equal(format(en.close.targetActive, { name: 'Sprint 5' }), 'Sprint 5 (active)')
   assert.equal(en.close.toBacklog, 'Send back to the general backlog')
 })
 
