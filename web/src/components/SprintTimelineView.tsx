@@ -522,6 +522,13 @@ export const SprintTimelineView: React.FC = () => {
     setIsClosingSprintBusy(true)
 
     if (trackerOwned) {
+      // A sprint the tracker has no id for cannot receive work there; closing
+      // anyway would leave the work in the closed sprint without saying so.
+      if (closeSprintDestination === 'next' && !chosen?.id) {
+        addToast({ type: 'error', title: st.close.failed, description: st.close.targetMissing })
+        setIsClosingSprintBusy(false)
+        return
+      }
       // The server moves the unfinished work on the tracker, then closes.
       const patch: SprintPatch = { state: 'closed' }
       if (closeSprintDestination === 'next' && chosen?.id) {
