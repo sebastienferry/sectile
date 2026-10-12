@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +16,56 @@ import (
 	"tasks/internal/agentprotocol"
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/testsqlite"
 )
+
+func TestCancellationBeforeDispatchClosesLauncherHistory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cancel-before-dispatch.db")
+	d, err := testsqlite.New(t, path, db.NewDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	h := NewHandler(d)
+	task := guardTask(t, d, "Cancellation before dispatch")
+	connectClusterAgent(t, h.agentDispatcher, ImplicitUser, "all", "mac")
+	reportTaskInventory(t, h.agentDispatcher, ImplicitUser, "mac", "default")
+	key, _, err := d.CreateAPIKey(ImplicitUser, "test", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	// Deterministically place cancellation after launcher insertion and before
+	// the handler claims dispatch, without relying on scheduler timing.
+	_, err = conn.Exec(`CREATE TRIGGER cancel_before_dispatch AFTER INSERT ON task_activities
+ WHEN NEW.skill_id='agent_launch' BEGIN
+ UPDATE task_activities SET status='canceled', completed_at=CURRENT_TIMESTAMP
+ WHERE id=NEW.remote_run_id;
+ END`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/"+task.ID+"/run-skill", strings.NewReader(`{"skillId":"implement","deviceId":"mac"}`))
+	req.Header.Set("Authorization", "Bearer "+key)
+	rr := httptest.NewRecorder()
+	h.HandleTaskDetail(rr, req)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("canceled admission: %d %s", rr.Code, rr.Body.String())
+	}
+	activities, err := d.GetTaskActivities(task.ID)
+	if err != nil || len(activities) != 2 {
+		t.Fatalf("launch history: %+v %v", activities, err)
+	}
+	for _, activity := range activities {
+		if activity.Status == "running" || activity.CompletedAt == nil {
+			t.Fatalf("canceled launch left active history: %+v", activity)
+		}
+	}
+}
 
 func TestDisconnectedExecutionRecoveryBothSurfaces(t *testing.T) {
 	for _, surface := range []string{"task", "activity"} {

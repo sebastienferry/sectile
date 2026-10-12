@@ -2618,6 +2618,19 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if err := h.db.ClaimRunDispatch(remoteRun.ID); err != nil {
+				// Cancellation can win after the launcher is recorded. No dispatch
+				// occurred, so close its history row as well as the remote run.
+				_, _ = h.db.FinishRemoteRun(task.ID, remoteRun.ID, "failed", err.Error())
+				act.Status = "failed"
+				act.Error = err.Error()
+				act.Summary = "Le lancement a été interrompu avant l’envoi au poste"
+				finished := time.Now()
+				act.CompletedAt = &finished
+				if finishErr := h.db.FinishAgentLaunch(act); finishErr != nil {
+					writeError(w, 500, "Impossible de conserver l’interruption du lancement")
+					return
+				}
+				h.BroadcastEvent(Event{Type: "agent_step_status"})
 				writeError(w, 409, err.Error())
 				return
 			}

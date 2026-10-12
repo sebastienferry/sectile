@@ -42,3 +42,18 @@ Database tests include real SQLite restart and two independent connections shari
 ## Deliberately excluded
 
 Desktop launch UX, macros, automatic rescheduling/rerouting, remembered preferences, new engines and timeout-based expiry of unconfirmed executions remain outside the accepted scope. Batches keep the existing single execution-project rule; all members must belong to that project. Historical unknown assignments remain unknown.
+
+## Adjustment review — 2026-10-12
+
+Verified existing PR #820 is open, targets `main`, and uses this task's `feat/816` branch. Fetched the configured default branch; `origin/main` is already included, so no integration or history rewrite is needed. The specifications workspace is this same dedicated worktree.
+
+Feedback disposition: PR discussion comments, reviews and inline comments were retrieved successfully and are empty. Historical ticket reports and the owner's accepted clarification remain satisfied; no product question or outstanding feedback item remains.
+
+Review findings fixed:
+
+- An unconfirmed stop through an `agent_launch` row did not expose force closure, although the server delegates that stop to its exact remote child. The shared recovery control now offers the same explicit confirmation for launcher rows. The browser regression verifies that the record stays active until the user sends force.
+- Cancellation between launcher insertion and dispatch claim left the launcher history marked running. A failed claim now terminalizes the launcher and closes any still-active remote record without dispatching. A deterministic SQLite trigger regression places cancellation at that boundary and checks both history rows are terminal; it also passes under the race detector.
+
+Final verification: `make test` passes (735 Web tests, Go suite, formatting, TypeScript and lint); `npm --prefix web run build` and `go build ./cmd/server ./cmd/agent` pass. Workstation execution, project picker, batch pickup and workstation history Chrome harnesses pass. Strict OpenSpec validation and diff whitespace checks pass. Existing lint and bundle-size warnings remain. Live PostgreSQL checks require a dedicated test DSN and are not claimed.
+
+Reviewer attention: shared SQL dispatch/cancel arbitration, authenticated reconnect orphan evidence, exact launcher-child cancellation, and preserved retry/batch options. Replay the commands above and `go test -race ./internal/db ./internal/handlers`; browser harnesses use `PLAYWRIGHT_MODULE=../../desktop/node_modules/playwright/index.mjs` when run from the repository root.

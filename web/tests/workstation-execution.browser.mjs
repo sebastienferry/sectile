@@ -124,6 +124,14 @@ try {
  assert.equal(activities[0].status,'running')
  await force.click();await force.waitFor({state:'detached'})
  assert.equal(cancels.at(-1).force,true)
+ // A launcher delegates stopping to its exact remote child and needs the same recovery choice.
+ activities=[{...activities[0],id:'stuck-launch',skillId:'agent_launch',action:'Execution launch',status:'running'}]
+ await page.evaluate(()=>app.fetchActivities())
+ await page.getByRole('button',{name:'Cancel Execution',exact:true}).click()
+ await force.waitFor()
+ assert.equal(activities[0].status,'running','unconfirmed launcher stop retains the record')
+ await force.click();await force.waitFor({state:'detached'})
+ assert.equal(cancels.at(-1).force,true,'launcher recovery sends an explicit force request')
  await page.getByRole('button',{name:'Launch',exact:true}).click();await page.waitForFunction(()=>!app.isSkillRunning)
  assert.equal(launches.at(-1).deviceId,'b','force closure allows another launch')
  const beforeRefusal=launches.length

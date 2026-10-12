@@ -19,7 +19,7 @@ export function ExecutionRecovery({ run }: { run: TaskActivity }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force }),
       })
       if (!response.ok) {
-        if (response.status === 502 && run.action === 'Agent-owned remote execution') setUnconfirmed(true)
+        if (response.status === 502 && (run.action === 'Agent-owned remote execution' || run.skillId === 'agent_launch')) setUnconfirmed(true)
         throw new Error((await response.json()).error || t.shell.remoteRun.cancelUnconfirmed)
       }
       setUnconfirmed(false)
