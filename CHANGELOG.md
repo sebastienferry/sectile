@@ -13,13 +13,18 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-12
+
 ### Added
 
 - Choose an eligible workstation for Web task launches, retries and batches, and see its recorded name on tasks and activity history. (#820)
 - Task skills can target a workstation with `targetDeviceId` or `deviceId`. Automatic routing retains task affinity, Desktop runs locally, and activity history records the workstation. Only connected workstations reporting the project qualify; unavailable affinity requires an explicit override. (#819)
-
 - **Connected workstation availability by project.** The agent status API reports which connected workstations have an accessible local checkout for each project. Availability updates when local mappings or checkouts change. (#818)
 - Keep multiple workstations connected simultaneously; select a workstation with `deviceId` when dispatching while several are connected. (#817)
+
+### Changed
+
+- Task launches now require Sectile Desktop or the agent at 0.5.0 or later: an older workstation does not report its projects, so no task can run on it until it is updated. (#819)
 
 ### Fixed
 
@@ -800,7 +805,8 @@ release mechanism that will keep the following entries short.
   A run canceled because its client disconnected can still be finished by the
   agent that owns it, so the chain carries on. (#315)
 
-[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.4.5...HEAD
+[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/sebastienferry/sectile/compare/v0.4.5...v0.5.0
 [0.4.5]: https://github.com/sebastienferry/sectile/compare/v0.4.1...v0.4.5
 [0.4.1]: https://github.com/sebastienferry/sectile/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/sebastienferry/sectile/compare/v0.3.0...v0.4.0
