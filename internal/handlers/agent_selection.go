@@ -179,7 +179,7 @@ func (d *AgentDispatcher) rememberRun(runID, userID, deviceID string) {
 	if d.runOwners == nil {
 		d.runOwners = map[string]agentKey{}
 	}
-	if owner, exists := d.runOwners[runID]; exists && owner.UserID != userID {
+	if owner, exists := d.runOwners[runID]; exists && (owner.UserID != userID || owner.DeviceID != deviceID) {
 		return
 	}
 	d.runOwners[runID] = agentKey{UserID: userID, DeviceID: deviceID}
@@ -287,4 +287,16 @@ func (d *AgentDispatcher) runDevice(runID, userID string) string {
 		return owner.DeviceID
 	}
 	return ""
+}
+
+// CancelRunOn requires evidence from the persisted workstation. Another
+// workstation's response cannot establish what happened to this process.
+func (d *AgentDispatcher) CancelRunOn(ctx context.Context, userID, projectID, taskID, runID, deviceID string) error {
+	route, err := d.SelectRoute(userID, projectID, deviceID)
+	if err != nil {
+		return fmt.Errorf("cancellation not confirmed by the run owner: %w", err)
+	}
+	return d.dispatchAndWaitRoute(ctx, route, userID, projectID, taskID, agentconfig.Dispatch{
+		SchemaVersion: agentconfig.Version, TaskID: taskID, ProjectID: projectID, RunID: runID, Action: "cancel_run",
+	})
 }

@@ -50,6 +50,7 @@ export interface TranslationSchema {
     failed: string
   }
   /** The choice of the project a run works for, on a ticket of several (#741). */
+  workstationPicker: { title: string; cancel: string; refresh: string; empty: string; unavailable: string; forceConfirm: string; force: string }
   runProjectPicker: {
     title: string
     description: string
@@ -1017,8 +1018,14 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       launching: "Lancement…",
       failed: "Le lancement a échoué. Votre ordre et le nom du worktree sont conservés ; vous pouvez réessayer.",
     },
+    workstationPicker: {
+      title: 'Sur quel poste ?', cancel: 'Annuler', refresh: 'Actualiser',
+      empty: 'Aucun poste connecté ne rapporte tous les projets de cette exécution.',
+      unavailable: 'Poste indisponible', force: 'Fermer de force',
+      forceConfirm: 'Fermer le suivi de cette exécution ? Le processus local peut continuer à tourner.',
+    },
     runProjectPicker: {
-      title: 'Pour quel projet ?',
+      title: 'Pour quel projet ?' ,
       description: '{key} appartient à plusieurs projets : choisissez celui pour lequel le lancer. Son dépôt et ses règles seront ceux de ce projet.',
       cancel: 'Annuler',
     },
@@ -1970,8 +1977,14 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       launching: "Launching…",
       failed: "Launch failed. Your order and worktree name are preserved; you can retry.",
     },
+    workstationPicker: {
+      title: 'On which workstation?', cancel: 'Cancel', refresh: 'Refresh',
+      empty: 'No connected workstation reports every project for this execution.',
+      unavailable: 'Workstation unavailable', force: 'Force close',
+      forceConfirm: 'Close this execution record? The local process may continue running.',
+    },
     runProjectPicker: {
-      title: 'For which project?',
+      title: 'For which project?' ,
       description: '{key} belongs to several projects: choose the one to launch it for. Its repository and rules will be that project\'s.',
       cancel: 'Cancel',
     },

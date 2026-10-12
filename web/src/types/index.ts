@@ -87,6 +87,7 @@ export interface TaskActivity {
   trackerId?: string
   /** The workstation selected when the run was launched. */
   deviceId?: string
+  deviceLabel?: string
   /** The project a task run works for (#741). */
   runProjectId?: string
   taskKey?: string

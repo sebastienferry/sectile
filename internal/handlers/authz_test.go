@@ -387,6 +387,14 @@ func TestStopReachesTheOwnersAgentAndIsRefusedToOthers(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Simulate the launcher having delivered this run before cancellation.
+	if err := database.ClaimRunDispatch(run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteRunDispatch(run.ID); err != nil {
+		t.Fatal(err)
+	}
+
 	// Bob sees the run with its owner, and cannot stop it.
 	status, body := call(t, server, bob, http.MethodGet, "/api/tasks/"+task.ID+"/activities", "")
 	if status != http.StatusOK || !strings.Contains(body, `"userName":"carol@example.com"`) {

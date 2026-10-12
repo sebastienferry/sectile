@@ -129,14 +129,10 @@ func TestRetryingAnActivityOfNoProjectOnATwoProjectTicketAsksWhichProject(t *tes
 		t.Fatalf("candidates = %+v", answer.Candidates)
 	}
 
-	// The retry naming one of the candidates goes through, for that project.
+	// A resolved project is still refused before admission when no workstation reports it.
 	status, body = call(t, server, alice, http.MethodPost, "/api/activities/old-run/retry", `{"projectId":"`+bidder.ID+`"}`)
-	var retried models.TaskActivity
-	if err := json.Unmarshal([]byte(body), &retried); err != nil || status != http.StatusOK || retried.ID == "" || retried.ID == old.ID {
-		t.Fatalf("retrying for Bidder: %d %s", status, body)
-	}
-	if stored, err := database.GetActivityByID(retried.ID); err != nil || stored == nil || stored.RunProjectID != bidder.ID {
-		t.Fatalf("the retried activity = %+v (%v), want it run for Bidder %s", stored, err, bidder.ID)
+	if status != http.StatusPreconditionRequired {
+		t.Fatalf("retry without a workstation: %d %s", status, body)
 	}
 
 	// A project the ticket is not shown in is refused as a launch's is.

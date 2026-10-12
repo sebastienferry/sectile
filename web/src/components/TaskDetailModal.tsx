@@ -1,4 +1,6 @@
 import { PullRequestStateIcon } from './PullRequestStateIcon'
+import { WorkstationAttribution } from './WorkstationAttribution'
+import { ExecutionRecovery } from './ExecutionRecovery'
 import { RemoteRunBadge } from './RemoteRunBadge'
 import { BatchBadge } from './BatchBadge'
 import { CopyTaskSkillMenu } from './CopyTaskSkillMenu'
@@ -1526,6 +1528,7 @@ export const TaskDetailModal: React.FC = () => {
   const renderSkillsSection = () => (
     <div className="space-y-4 pt-4 border-t border-[var(--border-color)]">
       <RemoteRunBadge taskId={selectedTask.id} />
+      {globalActivities.filter(run => (run.taskId === selectedTask.id || run.id === selectedTask.batch?.runId) && ['queued', 'pending', 'running'].includes(run.status)).map(run => <span key={run.id} className="inline-flex items-center gap-2"><WorkstationAttribution run={run} /><ExecutionRecovery run={run} /></span>)}
       {/* Les prompts à coller dans son assistant : l'étape suivante et le pickup autonome, comme le menu de la carte. */}
       <CopyTaskSkillMenu key={selectedTask.id} task={selectedTask} />
 
@@ -1660,7 +1663,7 @@ export const TaskDetailModal: React.FC = () => {
                   : localizeActivityText(latestActivity.summary, locale)}
               </span>
             </div>
-            {latestActivity.deviceId && <div className="text-xs font-mono">{format(t.shell.remoteRun.workstation, { device: latestActivity.deviceId })}</div>}
+            {latestActivity.deviceId && <div className="text-xs font-mono">{format(t.shell.remoteRun.workstation, { device: latestActivity.deviceLabel || latestActivity.deviceId })}</div>}
             {latestActivity.output && (
               <pre className="whitespace-pre-wrap text-[11px] text-slate-300 font-mono">
                 {latestActivity.output}
@@ -1686,7 +1689,7 @@ export const TaskDetailModal: React.FC = () => {
                 <div className="flex items-center gap-2 truncate">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
                   <span className="font-bold text-[11px] text-[var(--text-primary)]">{localizeActivityText(act.skillName, locale)}</span>
-                  {act.deviceId && <span className="text-[10px] font-mono" title={format(t.shell.remoteRun.workstation, { device: act.deviceId })}>{format(t.shell.remoteRun.workstation, { device: act.deviceId })}</span>}
+                  {act.deviceId && <span className="text-[10px] font-mono" title={format(t.shell.remoteRun.workstation, { device: act.deviceLabel || act.deviceId })}>{format(t.shell.remoteRun.workstation, { device: act.deviceLabel || act.deviceId })}</span>}
                   {runEngineLabel(act) && (
                     <span className="text-[10px] font-mono text-[var(--text-muted)]">{runEngineLabel(act)}</span>
                   )}

@@ -2537,14 +2537,17 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			// "Launch anyway" records a concurrent run, which the database lets
 			// sit next to the active one; with nothing active it is an ordinary
 			// launch.
+			deviceLabel := h.db.WorkstationLabel(userID, ac.DeviceID)
 			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{
-				Mode:      mode,
-				Provider:  provider,
-				Model:     model,
-				UserID:    userID,
-				Force:     req.Force && active != nil,
-				ProjectID: projectID,
-				DeviceID:  ac.DeviceID,
+				Prompt:      req.Prompt,
+				Mode:        mode,
+				Provider:    provider,
+				Model:       model,
+				UserID:      userID,
+				Force:       req.Force && active != nil,
+				ProjectID:   projectID,
+				DeviceID:    ac.DeviceID,
+				DeviceLabel: deviceLabel,
 			})
 			if writeTaskBusy(w, runErr) {
 				return
@@ -2552,11 +2555,17 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 			activityID := uuid.New().String()
 			now := time.Now()
+			remoteRunID := ""
+			if remoteRun != nil {
+				remoteRunID = remoteRun.ID
+			}
 			act := models.TaskActivity{
 				ID:           activityID,
+				RemoteRunID:  remoteRunID,
 				TaskID:       task.ID,
 				RunProjectID: projectID,
 				DeviceID:     ac.DeviceID,
+				DeviceLabel:  deviceLabel,
 				SkillID:      "agent_launch",
 				SkillName:    req.SkillID,
 				Action:       fmt.Sprintf("Exécution de %s sur l'agent local", req.SkillID),
@@ -2608,6 +2617,23 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 					task = fresh
 				}
 			}
+			if err := h.db.ClaimRunDispatch(remoteRun.ID); err != nil {
+				// Cancellation can win after the launcher is recorded. No dispatch
+				// occurred, so close its history row as well as the remote run.
+				_, _ = h.db.FinishRemoteRun(task.ID, remoteRun.ID, "failed", err.Error())
+				act.Status = "failed"
+				act.Error = err.Error()
+				act.Summary = "Le lancement a été interrompu avant l’envoi au poste"
+				finished := time.Now()
+				act.CompletedAt = &finished
+				if finishErr := h.db.FinishAgentLaunch(act); finishErr != nil {
+					writeError(w, 500, "Impossible de conserver l’interruption du lancement")
+					return
+				}
+				h.BroadcastEvent(Event{Type: "agent_step_status"})
+				writeError(w, 409, err.Error())
+				return
+			}
 			launchCtx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 			defer cancel()
 			err := h.agentDispatcher.dispatchAndWaitRoute(launchCtx, ac, userID, projectID, task.ID, agentconfig.Dispatch{
@@ -2615,6 +2641,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				SkillID: req.SkillID, Action: req.SkillID, Prompt: req.Prompt, RunID: remoteRun.ID,
 				Mode: mode, Model: strings.TrimSpace(req.Model),
 			})
+			_ = h.db.CompleteRunDispatch(remoteRun.ID)
 			finished := time.Now()
 			act.CompletedAt = &finished
 			act.Status = "completed"
@@ -3553,12 +3580,39 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 		// (the run endpoint's field) goes through.
 		var req struct {
 			ProjectID string `json:"projectId"`
+			DeviceID  string `json:"deviceId"`
 		}
 		if r.Body != nil {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 				writeError(w, http.StatusBadRequest, "Body must be {\"projectId\": string} or empty")
 				return
 			}
+		}
+		original, readErr := h.db.GetActivityByID(id)
+		if readErr != nil || original == nil {
+			writeError(w, 404, "Activity not found")
+			return
+		}
+		if original.Status == "queued" || original.Status == "pending" || original.Status == "running" {
+			writeError(w, 409, "L’exécution est encore active")
+			return
+		}
+		if original.TaskID != "" && !strings.HasPrefix(original.SkillID, "sync_") && original.SkillID != "tracker_op" && original.SkillID != "tracker_update" {
+			project := req.ProjectID
+			if project == "" {
+				project = original.RunProjectID
+			}
+			request, err := h.db.RetryTaskRequest(original, project, req.DeviceID)
+			if err != nil {
+				writeError(w, 500, err.Error())
+				return
+			}
+			body, _ := json.Marshal(request)
+			launch := r.Clone(r.Context())
+			launch.URL.Path = "/api/tasks/" + original.TaskID + "/run-skill"
+			launch.Body = io.NopCloser(strings.NewReader(string(body)))
+			h.HandleTaskDetail(w, launch)
+			return
 		}
 		act, err := h.db.RetryActivity(id, req.ProjectID)
 		if writeTaskBusy(w, err) || writeRunProjectRefusal(w, err) {
@@ -3574,33 +3628,40 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Sub-action: /api/activities/{id}/cancel
 	if len(parts) >= 2 && parts[1] == "cancel" && r.Method == http.MethodPost {
-		// A run a client created is closed like a reported end (#319): only its
-		// owner or an admin may, the workflow is handed back, and its MCP
-		// session forgets it. Cancelling it as a plain activity skipped all
-		// three.
-		if act, err := h.db.GetActivityByID(id); err == nil && act != nil && act.SkillID == "remote_run" &&
-			act.Action == db.RunActionClient && act.TaskID != "" && act.Status == "running" {
-			caller, ok := h.requireOwnerOrAdmin(w, r, act.UserID)
-			if !ok {
+		var input struct {
+			Force bool `json:"force"`
+		}
+		if r.Body != nil {
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil && !errors.Is(err, io.EOF) {
+				writeError(w, 400, "Invalid cancellation body")
 				return
 			}
-			_, err := h.db.FinishRemoteRunAs(caller.Actor(), caller.IsAdmin(), act.TaskID, id, "canceled", "Execution canceled from the activities view")
-			if errors.Is(err, db.ErrRunNotYours) {
-				writeError(w, http.StatusForbidden, msgNotOwner)
-				return
-			}
-			if err != nil {
-				writeError(w, http.StatusConflict, err.Error())
-				return
-			}
-			h.mcpSessions.ReleaseRun(id)
-			writeJSON(w, http.StatusOK, map[string]string{"message": "Activité annulée avec succès"})
+		}
+		act, err := h.db.GetActivityByID(id)
+		if err != nil || act == nil {
+			writeError(w, 404, "Activity not found")
+			return
+		}
+		if act.TaskID != "" && act.SkillID != "remote_run" && (db.IsTaskRunSkill(act.SkillID) || act.SkillID == "agent_launch") {
+			h.cancelTaskLaunch(w, r, act, input.Force)
+			return
+		}
+		if act.SkillID == "remote_run" && act.TaskID != "" {
+			h.cancelExecution(w, r, act.TaskID, act.ID, input.Force)
+			return
+		}
+		if _, ok := h.requireOwnerOrAdmin(w, r, act.UserID); !ok {
+			return
+		}
+		if act.Status != "queued" && act.Status != "pending" && act.Status != "running" {
+			writeError(w, 409, "Active execution not found")
 			return
 		}
 		if err := h.db.CancelActivity(id); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeError(w, 409, err.Error())
 			return
 		}
+		h.BroadcastEvent(Event{Type: "agent_step_status"})
 		writeJSON(w, http.StatusOK, map[string]string{"message": "Activité annulée avec succès"})
 		return
 	}
@@ -3914,7 +3975,11 @@ func (h *Handler) HandleAgentStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	response := map[string]any{"agents": agents}
 	if projectID != "" {
-		response["availableWorkstations"] = workstations(snapshot, caller.UserID, projectID)
+		available := workstations(snapshot, caller.UserID, projectID)
+		for i := range available {
+			available[i].Label = h.db.WorkstationLabel(caller.UserID, available[i].DeviceID)
+		}
+		response["availableWorkstations"] = available
 	}
 	writeJSON(w, http.StatusOK, response)
 }
@@ -3975,6 +4040,7 @@ func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) pullAndApplyAgentTasks(ac *AgentConn) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
+	candidates := h.reconnectCandidates(ac.UserID, ac.DeviceID, ac.ConnectedAt)
 	tasks, err := h.agentDispatcher.PullTasks(ctx, ac)
 	if err != nil {
 		log.Printf("[AgentConnect] Could not pull running tasks from %s: %v", ac.DeviceID, err)
@@ -3986,13 +4052,15 @@ func (h *Handler) pullAndApplyAgentTasks(ac *AgentConn) {
 			h.agentDispatcher.rememberRun(task.ID, ac.UserID, ac.DeviceID)
 		}
 	}
-	h.ApplyAgentRunningTasksFor(ac.UserID, tasks)
+	h.reconcileAssignedRuns(candidates, tasks)
+	h.applyAgentRunningTasksOn(ac.UserID, ac.DeviceID, tasks)
 	h.resendRunWaits(ac.UserID, tasks)
 }
 
 func (h *Handler) pullAndApplyRemoteAgentTasks(location db.AgentLocation) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	candidates := h.reconnectCandidates(location.UserID, location.DeviceID, location.ConnectedAt)
 	tasks, err := h.agentDispatcher.PullRemoteTasks(ctx, location)
 	if err != nil {
 		log.Printf("[AgentConnect] Could not pull running tasks from %s on instance %s: %v", location.DeviceID, location.InstanceID, err)
@@ -4003,7 +4071,8 @@ func (h *Handler) pullAndApplyRemoteAgentTasks(location db.AgentLocation) {
 			h.agentDispatcher.rememberRun(task.ID, location.UserID, location.DeviceID)
 		}
 	}
-	h.ApplyAgentRunningTasksFor(location.UserID, tasks)
+	h.reconcileAssignedRuns(candidates, tasks)
+	h.applyAgentRunningTasksOn(location.UserID, location.DeviceID, tasks)
 	h.resendRunWaits(location.UserID, tasks)
 }
 
@@ -4035,6 +4104,10 @@ func (h *Handler) ApplyAgentRunningTasks(tasks []agentprotocol.RunningTask) {
 // ApplyAgentRunningTasksFor records the runs a connected agent reports as its
 // user's: a run the agent has is a run that user started.
 func (h *Handler) ApplyAgentRunningTasksFor(ownerID string, tasks []agentprotocol.RunningTask) {
+	h.applyAgentRunningTasksOn(ownerID, "", tasks)
+}
+
+func (h *Handler) applyAgentRunningTasksOn(ownerID, deviceID string, tasks []agentprotocol.RunningTask) {
 	for _, t := range tasks {
 		if t.Status != "queued" && t.Status != "running" {
 			continue
@@ -4050,6 +4123,9 @@ func (h *Handler) ApplyAgentRunningTasksFor(ownerID string, tasks []agentprotoco
 			continue
 		}
 		if act != nil {
+			if err := h.db.FillRunWorkstation(act.ID, ownerID, deviceID); err != nil {
+				log.Printf("[AgentTasks] Attribution unavailable: %v", err)
+			}
 			h.BroadcastEvent(Event{
 				Type: "agent_step_status",
 			})

@@ -70,7 +70,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   const stateLabel = strings.states[state] + (waited ? format(strings.waitedFor, { duration: waited }) : '')
     + (count > 1 ? ` (${count})` : '') + (skills ? ` (${skills})` : '')
     + (owners ? format(strings.startedBy, { owners }) : '')
-    + [...new Set(runs.map(run => run.deviceId).filter(Boolean))].map(device => ` · ${format(strings.workstation, { device: device! })}`).join('')
+    + [...new Set(runs.map(run => run.deviceLabel || run.deviceId).filter(Boolean))].map(device => ` · ${format(strings.workstation, { device: device! })}`).join('')
 
   // closing marks a client run being closed rather than an agent run being
   // stopped: there is no agent to be unreachable, so no force is ever offered.
@@ -94,7 +94,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
       // A refusal is different: forcing would not make the execution any more
       // ours, so the server's answer is simply shown.
       const refused = typeof error === 'object' && error !== null && (error as { status?: number }).status === 403
-      if (!force && !refused && !closing) setUnreachable(true)
+      if (!force && !refused && !closing && typeof error === 'object' && error !== null && (error as { status?: number }).status === 502) setUnreachable(true)
       addToast({ type: 'error', title: closing ? strings.closeFailed : strings.cancelFailed, description: error instanceof Error ? error.message : String(error) })
     } finally { setCanceling(false) }
   }
@@ -136,7 +136,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
       <button type="button" disabled={canceling}
         title={strings.unreachable}
         aria-label={format(strings.forceClose, { skills })}
-        onClick={event => { event.stopPropagation(); void cancelRuns(cancelableRunIds, true) }}
+        onClick={event => { event.stopPropagation(); if (window.confirm(t.workstationPicker.forceConfirm)) void cancelRuns(cancelableRunIds, true) }}
         className={shape + interactive} style={tint}>
         <StateGlyph state="canceled" pulse={false} />
       </button>

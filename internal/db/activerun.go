@@ -93,3 +93,13 @@ func boolToInt(b bool) int {
 	}
 	return 0
 }
+
+// IsTaskRunSkill identifies queued task execution kinds, including legacy IDs.
+func IsTaskRunSkill(skillID string) bool {
+	for _, id := range activeRunSkillIDs {
+		if skillID == id {
+			return true
+		}
+	}
+	return false
+}

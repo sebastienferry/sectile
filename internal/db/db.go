@@ -3856,8 +3856,8 @@ func insertTaskActivity(conn activityExecutor, instanceID string, act models.Tas
 	}
 	_, err := conn.Exec(`
 		INSERT INTO task_activities (id, task_id, project_id, run_project_id, tracker_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error,
-			created_at, waiting_since, user_id, run_provider, run_model, instance_id, concurrent, device_id)
-		VALUES (?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			created_at, waiting_since, user_id, run_provider, run_model, instance_id, concurrent, device_id, device_label, dispatch_state, remote_run_id)
+		VALUES (?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		act.ID,
 		act.TaskID,
@@ -3883,6 +3883,9 @@ func insertTaskActivity(conn activityExecutor, instanceID string, act models.Tas
 		instanceID,
 		boolToInt(act.Concurrent),
 		act.DeviceID,
+		act.DeviceLabel,
+		act.DispatchState,
+		act.RemoteRunID,
 	)
 	return err
 }
@@ -3923,7 +3926,7 @@ func (d *DB) activitiesAttachedTo(column, id string) ([]models.TaskActivity, err
 	rows, err := d.conn.Query(`
 		SELECT a.id, COALESCE(a.task_id, ''), COALESCE(a.project_id, ''), a.skill_id, a.skill_name, a.action, a.status, a.summary, a.output, a.steps, a.prompt, a.started_at, a.completed_at, a.error, a.created_at, a.waiting_since, a.waiting_reason,
 		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model, a.concurrent, a.credential_missing,
-		       COALESCE(a.run_project_id, ''), COALESCE(a.tracker_id, ''), a.device_id
+		       COALESCE(a.run_project_id, ''), COALESCE(a.tracker_id, ''), a.device_id, a.device_label
 		FROM task_activities a LEFT JOIN users u ON u.id = a.user_id WHERE `+column+` = ? ORDER BY a.created_at DESC
 	`, id)
 	if err != nil {
@@ -3967,6 +3970,7 @@ func (d *DB) activitiesAttachedTo(column, id string) ([]models.TaskActivity, err
 			&a.RunProjectID,
 			&a.TrackerID,
 			&a.DeviceID,
+			&a.DeviceLabel,
 		)
 		if err != nil {
 			continue
@@ -4611,14 +4615,18 @@ func (d *DB) processSkillJob(job SkillJob) {
 	// cancellation that landed since the check above, possibly through another
 	// instance, wins: the job does not start.
 	d.mu.Lock()
-	_, _ = d.conn.Exec(`
+	claim, claimErr := d.conn.Exec(`
 		UPDATE task_activities
 		SET status = 'running', started_at = ?, instance_id = ?
-		WHERE id = ? AND status != 'canceled'
+		WHERE id = ? AND status IN ('queued', 'pending')
 	`, now, d.instanceID, job.ActivityID)
 	_ = d.conn.QueryRow("SELECT status FROM task_activities WHERE id = ?", job.ActivityID).Scan(&currentStatus)
 	d.mu.Unlock()
-	if currentStatus == string(models.ActivityStatusCanceled) {
+	if claimErr != nil {
+		return
+	}
+	claimed, claimErr := claim.RowsAffected()
+	if claimErr != nil || claimed != 1 || currentStatus == string(models.ActivityStatusCanceled) {
 		return
 	}
 
@@ -4678,7 +4686,10 @@ func (d *DB) processSkillJob(job SkillJob) {
 		}
 		provider, model := d.ResolveTaskEngine(runProject, job.ActingUser, device, job.SkillID, job.Model)
 		if err == nil {
-			run, err = d.StartAgentRun(task.ID, job.SkillID, RunLaunch{UserID: job.ActingUser, Mode: job.Mode, Model: model, Provider: provider, ChainStop: job.ChainStopStage, ProjectID: runProject})
+			run, err = d.StartAgentRun(task.ID, job.SkillID, RunLaunch{LaunchActivityID: job.ActivityID, Prompt: job.Prompt, UserID: job.ActingUser, Mode: job.Mode, Model: model, Provider: provider, ChainStop: job.ChainStopStage, ProjectID: runProject, DeviceID: device, DeviceLabel: d.WorkstationLabel(job.ActingUser, device)})
+		}
+		if err == nil {
+			err = d.ClaimRunDispatch(run.ID)
 		}
 		if err == nil {
 			err = d.callAgentContext(
@@ -4686,6 +4697,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 				agentprotocol.Operation{UserID: job.ActingUser, DeviceID: device, ProjectID: runProject, TaskID: task.ID, Action: "execute_skill", SkillID: job.SkillID, Prompt: job.Prompt, RunID: run.ID, Mode: job.Mode, Model: job.Model},
 				nil,
 			)
+			_ = d.CompleteRunDispatch(run.ID)
 			if err != nil && !errors.Is(err, agentprotocol.ErrLaunchUnconfirmed) {
 				_, _ = d.FinishRemoteRun(task.ID, run.ID, "failed", err.Error())
 			}
@@ -6009,7 +6021,7 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
 		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since, a.waiting_reason,
 		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model, a.credential_missing,
-		       COALESCE(a.run_project_id, ''), COALESCE(a.tracker_id, ''), a.device_id
+		       COALESCE(a.run_project_id, ''), COALESCE(a.tracker_id, ''), a.device_id, a.device_label
 		FROM task_activities a
 		LEFT JOIN tasks t ON a.task_id = t.id
 		LEFT JOIN users u ON u.id = a.user_id
@@ -6065,6 +6077,7 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 			&a.RunProjectID,
 			&a.TrackerID,
 			&a.DeviceID,
+			&a.DeviceLabel,
 		)
 		if err != nil {
 			continue
@@ -6126,7 +6139,7 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
 		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since, a.waiting_reason,
 		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model, a.concurrent, a.credential_missing,
-		       COALESCE(a.run_project_id, ''), COALESCE(a.tracker_id, ''), a.device_id
+		       COALESCE(a.run_project_id, ''), COALESCE(a.tracker_id, ''), a.device_id, a.device_label
 		FROM task_activities a
 		LEFT JOIN tasks t ON a.task_id = t.id
 		LEFT JOIN users u ON u.id = a.user_id
@@ -6161,6 +6174,7 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 		&a.RunProjectID,
 		&a.TrackerID,
 		&a.DeviceID,
+		&a.DeviceLabel,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -6277,10 +6291,9 @@ func (d *DB) RetryActivity(activityID, projectID string) (*models.TaskActivity, 
 // running in another server instance sharing the database, so after recording
 // the cancellation it is published for whichever instance holds the job.
 func (d *DB) CancelActivity(activityID string) error {
-	d.cancelLocal(activityID)
 
 	d.mu.Lock()
-	_, err := d.conn.Exec(`
+	result, err := d.conn.Exec(`
 		UPDATE task_activities
 		SET status = 'canceled', summary = 'Annulée par l''utilisateur', completed_at = CURRENT_TIMESTAMP, waiting_since = NULL, waiting_session = ''
 		WHERE id = ? AND status IN ('queued', 'pending', 'running')
@@ -6289,6 +6302,14 @@ func (d *DB) CancelActivity(activityID string) error {
 	if err != nil {
 		return err
 	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return fmt.Errorf("L’activité n’est plus active")
+	}
+	d.cancelLocal(activityID)
 	d.publish(BusMessage{Kind: busKindCancel, ActivityID: activityID})
 	return nil
 }

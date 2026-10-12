@@ -15,10 +15,15 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Choose an eligible workstation for Web task launches, retries and batches, and see its recorded name on tasks and activity history. (#820)
 - Task skills can target a workstation with `targetDeviceId` or `deviceId`. Automatic routing retains task affinity, Desktop runs locally, and activity history records the workstation. Only connected workstations reporting the project qualify; unavailable affinity requires an explicit override. (#819)
 
 - **Connected workstation availability by project.** The agent status API reports which connected workstations have an accessible local checkout for each project. Availability updates when local mappings or checkouts change. (#818)
 - Keep multiple workstations connected simultaneously; select a workstation with `deviceId` when dispatching while several are connected. (#817)
+
+### Fixed
+
+- Recover queued, pending and running executions from task details or activity history. Unconfirmed stops retain their run until an owner or administrator explicitly force-closes the record, with a warning that the local process may continue. (#820)
 
 ## [0.4.5] - 2026-10-09
 

@@ -3,17 +3,9 @@
 // Run with Playwright available:
 //   PLAYWRIGHT_MODULE=file:///absolute/path/to/desktop/node_modules/playwright/index.mjs node tests/run-project-picker.browser.mjs
 //
-// What it guards: on "All projects", a ticket of two projects shows one card
-// with both projects' chips; launching it without a project gets the server's
-// 409 with the candidates, which opens the picker, and the launch is made
-// again for the project picked; closing the picker gives the launch up; a busy
-// refusal, a 409 without candidates, opens no picker, and neither does the 400
-// refusing an unattended launch, which lists the candidates but is shown as the
-// refusal it is (L10). The queued toast is said once, by the accepted launch.
-// From a project's board, the launch names that project and nobody is asked.
-// Retrying a run recorded without a project, on a ticket of two, gets the same
-// 409 and the same picker, and the retry is made again for the project picked;
-// closing the picker gives the retry up (L4).
+// Guards project choice before workstation discovery and admission, board project
+// defaults, picker dismissal without a launch, busy refusal, and legacy retry
+// project choice. Every accepted task request carries the selected deviceId.
 import { createServer } from 'vite';
 import { browserRoot } from './browserRoot.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -110,7 +102,7 @@ window.fetch = async (input, init = {}) => {
   }
   const retry = /^\\/api\\/activities\\/([^/]+)\\/retry$/.exec(url.pathname);
   if (retry && method === 'POST') {
-    fake.retries.push({ id: decodeURIComponent(retry[1]), projectId: body?.projectId });
+    fake.retries.push({ id: decodeURIComponent(retry[1]), ...(body || {}) });
     if (!body?.projectId) {
       return json({ error: 'ce ticket appartient à plusieurs projets', candidates: [{ id: 'a', name: 'Alpha' }, { id: 'b', name: 'Beta' }], unattended: false }, 409);
     }
@@ -132,6 +124,7 @@ window.fetch = async (input, init = {}) => {
   if (url.pathname === '/api/tasks') return json(fake.tasks);
   if (url.pathname === '/api/trackers') return json([{ id: 'gode', name: 'GODE', provider: 'jira', site: '', scope: 'GODE', identity: 'jira|acme.atlassian.net|GODE' }]);
   if (url.pathname === '/api/settings') return json({ userName: 'Alice', language: 'fr', aiProvider: 'claude' });
+  if (url.pathname === '/api/agent/status') return json({ availableWorkstations: [{ deviceId: 'mac', label: 'Mac' }], agents: [] });
   if (/stats|settings|status/.test(url.pathname)) return json({});
   return json([]);
 };
@@ -201,11 +194,11 @@ try {
   assert.equal(await picker.locator('[data-run-project]').count(), 2);
   await picker.getByRole('button', { name: 'Beta' }).click();
   await picker.waitFor({ state: 'detached' });
-  await page.waitForFunction(() => window.fake.runs.length === 2);
+  await page.waitForFunction(() => window.fake.runs.length === 1);
   let seen = await runs();
-  assert.equal(seen[0].projectId, undefined, 'All projects names no project');
-  assert.equal(seen[1].projectId, 'b', 'the launch is made again for the project picked');
-  assert.equal(seen[1].skillId, 'clarify');
+  assert.equal(seen[0].projectId, 'b', 'project choice precedes admission');
+  assert.equal(seen[0].deviceId, 'mac');
+  assert.equal(seen[0].skillId, 'clarify');
   assert.equal(await page.getByText("Skill ajoutée à la file d'exécution !").count(), 1, 'the queued toast is said once, after the accepted launch');
 
   // Closing the picker gives the launch up.
@@ -214,21 +207,16 @@ try {
   await page.keyboard.press('Escape');
   await picker.waitFor({ state: 'detached' });
   await page.waitForTimeout(300);
-  assert.equal((await runs()).length, 3, 'a closed picker launches nothing more');
+  assert.equal((await runs()).length, 1, 'a closed picker launches nothing more');
 
-  // A busy ticket is a 409 too, without candidates: no picker.
+  // Project preparation precedes admission; a busy refusal opens no further picker.
   await launch('Busy story');
-  await page.waitForFunction(() => window.fake.runs.length === 4);
+  await picker.waitFor();
+  await picker.getByRole('button', { name: 'Alpha' }).click();
+  await page.waitForFunction(() => window.fake.runs.length === 2);
   await page.waitForTimeout(300);
   assert.equal(await picker.count(), 0, 'a busy refusal opens no picker');
 
-  // An unattended refusal lists the candidates too, but is shown, not asked.
-  await launch('Unattended story');
-  await page.waitForFunction(() => window.fake.runs.length === 5);
-  await page.getByText('lancement automatique refusé').first().waitFor();
-  await page.waitForTimeout(300);
-  assert.equal(await picker.count(), 0, 'an unattended refusal opens no picker');
-  assert.equal((await runs()).length, 5, 'an unattended refusal is not retried for a project');
   await all.close();
 
   // ---------- A project's board names its project, nobody is asked ----------
@@ -271,18 +259,17 @@ try {
   await retryPicker.getByText('GODE-1 appartient à plusieurs projets').waitFor();
   await retryPicker.getByRole('button', { name: 'Beta' }).click();
   await retryPicker.waitFor({ state: 'detached' });
-  await activities.waitForFunction(() => window.fake.retries.length === 2);
+  await activities.waitForFunction(() => window.fake.retries.length === 1);
   const retried = await retries();
-  assert.equal(retried[0].projectId, undefined, 'the first retry names no project');
-  assert.deepEqual(retried[1], { id: 'old', projectId: 'b' }, 'the retry is made again for the project picked');
+  assert.deepEqual(retried[0], { id: 'old', projectId: 'b', deviceId: 'mac' }, 'retry resolves project and workstation before admission');
 
-  // Closing the picker gives the retry up.
+  // Closing project preparation gives the retry up.
   await retryButton.click();
   await retryPicker.waitFor();
   await activities.keyboard.press('Escape');
   await retryPicker.waitFor({ state: 'detached' });
   await activities.waitForTimeout(300);
-  assert.equal((await retries()).length, 3, 'a closed picker retries nothing more');
+  assert.equal((await retries()).length, 1, 'a closed picker retries nothing more');
   await history.close();
 
   assert.deepEqual(errors, []);

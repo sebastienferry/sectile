@@ -1,5 +1,6 @@
 import { PullRequestStateIcon } from './PullRequestStateIcon'
 import { pullRequestStateLabel, repositoryPullRequests, taskPullRequestLinks } from '../lib/pullRequests'
+import { WorkstationAttribution } from './WorkstationAttribution'
 import { RemoteRunBadge } from './RemoteRunBadge'
 import { BatchBadge } from './BatchBadge'
 import { batchIndicator } from '../lib/batchMembership'
@@ -934,6 +935,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           <RemoteRunBadge taskId={task.id} />
           {modelIndicator}
           {actionsMenu}
+          {activities.filter(run => (run.taskId === task.id || run.id === task.batch?.runId) && run.skillId === 'remote_run' && ['queued', 'pending', 'running'].includes(run.status)).map(run => <WorkstationAttribution key={run.id} run={run} />)}
           {indicatorMenu}
         </div>
       ) : (
@@ -1079,6 +1081,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       {/* Ligne 4 : Activité live / queued + menu d'actions (...) */}
       <div className="pt-2 border-t border-[var(--border-color)]/50 flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
         <RemoteRunBadge taskId={task.id} />
+          {activities.filter(run => (run.taskId === task.id || run.id === task.batch?.runId) && run.skillId === 'remote_run' && ['queued', 'pending', 'running'].includes(run.status)).map(run => <WorkstationAttribution key={run.id} run={run} />)}
         <BatchBadge task={task} />
         {/* Live / Queued Activity indicator */}
 
