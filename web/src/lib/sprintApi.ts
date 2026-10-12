@@ -11,7 +11,9 @@ export interface SprintPatch {
   start?: string
   end?: string
   state?: 'active' | 'future' | 'closed'
-  moveOpenTo?: 'next' | 'backlog'
+  moveOpenTo?: 'next' | 'backlog' | 'sprint'
+  /** The sprint id a 'sprint' moveOpenTo moves the unfinished work to. */
+  moveOpenToSprint?: string
 }
 
 export interface SprintBatch {

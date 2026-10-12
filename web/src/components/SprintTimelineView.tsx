@@ -29,6 +29,7 @@ import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import {
   calculateSprintDates,
+  closeTargets,
   shiftSubsequentSprintDates,
   generateDefaultSprints,
   formatDateISO,
@@ -138,7 +139,9 @@ export const SprintTimelineView: React.FC = () => {
 
   // Close Sprint Modal State
   const [closingSprint, setClosingSprint] = useState<{ sprint: TrackerSprint; index: number } | null>(null)
+  // 'next' moves the unfinished work to the sprint closeSprintTargetKey names.
   const [closeSprintDestination, setCloseSprintDestination] = useState<'next' | 'backlog' | 'keep'>('next')
+  const [closeSprintTargetKey, setCloseSprintTargetKey] = useState<string>('')
   const [closeSprintActivateNext, setCloseSprintActivateNext] = useState<boolean>(true)
   const [isClosingSprintBusy, setIsClosingSprintBusy] = useState<boolean>(false)
 
@@ -492,26 +495,51 @@ export const SprintTimelineView: React.FC = () => {
   }
 
   // Close Sprint Handlers
+  const sprintKeyOf = (sp: TrackerSprint) => sp.id || sp.name
+  // The sprint the unfinished work goes to, when it goes to a sprint, and the
+  // sprint the close may start: the chosen one, or else the next by start date.
+  const closeTargetsOf = (closing: TrackerSprint) => {
+    const targets = closeTargets(sprints, closing)
+    const chosen = closeSprintDestination === 'next' ? targets.find(sp => sprintKeyOf(sp) === closeSprintTargetKey) || null : null
+    const toStart = closeSprintDestination === 'next' ? chosen : nextSprintAfter(sprints, closing)
+    return { targets, chosen, toStart }
+  }
+
   const handleStartCloseSprint = (sprint: TrackerSprint, index: number) => {
     setClosingSprint({ sprint, index })
-    setCloseSprintDestination((trackerOwned ? nextSprintAfter(sprints, sprint) !== null : index < sprints.length - 1) ? 'next' : 'backlog')
+    // The server's "next" is preselected, so the sprint named is the one that receives the work.
+    const targets = closeTargets(sprints, sprint)
+    const preferred = nextSprintAfter(sprints, sprint) || targets[0] || null
+    setCloseSprintTargetKey(preferred ? sprintKeyOf(preferred) : '')
+    setCloseSprintDestination(preferred ? 'next' : 'backlog')
     setCloseSprintActivateNext(true)
   }
 
   const handleConfirmCloseSprint = async () => {
     if (!closingSprint || !currentProject?.id) return
     const { sprint, index } = closingSprint
+    const { chosen, toStart } = closeTargetsOf(sprint)
     setIsClosingSprintBusy(true)
 
     if (trackerOwned) {
-      // The server moves the unfinished work on the tracker, then closes; the
-      // sprint it hands over to is the next one by start date, as here.
-      const nextSprint = nextSprintAfter(sprints, sprint)
+      // A sprint the tracker has no id for cannot receive work there; closing
+      // anyway would leave the work in the closed sprint without saying so.
+      if (closeSprintDestination === 'next' && !chosen?.id) {
+        addToast({ type: 'error', title: st.close.failed, description: st.close.targetMissing })
+        setIsClosingSprintBusy(false)
+        return
+      }
+      // The server moves the unfinished work on the tracker, then closes.
       const patch: SprintPatch = { state: 'closed' }
-      if (closeSprintDestination === 'next' || closeSprintDestination === 'backlog') patch.moveOpenTo = closeSprintDestination
+      if (closeSprintDestination === 'next' && chosen?.id) {
+        patch.moveOpenTo = 'sprint'
+        patch.moveOpenToSprint = chosen.id
+      } else if (closeSprintDestination === 'backlog') {
+        patch.moveOpenTo = 'backlog'
+      }
       const closed = sprint.id ? await trackerWrite(st.close.failed, () => updateSprint(currentProject.id, sprint.id!, patch)) : null
-      if (closed && closeSprintActivateNext && nextSprint?.id && nextSprint.state === 'future') {
-        await trackerWrite(format(st.close.startFailed, { name: nextSprint.name }), () => updateSprint(currentProject.id, nextSprint.id!, { state: 'active' }))
+      if (closed && closeSprintActivateNext && toStart?.id && toStart.state === 'future') {
+        await trackerWrite(format(st.close.startFailed, { name: toStart.name }), () => updateSprint(currentProject.id, toStart.id!, { state: 'active' }))
       }
       if (closed) {
         addToast({ type: 'success', title: format(st.close.closed, { name: sprint.name }), description: st.close.closedOnTracker })
@@ -528,13 +556,11 @@ export const SprintTimelineView: React.FC = () => {
         t => !(t.status === 'finished' || t.status === 'done' || resolveTaskStage(t, currentProject) === 'finished')
       )
 
-      const nextSprint = index < sprints.length - 1 ? sprints[index + 1] : null
-
       // 1. Move unfinished tasks based on choice
       if (unfinishedTasks.length > 0) {
         const unfinishedIds = unfinishedTasks.map(t => t.id)
-        if (closeSprintDestination === 'next' && nextSprint) {
-          await setTasksSprint(currentProject.id, unfinishedIds, nextSprint.id || nextSprint.name, nextSprint.name)
+        if (closeSprintDestination === 'next' && chosen) {
+          await setTasksSprint(currentProject.id, unfinishedIds, chosen.id || chosen.name, chosen.name)
         } else if (closeSprintDestination === 'backlog') {
           await setTasksSprint(currentProject.id, unfinishedIds, '', '')
         }
@@ -545,7 +571,7 @@ export const SprintTimelineView: React.FC = () => {
         if (i === index) {
           return { ...sp, state: 'closed' }
         }
-        if (i === index + 1 && closeSprintActivateNext && sp.state !== 'closed') {
+        if (closeSprintActivateNext && toStart && sprintKeyOf(sp) === sprintKeyOf(toStart) && sp.state === 'future') {
           return { ...sp, state: 'active' }
         }
         return sp
@@ -557,8 +583,8 @@ export const SprintTimelineView: React.FC = () => {
         type: 'success',
         title: format(st.close.closed, { name: sprint.name }),
         description: unfinishedTasks.length > 0
-          ? closeSprintDestination === 'next' && nextSprint
-            ? plural(lang, unfinishedTasks.length, st.close.movedToNext, { name: nextSprint.name })
+          ? closeSprintDestination === 'next' && chosen
+            ? plural(lang, unfinishedTasks.length, st.close.movedToNext, { name: chosen.name })
             : closeSprintDestination === 'backlog'
             ? plural(lang, unfinishedTasks.length, st.close.sentToBacklog)
             : plural(lang, unfinishedTasks.length, st.close.keptInSprint)
@@ -1886,7 +1912,7 @@ export const SprintTimelineView: React.FC = () => {
                 const unfinishedTasks = sprintTasks.filter(
                   t => !(t.status === 'finished' || t.status === 'done' || resolveTaskStage(t, currentProject) === 'finished')
                 )
-                const nextSprint = closingSprint.index < sprints.length - 1 ? sprints[closingSprint.index + 1] : null
+                const { targets, toStart } = closeTargetsOf(closingSprint.sprint)
 
                 return (
                   <>
@@ -1924,7 +1950,7 @@ export const SprintTimelineView: React.FC = () => {
                         </label>
 
                         <div className="space-y-2">
-                          {nextSprint && (
+                          {targets.length > 0 && (
                             <label
                               className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
                                 closeSprintDestination === 'next'
@@ -1939,10 +1965,25 @@ export const SprintTimelineView: React.FC = () => {
                                 onChange={() => setCloseSprintDestination('next')}
                                 className="mt-0.5 text-[var(--accent-color)] cursor-pointer"
                               />
-                              <div className="space-y-0.5">
+                              <div className="space-y-1.5 flex-1 min-w-0">
                                 <span className="font-bold text-[var(--text-primary)] block">
-                                  {format(st.close.toNext, { name: nextSprint.name })}
+                                  {st.close.toSprint}
                                 </span>
+                                <select
+                                  value={closeSprintTargetKey}
+                                  onChange={e => {
+                                    setCloseSprintTargetKey(e.target.value)
+                                    setCloseSprintDestination('next')
+                                  }}
+                                  aria-label={st.close.targetLabel}
+                                  className="w-full px-2 py-1 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-xs text-[var(--text-primary)] cursor-pointer"
+                                >
+                                  {targets.map(sp => (
+                                    <option key={sprintKeyOf(sp)} value={sprintKeyOf(sp)}>
+                                      {sp.state === 'active' ? format(st.close.targetActive, { name: sp.name }) : sp.name}
+                                    </option>
+                                  ))}
+                                </select>
                                 <span className="text-[10.5px] text-[var(--text-muted)] block leading-snug">
                                   {st.close.toNextHint}
                                 </span>
@@ -2008,11 +2049,11 @@ export const SprintTimelineView: React.FC = () => {
                       </div>
                     )}
 
-                    {nextSprint && nextSprint.state === 'future' && (
+                    {toStart && toStart.state === 'future' && (
                       <div className="p-3 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] flex items-center justify-between">
                         <div>
                           <span className="font-semibold text-[var(--text-primary)] block text-xs">
-                            {format(st.close.activateNext, { name: nextSprint.name })}
+                            {format(st.close.activateNext, { name: toStart.name })}
                           </span>
                           <span className="text-[10px] text-[var(--text-muted)] block">
                             {st.close.activateNextHint}

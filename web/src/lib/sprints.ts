@@ -253,20 +253,40 @@ export const nextBatchStart = (sprints: TrackerSprint[], fallback: string): stri
  * The sprint a closing one hands over to: the earliest sprint not closed that
  * starts at or after it, by start date, which is the server's rule. Array
  * order is not start order: a batch created later is appended at the end.
+ * Jira often leaves a future sprint undated; when no dated sprint follows, the
+ * first undated future one, in board order, is next, as on the server.
  */
 export const nextSprintAfter = (sprints: TrackerSprint[], after: TrackerSprint): TrackerSprint | null => {
   const from = after.startDate ? new Date(after.startDate).getTime() : NaN
-  if (isNaN(from)) return null
+  const dated = !isNaN(from)
   let best: TrackerSprint | null = null
   let bestAt = Infinity
   for (const sp of sprints) {
-    if (sp === after || (sp.id && sp.id === after.id) || sp.state === 'closed' || !sp.startDate) continue
+    if (isSameSprint(sp, after) || sp.state === 'closed' || !sp.startDate) continue
     const at = new Date(sp.startDate).getTime()
-    if (isNaN(at) || at < from) continue
+    if (isNaN(at) || (dated && at < from)) continue
     if (at < bestAt) {
       best = sp
       bestAt = at
     }
   }
-  return best
+  if (best) return best
+  return sprints.find(sp => !isSameSprint(sp, after) && sp.state === 'future' && !startOf(sp)) || null
+}
+
+/**
+ * The sprints a closing one can hand its unfinished work to: every sprint not
+ * closed but itself, dated ones by start date, then undated ones in board order.
+ */
+export const closeTargets = (sprints: TrackerSprint[], closing: TrackerSprint): TrackerSprint[] => {
+  const open = sprints.filter(sp => !isSameSprint(sp, closing) && sp.state !== 'closed')
+  const dated = open.filter(sp => startOf(sp) !== null).sort((a, b) => startOf(a)! - startOf(b)!)
+  return [...dated, ...open.filter(sp => startOf(sp) === null)]
+}
+
+const isSameSprint = (a: TrackerSprint, b: TrackerSprint): boolean => a === b || (!!a.id && a.id === b.id)
+
+const startOf = (sp: TrackerSprint): number | null => {
+  const at = sp.startDate ? new Date(sp.startDate).getTime() : NaN
+  return isNaN(at) ? null : at
 }
