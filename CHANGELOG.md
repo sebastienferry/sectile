@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Hide a macro from the Roadmap panel again.** The side panel header shows NOW / NEXT / LATER / HIDDEN buttons instead of a read-only badge, so a macro can be hidden or brought back whatever the row shape, the condensed list included. (#808)
+
 ## [0.6.0] - 2026-10-14
 
 ### Added

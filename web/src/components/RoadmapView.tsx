@@ -176,6 +176,8 @@ const EPIC_LABEL_BADGE =
   'text-[9.5px] px-1 rounded font-mono bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)]'
 /** How many free labels the condensed row shows before counting the rest. */
 const CONDENSED_LABELS = 2
+/** The horizons the unfolded row and the panel header offer, in order. */
+const ALL_HORIZONS: MacroHorizon[] = ['now', 'next', 'later', 'hidden']
 // The largest file the slicing upload sends; the server enforces the same (#735).
 const SLICING_UPLOAD_LIMIT = 1 << 20
 
@@ -1457,34 +1459,43 @@ export const RoadmapView: React.FC = () => {
           )}
         </div>
 
-        {/* Classification : un clic, et la suggestion est mise en avant */}
+        {/* Classification: one click, and the suggestion stands out */}
         <div className="flex items-center gap-1.5 mt-2">
-          {(['now', 'next', 'later', 'hidden'] as MacroHorizon[]).map(h => {
-            const active = row.horizon === h
-            const isSuggestion = !row.horizon && row.suggested === h
-            return (
-              <button
-                key={h}
-                type="button"
-                onClick={e => {
-                  e.stopPropagation()
-                  persist(row.key, { horizon: h })
-                }}
-                className="px-1.5 py-0.5 rounded text-[9.5px] font-bold uppercase tracking-[.06em] border transition-colors cursor-pointer"
-                style={{
-                  color: active ? '#fff' : HORIZON_META[h].color,
-                  background: active ? HORIZON_META[h].color : isSuggestion ? HORIZON_META[h].bg : 'transparent',
-                  borderColor: active || isSuggestion ? HORIZON_META[h].border : 'var(--border-color)',
-                }}
-                title={format(isSuggestion ? strings.suggestedHorizon : strings.classifyAs, { horizon: HORIZON_META[h].label })}
-              >
-                {HORIZON_META[h].label}
-                {isSuggestion && ' ?'}
-              </button>
-            )
-          })}
+          {ALL_HORIZONS.map(h => renderHorizonButton(row, h))}
         </div>
       </div>
+    )
+  }
+
+  /**
+   * One horizon button of the unfolded row and of the panel header (#808). The
+   * panel offers HIDDEN whatever the row shape, since the condensed row leaves
+   * it out (CONDENSED_HORIZONS). Only the panel's buttons carry aria-pressed,
+   * so the row's markup stays as it was.
+   */
+  const renderHorizonButton = (row: MacroRow, h: MacroHorizon, inPanel = false) => {
+    const active = row.horizon === h
+    const isSuggestion = !row.horizon && row.suggested === h
+    return (
+      <button
+        key={h}
+        type="button"
+        onClick={e => {
+          e.stopPropagation()
+          persist(row.key, { horizon: h })
+        }}
+        className="px-1.5 py-0.5 rounded text-[9.5px] font-bold uppercase tracking-[.06em] border transition-colors cursor-pointer"
+        style={{
+          color: active ? '#fff' : HORIZON_META[h].color,
+          background: active ? HORIZON_META[h].color : isSuggestion ? HORIZON_META[h].bg : 'transparent',
+          borderColor: active || isSuggestion ? HORIZON_META[h].border : 'var(--border-color)',
+        }}
+        title={format(isSuggestion ? strings.suggestedHorizon : strings.classifyAs, { horizon: HORIZON_META[h].label })}
+        aria-pressed={inPanel ? active : undefined}
+      >
+        {HORIZON_META[h].label}
+        {isSuggestion && ' ?'}
+      </button>
     )
   }
 
@@ -2044,14 +2055,9 @@ export const RoadmapView: React.FC = () => {
             <div className="px-4 pt-3.5 pb-3 shrink-0 border-b border-[var(--border-color)]">
               <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                 <span className="text-[11px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>{selected.key}</span>
-                {selected.horizon && (
-                  <span
-                    className="px-1.5 py-0.5 rounded text-[9.5px] font-bold uppercase tracking-[.06em] text-white"
-                    style={{ background: HORIZON_META[selected.horizon].color }}
-                  >
-                    {HORIZON_META[selected.horizon].label}
-                  </span>
-                )}
+                <div role="group" aria-label={strings.createModal.horizon} className="flex items-center gap-1.5">
+                  {ALL_HORIZONS.map(h => renderHorizonButton(selected, h, true))}
+                </div>
                 <div className="ml-auto flex items-center gap-1.5 flex-wrap">
                   <button
                     type="button"
