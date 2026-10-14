@@ -92,7 +92,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	}
 	// A supported engine with a launch template still converses: the template is
 	// not run, only its model is kept, and the first notice says so.
-	if input.View == "conversation" && (provider == "claude" || provider == "codex") {
+	if input.View == "conversation" && (provider == "claude" || provider == "codex" || provider == "agy") {
 		mode := d.workstationConversationMode()
 		d.queue.mu.Lock()
 		run, err := d.newConversationLocked(input.ProjectID, root, conversationModel(config), mode, conversationOrigin(config, "It runs in this project's local repository."), provider)

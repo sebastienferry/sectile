@@ -116,7 +116,7 @@ let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
 const freeConsole=run=>run?.kind==='console'
 // Task runs show the skill and engine; project prompts show their engine name.
-const runLabel=run=>run.conversation&&run.taskId?run.skill+' · Conversation (test)':run.conversation?(run.provider==='codex'?'Codex':'Claude Code')+' · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
+const runLabel=run=>run.conversation&&run.taskId?run.skill+' · Conversation (test)':run.conversation?(run.provider==='codex'?'Codex':run.provider==='agy'?'Antigravity':'Claude Code')+' · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
 // A macro skill run has no task: its executions group under the macro.
 const macroRun=run=>!!run?.macroKey
 // Archiving a ticket task removes its worktrees first (#755); a free console or a macro run has none.
@@ -2114,7 +2114,7 @@ async function openSettings(initial='Profile',project){
   viewGroup.append(button)
  }
  const view=settingRow('AI consoles',null,viewGroup)
- view.hint.textContent='Conversation opens Claude and Codex interactive launches in a structured view (experimental). Other engines keep the terminal.'
+ view.hint.textContent='Conversation opens Claude, Codex and Antigravity interactive launches in a structured view (experimental). Other engines keep the terminal.'
  panels.Profile.append(view.section)
  // Claude settings holds the initial conversation permission mode. It applies
  // only in the conversation view, and only to

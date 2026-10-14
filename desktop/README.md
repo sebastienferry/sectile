@@ -1,15 +1,15 @@
 # Sectile Desktop
 
-Local task execution consoles, with an experimental Claude Code and Codex conversation view.
+Local task execution consoles, with an experimental Antigravity, Claude Code and Codex conversation view.
 
 ## Experimental conversations
 
 Turn it on with **Settings → General → AI consoles → Conversation**.
-A **Project prompt** with Claude or Codex then opens in this view instead of a terminal.
+A **Project prompt** with Antigravity, Claude or Codex then opens in this view instead of a terminal.
 A task's interactive launches open there too, a skill such as clarify starting
 on its own command and **Discussion (no skill)** waiting for your first message,
 in the task's worktree and with the task's environment, when the project's
-engine is Claude or Codex. The setting is handed to the local agent, so a launch
+engine is Antigravity, Claude or Codex. The setting is handed to the local agent, so a launch
 started from the web app, or a chain the server continues, opens there as well,
 even with Desktop closed. An autonomous launch keeps its read-only trace; a
 launch template is not run there, only its model is kept, and the conversation
@@ -101,6 +101,21 @@ answer retains the thread; stopping the execution terminates the process.
 After a process crash, the next message resumes the thread. After an agent
 restart, stored history remains read-only, as with Claude. Unsupported
 app-server requests receive an explicit error and a transcript notice.
+
+### Antigravity conversations
+
+Antigravity (`agy`) must already be installed and signed in. Each message runs
+`agy --output-format stream-json --verbose -p` and resumes the session with
+`--conversation=<uuid>`. The composer offers **Accept edits** (the default),
+**Ask before edits**, **Auto-approve all tools** and **Plan mode**, along with
+the Antigravity models configured in Settings and reasoning effort. Typing `/`
+completes the skills discovered from `agy -p=/skills` plus built-in commands
+(`/skills`, `/mcp`, `/stats`, `/models`), `!` runs a shell command in the
+conversation directory, and the **Sectile MCP** chip checks `agy mcp list`.
+Because `agy` print mode does not pause mid-turn for interactive tool approvals,
+any tool call blocked by the active mode is reported as a notice at the end of
+the turn, and a message sent while Antigravity answers is queued to start the
+next turn automatically.
 
 See [prototype notes](../docs/experiments/desktop-conversation.md).
 
