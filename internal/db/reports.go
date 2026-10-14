@@ -254,6 +254,7 @@ func (d *DB) PublishTaskReportAs(ctx context.Context, actor Actor, taskID, body 
 	}
 	if err != nil {
 		r.CommentStatus = "failed"
+		r.CommentError = err.Error()
 		saveErr := save()
 		if saveErr != nil {
 			return &r, saveErr
@@ -261,6 +262,7 @@ func (d *DB) PublishTaskReportAs(ctx context.Context, actor Actor, taskID, body 
 		return &r, err
 	}
 	r.CommentStatus = "completed"
+	r.CommentError = ""
 	if err := save(); err != nil {
 		return &r, err
 	}

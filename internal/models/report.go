@@ -53,6 +53,7 @@ type TaskReport struct {
 	UploadStatus  string            `json:"uploadStatus"`
 	CommentID     string            `json:"commentId,omitempty"`
 	CommentStatus string            `json:"commentStatus"`
+	CommentError  string            `json:"commentError,omitempty"`
 	Warning       string            `json:"warning,omitempty"`
 }
 

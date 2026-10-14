@@ -81,7 +81,7 @@ func checkReportRetentionAndRetry(t *testing.T, d *DB) {
 		}
 	}
 	receipt, err := d.PublishTaskReportAs(context.Background(), Actor{}, task.ID, body, meta, nil, body)
-	if err == nil || receipt.Attachment == nil || remote.uploads != 1 {
+	if err == nil || receipt.Attachment == nil || receipt.CommentError == "" || remote.uploads != 1 {
 		t.Fatalf("comment failure: %#v %v", receipt, err)
 	}
 	remote.commentErr = nil
@@ -90,7 +90,7 @@ func checkReportRetentionAndRetry(t *testing.T, d *DB) {
 	next := &reportRecorder{BaseTicketingSystem: remote.BaseTicketingSystem}
 	d.TrackerRegistry().Register("local", next)
 	receipt, err = d.PublishTaskReportAs(context.Background(), Actor{}, task.ID, body, meta, nil, body)
-	if err != nil || next.uploads != 0 || next.comments != 1 || receipt.CommentStatus != "completed" {
+	if err != nil || next.uploads != 0 || next.comments != 1 || receipt.CommentStatus != "completed" || receipt.CommentError != "" {
 		t.Fatalf("retry duplicated upload: %#v %v", receipt, err)
 	}
 	if !strings.Contains(next.summary, receipt.Attachment.Name) {
