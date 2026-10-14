@@ -7,10 +7,10 @@
 // The request a launch from a project's board sends to the local agent: the
 // project travels in the address, and the agent forwards it to the run.
 // An absent mode means "no override": nothing is sent for it.
-function launchRequest(projectId,taskID,skillID,prompt,mode,force,view){
+function launchRequest(projectId,taskID,skillID,prompt,mode,force,view,batchTaskIds){
  return {
   route:'/desktop/tasks?projectId='+encodeURIComponent(projectId),
-  body:Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null,view==='conversation'?{view}:null),
+  body:Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null,view==='conversation'?{view}:null,batchTaskIds?{batchTaskIds}:null),
  }
 }
 

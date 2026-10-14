@@ -461,8 +461,9 @@ ipcMain.handle('launch-console',(_,projectId,provider,engineId,view)=>api('/desk
 // An absent mode means "no override": nothing is sent, so a launch with no
 // explicit choice puts exactly the payload on the wire that it always did.
 // The project of the launch is the run's (#741): the agent forwards it.
-ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force,view)=>{
- const request=launchRequest(id,taskID,skillID,prompt,mode,force,view)
+ipcMain.handle('launch-server-task',async(_,id,taskID,skillID,prompt,mode,force,view,batchTaskIds)=>{
+ if(batchTaskIds&&!(await api('/desktop/status')).capabilities?.includes('batch-launch'))throw Error('Update and restart the local agent to launch a batch.')
+ const request=launchRequest(id,taskID,skillID,prompt,mode,force,view,batchTaskIds)
  return api(request.route,'POST',request.body)
 })
 ipcMain.handle('launch-native-discussion',async(_,{projectId,taskId,terminal}={})=>api('/desktop/tasks/terminal-external','POST',{projectId,taskId,skillId:'discuss',terminal}))

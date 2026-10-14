@@ -31,7 +31,7 @@ async function boardApp(t,{capabilities=['stage-move'],board,tasks:initialTasks}
    body().then(move=>{state.moves.push({project,...move});if(state.holdMove)state.release=()=>answer(move);else answer(move)});return
   }
   if(url.pathname==='/desktop/tasks'){
-   if(req.method==='POST'){body().then(launch=>{state.launches.push({project,...launch});res.end(JSON.stringify({status:'queued'}))});return}
+   if(req.method==='POST'){body().then(launch=>{state.launches.push({project,...launch});if(state.disconnectLaunch){res.destroy();return}if(state.holdLaunch){state.releaseLaunch=()=>res.end(JSON.stringify({status:'queued'}));return}if(state.refuseLaunch){res.writeHead(409);res.end(JSON.stringify({error:'A batch member is busy'}));return}res.end(JSON.stringify({status:'queued'}))});return}
    const query=url.searchParams.get('q')||''
    state.taskReads.push({project,query,launchable:url.searchParams.get('launchable')})
    if(state.failRead){res.writeHead(503);res.end(JSON.stringify({error:'Offline'}));return}
@@ -307,4 +307,87 @@ test('a search narrows the board, counts included, and a failed load offers a re
  state.failRead=false
  await page.getByRole('button',{name:'Search',exact:true}).click()
  await expect(column('New')).toBeVisible()
+})
+
+
+test('batch selection survives both surfaces and filtering, and launches ordered members once',async t=>{
+ const tasks=sample().map(task=>({...task,projectId:'project-a'}))
+ const {page,state,openBoard,projectActions}=await boardApp(t,{capabilities:['stage-move','batch-launch'],tasks})
+ await openBoard()
+ await page.getByRole('checkbox',{name:'Select #1 for batch',exact:true}).focus()
+ await page.keyboard.press('Space')
+ await page.getByRole('checkbox',{name:'Select #2 for batch',exact:true}).check()
+ assert.equal(state.moves.length,0)
+ await projectActions('A').click();await page.getByRole('menuitem',{name:'Open tasks',exact:true}).click()
+ await expect(page.getByRole('checkbox',{name:'Select #1 for batch',exact:true})).toBeChecked()
+ await page.getByRole('textbox',{name:'Search server tasks',exact:true}).fill('#6')
+ await page.getByRole('button',{name:'Search',exact:true}).click()
+ await expect(page.locator('.ticket-row')).toHaveCount(1)
+ await page.getByRole('button',{name:'Prepare batch',exact:true}).click()
+ await expect(page.getByRole('button',{name:'Launch batch',exact:true})).toBeEnabled()
+ await page.getByRole('button',{name:'Move up #2',exact:true}).click()
+ await expect(page.getByRole('button',{name:'Move down #2',exact:true})).toBeFocused()
+ const name=page.getByRole('textbox',{name:'Shared worktree name',exact:true})
+ await name.fill('../bad');await page.getByRole('button',{name:'Launch batch',exact:true}).click()
+ await expect(page.locator('#project-dialog').getByRole('alert')).toContainText('Use 1–80')
+ assert.equal(state.launches.length,0)
+ await name.fill(' shared-batch ')
+ state.refuseLaunch=true
+ await page.getByRole('button',{name:'Launch batch',exact:true}).click()
+ await expect(page.locator('#project-dialog').getByRole('alert')).toContainText('A batch member is busy')
+ await expect(name).toHaveValue(' shared-batch ')
+ assert.deepEqual(state.launches[0].batchTaskIds,['a2','a1'])
+ assert.equal(state.launches[0].taskID,'a2')
+ assert.equal(state.launches[0].project,'project-a')
+ assert.equal(state.launches[0].mode,'autonomous')
+ assert.equal(state.launches[0].force,undefined)
+ assert.match(state.launches[0].prompt,/one combined pull request/)
+ state.refuseLaunch=false;state.disconnectLaunch=true
+ await page.getByRole('button',{name:'Launch batch',exact:true}).click()
+ await expect(page.getByRole('button',{name:'Launch batch',exact:true})).toBeEnabled()
+ await expect(page.locator('#project-dialog').getByRole('alert')).not.toHaveText('Submitting batch…')
+ await expect(name).toHaveValue(' shared-batch ')
+ assert.equal(state.launches.length,2)
+ state.disconnectLaunch=false;state.holdLaunch=true
+ await page.getByRole('button',{name:'Launch batch',exact:true}).click()
+ await expect(page.getByRole('button',{name:'Launch batch',exact:true})).toBeDisabled()
+ assert.equal(state.launches.length,3)
+ await page.keyboard.press('Escape')
+ await expect(page.locator('#project-dialog')).toBeVisible()
+ state.releaseLaunch()
+ await expect(page.locator('#project-dialog')).not.toBeVisible()
+ await expect(page.getByRole('button',{name:'Prepare batch',exact:true})).toBeDisabled()
+})
+
+test('unsupported agents block batches; cancel preserves selection and closing clears it',async t=>{
+ const {page,openBoard,projectActions}=await boardApp(t,{tasks:sample().map(task=>({...task,projectId:'project-a'}))})
+ await openBoard()
+ for(const key of ['#1','#2'])await page.getByRole('checkbox',{name:'Select '+key+' for batch',exact:true}).check()
+ await page.getByRole('button',{name:'Prepare batch',exact:true}).click()
+ await expect(page.locator('#project-dialog').getByRole('alert')).toContainText('Update and restart')
+ await expect(page.getByRole('button',{name:'Launch batch',exact:true})).toBeDisabled()
+ await page.getByRole('button',{name:'Cancel',exact:true}).click()
+ await expect(page.getByRole('checkbox',{name:'Select #1 for batch',exact:true})).toBeChecked()
+ await page.getByRole('button',{name:'Close board',exact:true}).click();await openBoard()
+ await expect(page.getByRole('checkbox',{name:'Select #1 for batch',exact:true})).not.toBeChecked()
+ for(const key of ['#1','#2'])await page.getByRole('checkbox',{name:'Select '+key+' for batch',exact:true}).check()
+ await projectActions('B').click();await page.getByRole('menuitem',{name:'Open board',exact:true}).click()
+ await expect(page.getByRole('button',{name:'Prepare batch',exact:true})).toBeDisabled()
+})
+
+
+test('batch preparation blocks disappeared and mixed-project members without sending a launch',async t=>{
+ const {page,state,openBoard}=await boardApp(t,{capabilities:['batch-launch'],tasks:sample().map(task=>({...task,projectId:'project-a'}))})
+ await openBoard()
+ for(const key of ['#1','#2'])await page.getByRole('checkbox',{name:'Select '+key+' for batch',exact:true}).check()
+ state.tasks=state.tasks.filter(task=>task.id!=='a2')
+ await page.getByRole('button',{name:'Prepare batch',exact:true}).click()
+ await expect(page.locator('#project-dialog').getByRole('alert')).toContainText('no longer available')
+ await expect(page.getByRole('button',{name:'Launch batch',exact:true})).toBeDisabled()
+ await page.getByRole('button',{name:'Cancel',exact:true}).click()
+ state.tasks=sample().map(task=>({...task,projectId:task.id==='a2'?'project-b':'project-a'}))
+ await page.getByRole('button',{name:'Prepare batch',exact:true}).click()
+ await expect(page.locator('#project-dialog').getByRole('alert')).toContainText('must belong to this project')
+ await expect(page.getByRole('button',{name:'Launch batch',exact:true})).toBeDisabled()
+ assert.equal(state.launches.length,0)
 })

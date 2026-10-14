@@ -1218,10 +1218,11 @@ func TestDesktopLaunchForwardsTheProjectOfTheBoard(t *testing.T) {
 		t.Fatal(err)
 	}
 	var forwarded []map[string]any
+	refuseBatch := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/api/v1/agent/config"):
-			_ = json.NewEncoder(w).Encode(agentconfig.Config{SchemaVersion: agentconfig.Version, ProjectID: r.URL.Query().Get("projectId"), GitRemoteURL: "git@github.com:o/a.git"})
+			_ = json.NewEncoder(w).Encode(agentconfig.Config{SchemaVersion: agentconfig.Version, ProjectID: r.URL.Query().Get("projectId"), GitRemoteURL: "git@github.com:o/a.git", Skills: []agentconfig.Skill{{ID: "pickup_issues", Directory: "pickup-issues", Command: "/pickup-issues"}}})
 		case r.URL.Path == "/api/tasks/task-1" && r.Method == http.MethodGet:
 			// Listed for its first project, the ticket belongs to two.
 			_ = json.NewEncoder(w).Encode(models.Task{ID: "task-1", Key: "GODE-1", ProjectID: "other", ProjectIDs: []string{"other", "p"}, Status: "in_progress"})
@@ -1231,6 +1232,11 @@ func TestDesktopLaunchForwardsTheProjectOfTheBoard(t *testing.T) {
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			forwarded = append(forwarded, body)
+			if refuseBatch {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte(`{"error":"A batch member is busy"}`))
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"activity":{"id":"a1"}}`))
 		default:
@@ -1264,6 +1270,25 @@ func TestDesktopLaunchForwardsTheProjectOfTheBoard(t *testing.T) {
 	if len(forwarded) != 2 || forwarded[1]["targetDeviceId"] != "local-desktop" || forwarded[1]["force"] != true {
 		t.Fatalf("local pin was overridden: %+v", forwarded)
 	}
+	if w := launch(map[string]any{"taskID": "task-1", "skillID": "pickup_issues", "prompt": "batch", "batchTaskIds": []string{"task-1", "task-2"}, "mode": "interactive"}); w.Code != http.StatusOK {
+		t.Fatalf("batch forwarding: %d %s", w.Code, w.Body.String())
+	}
+	batch := forwarded[len(forwarded)-1]
+	if mustJSON(batch["batchTaskIds"]) != `["task-1","task-2"]` || batch["mode"] != "autonomous" || batch["targetDeviceId"] != "local-desktop" || batch["projectId"] != "p" {
+		t.Fatalf("batch lost its order or local execution settings: %+v", batch)
+	}
+	for _, ids := range [][]string{{"task-1"}, {"task-2", "task-1"}, {"task-1", "task-1"}} {
+		if w := launch(map[string]any{"taskID": "task-1", "skillID": "pickup_issues", "prompt": "batch", "batchTaskIds": ids}); w.Code != http.StatusBadRequest {
+			t.Fatalf("invalid batch accepted: %v, %d", ids, w.Code)
+		}
+	}
+	if w := launch(map[string]any{"taskID": "task-1", "skillID": "pickup_issues", "prompt": "batch", "batchTaskIds": []string{"task-1", "task-2"}, "force": true}); w.Code != http.StatusBadRequest {
+		t.Fatalf("forced batch accepted: %d", w.Code)
+	}
+	refuseBatch = true
+	if w := launch(map[string]any{"taskID": "task-1", "skillID": "pickup_issues", "prompt": "batch", "batchTaskIds": []string{"task-1", "task-2"}}); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "A batch member is busy") {
+		t.Fatalf("batch refusal was not relayed: %d %s", w.Code, w.Body.String())
+	}
 	d.link.deviceID = ""
 	if w := launch(map[string]any{"taskID": "task-1", "skillID": "custom", "prompt": "go"}); w.Code != http.StatusBadRequest {
 		t.Fatalf("missing identity: %d", w.Code)
@@ -1272,7 +1297,7 @@ func TestDesktopLaunchForwardsTheProjectOfTheBoard(t *testing.T) {
 	if w := launch(map[string]any{"taskID": "task-2", "skillID": "custom", "prompt": "go"}); w.Code != http.StatusBadRequest {
 		t.Fatalf("a ticket of another project must be refused: %d %s", w.Code, w.Body.String())
 	}
-	if len(forwarded) != 2 {
+	if len(forwarded) != 4 {
 		t.Fatalf("a refused launch reached the server: %+v", forwarded)
 	}
 }
