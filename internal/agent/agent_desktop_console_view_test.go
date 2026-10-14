@@ -61,7 +61,7 @@ func TestDesktopConsoleViewEndpoint(t *testing.T) {
 }
 
 func TestOpensConversation(t *testing.T) {
-	claude, codex := agentconfig.Config{AIProvider: "claude"}, agentconfig.Config{AIProvider: "codex"}
+	claude, codex, agy, custom := agentconfig.Config{AIProvider: "claude"}, agentconfig.Config{AIProvider: "codex"}, agentconfig.Config{AIProvider: "agy"}, agentconfig.Config{AIProvider: "custom"}
 	const terminal, conversation = agentconfig.ConsoleViewTerminal, agentconfig.ConsoleViewConversation
 	for _, tc := range []struct {
 		name       string
@@ -84,6 +84,9 @@ func TestOpensConversation(t *testing.T) {
 		{"open_terminal, marked", false, "open_terminal", true, terminal, claude, false},
 		{"codex, conversation view", false, "clarify", false, conversation, codex, true},
 		{"codex, marked", false, "clarify", true, conversation, codex, true},
+		{"agy, conversation view", false, "clarify", false, conversation, agy, true},
+		{"agy, marked", false, "clarify", true, terminal, agy, true},
+		{"custom, conversation view", false, "clarify", false, conversation, custom, false},
 	} {
 		if got := opensConversation(tc.autonomous, tc.action, tc.marked, tc.view, tc.config); got != tc.want {
 			t.Errorf("%s: opensConversation = %v, want %v", tc.name, got, tc.want)

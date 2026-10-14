@@ -14,9 +14,9 @@ It consists of three complementary components:
   bridges. Multiple workstations can stay connected simultaneously and report
   which project checkouts they hold.
 - **Desktop app**: an Electron companion (`Sectile Desktop`) bundling the
-  workstation agent with native PTY terminals, an interactive Claude Code &
-  Codex conversation view, a desktop project board, and a live worktree diff
-  inspector.
+  workstation agent with native PTY terminals, an interactive Antigravity,
+  Claude Code & Codex conversation view, a desktop project board, and a live
+  worktree diff inspector.
 
 ## What it does
 
@@ -117,9 +117,10 @@ Sectile Desktop includes:
 - **Execution consoles & queues**: interactive PTY terminals, autonomous run
   logs, and contextual next-stage banners (**Clarify**, **Specify**,
   **Implement**, **Create PR**, **Adjust**, **Handoff**).
-- **Conversation view**: an integrated chat UI for **Claude Code** and **Codex**
-  (**Settings → General → AI consoles → Conversation**) with inline diff cards,
-  tool approval prompts, slash commands, and `$skill` completion.
+- **Conversation view**: an integrated chat UI for **Antigravity**, **Claude
+  Code** and **Codex** (**Settings → General → AI consoles → Conversation**)
+  with inline diff cards, tool approval prompts, slash commands, and `$skill`
+  completion.
 - **Autonomy in sandbox**: configurable under **Claude settings** to run
   sandboxed shell commands automatically while blocking unsandboxed retries.
 - **Desktop project board & task editor**: six-column workflow board (**Open

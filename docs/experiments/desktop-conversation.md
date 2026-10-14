@@ -1,6 +1,6 @@
 # Desktop conversations
 
-Desktop has a conversation view for Claude and Codex, off by default. **Settings →
+Desktop has a conversation view for Antigravity, Claude and Codex, off by default. **Settings →
 General → AI consoles** switches between **Terminal** (the PTY,
 unchanged) and **Conversation**, a workstation setting kept in the desktop's
 `settings.json` as `consoleView`.
@@ -18,7 +18,7 @@ In Conversation mode:
   terminal would have had;
 - a **Project prompt**, in the project's local repository.
 
-The engine must be Claude or Codex. A supported engine with a launch template
+The engine must be Antigravity, Claude or Codex. A supported engine with a launch template
 converses with the template's model and leaves the template's other options
 aside; the first notice says so. Other engines keep the terminal, as
 do autonomous launches, which keep their read-only trace, and launches from the
@@ -163,6 +163,22 @@ skills with `$`. Its permission modes are Read only, Workspace edits and Plan
 mode. No Claude permission rule or hook is installed for Codex. The integration
 was checked against Codex CLI 0.157.1; see
 [ADR 0054](../adrs/0054-codex-conversations-use-app-server.md).
+
+## How Antigravity runs
+
+Each message starts `agy --output-format stream-json --verbose -p`, with
+`--conversation=<uuid>` once Antigravity has reported a conversation id,
+`--mode=accept-edits` (or `--mode=plan`, `--dangerously-skip-permissions` for
+Auto-approve, or no flag for Ask before edits), `--model`, `--effort` and one
+`--add-dir=<path>` per folder of the project. The prompt is written to stdin and
+stdin is closed immediately so inference starts; built-in slash commands
+(`/skills`, `/mcp`, `/stats`, `/models`) pass `-p=/<cmd>`. Because print mode
+has no interactive control channel, a message sent while Antigravity answers is
+queued and starts the next turn automatically, and any action refused by policy
+in `result.denied_actions` is shown as a notice in the trace. Before the first
+turn, the agent probes available skills with `agy --output-format stream-json
+-p=/skills` and checks Sectile MCP status with `agy mcp list`. See
+[ADR 0057](../adrs/0057-antigravity-conversations-speak-stream-json-per-turn.md).
 
 ## Remaining work
 

@@ -43,17 +43,29 @@ func providerConversationModes(provider string) map[string]bool {
 	if provider == "codex" {
 		return map[string]bool{"read-only": true, "workspace-write": true, "plan": true}
 	}
+	if provider == "agy" {
+		return agyConversationModes
+	}
 	return conversationModes
 }
 
 func providerConversationMode(provider, mode string) string {
-	if provider != "codex" {
-		return conversationMode(mode)
+	if provider == "codex" {
+		if providerConversationModes(provider)[mode] {
+			return mode
+		}
+		return "workspace-write"
 	}
-	if providerConversationModes(provider)[mode] {
-		return mode
+	if provider == "agy" {
+		if mode == "acceptEdits" {
+			return "accept-edits"
+		}
+		if agyConversationModes[mode] {
+			return mode
+		}
+		return "accept-edits"
 	}
-	return "workspace-write"
+	return conversationMode(mode)
 }
 
 func providerConversationEfforts(run *controlledRun, chosen ...string) map[string]bool {
