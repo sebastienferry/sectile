@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- **Clickable macro keys in the Roadmap and the Timeline.** A macro's key opens the macro on its tracker (Jira epic, GitHub milestone) and has a button that copies the key, as a ticket key does in the ticket detail: on the Roadmap rows and side panel, whose **Link** button it replaces, and before the macro chip of the Timeline's tickets. (#809)
+
 ### Fixed
 
 - **Hide a macro from the Roadmap panel again.** The side panel header shows NOW / NEXT / LATER / HIDDEN buttons instead of a read-only badge, so a macro can be hidden or brought back whatever the row shape, the condensed list included. (#808)

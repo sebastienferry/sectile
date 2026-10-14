@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react'
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import {
   CalendarDays,
   Clock,
@@ -47,6 +47,8 @@ import type { Task, TrackerSprint, WorkflowStage } from '../types'
 import { resolveTaskStage } from '../lib/workflow'
 import { Avatar } from './Avatar'
 import { EpicBar, useEpicColors } from './EpicMarker'
+import { MacroKeyRef } from './MacroKeyRef'
+import { macroProjectIds, macroUrlIndex, macroUrlKey } from '../lib/macroLinks'
 
 const DRAG_TASK_ID = 'application/x-sectile-task-id'
 const DRAG_TASK_IDS = 'application/x-sectile-task-ids'
@@ -64,6 +66,7 @@ export const SprintTimelineView: React.FC = () => {
     addToast,
     refusalToast,
     startBatchPickup,
+    fetchProjectMacros,
     t,
     settings,
   } = useApp()
@@ -75,6 +78,39 @@ export const SprintTimelineView: React.FC = () => {
   // has an epic.
   const showsEpicBarOf = (task: Task) =>
     showsEpicColors(task.projectId) && Boolean(task.parentKey?.trim())
+
+  // Macro addresses (#809): one macro list per project whose tickets carry a
+  // macro, read again only when that set of projects changes, so a sync that
+  // only updates tickets costs no request. The context recreates
+  // fetchProjectMacros on every render, hence the ref.
+  const fallbackProjectId = currentProject?.id || ''
+  const macroProjectsKey = macroProjectIds(tasks, fallbackProjectId).join('\n')
+  const fetchMacrosRef = useRef(fetchProjectMacros)
+  useEffect(() => {
+    fetchMacrosRef.current = fetchProjectMacros
+  })
+  const [macroUrls, setMacroUrls] = useState<Map<string, string>>(() => new Map())
+  useEffect(() => {
+    const ids = macroProjectsKey ? macroProjectsKey.split('\n') : []
+    let cancelled = false
+    Promise.all(ids.map(async id => [id, await fetchMacrosRef.current(id)] as const)).then(lists => {
+      if (!cancelled) setMacroUrls(macroUrlIndex(Object.fromEntries(lists)))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [macroProjectsKey])
+  const macroUrlOf = (task: Task) =>
+    macroUrls.get(macroUrlKey(task.projectId || fallbackProjectId, task.parentKey || ''))
+  const renderMacroKey = (task: Task) =>
+    task.parentKey?.trim() ? (
+      <MacroKeyRef
+        macroKey={task.parentKey}
+        url={macroUrlOf(task)}
+        className="text-[9px] font-mono font-bold text-[var(--text-muted)]"
+        iconSize={10}
+      />
+    ) : null
 
   // Who owns the sprints: the tracker (written there first), nobody (GitHub:
   // read-only), or the local board, which keeps its own.
@@ -1421,6 +1457,7 @@ export const SprintTimelineView: React.FC = () => {
                                   <span className="text-[10px] font-mono font-bold text-[var(--accent-color)] shrink-0">
                                     {task.key}
                                   </span>
+                                  {renderMacroKey(task)}
                                   {task.parentTitle && (
                                     <span
                                       className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-[var(--bg-tertiary)] text-[var(--text-muted)] truncate max-w-[100px]"
@@ -1549,6 +1586,7 @@ export const SprintTimelineView: React.FC = () => {
                                     <span className="text-[10px] font-mono font-bold text-[var(--accent-color)] shrink-0">
                                       {task.key}
                                     </span>
+                                    {renderMacroKey(task)}
                                     {task.parentTitle && (
                                       <span
                                         className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-[var(--bg-tertiary)] text-[var(--text-muted)] truncate max-w-[110px]"
@@ -1821,6 +1859,7 @@ export const SprintTimelineView: React.FC = () => {
                         <span className="text-[10px] font-mono font-bold text-[var(--accent-color)] shrink-0">
                           {task.key}
                         </span>
+                        {renderMacroKey(task)}
                         {task.parentTitle && (
                           <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-[var(--bg-tertiary)] text-[var(--text-muted)] truncate max-w-[120px]">
                             {task.parentTitle}

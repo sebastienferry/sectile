@@ -158,6 +158,7 @@ import type { EpicPriority, EpicReadiness, MacroHorizon, MacroMeta, MacroStoryBa
 import { MacroSkillButton } from './MacroSkillButton'
 import { useMacroRuns } from '../hooks/useMacroRuns'
 import { MacroCopyStatus } from './MacroCopyStatus'
+import { MacroKeyRef } from './MacroKeyRef'
 
 /**
  * Macro roadmap, after the "Roadmap Epics.dc.html" design.
@@ -1399,7 +1400,7 @@ export const RoadmapView: React.FC = () => {
       >
         {epicColorsOn && <EpicBar parentKey={row.key} />}
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>{row.key}</span>
+          <MacroKeyRef macroKey={row.key} url={row.externalUrl} className="text-[11px] font-mono font-bold text-[var(--accent-color)]" />
           {foreignBadge(row)}
           <span className="text-[9.5px] px-1 rounded font-mono truncate max-w-[150px] bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-color)]" title={row.squad}>
             {row.squad}
@@ -1538,9 +1539,7 @@ export const RoadmapView: React.FC = () => {
         }}
       >
         {epicColorsOn && <EpicBar parentKey={row.key} />}
-        <span className="shrink-0 text-[10.5px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>
-          {row.key}
-        </span>
+        <MacroKeyRef macroKey={row.key} url={row.externalUrl} className="text-[10.5px] font-mono font-bold text-[var(--accent-color)]" iconSize={10} />
         {foreignBadge(row)}
         <span className="flex-1 min-w-0 truncate text-[11.5px] text-[var(--text-primary)]" title={row.title}>
           {row.title}
@@ -2054,7 +2053,7 @@ export const RoadmapView: React.FC = () => {
             style={{ width: isPanelExpanded ? '100%' : panelWidth, flex: isPanelExpanded ? 1 : undefined }}>
             <div className="px-4 pt-3.5 pb-3 shrink-0 border-b border-[var(--border-color)]">
               <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                <span className="text-[11px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>{selected.key}</span>
+                <MacroKeyRef macroKey={selected.key} url={selected.externalUrl} className="text-[11px] font-mono font-bold text-[var(--accent-color)]" />
                 <div role="group" aria-label={strings.createModal.horizon} className="flex items-center gap-1.5">
                   {ALL_HORIZONS.map(h => renderHorizonButton(selected, h, true))}
                 </div>
@@ -2089,19 +2088,6 @@ export const RoadmapView: React.FC = () => {
                     <span>{strings.panel.copy}</span>
                   </button>
 
-                  {selected.externalUrl && (
-                    <a href={selected.externalUrl} target="_blank" rel="noreferrer"
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold transition-colors"
-                      style={{
-                        color: 'var(--status-info)',
-                        background: 'rgb(var(--status-info-rgb) / 0.12)',
-                        border: '1px solid rgb(var(--status-info-rgb) / 0.32)',
-                      }}
-                      title={format(strings.panel.openRemoteTitle, { key: selected.key })}>
-                      <ExternalLink size={13} />
-                      <span>{strings.panel.link}</span>
-                    </a>
-                  )}
                   {/* Back to the ticket views, filtered on the epic (#630). An
                       epic without a ticket would open an empty list. */}
                   {selected.tasks.length > 0 && (

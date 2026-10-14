@@ -44,7 +44,7 @@ try {
   const tabButton=name=>page.getByRole('button',{name:new RegExp('^'+name+' \\d+$')});
   const activeTab=()=>page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>/^(NOW|NEXT|LATER)/.test(b.textContent||'')&&getComputedStyle(b).fontWeight==='700')?.textContent?.replace(/\d+$/,'').trim());
   const panel=()=>page.locator('aside');
-  const panelKey=()=>panel().locator('span.font-mono').first().textContent();
+  const panelKey=()=>panel().locator('[data-macro-key]').first().getAttribute('data-macro-key');
   const row=title=>page.locator('div.cursor-pointer').filter({hasText:title}).first();
   const remount=async()=>{await page.evaluate(()=>{mounted=false;render()});await panel().waitFor({state:'detached'});await page.evaluate(()=>{mounted=true;render()});await tabButton('NOW').waitFor()};
   const calls=name=>page.evaluate(n=>calls.filter(c=>c[0]===n),name);
@@ -56,7 +56,7 @@ try {
   assert.equal(await panelKey(),'M-1','the first macro is shown by default');
   await tabButton('LATER').click();
   await row('Macro quatre').click();
-  await page.waitForFunction(()=>document.querySelector('aside span.font-mono')?.textContent==='M-4');
+  await page.waitForFunction(()=>document.querySelector('aside [data-macro-key]')?.dataset.macroKey==='M-4');
   await remount();
   await panel().waitFor();
   assert.equal(await activeTab(),'LATER','the tab is remembered');
@@ -66,12 +66,12 @@ try {
   // The selected macro belongs to its project: another project has its own, and switching back finds M-4 again.
   const switchProject=id=>page.evaluate(id=>{window.ctx.currentProject={id,name:id,issueTracker:'github',sprints:[]};render()},id);
   await switchProject('q');
-  await page.waitForFunction(()=>document.querySelector('aside span.font-mono')?.textContent==='M-3');
+  await page.waitForFunction(()=>document.querySelector('aside [data-macro-key]')?.dataset.macroKey==='M-3');
   await row('Macro quatre').click();
   await row('Macro trois').click();
   await page.waitForFunction(()=>localStorage.getItem('sectile_roadmap_selected_key:q')==='M-3');
   await switchProject('p');
-  await page.waitForFunction(()=>document.querySelector('aside span.font-mono')?.textContent==='M-4');
+  await page.waitForFunction(()=>document.querySelector('aside [data-macro-key]')?.dataset.macroKey==='M-4');
   assert.equal(await page.evaluate(()=>localStorage.getItem('sectile_roadmap_selected_key:p')),'M-4','the other project did not overwrite it');
 
   const descriptionHeading=await page.evaluate(()=>window.ctx.t.planning.roadmap.framing.descriptionHeading);
@@ -100,7 +100,7 @@ try {
   assert.deepEqual((await calls('toast')).map(c=>c.slice(1)),[['Référence copiée','M-1: Macro un']]);
   await tabButton('LATER').click();
   await row('Macro trois').click();
-  await page.waitForFunction(()=>document.querySelector('aside span.font-mono')?.textContent==='M-3');
+  await page.waitForFunction(()=>document.querySelector('aside [data-macro-key]')?.dataset.macroKey==='M-3');
   assert.equal(await panel().getByRole('link').first().getAttribute('href'),'https://github.com/acme/app/milestone/3','the tracker link opens the macro itself');
   await page.evaluate(()=>{clip=[];calls=[]});
   await panel().getByRole('button',{name:'Copier',exact:true}).click();
@@ -114,6 +114,43 @@ try {
   assert.equal(refused[1],'Copie impossible');
   assert.ok(refused[2].includes('https://github.com/acme/app/milestone/3'),'the refusal gives the text to copy by hand');
   await page.evaluate(()=>{refuseClipboard=false});
+
+  // #809: the key opens the macro and copies the key alone, in the panel and on the rows; the panel lost its "Lien".
+  assert.equal(await panel().getByRole('link',{name:'Lien'}).count(),0,'the key carries the link, the "Lien" button is gone');
+  assert.equal(await panel().locator('[data-macro-key="M-3"] a').getAttribute('href'),'https://github.com/acme/app/milestone/3');
+  const rowKey=key=>page.locator(`[data-epic-key="${key}"] [data-macro-key="${key}"]`);
+  assert.equal(await rowKey('M-3').locator('a').getAttribute('href'),'https://github.com/acme/app/milestone/3','AC-1: the row key links to the macro');
+  assert.equal(await rowKey('M-3').locator('a').getAttribute('target'),'_blank');
+  assert.equal(await rowKey('M-4').locator('a').count(),0,'AC-1: a macro without an address has no link');
+  await page.evaluate(()=>{clip=[];window.calls=[]});
+  await rowKey('M-4').getByRole('button',{name:'Copier M-4'}).click();
+  await page.waitForFunction(()=>clip.length===1);
+  assert.deepEqual(await page.evaluate(()=>clip),['M-4'],'AC-2: the key alone is copied');
+  assert.deepEqual((await calls('toast')).map(c=>c[1]),['Identifiant copié']);
+  // AC-4: a plain, Ctrl or Shift click on the row's copy button and link leaves the selection as it was.
+  await rowKey('M-4').getByRole('button',{name:'Copier M-4'}).click({modifiers:['ControlOrMeta']});
+  await rowKey('M-4').getByRole('button',{name:'Copier M-4'}).click({modifiers:['Shift']});
+  await page.waitForFunction(()=>clip.length===3);
+  assert.equal(await panelKey(),'M-3','the copy button does not select its row');
+  assert.equal(await page.locator('[data-epic-key][aria-selected="true"]').count(),0,'nor picks it');
+  // The link must not open a tab in the test browser; only its propagation matters here.
+  await rowKey('M-3').locator('a').evaluate(a=>a.addEventListener('click',e=>e.preventDefault()));
+  await row('Macro quatre').click();
+  await page.waitForFunction(()=>document.querySelector('aside [data-macro-key]')?.dataset.macroKey==='M-4');
+  await rowKey('M-3').locator('a').click({modifiers:['ControlOrMeta']});
+  await rowKey('M-3').locator('a').click();
+  assert.equal(await panelKey(),'M-4','the key link does not select its row');
+  assert.equal(await page.locator('[data-epic-key][aria-selected="true"]').count(),0);
+  // AC-3: a refused clipboard says so and shows no check mark, once the last one is gone.
+  await page.waitForFunction(()=>!document.querySelector('[data-epic-key="M-4"] [data-macro-key] svg.text-emerald-400'));
+  await page.evaluate(()=>{refuseClipboard=true;window.calls=[]});
+  await rowKey('M-4').getByRole('button',{name:'Copier M-4'}).click();
+  await page.waitForFunction(()=>calls.some(c=>c[0]==='toast'));
+  assert.equal((await calls('toast'))[0][1],'Copie impossible');
+  assert.equal(await rowKey('M-4').locator('svg.text-emerald-400').count(),0);
+  await page.evaluate(()=>{refuseClipboard=false});
+  await row('Macro trois').click();
+  await page.waitForFunction(()=>document.querySelector('aside [data-macro-key]')?.dataset.macroKey==='M-3');
 
   // US4: the full-screen editor edits the same draft, shows its preview, and Escape closes it alone.
   await maximizeButtons().first().click();
