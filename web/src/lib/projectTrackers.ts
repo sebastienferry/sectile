@@ -14,6 +14,7 @@ export interface TrackerOption {
   provider: string
   name: string
   scope: string
+  site?: string
   /** The project's own local board: never listed by GET /api/trackers. */
   local: boolean
 }
@@ -37,6 +38,7 @@ export function trackerOptions(summaries: TrackerSummary[], selected: ProjectTra
       provider: summary.provider,
       name: summary.name,
       scope: summary.scope,
+      site: summary.site || '',
       local: false,
     }))
   for (const ref of selected) {
@@ -47,6 +49,7 @@ export function trackerOptions(summaries: TrackerSummary[], selected: ProjectTra
       provider: isLocalIdentity(ref.identity) ? 'local' : ref.identity.split('|')[0] || '',
       name: '',
       scope: ref.identity.split('|').slice(2).join('|'),
+      site: isLocalIdentity(ref.identity) ? '' : ref.identity.split('|')[1] || '',
       local: isLocalIdentity(ref.identity),
     })
   }
@@ -136,3 +139,27 @@ export function missingTrackerReason(isNew: boolean, selected: string[], options
 export function isTrackerTicket(task: Pick<Task, 'trackerId' | 'source'> | null | undefined): boolean {
   return Boolean(task?.trackerId) && Boolean(task?.source) && task?.source !== 'local'
 }
+
+/**
+ * Whether saving a project must re-fetch the open board's tasks and facets
+ * (#793): the payload touches the project's trackers or label, and the saved
+ * project is part of the scope currently on screen.
+ */
+export function projectSaveRefreshesBoard(
+  project: { id: string; slug?: string },
+  updates: { trackers?: unknown; label?: unknown },
+  scope: {
+    selectedProjectId: string
+    selectedViewId?: string | null
+    viewProjectIds?: readonly string[] | null
+  }
+): boolean {
+  if (updates.trackers === undefined && updates.label === undefined) return false
+  if (scope.selectedViewId) {
+    const ids = scope.viewProjectIds ?? []
+    return ids.includes(project.id) || (Boolean(project.slug) && ids.includes(project.slug!))
+  }
+  if (!scope.selectedProjectId || scope.selectedProjectId === 'all') return true
+  return scope.selectedProjectId === project.id || (Boolean(project.slug) && scope.selectedProjectId === project.slug)
+}
+

@@ -86,7 +86,7 @@ func TestDiscoveryAcceptsASecondaryRepositoryOnAnotherBranch(t *testing.T) {
 		{URL: mrB, Branch: "other"},
 		{URL: "https://gitlab.com/g/c/-/merge_requests/3", Branch: "feat/12"},
 		{URL: "https://gitlab.com/g/a/-/merge_requests/9", Branch: "unrelated"},
-	})
+	}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

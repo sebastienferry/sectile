@@ -253,17 +253,9 @@ func (d *DB) projectRowsScopeUnsafe(projectID string) (string, []interface{}) {
 
 // bookmarkedProjectsUnsafe lists the ids of the projects a user bookmarked.
 func (d *DB) bookmarkedProjectsUnsafe(userID string) []string {
-	rows, err := d.conn.Query(`SELECT project_id FROM user_project_bookmarks WHERE user_id = ?`, userID)
+	ids, err := d.getUserProjectBookmarksUnsafe(userID)
 	if err != nil {
 		return nil
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if rows.Scan(&id) == nil {
-			ids = append(ids, id)
-		}
 	}
 	return ids
 }

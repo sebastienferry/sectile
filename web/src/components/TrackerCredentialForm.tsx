@@ -26,12 +26,14 @@ import {
  */
 export interface TrackerCredentialFormProps {
   tracker: TrackerKind
+  initialSiteUrl?: string
   onSaved?: () => void
   passphrase?: string
 }
 
 export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
   tracker,
+  initialSiteUrl,
   onSaved,
   passphrase = '',
 }) => {
@@ -56,7 +58,7 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
   const mine = found?.kind === 'oauth' ? undefined : found
   const stored = { ...serverStored, tokenIsSet: Boolean(mine), tokenFromEnv: false }
 
-  const [siteUrl, setSiteUrl] = useState(mine?.siteUrl || serverStored.siteUrl)
+  const [siteUrl, setSiteUrl] = useState(initialSiteUrl?.trim() || mine?.siteUrl || serverStored.siteUrl)
   const [email, setEmail] = useState(mine?.email || settings.jiraEmail || '')
   const [token, setToken] = useState('')
 

@@ -51,8 +51,10 @@ import type {
 } from '../types'
 import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
-import type { StoredUserCredential, OrphanedCredentialReport, TrackerKind } from '../lib/trackers'
+import type { StoredUserCredential, OrphanedCredentialReport, TrackerKind, TrackerSetupTarget } from '../lib/trackers'
 import { NO_ORPHANED_CREDENTIALS, fetchTrackerSummaries, getTrackers, orphanedCredentialsFrom } from '../lib/trackers'
+import { projectSaveRefreshesBoard } from '../lib/projectTrackers'
+import { applyUpdatedActivity, applyUpdatedTask, createCoalescedRefetch, type TaskBoardScope } from '../lib/taskUpdatedEvent'
 import { boardRunProject, runRefusal, type RunProjectCandidate } from '../lib/runProject'
 import {
   NO_JIRA_OAUTH,
@@ -218,6 +220,8 @@ interface AppContextType {
   /** Écran de connexion au tracker, ouvert à la demande et jamais au démarrage. */
   isTrackerSetupOpen: boolean
   setIsTrackerSetupOpen: (open: boolean) => void
+  trackerSetupTarget?: TrackerSetupTarget | null
+  openTrackerSetup?: (target?: TrackerSetupTarget | null) => void
   /** Vérifie des accès tracker sans rien enregistrer. */
   checkTrackerCredentials: (params: TrackerCredentials) => Promise<TrackerCheck>
   /** Les accès personnels de la personne connectée, jetons exclus. */
@@ -786,7 +790,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   })
   const [issueTypeFilters, setIssueTypeFiltersState] = useState<string[]>([])
   const [autoSync, setAutoSync] = useState<AutoSyncState | null>(null)
-  const [isTrackerSetupOpen, setIsTrackerSetupOpen] = useState(false)
+  const [isTrackerSetupOpen, setTrackerSetupOpenState] = useState(false)
+  const [trackerSetupTarget, setTrackerSetupTarget] = useState<TrackerSetupTarget | null>(null)
+  const setIsTrackerSetupOpen = useCallback((open: boolean) => {
+    setTrackerSetupOpenState(open)
+    if (!open) setTrackerSetupTarget(null)
+  }, [])
+  const openTrackerSetup = useCallback((target?: TrackerSetupTarget | null) => {
+    setTrackerSetupTarget(target ?? null)
+    setTrackerSetupOpenState(true)
+  }, [])
   const [trackerStatusFilters, setTrackerStatusFiltersState] = useState<string[]>([])
   const [teams, setTeams] = useState<TrackerTeam[]>([])
   const [sprintFilter, setSprintFilterState] = useState<string | null>(null)
@@ -2100,23 +2113,123 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     fetchActivityStats()
   }, [fetchTasks, fetchActivities, fetchActivityStats])
 
-  // Real-time SSE post-back and state update listener
+  const taskBoardScopeRef = useRef<{
+    scope: TaskBoardScope
+    fetchTasks: () => Promise<void>
+    fetchActivities: () => Promise<void>
+    fetchActivityStats: () => Promise<void>
+  }>({
+    scope: { selectedProjectId: 'all' },
+    fetchTasks,
+    fetchActivities,
+    fetchActivityStats,
+  })
+  useEffect(() => {
+    const activeBoardView = selectedViewId ? boardViews.find(v => v.id === selectedViewId) : null
+    const selectedProj = selectedProjectId && selectedProjectId !== 'all'
+      ? projects.find(p => p.id === selectedProjectId || p.slug === selectedProjectId)
+      : null
+    taskBoardScopeRef.current = {
+      scope: {
+        selectedProjectId,
+        selectedProjectSlug: selectedProj?.slug,
+        selectedViewId,
+        viewProjectIds: activeBoardView?.projectIds,
+        viewLabels: activeBoardView?.labels,
+        bookmarkedProjectIds: projects.filter(p => p.bookmarked).map(p => p.id),
+        activeView,
+        searchQuery,
+        statusFilter,
+        priorityFilter,
+        labelFilter,
+        sprintFilter,
+        teamFilter,
+        parentFilter,
+        assigneeFilter,
+        myTasksOnly,
+        myTasksIdentities,
+        trackerStatusFilters,
+        issueTypeFilters,
+        pinnedOnly,
+      },
+      fetchTasks,
+      fetchActivities,
+      fetchActivityStats,
+    }
+  }, [
+    selectedProjectId,
+    selectedViewId,
+    boardViews,
+    projects,
+    activeView,
+    searchQuery,
+    statusFilter,
+    priorityFilter,
+    labelFilter,
+    sprintFilter,
+    teamFilter,
+    parentFilter,
+    assigneeFilter,
+    myTasksOnly,
+    myTasksIdentities,
+    trackerStatusFilters,
+    issueTypeFilters,
+    pinnedOnly,
+    fetchTasks,
+    fetchActivities,
+    fetchActivityStats,
+  ])
+
+  // Real-time SSE post-back and state update listener (#722): updates the
+  // changed task and activity in place rather than reloading three full lists
+  // on every event in every connected browser.
   useEffect(() => {
     let eventSource: EventSource | null = null
+    const coalescedFallback = createCoalescedRefetch(200, () => {
+      const current = taskBoardScopeRef.current
+      void current.fetchTasks()
+      void current.fetchActivities()
+      void current.fetchActivityStats()
+    })
     try {
       eventSource = new EventSource(`${API_BASE}/events`)
       eventSource.addEventListener('task_updated', (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data)
-          if (data && data.task) {
-            setSelectedTask(current => current && sameTask(current, data.task) ? data.task : current)
+          const { scope } = taskBoardScopeRef.current
+          const incomingTask: Task | undefined = data?.task
+          const incomingActivity: TaskActivity | undefined = data?.activity
+          if (incomingTask) {
+            setSelectedTask(current => (current && sameTask(current, incomingTask) ? incomingTask : current))
+            setTasks(prev => applyUpdatedTask(prev, incomingTask, scope))
           }
-          // Reapply the active project and all server-side filters, including
-          // when an event introduces a new task or moves one out of this view.
-          fetchTasks()
-
-          fetchActivities()
-          fetchActivityStats()
+          if (incomingActivity) {
+            if (
+              incomingActivity.status === 'queued' ||
+              incomingActivity.status === 'pending' ||
+              incomingActivity.status === 'running'
+            ) {
+              prevActiveActivitiesRef.current.set(incomingActivity.id, incomingActivity.status)
+            }
+            setActivities(prevActivities => {
+              let nextActivities = prevActivities
+              setActivityStats(prevStats => {
+                const updated = applyUpdatedActivity(
+                  prevActivities,
+                  prevStats,
+                  incomingActivity,
+                  scope.selectedProjectId,
+                  incomingTask
+                )
+                nextActivities = updated.activities
+                return updated.stats
+              })
+              return nextActivities
+            })
+          }
+          if (!incomingTask && !incomingActivity) {
+            coalescedFallback.schedule()
+          }
         } catch (err) {
           console.error('Error handling SSE task_updated event:', err)
         }
@@ -2126,11 +2239,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     return () => {
+      coalescedFallback.cancel()
       if (eventSource) {
         eventSource.close()
       }
     }
-  }, [fetchTasks, fetchActivities, fetchActivityStats, selectedTask])
+  }, [])
 
   // Active Job Count (queued or running)
   const activeJobCount = activities.filter(
@@ -2506,6 +2620,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       const updated: Project = await res.json()
       await fetchProjects()
+      // A project save that touches its trackers or label changes which tickets
+      // it shows (#741): reload the board and its facets when that project is
+      // on screen (#793).
+      if (
+        projectSaveRefreshesBoard(updated, updates, {
+          selectedProjectId,
+          selectedViewId,
+          viewProjectIds: currentBoardView?.projectIds,
+        })
+      ) {
+        fetchTasks()
+        fetchTaskFacets()
+      }
       addToast({
         type: 'success',
         title: t.operations.projects.updated,
@@ -4480,6 +4607,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         autoSync,
         isTrackerSetupOpen,
         setIsTrackerSetupOpen,
+        trackerSetupTarget,
+        openTrackerSetup,
         checkTrackerCredentials,
         userCredentials,
         orphanedCredentials,

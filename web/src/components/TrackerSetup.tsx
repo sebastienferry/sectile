@@ -1,22 +1,21 @@
 import React, { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { getTrackers, initialTracker, type TrackerKind } from '../lib/trackers'
+import { getTrackers, initialTracker, type TrackerKind, type TrackerSetupTarget } from '../lib/trackers'
 import { TrackerCredentialForm } from './TrackerCredentialForm'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 
 /**
- * Premier démarrage : ce qu'il faut savoir avant que quoi que ce soit
- * fonctionne. Sans instance et sans jeton, la synchronisation ne ramène rien et
- * aucune écriture ne part; jusqu'ici on l'apprenait en synchronisant pour rien.
- *
- * Cet écran n'est plus que l'emballage : il choisit le tracker et confie le
- * reste au formulaire partagé, celui que l'onglet Trackers du profil utilise
- * aussi. Deux écrans qui demandent la même chose ont déjà divergé une fois.
+ * Connects a tracker so the user acts on it under their own account (#795).
+ * Opened after a project save for one specific tracker, the dialog starts on
+ * that tracker's provider and site with no provider picker; the shared form,
+ * also used by the profile, handles the rest.
  */
-export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { settings, refreshUserCredentials, t } = useApp()
+export const TrackerSetup: React.FC<{ onClose: () => void; target?: TrackerSetupTarget | null }> = ({ onClose, target }) => {
+  const { settings, refreshUserCredentials, trackerSetupTarget, t } = useApp()
+  const chosen = target ?? trackerSetupTarget ?? null
+  // Only used when no tracker was chosen: a chosen one fixes the provider below.
   const [tracker, setTracker] = useState<TrackerKind>(initialTracker(settings.issueTracker))
   const trackers = getTrackers(t)
 
@@ -27,6 +26,8 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
   }, [refreshUserCredentials])
 
   useEscapeKey(true, onClose)
+
+  const effectiveTracker = chosen ? chosen.provider : tracker
 
   return (
     <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-60 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs" {...backdrop}>
@@ -49,31 +50,38 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
         </div>
 
         <div className="p-5 space-y-3 overflow-y-auto">
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-              {t.trackerCredentials.setup.trackerLabel}
-            </label>
-            <div className="flex items-center gap-1.5">
-              {trackers.map(item => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setTracker(item.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer ${
-                    item.id === tracker
-                      ? 'accent-bg text-white border-transparent'
-                      : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
+          {!chosen && (
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                {t.trackerCredentials.setup.trackerLabel}
+              </label>
+              <div className="flex items-center gap-1.5">
+                {trackers.map(item => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setTracker(item.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer ${
+                      item.id === effectiveTracker
+                        ? 'accent-bg text-white border-transparent'
+                        : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Le formulaire est remonté à neuf quand le tracker change : ses
               champs appartiennent au tracker choisi, pas à l'écran. */}
-          <TrackerCredentialForm key={tracker} tracker={tracker} onSaved={onClose} />
+          <TrackerCredentialForm
+            key={`${effectiveTracker}:${chosen?.site || ''}`}
+            tracker={effectiveTracker}
+            initialSiteUrl={chosen?.site}
+            onSaved={onClose}
+          />
         </div>
 
         <div className="flex items-center justify-end px-5 py-3.5 border-t border-[var(--border-color)] bg-[var(--bg-tertiary)]/40">

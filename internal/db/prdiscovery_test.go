@@ -317,3 +317,53 @@ func TestFullSyncRediscoversPullRequests(t *testing.T) {
 		t.Fatalf("the sync activity does not say what was attached: %+v", result.Steps)
 	}
 }
+
+// #440: a user who detaches every link while discovery is waiting on the forge
+// wins over the automatic pass, while a forced rediscovery still attaches.
+func TestDiscoveryDoesNotReattachLinksDetachedWhileInFlight(t *testing.T) {
+	d, proj, task := discoveryTestDB(t, "#implemented")
+	detachMidFlight := func(string, string) ([]models.TaskPullRequest, error) {
+		known := []models.TaskPullRequest{{URL: "https://forge/pull/1", Branch: "feat/42"}}
+		if _, err := d.UpdateTask(task.ID, models.UpdateTaskRequest{PrLinks: &known}); err != nil {
+			t.Fatal(err)
+		}
+		empty := []models.TaskPullRequest{}
+		if _, err := d.UpdateTask(task.ID, models.UpdateTaskRequest{PrLinks: &empty}); err != nil {
+			t.Fatal(err)
+		}
+		return discovered("https://forge/pull/1"), nil
+	}
+	d.prDiscoveryLookup = detachMidFlight
+
+	steps, _ := d.rediscoverPullRequests(context.Background(), proj, nil, task, false)
+	if len(steps) != 0 {
+		t.Fatalf("expected no attachment reported after mid-flight detach, got %+v", steps)
+	}
+	stored, err := d.GetTaskByID(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.PrLinks) != 0 || stored.PrURL != nil {
+		t.Fatalf("expected no links re-attached after mid-flight detach, got %+v", stored)
+	}
+	if !d.pullRequestLinksDetached(task.ID) {
+		t.Fatal("expected pr_links_detached flag to remain set after skipped automatic write")
+	}
+
+	// Forced path (discoverAndApply) still attaches even if detached mid-flight.
+	attached, _, err := d.discoverAndApply(context.Background(), proj, nil, stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attached) != 1 || attached[0] != "https://forge/pull/1" {
+		t.Fatalf("expected forced discovery to attach link, got %+v", attached)
+	}
+	stored, err = d.GetTaskByID(task.ID)
+	if err != nil || len(stored.PrLinks) != 1 || stored.PrURL == nil || *stored.PrURL != "https://forge/pull/1" {
+		t.Fatalf("expected forced discovery to persist link, got %+v %v", stored, err)
+	}
+	if d.pullRequestLinksDetached(task.ID) {
+		t.Fatal("expected forced attachment to clear pr_links_detached")
+	}
+}
+

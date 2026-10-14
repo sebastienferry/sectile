@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -496,5 +497,39 @@ func TestIssueSkillsCarryTheSpecificationsWorkspace(t *testing.T) {
 	handoff, _ := skills.StageSkillByID("handoff")
 	if content := skills.RenderGenericSkillContent(handoff); !strings.Contains(content, "merged into that repository's default branch") {
 		t.Error("handoff must clean the specifications worktree only once its branch is merged")
+	}
+}
+
+// #541: the mono-repo/multi-repo project setting is gone since #484, so no
+// fragment may describe a project by that kind, and the skills that change code
+// state the rule of each folder role instead.
+func TestFragmentsNameNoProjectKind(t *testing.T) {
+	kind := regexp.MustCompile(`(?i)\b(mono|multi)-?repo`)
+	err := filepath.WalkDir("fragments", func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if match := kind.Find(raw); match != nil {
+			t.Errorf("%s names a project kind: %q", path, match)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stage := range skills.StageSkills {
+		if stage.ID != "implement" && stage.ID != "pickup" && stage.ID != "pickup_issues" {
+			continue
+		}
+		content := skills.RenderSkillContent(stage, "openspec")
+		for _, role := range []string{"`context`", "`changed`", "`local`"} {
+			if !strings.Contains(content, role) {
+				t.Errorf("%s does not state the rule of the %s folder role", stage.ID, role)
+			}
+		}
 	}
 }

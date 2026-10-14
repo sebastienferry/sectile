@@ -31,10 +31,18 @@ type trackerCache struct {
 	// projects of a ticket; membersExpire bounds it like an entry.
 	members       *membershipIndex
 	membersExpire time.Time
+	// bookmarks holds each user's non-empty bookmarked project IDs (#723) so
+	// all-scope board reads neither take the write lock nor query bookmarks.
+	bookmarks map[string]bookmarksCacheEntry
 }
 
 type trackerCacheEntry struct {
 	tracker models.Tracker
+	expires time.Time
+}
+
+type bookmarksCacheEntry struct {
+	ids     []string
 	expires time.Time
 }
 
@@ -77,6 +85,44 @@ func (c *trackerCache) clear() {
 	c.gen++
 	c.entries = nil
 	c.members = nil
+	c.bookmarks = nil
+}
+
+func (c *trackerCache) clearBookmarks() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.gen++
+	c.bookmarks = nil
+}
+
+func (c *trackerCache) getBookmarks(userID string) ([]string, uint64, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.bookmarks[userID]; ok {
+		if len(e.ids) > 0 && c.clock().Before(e.expires) {
+			return append([]string(nil), e.ids...), c.gen, true
+		}
+		delete(c.bookmarks, userID)
+	}
+	return nil, c.gen, false
+}
+
+func (c *trackerCache) putBookmarks(userID string, ids []string, gen uint64) {
+	if len(ids) == 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if gen != c.gen {
+		return
+	}
+	if c.bookmarks == nil {
+		c.bookmarks = map[string]bookmarksCacheEntry{}
+	}
+	c.bookmarks[userID] = bookmarksCacheEntry{
+		ids:     append([]string(nil), ids...),
+		expires: c.clock().Add(trackerCacheTTL),
+	}
 }
 
 // getMembership returns the cached membership index and, on a miss, the
