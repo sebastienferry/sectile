@@ -179,7 +179,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", codexSettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability, taskPageCapability, stageMoveCapability}
+		capabilities := []string{"git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", codexSettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability, taskPageCapability, taskFieldsCapability, stageMoveCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -242,6 +242,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/tasks/detail" {
 		d.desktopTaskDetail(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/tasks/issue-types" {
+		d.desktopTaskIssueTypes(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/tasks/assignable" {
@@ -1121,6 +1125,8 @@ func (d *agentDaemon) desktopCreateTask(w http.ResponseWriter, r *http.Request) 
 		ProjectID   string
 		Title       string
 		Description string
+		IssueType   string
+		Priority    models.Priority
 		// TrackerID names one of the project's trackers for the ticket (#741).
 		// Empty, the server takes the project's default tracker.
 		TrackerID string
@@ -1138,6 +1144,8 @@ func (d *agentDaemon) desktopCreateTask(w http.ResponseWriter, r *http.Request) 
 		TrackerID:             strings.TrimSpace(input.TrackerID),
 		Title:                 strings.TrimSpace(input.Title),
 		Description:           input.Description,
+		IssueType:             input.IssueType,
+		Priority:              input.Priority,
 		RequireRemoteCreation: true,
 	})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks", strings.NewReader(body))

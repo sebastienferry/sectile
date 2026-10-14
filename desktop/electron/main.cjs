@@ -517,7 +517,7 @@ ipcMain.handle('open-link',async(_,value)=>{
 })
 ipcMain.handle('create-task',async(_,input)=>{
  const status=await api('/desktop/status')
- if(!status.capabilities?.includes('create-task'))throw Error('The running local agent is outdated. Stop it, then start the rebuilt agent before creating a task. Closing the desktop alone does not restart the agent.')
+ if(!status.capabilities?.includes('create-task')||((Object.hasOwn(input||{},'issueType')||Object.hasOwn(input||{},'priority'))&&!status.capabilities?.includes('task-fields')))throw Error('The running local agent is outdated. Stop it, then start the rebuilt agent before creating a task. Closing the desktop alone does not restart the agent.')
  return api('/desktop/create-task','POST',input)
 })
 // The task page (#805) reads, edits and searches assignees through the agent,
@@ -525,7 +525,7 @@ ipcMain.handle('create-task',async(_,input)=>{
 const TASK_PAGE_OUTDATED='The running local agent is outdated. Stop it, then start the rebuilt agent before editing a task. Closing the desktop alone does not restart the agent.'
 async function taskPageRoute(route,method,body){
  const status=await api('/desktop/status')
- if(!status.capabilities?.includes('task-page'))throw Error(TASK_PAGE_OUTDATED)
+ if(!status.capabilities?.includes('task-page')||((route.startsWith('/desktop/tasks/issue-types')||Object.hasOwn(body||{},'issueType')||Object.hasOwn(body||{},'priority'))&&!status.capabilities?.includes('task-fields')))throw Error(TASK_PAGE_OUTDATED)
  return api(route,method,body)
 }
 const taskQuery=(projectId,taskId)=>{
@@ -535,6 +535,10 @@ const taskQuery=(projectId,taskId)=>{
 ipcMain.handle('task-page-available',async()=>!!(await api('/desktop/status')).capabilities?.includes('task-page'))
 ipcMain.handle('task',(_,{projectId,taskId}={})=>taskPageRoute('/desktop/tasks/detail'+taskQuery(projectId,taskId)))
 ipcMain.handle('update-task',(_,{projectId,taskId,changes}={})=>taskPageRoute('/desktop/tasks/detail'+taskQuery(projectId,taskId),'PUT',changes&&typeof changes==='object'?changes:{}))
+ipcMain.handle('task-issue-types',(_,{projectId,trackerId}={})=>{
+ if(typeof projectId!=='string'||!projectId.trim()||typeof trackerId!=='string'||!trackerId.trim())throw Error('Project and tracker required')
+ return taskPageRoute('/desktop/tasks/issue-types?projectId='+encodeURIComponent(projectId)+'&trackerId='+encodeURIComponent(trackerId))
+})
 ipcMain.handle('assignable',(_,{projectId,taskId,query}={})=>taskPageRoute('/desktop/tasks/assignable'+taskQuery(projectId,taskId)+'&q='+encodeURIComponent(typeof query==='string'?query:'')))
 ipcMain.handle('transition-stage',async(_,{projectId,taskId,stage,note})=>{
  if(!projectId||!taskId||!stage)throw Error('Project, task, and stage required')

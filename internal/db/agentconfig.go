@@ -63,6 +63,7 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 		c.Repositories = append(c.Repositories, repository.URL)
 	}
 	c.Label = p.Label
+	c.DefaultTrackerID = p.DefaultTrackerID
 	if trackers, err := d.ProjectTrackers(p.ID); err == nil {
 		for _, t := range trackers {
 			c.Trackers = append(c.Trackers, trackerRef(t))

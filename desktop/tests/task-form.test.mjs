@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { validateTitle, validateDescription, validatePullRequestUrl, addLink, removeLink, moveLink, currentLink, taskChanges, assigneeLookup, initialProject, leaveMessage, DESCRIPTION_LIMIT } from '../src/task-form.mjs'
+import { validateTitle, validateDescription, validatePullRequestUrl, addLink, removeLink, moveLink, currentLink, taskChanges, normalizeIssueTypes, assigneeLookup, initialProject, leaveMessage, DESCRIPTION_LIMIT } from '../src/task-form.mjs'
 
 test('a pull request link must be an absolute web address, without credentials, listed once',()=>{
  const links=[{url:'https://github.com/o/r/pull/1'}]
@@ -36,8 +36,9 @@ test('a save sends only the fields that changed',()=>{
  assert.deepEqual(taskChanges(loaded,{...untouched,title:'  Title  '}),{},'a title is trimmed')
  assert.deepEqual(taskChanges(loaded,{...untouched,title:'New'}),{title:'New'})
  assert.deepEqual(taskChanges(loaded,untouched,{descriptionChanged:true}),{description:'- item'})
- assert.deepEqual(taskChanges(loaded,{...untouched,assignee:'Joe',assigneeAccountId:'7',assigneeAvatar:'https://a/7.png'}),{assignee:'Joe',assigneeAccountId:'7',assigneeAvatar:'https://a/7.png'})
- assert.deepEqual(taskChanges(loaded,{...untouched,assignee:'',assigneeAccountId:''}),{assignee:'',assigneeAccountId:'',assigneeAvatar:''},'clearing unassigns')
+ assert.deepEqual(taskChanges(loaded,{...untouched,assignee:'Joe',assigneeAccountId:'7'}),{},'the form never writes assignment')
+ assert.deepEqual(taskChanges(loaded,{...untouched,issueType:'Bug',priority:'urgent'}),{issueType:'Bug',priority:'urgent'})
+ assert.deepEqual(taskChanges({...loaded,issueType:'Custom',priority:'low'},{...untouched,issueType:'',priority:'medium'}),{issueType:'',priority:'medium'})
  assert.deepEqual(taskChanges(loaded,{...untouched,prLinks:[]}),{prLinks:[]},'removing every link detaches them all')
  assert.deepEqual(taskChanges(loaded,{...untouched,prLinks:[loaded.prLinks[1],loaded.prLinks[0]]}),{prLinks:[{url:'b'},{url:'a',state:'merged'}]},'a reorder is a change')
  assert.deepEqual(taskChanges({title:'T'},{title:'T',prLinks:[]}),{},'no links before, none after')
@@ -70,4 +71,16 @@ test('a creation starts on the project it came from, else the selected, the reme
 test('leaving names the task',()=>{
  assert.equal(leaveMessage('#12'),'Discard unsaved changes to #12?')
  assert.equal(leaveMessage(''),'Discard unsaved changes to the new task?')
+})
+
+test('issue types discard blank and duplicate values without changing provider spelling',()=>{
+ assert.deepEqual(normalizeIssueTypes(['Bug','','  ','Bug',' Custom ',null]),['Bug',' Custom '])
+ assert.deepEqual(normalizeIssueTypes(null),[])
+})
+
+test('loaded custom type and priority remain unchanged through unrelated edits',()=>{
+ const loaded={title:'Task',issueType:'Legacy',priority:'low',prLinks:[]}
+ assert.deepEqual(taskChanges(loaded,{...loaded}),{})
+ assert.deepEqual(taskChanges(loaded,{...loaded,title:'Renamed'}),{title:'Renamed'})
+ assert.deepEqual(taskChanges({title:''},{title:'',issueType:'',priority:'medium',prLinks:[]}),{})
 })

@@ -52,10 +52,9 @@ export function taskChanges(loaded,form,{descriptionChanged=false}={}){
  const title=String(form.title??'').trim()
  if(title!==String(loaded.title??''))changes.title=title
  if(descriptionChanged)changes.description=String(form.description??'')
- if(String(form.assignee??'')!==String(loaded.assignee??'')||String(form.assigneeAccountId??'')!==String(loaded.assigneeAccountId??'')){
-  changes.assignee=String(form.assignee??'')
-  changes.assigneeAccountId=String(form.assigneeAccountId??'')
-  changes.assigneeAvatar=String(form.assigneeAvatar??'')
+ for(const name of ['issueType','priority']){
+  const fallback=name==='priority'?'medium':''
+  if(String(form[name]??fallback)!==String(loaded[name]??fallback))changes[name]=String(form[name]??fallback)
  }
  const links=form.prLinks||[]
  if(!sameLinks(links,loaded.prLinks||[]))changes.prLinks=links.map(link=>({...link}))
@@ -74,3 +73,6 @@ export function initialProject({openedFrom,selected,remembered,known=[]}){
 }
 
 export const leaveMessage=key=>'Discard unsaved changes to '+(key||'the new task')+'?'
+
+// Provider values retain their spelling; only blank and duplicate values disappear.
+export const normalizeIssueTypes=values=>[...new Set((Array.isArray(values)?values:[]).filter(value=>typeof value==='string'&&value.trim()))]

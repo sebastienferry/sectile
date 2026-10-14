@@ -8,6 +8,7 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 // TrackersPath is where a member picks the trackers of a project, reads a
@@ -278,4 +279,57 @@ func (h *Handler) HandleAdminTrackers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// projectTrackerIssueTypes exposes discovery without exposing tracker configuration.
+// Every signed-in member can read the shared projects; membership here is the
+// tracker's membership in this specific project, checked before provider access.
+func (h *Handler) projectTrackerIssueTypes(w http.ResponseWriter, r *http.Request, projectID, trackerID string) {
+	if _, ok := h.requireSession(w, r); !ok {
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "Méthode non autorisée")
+		return
+	}
+	project, err := h.db.GetProjectByID(projectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if project == nil {
+		writeError(w, http.StatusNotFound, "Projet non trouvé")
+		return
+	}
+	found := false
+	for _, selected := range project.Trackers {
+		if selected.TrackerID == trackerID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		writeError(w, http.StatusForbidden, "Ce tracker n’appartient pas au projet")
+		return
+	}
+	values, err := h.db.ListTrackerIssueTypesAs(h.actingContext(r), trackerID)
+	supported := !tracker.IsUnsupported(err)
+	if err != nil && supported {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	types := []string{}
+	seen := map[string]bool{}
+	if supported {
+		for _, value := range values {
+			if strings.TrimSpace(value) != "" && !seen[value] {
+				types = append(types, value)
+				seen[value] = true
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, struct {
+		Supported  bool     `json:"supported"`
+		IssueTypes []string `json:"issueTypes"`
+	}{supported, types})
 }
