@@ -69,7 +69,8 @@ func (f *declaredTracker) CreateIssue(ctx context.Context, req tracker.CreateIss
 	}
 	f.nextNumber++
 	key := req.Tracker.Scope + "-" + strconv.Itoa(f.nextNumber)
-	return &models.Task{ID: "jira-" + req.Tracker.ID + "-" + key, ProjectID: req.Tracker.ID, Key: key, Title: req.Title}, nil
+	url := "https://jira.example/browse/" + key
+	return &models.Task{ID: "jira-" + req.Tracker.ID + "-" + key, ProjectID: req.Tracker.ID, Key: key, Title: req.Title, ExternalURL: &url}, nil
 }
 
 func (f *declaredTracker) SetParent(ctx context.Context, key string, parentKey string) error {
@@ -403,6 +404,9 @@ func TestALineCreatesItsStoryInADeclaredProject(t *testing.T) {
 	if task.ID != "" || !strings.HasPrefix(task.Key, "DATA-") {
 		t.Errorf("task = %+v, want a DATA key and no local id", task)
 	}
+	if task.ProjectID != "" || task.ExternalURL == nil || *task.ExternalURL != "https://jira.example/browse/"+task.Key {
+		t.Fatalf("tracker-only response lost its URL or acquired a local project: %+v", task)
+	}
 	if meta.Todos[0].StoryKey != task.Key {
 		t.Errorf("line = %+v, want the created key recorded", meta.Todos[0])
 	}
@@ -476,6 +480,10 @@ func TestABatchCreatesTheStoriesOfLinesAimedAtADeclaredProject(t *testing.T) {
 	batch, err := database.CreateStoriesFromMacroTodos(t.Context(), proj.ID, "PE-460", ids)
 	if err != nil {
 		t.Fatalf("batch refused: %v", err)
+	}
+	created := batch.Results[0].Task
+	if created == nil || created.ID != "" || created.ProjectID != "" || created.ExternalURL == nil || *created.ExternalURL != "https://jira.example/browse/"+created.Key {
+		t.Fatalf("batch response lost tracker-only navigation: %+v", created)
 	}
 	if batch.Created != 1 || batch.Failed != 1 {
 		t.Fatalf("batch = %+v, want the declared line created and the undeclared one failed", batch)

@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Fixed
+
+- Issue creation and edit notifications now link to the affected issues, including clones and tracker-only macro stories.
+
 ## [0.6.0] - 2026-10-14
 
 ### Added

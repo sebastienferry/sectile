@@ -286,6 +286,9 @@ func TestJiraCreateUsesTheTypeFallbackAndQuotesRefusals(t *testing.T) {
 	if err != nil || task.Key != "PE-42" || task.Source != "jira" || task.Status != models.StatusToClarify {
 		t.Fatalf("created task: %+v %v", task, err)
 	}
+	if task.ExternalURL == nil || *task.ExternalURL != site.server.URL+"/browse/PE-42" {
+		t.Fatalf("fetched creation lost its browse URL: %+v", task)
+	}
 	fields = created["fields"].(map[string]any)
 	if fields["customfield_10011"].(map[string]any)["id"] != "10200" {
 		t.Fatalf("a select list takes an option id: %#v", fields)
@@ -978,5 +981,18 @@ func TestJiraSyncReadsTheWholeSpaceOfTheTracker(t *testing.T) {
 	}
 	if want := `project = "GODE" AND issuetype IN ("Story") ORDER BY updated DESC`; jql != want {
 		t.Fatalf("jql = %q, want %q", jql, want)
+	}
+}
+
+func TestJiraCreationRetainsBrowseURLWhenFetchFails(t *testing.T) {
+	site := newJiraSite(t)
+	site.reply("POST", "/rest/api/3/issue", `{"key":"PE-42"}`)
+	site.on("GET", "/rest/api/3/issue/PE-42", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) })
+	task, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Tracker: jiraTracker(), Title: "New"})
+	if err != nil || task == nil {
+		t.Fatalf("confirmed creation: %+v %v", task, err)
+	}
+	if task.ExternalURL == nil || *task.ExternalURL != site.server.URL+"/browse/PE-42" {
+		t.Fatalf("created issue browse URL: %+v", task)
 	}
 }
