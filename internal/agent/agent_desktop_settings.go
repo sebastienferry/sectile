@@ -338,6 +338,7 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 			input.ConsoleView = settings.Defaults.ConsoleView
 			input.ConversationMode = settings.Defaults.ConversationMode
 			input.CodexApprovalsReviewer = settings.Defaults.CodexApprovalsReviewer
+			input.AgyConversationMode = settings.Defaults.AgyConversationMode
 			// So do the Sandbox values (#730).
 			input.ClaudeSandbox = settings.Defaults.ClaudeSandbox
 			input.ClaudeSandboxProjects = settings.Defaults.ClaudeSandboxProjects

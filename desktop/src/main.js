@@ -53,6 +53,7 @@ import { parseChangelog, releaseNotesFor } from './changelog.mjs'
 import { APPEARANCE_CHOICES, CONSOLE_VIEW_CHOICES, CONVERSATION_MODE_CHOICES, terminalOptions } from './appearance.mjs'
 import { claudeMark, settingsCategoryIcon } from './claude-mark.mjs'
 import { OPENAI_MARK_PATH } from './openai-mark.mjs'
+import { ANTIGRAVITY_MARK_PATH } from './antigravity-mark.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
@@ -116,7 +117,7 @@ let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
 const freeConsole=run=>run?.kind==='console'
 // Task runs show the skill and engine; project prompts show their engine name.
-const runLabel=run=>run.conversation&&run.taskId?run.skill+' · Conversation (test)':run.conversation?(run.provider==='codex'?'Codex':'Claude Code')+' · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
+const runLabel=run=>run.conversation&&run.taskId?run.skill+' · Conversation (test)':run.conversation?(run.provider==='codex'?'Codex':run.provider==='agy'?'Antigravity':'Claude Code')+' · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
 // A macro skill run has no task: its executions group under the macro.
 const macroRun=run=>!!run?.macroKey
 // Archiving a ticket task removes its worktrees first (#755); a free console or a macro run has none.
@@ -1847,6 +1848,7 @@ const SETTINGS_CATEGORIES=[
  {id:'Engines',label:'AI engines',icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
  {id:'Sandbox',label:'Claude settings',mark:'claude'},
  {id:'Codex',label:'Codex settings',icon:'<path fill="currentColor" stroke="none" fill-rule="evenodd" d="'+OPENAI_MARK_PATH+'"/>'},
+ {id:'Antigravity',label:'Antigravity settings',icon:'<path fill="currentColor" stroke="none" fill-rule="evenodd" d="'+ANTIGRAVITY_MARK_PATH+'"/>'},
  {id:'Deployment',label:'Deployment',icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
  {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'},
  {id:'Changelog',label:'Changelog',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'}
@@ -2114,7 +2116,7 @@ async function openSettings(initial='Profile',project){
   viewGroup.append(button)
  }
  const view=settingRow('AI consoles',null,viewGroup)
- view.hint.textContent='Conversation opens Claude and Codex interactive launches in a structured view (experimental). Other engines keep the terminal.'
+ view.hint.textContent='Conversation opens Claude, Codex and Antigravity interactive launches in a structured view (experimental). Other engines keep the terminal.'
  panels.Profile.append(view.section)
  // Claude settings holds the initial conversation permission mode. It applies
  // only in the conversation view, and only to
@@ -2166,6 +2168,20 @@ async function openSettings(initial='Profile',project){
   try{const value=await api.saveCodexSettings({approvalsReviewer:codexReviewer.value});savedCodexReviewer=value.approvalsReviewer;codexReviewer.value=savedCodexReviewer;codexNotice.textContent='Codex settings saved'}
   catch(err){codexReviewer.value=savedCodexReviewer;codexNotice.textContent='Not saved: '+ipcMessage(err);codexNotice.dataset.tone='error'}
   finally{codexReviewer.disabled=false}
+ }
+ const agyModeSelect=document.createElement('select');agyModeSelect.setAttribute('aria-label','Antigravity conversation permission mode')
+ for(const [value,label] of [['accept-edits','Accept edits'],['default','Ask / follow rules'],['auto','Auto-approve all tools'],['plan','Plan mode']]){const option=document.createElement('option');option.value=value;option.textContent=label;agyModeSelect.append(option)}
+ const agyRow=settingRow('Conversation permission mode',null,agyModeSelect)
+ agyRow.hint.textContent='What Antigravity may do in the first message of every new conversation, including the skills and prompts you launch in it. Choose Auto-approve all tools when skills run shell commands or tools that headless mode cannot prompt for. The composer changes it from the next message.'
+ let savedAgyMode='accept-edits'
+ const agyNotice=document.createElement('p');agyNotice.setAttribute('role','status');agyModeSelect.disabled=true
+ panels.Antigravity.append(agyRow.section,agyNotice)
+ api.agySettings().then(value=>{if(configurationActive()&&generation===configurationGeneration){savedAgyMode=value.conversationMode||'accept-edits';agyModeSelect.value=savedAgyMode;agyModeSelect.disabled=false}}).catch(()=>{if(panels.Antigravity.isConnected)agyNotice.textContent='Start or update the local agent to edit Antigravity settings.'})
+ agyModeSelect.onchange=async()=>{
+  agyModeSelect.disabled=true;agyNotice.textContent='Saving…';agyNotice.dataset.tone=''
+  try{const value=await api.saveAgySettings({conversationMode:agyModeSelect.value});savedAgyMode=value.conversationMode;agyModeSelect.value=savedAgyMode;agyNotice.textContent='Antigravity settings saved'}
+  catch(err){agyModeSelect.value=savedAgyMode;agyNotice.textContent='Not saved: '+ipcMessage(err);agyNotice.dataset.tone='error'}
+  finally{agyModeSelect.disabled=false}
  }
  const workstationSandbox=workstationSandboxPanel(panels.Sandbox)
  workstationSandbox.load().catch(()=>{})

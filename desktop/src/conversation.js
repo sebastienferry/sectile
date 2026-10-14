@@ -98,12 +98,13 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   if(event.key==='Escape'&&!interrupt.hidden&&!interrupt.disabled){event.preventDefault();interrupt.click()}
  })
  let provider='claude',catalog=[],selected=null,directory='',busy=false,generation=0,timer=null,version=null,pending=false,available=false,effortLoaded=false,readOnly=true,attaching=false
- const providerLabel=()=>provider==='codex'?'Codex':'Claude Code'
+ const providerLabel=()=>provider==='codex'?'Codex':provider==='agy'?'Antigravity':'Claude Code'
  function configureProvider(){
   panel.setAttribute('aria-label',providerLabel()+' conversation')
   panel.querySelector('label[for="conversation-message"]').textContent='Message '+providerLabel()
-  mode.replaceChildren(...(provider==='codex'?[['read-only','Read only'],['workspace-write','Workspace edits'],['plan','Plan mode']]:[['default','Ask before edits'],['acceptEdits','Accept edits'],['auto','Auto mode'],['plan','Plan mode']]).map(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;return option}))
-  mode.parentElement.title=provider==='codex'?'Codex sandbox and collaboration mode for the next message. Network access requires approval.':'What Claude may do without asking, from the next message. Sectile’s tools are always allowed.'
+  const modes=provider==='codex'?[['read-only','Read only'],['workspace-write','Workspace edits'],['plan','Plan mode']]:provider==='agy'?[['default','Ask / follow rules'],['accept-edits','Accept edits'],['auto','Auto-approve all tools'],['plan','Plan mode']]:[['default','Ask before edits'],['acceptEdits','Accept edits'],['auto','Auto mode'],['plan','Plan mode']]
+  mode.replaceChildren(...modes.map(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;return option}))
+  mode.parentElement.title=provider==='codex'?'Codex sandbox and collaboration mode for the next message. Network access requires approval.':provider==='agy'?'Antigravity permission mode for the next message. Choose Auto-approve all tools when a turn needs commands or external tools that headless mode cannot prompt for.':'What Claude may do without asking, from the next message. Sectile’s tools are always allowed.'
   addFolder.title='Attach a folder of this workstation to the project; '+providerLabel()+' sees it from the next message'
  }
  function fillEfforts(current){
@@ -383,8 +384,8 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   finally{if(token===generation){pending=false;send.disabled=!available}}
  })
  return {select(run){
-  generation++;clearTimeout(timer);provider=run?.provider==='codex'?'codex':'claude';catalog=[];configureProvider();selected=run?.conversation?run.id:null;directory=run?.directory||'';busy=false;commands=[];closeCompletion();openTerminal.hidden=true;mcp.hidden=true;interrupt.hidden=true;send.hidden=false;partialNode=null;partialText='';version=null;pending=false;available=false;effortLoaded=false;readOnly=true;attaching=false;notice='';noticeUntil=0;showAddFolder()
-  events.replaceChildren();effort.value='';effort.disabled=true;showEffort();showContext(null);input.value='';grow();fillModels(run?.model);fillEfforts('');mode.value=provider==='codex'?'workspace-write':'acceptEdits';model.disabled=mode.disabled=true;input.disabled=true;send.disabled=true
+  generation++;clearTimeout(timer);provider=run?.provider==='codex'?'codex':run?.provider==='agy'?'agy':'claude';catalog=[];configureProvider();selected=run?.conversation?run.id:null;directory=run?.directory||'';busy=false;commands=[];closeCompletion();openTerminal.hidden=true;mcp.hidden=true;interrupt.hidden=true;send.hidden=false;partialNode=null;partialText='';version=null;pending=false;available=false;effortLoaded=false;readOnly=true;attaching=false;notice='';noticeUntil=0;showAddFolder()
+  events.replaceChildren();effort.value='';effort.disabled=true;showEffort();showContext(null);input.value='';grow();fillModels(run?.model);fillEfforts('');mode.value=provider==='codex'?'workspace-write':provider==='agy'?'accept-edits':'acceptEdits';model.disabled=mode.disabled=true;input.disabled=true;send.disabled=true
   panel.hidden=!selected;container.classList.toggle('conversation-active',!!selected)
   if(selected){showStatus('Loading conversation…','working');poll(generation,selected)}
  },get active(){return !!selected}}

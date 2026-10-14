@@ -137,20 +137,29 @@ func (d *agentDaemon) startConversationMCPLocked(run *controlledRun) {
 		env[key] = value
 	}
 	directory := run.desktop.Directory
+	provider := run.desktop.Provider
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), conversationMCPTimeout)
 		defer cancel()
 		var output limitedConversationBuffer
-		cmd := conversationShellCommand(ctx, directory, "claude mcp list", env)
+		cliLine := "claude mcp list"
+		if provider == "agy" {
+			cliLine = "agy mcp list"
+		}
+		cmd := conversationShellCommand(ctx, directory, cliLine, env)
 		cmd.Stdout, cmd.Stderr = &output, &output
 		err := cmd.Run()
 		text := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(output.String()), "Checking MCP server health…"))
 		kind := "command_output"
 		if err != nil && text == "" {
-			kind, text = "error", "claude mcp list failed: "+err.Error()
+			kind, text = "error", cliLine+" failed: "+err.Error()
 		}
 		d.queue.mu.Lock()
 		defer d.queue.mu.Unlock()
+		if provider == "agy" && err == nil {
+			mcp := parseAgyMCPList(text)
+			run.conversation.sectileMCP = &mcp
+		}
 		conversationWrite(run.trace, kind, text, "")
 	}()
 }
@@ -240,6 +249,9 @@ func (d *agentDaemon) checkSectileMCPLocked(run *controlledRun) {
 	}
 	directory := run.desktop.Directory
 	check := d.checkSectileMCP
+	if run.desktop.Provider == "agy" {
+		check = d.checkAgySectileMCP
+	}
 	if d.checkMCPFn != nil {
 		check = d.checkMCPFn
 	}

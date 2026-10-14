@@ -65,11 +65,12 @@ func (p *pendingDiscussionViews) take(ids ...string) bool {
 }
 
 // conversationDiscussionEngine reports whether a project's discussion can run
-// as a conversation: Claude and Codex engines can. A launch
+// as a conversation: Claude, Codex and Antigravity engines can. A launch
 // template is not run by the conversation, which keeps only its model; the
 // conversation says so in its first notice.
 func conversationDiscussionEngine(config agentconfig.Config) bool {
-	return liveProvider(config) == "claude" || liveProvider(config) == "codex"
+	provider := liveProvider(config)
+	return provider == "claude" || provider == "codex" || provider == "agy"
 }
 
 // conversationModel is the model a conversation of this engine runs with:
