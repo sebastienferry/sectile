@@ -431,13 +431,20 @@ func (c *Client) request(ctx context.Context, method, endpoint, token string, pa
 		}
 		body = bytes.NewReader(raw)
 	}
+	return c.requestBody(ctx, method, endpoint, token, "application/json", body, nil)
+}
+
+func (c *Client) requestBody(ctx context.Context, method, endpoint, token, contentType string, body io.Reader, headers map[string]string) ([]byte, http.Header, error) {
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
 	if err != nil {
 		return nil, nil, err
 	}
 	req.Header.Set("Authorization", token)
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
 	client := c.HTTP
 	if client == nil {
 		client = &http.Client{Timeout: 60 * time.Second}

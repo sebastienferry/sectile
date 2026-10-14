@@ -145,10 +145,14 @@ Stop before merge. Stage-local boundaries apply while that stage is active; afte
   `add_comment` for the same content. Verify each response before claiming publication.
 - Managed runs call no comment or stage tool: put the full round section in the
   supplied result note and let Sectile publish it through its completion contract.
-- If a section exceeds the tracker comment limit (GitHub 65,536 characters; Jira
-  about 32,767), split at Markdown paragraph boundaries into numbered parts, reserving
+- On Jira, supply each full section with explicit report metadata, the clarification
+  round and a short plain-text summary. Keep the same publication ID on retry;
+  do not split the report into comments. The final round is published once through
+  its transition or managed result, with the same round metadata.
+- On GitHub or GitLab, if a section exceeds the tracker comment limit (GitHub
+  65,536 characters), split at Markdown paragraph boundaries into numbered parts, reserving
   space for the server header and part numbering. Use at most 30,000 characters per
-  part for either tracker, and split an oversized paragraph without dropping text.
+  part for these trackers, and split an oversized paragraph without dropping text.
   Standalone intermediate parts use `add_comment` in order. For a final round, post
   all preceding parts with `add_comment` and use only the last numbered part as the
   transition note, so each part appears once. Managed runs keep the complete section
@@ -321,7 +325,8 @@ Report and persist before continuing:
 - Summary of settled scope and key architectural decisions.
 
 ## Execution and ticket state
-- **Managed Sectile run**: When the invocation supplies a result-file contract, follow it. Sectile validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.
+- **Report publication**: Supply the unchanged full report in `body` (`add_comment`) or `note` (`transition_stage`). Add `report: {publicationId, stage, round, summary}`: a stable publication ID reused only for retries of the same immutable report, the completed stage, a positive clarification round when applicable, and a short plain-text summary. Intermediate `add_comment` reports require this marker; unmarked discussion comments remain ordinary. For clarification, write one sentence per decision followed by open questions; for specification, one or two goal sentences; for implementation, review and handoff, one or two outcome sentences with PR/MR links. Jira attaches the full Markdown and posts the supplied summary without interpreting Markdown. Check the returned receipt and attachment warnings: upload failure alone does not undo a completed transition, and retained reports remain available in the task history. Reuse the publication ID after comment failure; never repeat a completed transition to repair an attachment warning. GitHub and GitLab keep full Markdown comments.
+- **Managed Sectile run**: When the invocation supplies a result-file contract, follow it, including its report metadata and summary fields when supported. Preserve the full note and stable run/stage identity. If the supplied completion contract cannot carry required report metadata, report that integration limitation rather than bypassing validation. Sectile validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.
 - **Remote execution indicator (standalone only)**: Before doing work, call start_run with the full task primary key and skill name. If SECTILE_RUN_ID or a launch runId is supplied, reuse it. Keep the returned activity ID as runId. Nested skills reuse the outer run; only the owner finishes it. Call finish_run with taskKey, runId, status (completed, failed or canceled), and a note when the entire invocation ends, including errors or stopping for user input. Intermediate stage transitions do not finish an enclosing pickup run. Never start a run merely to read a task.
 - **Waiting for the user (standalone only)**: Right before asking the user a question you cannot continue without, call report_waiting with taskKey, runId and waiting true, so the board and the owner's desktop show the run as waiting. Your next Sectile call ends the wait; call report_waiting with waiting false if you resume without one. A headless run is left unmarked, which the result says.
 - **Standalone invocation**: Read live context with `get_task` and `get_project_context`. After verifying each completed step, invoke `transition_stage` with the task key, completed stage, structured report note and actual branch. Check the tool result for errors before continuing.

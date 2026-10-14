@@ -55,10 +55,14 @@
   `add_comment` for the same content. Verify each response before claiming publication.
 - Managed runs call no comment or stage tool: put the full round section in the
   supplied result note and let Sectile publish it through its completion contract.
-- If a section exceeds the tracker comment limit (GitHub 65,536 characters; Jira
-  about 32,767), split at Markdown paragraph boundaries into numbered parts, reserving
+- On Jira, supply each full section with explicit report metadata, the clarification
+  round and a short plain-text summary. Keep the same publication ID on retry;
+  do not split the report into comments. The final round is published once through
+  its transition or managed result, with the same round metadata.
+- On GitHub or GitLab, if a section exceeds the tracker comment limit (GitHub
+  65,536 characters), split at Markdown paragraph boundaries into numbered parts, reserving
   space for the server header and part numbering. Use at most 30,000 characters per
-  part for either tracker, and split an oversized paragraph without dropping text.
+  part for these trackers, and split an oversized paragraph without dropping text.
   Standalone intermediate parts use `add_comment` in order. For a final round, post
   all preceding parts with `add_comment` and use only the last numbered part as the
   transition note, so each part appears once. Managed runs keep the complete section

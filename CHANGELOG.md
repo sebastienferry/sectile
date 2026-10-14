@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Fixed
+
+- Jira stage reports preserve their full Markdown in attachments and Sectile history, with short summary comments and visible attachment failure notices.
+
 ### Added
 
 - Prepare and launch sequential ticket batches from Desktop Board and Backlog, with an editable execution order and shared worktree name.

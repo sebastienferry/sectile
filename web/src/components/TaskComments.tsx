@@ -3,6 +3,7 @@ import { MessageSquare, Send, RefreshCw, Loader2, User } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { MarkdownEditor, MarkdownView } from './Markdown'
 import { format, formatDateTime } from '../lib/i18n'
+import { TaskReports } from './TaskReports'
 import type { Task, TaskComment } from '../types'
 
 /**
@@ -62,6 +63,7 @@ export const TaskComments: React.FC<{ task: Task }> = ({ task }) => {
 
   return (
     <div className="space-y-3">
+      <TaskReports taskId={task.id} revision={task.updatedAt} />
       <div className="flex items-center justify-between">
         <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
           <MessageSquare size={12} className="text-[var(--accent-color)]" />

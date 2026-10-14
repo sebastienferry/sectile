@@ -211,6 +211,13 @@ type AddCommentRequest struct {
 	Body    string
 }
 
+// ReportWriter is optional: ordinary comments and other providers keep Markdown.
+type ReportWriter interface {
+	UploadReport(context.Context, AddCommentRequest, string) (*models.ReportAttachment, error)
+	FindReportAttachment(context.Context, AddCommentRequest, string) (*models.ReportAttachment, error)
+	AddReportSummary(context.Context, AddCommentRequest, string) (string, error)
+}
+
 // GetCommentsRequest identifies the issue whose comments should be retrieved.
 type GetCommentsRequest struct {
 	Tracker *models.Tracker

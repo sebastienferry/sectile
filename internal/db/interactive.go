@@ -20,7 +20,7 @@ import (
 //
 // actorID is whoever confirmed: the stage report and labels go out under their
 // credential.
-func (d *DB) CompleteInteractiveStep(actorID, taskID, skillID, note string) (*models.Task, *models.TaskActivity, error) {
+func (d *DB) CompleteInteractiveStep(actorID, taskID, skillID, note string, reports ...*models.ReportMetadata) (*models.Task, *models.TaskActivity, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	stageLabel := skillStageLabel[skillID]
 	if stageLabel == "" {
@@ -42,5 +42,5 @@ func (d *DB) CompleteInteractiveStep(actorID, taskID, skillID, note string) (*mo
 		return task, nil, nil
 	}
 
-	return d.TransitionTaskStageBy(actorID, taskID, stageLabel, note, "", "")
+	return d.TransitionTaskStageBy(actorID, taskID, stageLabel, note, "", "", reports...)
 }

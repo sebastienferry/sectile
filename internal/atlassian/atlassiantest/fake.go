@@ -321,6 +321,24 @@ func (f *Fake) gateway(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"transitions": []map[string]any{
 			{"id": "31", "name": "Done", "to": map[string]any{"name": "Done", "statusCategory": map[string]string{"key": "done"}}},
 		}})
+	case strings.HasSuffix(path, "/attachments") && r.Method == http.MethodPost:
+		if r.Header.Get("X-Atlassian-Token") != "no-check" {
+			refuse(w, 400, "csrf")
+			return
+		}
+		reader, err := r.MultipartReader()
+		if err != nil {
+			refuse(w, 400, "multipart")
+			return
+		}
+		part, err := reader.NextPart()
+		if err != nil || part.FormName() != "file" {
+			refuse(w, 400, "file")
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"id": 10001, "filename": part.FileName(), "content": "https://acme.atlassian.net/attachment/10001"}})
+	case strings.HasSuffix(path, "/comment") && r.Method == http.MethodPost:
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": "10002"})
 	case path == "/rest/api/3/issue" && r.Method == http.MethodPost:
 		_ = json.NewEncoder(w).Encode(map[string]string{"id": "10001", "key": "PE-1"})
 	case r.Method == http.MethodGet:

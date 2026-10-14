@@ -34,3 +34,23 @@ General Markdown parser repair leaves future formatting failures possible. Guess
 
 ## Validation
 HTTP fixtures prove exact uploaded bytes, headers, routing and plain ADF; database/workflow integration proves pre-upload retention, intermediate rounds, standalone and managed contracts, warnings, comment failure, restart/concurrency retry and access control on SQLite and PostgreSQL-supported paths. UI checks prove accessible full reports under tracker and attachment failures. Regenerated skill tests prove provider-specific guidance. No live Jira credentials are required. No unresolved product decisions remain.
+
+## Implementation alignment (2026-10-14)
+
+ADR 0006 retires the server-local result-file worker. The current worker in
+internal/db/db.go dispatches native runs and states that workflow results are
+reported through MCP; internal/db/skillresult.go retains ownership guards but
+contains no managed-result publication contract. Implement the current MCP and
+HTTP stage paths, forward report metadata through Desktop and interactive
+confirmation, and preserve/test the legacy managed-stage guard. No replacement
+managed completion endpoint is introduced. Generated guidance requires an
+external host's supplied completion contract and reports unsupported report
+metadata instead of bypassing validation. This applies the acceptance criteria
+to every report publication path present in this checkout.
+
+Uncertain uploads are reconciled by a unique task/stage/round/publication filename.
+If metadata reads cannot confirm the outcome, retries avoid another upload and
+retain a warning; summary fallback remains available. Jira comment properties
+reconcile uncertain comment creation. Report metadata and exact bodies are stored
+in a versioned, shared SQLite/PostgreSQL migration; claims are durable and remote
+work is bounded to ninety seconds, below the five-minute claim lease.

@@ -798,3 +798,42 @@ func TestProjectContextBranchNameFormat(t *testing.T) {
 		}
 	}
 }
+
+func TestExplicitReportMetadataAndOrdinaryDiscussion(t *testing.T) {
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "reports.db"), db.NewDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: "default", Title: "Report task", Source: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, database, "add_comment", map[string]any{"taskKey": task.ID, "body": "ordinary **`Markdown`**"}); err != nil {
+		t.Fatal(err)
+	}
+	reports, _ := database.GetTaskReports(task.ID)
+	if len(reports) != 0 {
+		t.Fatal("unmarked discussion classified as a report")
+	}
+	meta := map[string]any{"publicationId": "round-3", "stage": "clarified", "round": 3, "summary": "Three decisions settled. One question remains."}
+	result, err := call(t, database, "add_comment", map[string]any{"taskKey": task.ID, "body": "\r\n full **`report`** \n", "report": meta})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result["report"] == nil {
+		t.Fatal("publication receipt missing")
+	}
+	reports, err = database.GetTaskReports(task.ID)
+	if err != nil || len(reports) != 1 || reports[0].Body != "\r\n full **`report`** \n" {
+		t.Fatalf("retention: %#v %v", reports, err)
+	}
+	meta["summary"] = ""
+	if _, err := call(t, database, "add_comment", map[string]any{"taskKey": task.ID, "body": "body", "report": meta}); err == nil {
+		t.Fatal("blank explicit summary accepted")
+	}
+	meta["summary"] = "Done."
+	if _, err := call(t, database, "transition_stage", map[string]any{"taskKey": task.ID, "stage": "specified", "note": "body", "report": meta}); err == nil {
+		t.Fatal("mismatched report stage accepted")
+	}
+}
