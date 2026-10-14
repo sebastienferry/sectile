@@ -1,49 +1,59 @@
 # Sectile
 
-Sectile is a local-first workflow manager for software teams. It brings tracker
-work, specification-driven development, coding agents, pull requests, and
-worktree isolation into one board—without requiring an online coding agent.
+Sectile is a local-first workflow manager for software teams. It unifies issue
+trackers, specification-driven development (SDD), coding agents, pull requests,
+and isolated Git worktrees into a single board—while keeping repository checkouts
+and coding CLIs on your own workstations.
 
 It consists of three complementary components:
 
-- **Server**: a Go application that serves the board, API, synchronization
-  queue, and embedded web UI.
-- **Workstation agent**: a local Go process that owns repository access,
-  worktrees, coding CLI launches, and MCP integrations.
-- **Desktop app**: an Electron companion for local execution, console output,
-  project management, and worktree-change inspection.
+- **Server**: a Go application that serves the web board, REST API, tracker
+  synchronization queue, MCP endpoint, and embedded web UI.
+- **Workstation agent**: a local Go process (`sectile-agent`) that owns
+  repository access, Git worktree isolation, coding CLI launches, and local MCP
+  bridges. Multiple workstations can stay connected simultaneously and report
+  which project checkouts they hold.
+- **Desktop app**: an Electron companion (`Sectile Desktop`) bundling the
+  workstation agent with native PTY terminals, an interactive Claude Code &
+  Codex conversation view, a desktop project board, and a live worktree diff
+  inspector.
 
 ## What it does
 
-- Organizes work across **GitHub, GitLab, Jira, and local tasks**.
-- Guides each task through **Clarify → Specify → Implement → Adjust → Done**.
-- Supports **Spec Kit** and **OpenSpec** setup directly from the interface.
-- Launches configured coding engines, tracks their activities, and keeps
-  workflow transitions explicit.
-- Provides Kanban and list views, saved cross-project views, filters, search,
-  and keyboard-driven actions.
-- Runs on SQLite by default, with PostgreSQL available for server deployments.
-
-Clarification rounds publish their full report sections on the ticket and retain
-Markdown history. In project workflow settings, `pushStageCommits` optionally
-pushes clarification and specification commits; it is off by default. Installed
-skills receive the updated instructions when the agent regenerates them.
+- Synchronizes work across **GitHub, GitLab, Jira, and local tasks** with
+  read/write split (server credentials for background sync; sealed personal
+  credentials for user-authored comments, labels, and status transitions).
+- Guides tasks through a six-column SDD lifecycle:
+  **New → Clarified → Specified → Implemented → Reviewed → Finished**
+  (`clarify-issue`, `specify-issue`, `implement-issue`, `create-pr` /
+  `adjust-issue`, and `handoff-issue`), plus single-ticket (`pickup-issue`) and
+  batch (`pickup-issues`) chains.
+- Frames and slices multi-ticket initiatives with **Macros** (`refine-macro` and
+  `realign-macro`).
+- Scaffolds **Spec Kit** and **OpenSpec** directly inside project repositories.
+- Provides **Board** (Workflow & Statuses modes), **Backlog**, **Triage**,
+  **Roadmap (Macros)**, **Timeline (Sprints)**, **Activities**, and custom
+  cross-project filtered views.
+- Runs on **SQLite** by default (zero external dependencies) with **PostgreSQL**
+  support and a built-in migration tool (`sectile-migrate`) for server
+  deployments.
 
 ## Requirements
 
-- Go **1.26.6** or newer
-- Node.js **22.18.0** or newer with npm
+- Go **1.26.6** or newer (when building from source)
+- Node.js **22.18.0** or newer with npm (when building the web or desktop UI)
 - Git
 
 Optional integrations require the relevant local tools and credentials: GitHub
-CLI, GitLab or Jira API tokens, coding CLIs, Docker, or PostgreSQL.
+CLI (`gh`), GitLab (`glab`) or Jira API tokens, coding CLIs (`claude`, `codex`,
+`agy`), `uv` / `specify` or `openspec`, Docker, or PostgreSQL.
 
-## Quick start
+## Quick start (from source)
 
-Install the web dependencies and build the server and workstation agent:
+Build the embedded web UI, server, and workstation agent (`make server` installs
+`web/` npm dependencies automatically):
 
 ```sh
-npm ci --prefix web
 make server agent
 ```
 
@@ -53,10 +63,12 @@ Start the server with SQLite:
 DB_PATH=./tasks.db PORT=8090 ./bin/server
 ```
 
-Open [http://localhost:8090](http://localhost:8090). The server does not open
-a browser, start a terminal, or run a coding agent on its own.
+Open [http://localhost:8090](http://localhost:8090) (or
+[http://localhost:8090/help/guide.html](http://localhost:8090/help/guide.html)
+for the embedded User & Workflow Guide). The server does not open a browser,
+start a terminal, or run a coding agent on its own.
 
-To develop the server and web UI, use two terminals:
+To develop the server and web UI with hot reload, use two terminals:
 
 ```sh
 make serve
@@ -66,12 +78,61 @@ make serve
 npm run dev --prefix web
 ```
 
-Vite runs on port 5173 and proxies API requests to port 8090.
+Vite runs on port `5173` and proxies `/api` and `/ws` requests to port `8090`.
+
+## Desktop application
+
+### Install a release
+
+On **macOS 13 (Ventura) or later**, install and update **Sectile Desktop** (which
+bundles `sectile-agent`) via Homebrew:
+
+```sh
+brew install --cask sebastienferry/sectile/sectile
+brew upgrade --cask sectile
+```
+
+On **Windows (64-bit)**, install and update via Scoop (no administrator rights
+required):
+
+```powershell
+scoop bucket add sectile https://github.com/sebastienferry/scoop-sectile
+scoop install sectile/sectile
+scoop update sectile
+```
+
+Prebuilt archives for macOS (`arm64`, `amd64`), Linux (`amd64`), and Windows
+(`amd64`) are also published on every GitHub Release with `SHA256SUMS`.
+
+### Run from source
+
+Build the workstation agent and launch the Electron companion from source:
+
+```sh
+make run
+```
+
+Sectile Desktop includes:
+
+- **Execution consoles & queues**: interactive PTY terminals, autonomous run
+  logs, and contextual next-stage banners (**Clarify**, **Specify**,
+  **Implement**, **Create PR**, **Adjust**, **Handoff**).
+- **Conversation view**: an integrated chat UI for **Claude Code** and **Codex**
+  (**Settings → General → AI consoles → Conversation**) with inline diff cards,
+  tool approval prompts, slash commands, and `$skill` completion.
+- **Autonomy in sandbox**: configurable under **Claude settings** to run
+  sandboxed shell commands automatically while blocking unsandboxed retries.
+- **Desktop project board & task editor**: six-column workflow board (**Open
+  board**), full Markdown task editor (`Cmd+N` / `Ctrl+N`), and a read-only
+  worktree **Changes** inspector.
+
+For installation details, platform notes, and desktop-specific configuration,
+read the [Desktop guide](./desktop/README.md).
 
 ## Connect a workstation
 
-On the machine that has the repository and coding tools, pair it once; `pair`
-opens the browser to sign you in, and Sectile Desktop does the same from its
+On each machine that holds your git clones and coding CLIs, pair once. `pair`
+opens your browser to sign in, and Sectile Desktop offers the same flow from its
 **Sign in with your browser** button:
 
 ```sh
@@ -79,105 +140,101 @@ opens the browser to sign you in, and Sectile Desktop does the same from its
 ./bin/agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone
 ```
 
-Without a browser on that machine, create a pairing code under **Pair a
-workstation** in the server profile and pass it with `--code '<pairing code>'`.
-Pairing again revokes the workstation's previous key; restart a running agent
-afterwards.
+On a headless machine without a browser, generate a one-time pairing code under
+**Profile → Workstations & Agent → Pair a workstation** in the web UI and pass
+`--code '<pairing code>'`.
 
-The agent owns local Git operations and launches. Keep tracker credentials on
-the server and personal write credentials in the profile; do not put tokens in
-the agent configuration.
+Multiple workstations can stay connected at the same time. Each workstation
+reports which project repositories it has checked out locally; when launching a
+task or batch from the web UI, you can let Sectile route automatically (keeping
+workstation affinity) or target a specific eligible workstation.
 
-### Install Sectile in your coding CLI
+Keep tracker read credentials on the server and personal write credentials
+sealed in your user profile—never in the agent configuration.
 
-MCP clients can list, read, create and edit macro metadata within an explicit
-project. See the [macro resource contract](docs/contracts/server-agent-v1.md#macro-resources)
-for inputs, HTTP reads and partial-success results. Upgrade the server and
-agent together for the expanded tool catalog.
+### Install Sectile in your coding CLI (Skills & MCP)
 
-The agent runs the workflow skills it finds installed; it never installs them
-by itself. There are two ways to install them, with the Sectile MCP server:
+The workstation agent executes the workflow skills installed on the workstation
+and exposes the Sectile MCP server (task context, stage transitions, worktree
+preparation, pull request recording, and macro management). There are two ways
+to install the skills and register the MCP server:
 
-- **Claude: the `sectile` plugin.** Build it with
-  `make plugin VERSION=0.1.0 OUT=/tmp/sectile-plugin ARGS=-marketplace`, then
-  `claude plugin marketplace add /tmp/sectile-plugin` and
-  `claude plugin install sectile@sectile`. Claude asks for the server URL and
-  the workstation API key (from the desktop's Connection settings) and keeps
-  the key in its secure storage. The skills run as `/sectile:clarify-issue`
-  and so on.
-- **Any CLI: the direct setup.** `./bin/agent init --provider claude` (or
-  `codex`, `agy`), or **Initialize** in the
-  desktop's Deployment settings, copies the skills into the CLI's user folder
-  and registers the MCP server. It is the only route for CLIs other than
-  Claude.
+- **Claude Code plugin (`sectile`)**: build with
+  `make plugin VERSION=0.5.0 OUT=/tmp/sectile-plugin ARGS=-marketplace`, then
+  run `claude plugin marketplace add /tmp/sectile-plugin` and
+  `claude plugin install sectile@sectile`. Claude prompts for the server URL and
+  workstation API key and stores the key in its secure credential store. Skills
+  are invoked as `/sectile:clarify-issue`, `/sectile:specify-issue`, etc. See
+  [ADR 0039](docs/adrs/0039-sectile-is-installed-as-a-claude-plugin.md).
+- **Direct CLI setup (Claude, Codex, Antigravity)**: run
+  `./bin/agent init --provider claude` (or `codex`, `agy`), or click
+  **Initialize** in Sectile Desktop's **Deployment** settings. This installs the
+  workflow skills into the CLI's user configuration directory and registers the
+  MCP server.
 
-Under **Settings → Execution defaults**, the desktop chooses which source a
-dispatch tries first (direct copy by default) and whether a skill a project
-edited in Sectile runs instead of the installed one (on by default). An edited
-skill is handed to its run, so it needs no installation. See
-[ADR 0039](docs/adrs/0039-sectile-is-installed-as-a-claude-plugin.md).
+Under **Settings → Execution defaults** in Sectile Desktop, you can choose which
+skill source a dispatch tries first (direct copy by default) and whether
+project-customized skills in Sectile override the installed ones (enabled by
+default).
 
 ## Common commands
 
 | Command | Purpose |
 | --- | --- |
-| `make server` | Build the embedded web UI and server binary. |
-| `make agent` | Build the workstation agent. |
-| `make serve` | Run the server from source. |
-| `make run` | Build and launch the desktop app. |
+| `make server` | Install web dependencies, build the embedded web UI, and compile `bin/server`. |
+| `make agent` | Compile the workstation agent binary (`bin/agent`). |
+| `make build-migrate` | Compile the SQLite-to-PostgreSQL migration tool (`bin/sectile-migrate`). |
+| `make serve` | Run the server from source (`go run ./cmd/server`). |
+| `make start` | Build and run the workstation agent (`./bin/agent`). |
+| `make run` | Build the agent and launch Sectile Desktop from source. |
 | `make desktop` | Build the desktop app without launching it. |
-| `make desktop-package` | Package the desktop application. |
-| `make test` | Run Go and web checks. |
+| `make desktop-package` | Package the desktop application for distribution. |
+| `make test` | Run `gofmt` check, Go tests, web unit tests, TypeScript check, and `oxlint`. |
 | `make release` | Cross-compile server and agent binaries into `dist/`. |
-| `make plugin VERSION=X.Y.Z OUT=DIR` | Write the Sectile Claude plugin (`ARGS=-marketplace` wraps it in a one-plugin marketplace). |
-| `make help` | List all supported targets. |
+| `make image` | Build the server container image (`sectile-server:local`). |
+| `make plugin VERSION=X.Y.Z OUT=DIR` | Generate the Sectile Claude plugin (`ARGS=-marketplace` wraps it in a marketplace). |
+| `make reset-db` | Delete local SQLite database files (`tasks.db`, `-wal`, `-shm`). |
+| `make help` | List all supported Make targets. |
 
 ## Configuration
 
-The interface is the preferred place to configure projects and trackers.
-Administrators can set server-side credentials per provider; users supply their
-own credentials for tracker writes, preserving authorship.
+Projects, trackers, and credentials can be configured directly from the web
+interface (**Project Settings** and **Administration**). Administrators can
+store sealed server-side tracker credentials for background synchronization,
+while users seal their own personal tokens in **Profile → Tracker Credentials**
+so comments, labels, and pull requests are published under their own identity.
 
-For headless or local development, copy the sample environment file and set
-only the values you need:
+For headless or local development, copy the sample environment file and set only
+the values you need:
 
 ```sh
 cp .env.sample .env
 ```
 
-The server reads `.env` at startup. Its most common settings are `PORT`,
-`DB_PATH`, and server tracker credentials such as `SECTILE_GITHUB_TOKEN`.
-See [`.env.sample`](./.env.sample) for the complete reference.
+Only the server reads `.env` at startup. Its most common settings are `PORT`,
+`DB_PATH`, OIDC settings (`SECTILE_OIDC_*`), and fallback server tracker
+credentials such as `SECTILE_GITHUB_TOKEN`, `SECTILE_GITLAB_TOKEN`, or
+`SECTILE_JIRA_*`. See [`.env.sample`](./.env.sample) for the complete reference.
 
 ### MCP behind a hosting proxy
 
 If MCP returns `403 Forbidden: invalid Host header` while the workstation agent
-connects successfully, the hosting ingress may be forwarding to the server over
-loopback while keeping its public hostname. The MCP loopback protection rejects
-that combination unless the server explicitly trusts the public Host:
+connects over a reverse proxy that forwards to loopback (`127.0.0.1` / `::1`)
+with the public `Host` header preserved, explicitly allow the public hostname on
+the server:
 
 ```sh
 export SECTILE_MCP_ALLOWED_HOSTS='sectile.example.com'
 ```
 
-Use the hostname from the server's public URL, including a generated hosting
-domain. Set this variable on every **server** instance and restart/redeploy it;
-the workstation agent and Codex MCP URL do not need to change. Multiple hosts
-are comma-separated and matched exactly, ignoring case. Include `:port` if it
-appears in the forwarded Host; do not include a scheme, path or wildcard.
-
-With no setting, loopback requests still require a loopback Host. Configuring a
-public Host adds only that authority to the loopback check; other hosts remain
-blocked there, and connections to non-loopback interfaces retain their existing
-behavior. Bearer authentication and rejection of browser origins always apply.
-An unauthenticated `401` does not test Host acceptance: authenticate an MCP
-initialization and verify `tools/list` after deployment. See
+Multiple hosts are comma-separated and matched case-insensitively (include
+`:port` if sent by the proxy; no scheme, path, or wildcard). Bearer
+authentication and browser-origin rejection always apply. See
 [ADR 0037](docs/adrs/0037-explicit-mcp-ingress-hosts.md).
 
 ### PostgreSQL
 
-SQLite is the default and is what the desktop application ships with. A server
-deployment can use PostgreSQL instead:
+SQLite is the default store. Server deployments can run on PostgreSQL instead:
 
 ```sh
 export DB_DRIVER=postgres
@@ -186,82 +243,57 @@ export SECTILE_SECRET_KEY='<64 hex characters>'
 ./bin/server
 ```
 
-The database must be encoded in UTF8, the PostgreSQL default. The server
-refuses to start on any other encoding, such as the SQL_ASCII that
-`initdb --locale=C` gives without `--encoding`, because the run output it caps
-in SQL would be counted in bytes. Create the database with:
+The PostgreSQL database must use `UTF8` encoding (the server verifies this at
+startup):
 
 ```sql
 CREATE DATABASE sectile ENCODING 'UTF8' TEMPLATE template0;
 ```
 
-Use one server instance per database unless the deployment follows the shared
-PostgreSQL design documented in the architecture guide.
-
-## Desktop application
-
-Desktop’s **Claude settings** offer **Autonomy in sandbox**: automatically run sandboxed shell commands and block unsandboxed retries. Configure the required toolchain domains and cache paths, then save; the next message or launch applies the policy. Folder access approved with **Always allow** persists for the project on this workstation.
-
-Build and start the local companion with:
-
-```sh
-make run
-```
-
-It includes the workstation agent and provides execution queues, an
-agent-owned console, project settings, MCP connections, and a read-only view
-of uncommitted worktree changes. For release installation and desktop-specific
-configuration, read the [Desktop guide](./desktop/README.md).
-
-Desktop also offers an experimental conversation view for Claude Code and
-Codex, turned on by **Settings → General → AI consoles → Conversation**.
-Interactive ticket launches and project prompts open there. Codex uses its
-installed CLI and existing sign-in. See the
-[prototype notes](./docs/experiments/desktop-conversation.md) for its limits.
+To migrate an existing SQLite database to PostgreSQL, build and run
+`./bin/sectile-migrate` (`make build-migrate`) while carrying over the same
+`SECTILE_SECRET_KEY`.
 
 ## Testing
 
-See [database test fixtures and performance](docs/TESTING.md) for isolated SQLite
-fixtures, migration-test exceptions, and reproducible timing commands.
-
-Run the standard validation suite:
+Run the full validation suite (`gofmt`, Go tests, web unit tests, TypeScript,
+and `oxlint`):
 
 ```sh
 make test
 ```
 
-Web browser tests use Playwright and are intentionally separate from the unit
-test command. Run them from `web/` with an absolute path to Playwright's
-`index.mjs`; the browser-test scripts live in [`web/tests`](./web/tests).
+See the [Testing guide](docs/TESTING.md) for isolated SQLite test fixtures,
+migration-test rules, and Playwright browser tests in [`web/tests`](./web/tests).
 
 ## Documentation
 
 - [Embedded web help guide](./web/public/help/guide.html): interactive HTML
-  user and developer workflow guide served at `/help/guide.html` from the web
-  status bar and command palette.
-- [User guide](./docs/USER_GUIDE.md): sign-in, tracker credentials, projects,
-  workstation setup, coding prompts, autonomous runs, and Desktop.
+  user and developer workflow guide with screenshots and step-by-step How-Tos,
+  served at `/help/guide.html` from the web status bar and command palette (`?`).
+- [User guide](./docs/USER_GUIDE.md): markdown reference for sign-in, tracker
+  credentials, projects, workstation setup, and coding workflows.
+- [Desktop guide](./desktop/README.md): installation (`brew`, `scoop`, archives),
+  conversation view, local configuration, and MCP setup.
 - [Architecture](./docs/ARCHITECTURE.md): component boundaries, persistence,
   concurrency, worktrees, and console protocol.
 - [Capabilities](./docs/CAPABILITIES.md): workflow stages, tracker support,
   agents, and task access policy.
-- [API and data model](./docs/API_AND_DATA_SPEC.md): REST API, SQLite schema,
-  and server-agent contracts.
+- [API and data model](./docs/API_AND_DATA_SPEC.md): REST API, database schema,
+  and [server-agent contracts](./docs/contracts/server-agent-v1.md).
 - [UX components](./docs/UX_COMPONENTS.md): board, list, desktop, and diff
   experience.
 - [Testing guide](./docs/TESTING.md): SQLite test fixtures, tests that need a
   real database, and how to measure test performance.
-- [Desktop guide](./desktop/README.md): installation, packaging, local
-  configuration, and MCP setup.
-- [Architecture decisions](./docs/adrs): durable technical decisions.
+- [Architecture decisions](./docs/adrs): durable technical records (ADRs).
 - [Changelog](./CHANGELOG.md): user-visible changes and release notes.
 
 ## Releases
 
 Sectile releases are annotated Git tags in the form `vX.Y.Z`. The tag is the
 single source of truth for the version reported by the server, agent, web UI,
-and desktop app. See [`AGENTS.md`](./AGENTS.md) for the required release
-procedure and [the changelog](./CHANGELOG.md) for release notes.
+and desktop app. See [`AGENTS.md`](./AGENTS.md) for the release procedure and
+[`CHANGELOG.md`](./CHANGELOG.md) for release notes.
 
 ## License
 
