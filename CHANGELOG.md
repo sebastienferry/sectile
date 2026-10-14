@@ -30,6 +30,7 @@ test fixtures or internal plumbing.
 - Saving a project after adding, removing, or reordering its trackers or changing its label now immediately refreshes the open board, list, and filter facets without requiring a page reload. (#793)
 - Saving a project now asks for tracker credentials only when a selected remote tracker lacks credentials covering its site, opening the setup dialog directly on that tracker's provider and site without a provider picker. (#795)
 - Live task and activity updates now apply in place across connected browsers without reloading the full task and activity lists on every event. (#722)
+- Listing tasks across all bookmarked projects no longer takes the database write lock on every read when the user's default bookmark is already set. (#723)
 
 ## [0.5.0] - 2026-10-12
 
