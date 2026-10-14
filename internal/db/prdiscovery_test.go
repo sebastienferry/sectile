@@ -366,4 +366,3 @@ func TestDiscoveryDoesNotReattachLinksDetachedWhileInFlight(t *testing.T) {
 		t.Fatal("expected forced attachment to clear pr_links_detached")
 	}
 }
-

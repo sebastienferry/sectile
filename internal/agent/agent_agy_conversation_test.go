@@ -284,4 +284,3 @@ func TestDesktopAgySettingsPersistsConversationMode(t *testing.T) {
 	}
 	put(`{"conversationMode":"invalid"}`, http.StatusBadRequest)
 }
-

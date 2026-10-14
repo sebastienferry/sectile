@@ -235,7 +235,6 @@ func (d *DB) rediscoverPullRequests(ctx context.Context, proj *models.Project, t
 	return discoveryReport(task, attached, warnings, err), false
 }
 
-
 // discoveryReport is what the synchronisation activity says about the links
 // discovery wrote for a task.
 func discoveryReport(task *models.Task, attached, warnings []string, err error) (steps []string) {
@@ -366,4 +365,3 @@ func (d *DB) discoverSecondaryPullRequests(ctx context.Context, proj *models.Pro
 	attached, warnings, err := d.applyDiscoveredPullRequests(task, found, false)
 	return discoveryReport(task, attached, warnings, err)
 }
-
