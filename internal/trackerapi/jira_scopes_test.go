@@ -19,6 +19,7 @@ import (
 // is refused by Atlassian, so a new path lands here, and its scope in
 // atlassian.Scopes and on the registered app, in the same change.
 var jiraPathScopes = map[string][]string{
+	"/rest/api/3/issue/{}/attachments":              {"write:jira-work"},
 	"/rest/api/3/myself":                            {"read:jira-user"},
 	"/rest/api/3/search/jql":                        {"read:jira-work"},
 	"/rest/api/3/field":                             {"read:jira-work"},

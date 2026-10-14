@@ -203,6 +203,21 @@ const fr = {
     emptyLocal: 'Aucun commentaire. Le premier ci-dessus partira en base locale.',
     unknownAuthor: 'Inconnu',
   },
+  reports: {
+    title: 'Rapports d’étape',
+    region: 'Historique des rapports',
+    unavailable: 'Historique des rapports indisponible · Réessayer',
+    round: 'Tour {round}',
+    attachmentUnavailable: 'Pièce jointe indisponible : {warning}',
+    readFull: 'Lire le rapport complet',
+    stages: {
+      clarified: 'Clarification',
+      specified: 'Spécification',
+      implemented: 'Implémentation',
+      reviewed: 'Revue',
+      finished: 'Clôture',
+    } as Record<string, string>,
+  },
   clone: {
     title: 'Cloner la story',
     subtitle: 'Duplique la story en conservant son contenu et en lui attribuant un nouvel identifiant.',
@@ -442,6 +457,21 @@ const en: TaskDetailStrings = {
     emptyTracker: 'No comments on {key}. The first one above will go to {source}.',
     emptyLocal: 'No comments. The first one above will be stored locally.',
     unknownAuthor: 'Unknown',
+  },
+  reports: {
+    title: 'Stage reports',
+    region: 'Report history',
+    unavailable: 'Report history unavailable · Retry',
+    round: 'Round {round}',
+    attachmentUnavailable: 'Attachment unavailable: {warning}',
+    readFull: 'Read the full report',
+    stages: {
+      clarified: 'Clarification',
+      specified: 'Specification',
+      implemented: 'Implementation',
+      reviewed: 'Review',
+      finished: 'Handoff',
+    },
   },
   clone: {
     title: 'Clone the story',

@@ -1667,3 +1667,50 @@ servers cannot safely share the new presence contract during a rolling upgrade.
 The optional agent fields remain additive version-1 fields; older clients
 continue to work for single-workstation users. No graphical picker, new cluster
 architecture, or persisted run-device column is introduced.
+
+## Immutable task reports
+
+`add_comment` accepts an optional `report` object alongside the unchanged `body`:
+`{publicationId, stage, round?, summary}`. The ID is stable for retries of one
+publication; stages are `clarified`, `specified`, `implemented`, `reviewed`, and
+`finished`. Numbered clarification rounds use a positive `round`. Explicit
+metadata requires a nonblank plain-text summary. Unmarked discussion remains an
+ordinary comment. Reusing an ID with a different body, actor, summary, round, or
+PR set is refused.
+
+`transition_stage` and the HTTP task-stage endpoints accept the same `report`
+object alongside `note`. Legacy callers receive an operation-ID identity and a
+generic stage summary. Stage changes and retention commit atomically. The agent's
+Desktop stage forwarding and interactive confirmation retain this metadata.
+The original note is retained independently of tracker headers and PR notices.
+
+Jira reports upload an immutable Markdown attachment using the acting user's
+write credentials, then publish plain-text ADF with the summary, attachment
+reference, and available PR links. GitHub and GitLab retain their full Markdown
+comments. A publication receipt contains `reportId`, `uploadStatus`,
+`commentStatus`, optional `attachment` and `warning`. Attachment failure still
+attempts a summary and returns a warning; comment failure remains an error.
+Queued stage operations expose warnings in their activity steps, and the retained
+receipt is available through task reads.
+
+`GET /api/tasks/{id}/reports` returns chronological retained reports, including
+the complete body and available attachment reference. It uses the same session
+and task boundary as task detail. MCP `get_task` includes `reports` independently
+of tracker comment reads. No historic report migration is performed.
+
+A durable five-minute claim serializes each publication across server instances;
+remote work has a ninety-second deadline. Successful attachment receipts survive
+restart and comment failure. On an interrupted upload, retry queries Jira issue
+attachment metadata for the unique publication filename. If no confirmed
+attachment is found, it does not blindly upload again: it records an uncertain
+outcome and publishes the fallback summary. A completed publication returns its
+saved receipt. An uncertain comment response is reconciled through its Jira
+comment property before creating another comment. Jira does not offer an atomic
+transaction with Sectile, so a lost response followed by a temporarily invisible
+comment can still require inspection; no exactly-once transport claim is made.
+
+The result-file worker is retired by ADR 0006. Current native workflow results
+use MCP stage reporting; launch acknowledgements and `finish_run` do not publish
+stage reports. Legacy managed-run guards remain in force. Skills invoked by an
+external host with a managed completion contract must use that contract and
+report unsupported metadata rather than bypassing validation.

@@ -23,11 +23,12 @@ type taskInput struct {
 	TaskKey  string `json:"taskKey" jsonschema:"Task key or ID"`
 }
 type transitionInput struct {
-	TaskKey string `json:"taskKey"`
-	Stage   string `json:"stage"`
-	Note    string `json:"note"`
-	Branch  string `json:"branch,omitempty"`
-	PRURL   string `json:"prUrl,omitempty"`
+	TaskKey string                 `json:"taskKey"`
+	Stage   string                 `json:"stage"`
+	Note    string                 `json:"note"`
+	Report  *models.ReportMetadata `json:"report,omitempty"`
+	Branch  string                 `json:"branch,omitempty"`
+	PRURL   string                 `json:"prUrl,omitempty"`
 	// PRURLs are the pull requests of the other repositories the task changed.
 	PRURLs []string `json:"prUrls,omitempty"`
 	// NoRepositoryChange states that the task's work changed no repository,
@@ -35,8 +36,9 @@ type transitionInput struct {
 	NoRepositoryChange bool `json:"noRepositoryChange,omitempty"`
 }
 type commentInput struct {
-	TaskKey string `json:"taskKey"`
-	Body    string `json:"body"`
+	TaskKey string                 `json:"taskKey"`
+	Body    string                 `json:"body"`
+	Report  *models.ReportMetadata `json:"report,omitempty"`
 }
 type listInput struct {
 	ProjectID string `json:"projectId,omitempty"`
@@ -436,6 +438,12 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			} else {
 				result["comments"] = comments
 			}
+			reports, reportsErr := database.GetTaskReports(task.ID)
+			if reportsErr != nil {
+				result["reportsError"] = reportsErr.Error()
+			} else {
+				result["reports"] = reports
+			}
 			return nil, result, nil
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "transition_stage", Description: "Record a verified standalone workflow stage, optionally attach the task pull request or merge request URL using prUrl, and queue tracker synchronization. Managed runs must use their result contract.", InputSchema: map[string]any{
@@ -445,6 +453,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			"stage":   map[string]any{"type": "string", "enum": []string{"clarified", "specified", "implemented", "reviewed", "finished"}},
 			"note":    map[string]any{"type": "string", "minLength": 1}, "branch": map[string]any{"type": "string"}, "prUrl": map[string]any{"type": "string", "description": "Pull request or merge request URL to persist on the task. Omit to preserve its existing link."},
 			"prUrls":             map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "On a task that changed several repositories: the pull requests of the other repositories, one per repository. prUrl names the primary repository's."},
+			"report":             map[string]any{"type": "object", "required": []string{"publicationId", "stage", "summary"}, "properties": map[string]any{"publicationId": map[string]any{"type": "string"}, "stage": map[string]any{"type": "string"}, "summary": map[string]any{"type": "string"}, "round": map[string]any{"type": "integer", "minimum": 1}}},
 			"noRepositoryChange": map[string]any{"type": "boolean", "description": "True when the task's work changed no repository (a configuration made through an API, a review, a follow-up), so there is no pull request to give. Say in the note what was done instead. Refused with prUrl or prUrls, and when the task records a pull request on its branch or a changed repository."},
 		},
 	}}, func(ctx context.Context, req *mcp.CallToolRequest, in transitionInput) (*mcp.CallToolResult, any, error) {
@@ -466,9 +475,9 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			if strings.TrimSpace(in.PRURL) != "" || len(in.PRURLs) > 0 {
 				return nil, nil, fmt.Errorf("noRepositoryChange states there is no pull request: give either prUrl/prUrls or noRepositoryChange, not both")
 			}
-			task, activity, err = database.TransitionTaskStageWithoutRepositoryChange(caller.UserID, in.TaskKey, in.Stage, in.Note, in.Branch)
+			task, activity, err = database.TransitionTaskStageWithoutRepositoryChange(caller.UserID, in.TaskKey, in.Stage, in.Note, in.Branch, in.Report)
 		} else {
-			task, activity, err = database.TransitionTaskStageWithPRs(caller.UserID, in.TaskKey, in.Stage, in.Note, append([]string{in.PRURL}, in.PRURLs...), in.Branch)
+			task, activity, err = database.TransitionTaskStageWithPRs(caller.UserID, in.TaskKey, in.Stage, in.Note, append([]string{in.PRURL}, in.PRURLs...), in.Branch, in.Report)
 		}
 		if err != nil {
 			return nil, nil, err
@@ -487,6 +496,10 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			ref, err := taskRef(req, "", in.TaskKey)
 			if err != nil {
 				return nil, nil, err
+			}
+			if in.Report != nil {
+				receipt, err := database.PublishTaskReportAs(ctx, db.Actor{ID: caller.UserID, Name: caller.Name}, ref, in.Body, *in.Report, nil, in.Body)
+				return nil, map[string]any{"report": receipt}, err
 			}
 			comments, err := database.PostTaskCommentBy(db.Actor{ID: caller.UserID, Name: caller.Name}, ref, in.Body)
 			return nil, map[string]any{"comments": comments}, err

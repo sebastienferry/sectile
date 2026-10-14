@@ -110,7 +110,10 @@ type TrackerOp struct {
 	// Stage is the target workflow stage ("new", "clarified", "specified", "implemented", "reviewed", "finished").
 	Stage string
 	// Note is a summary note or report comment attached to the stage transition.
-	Note string
+	Note         string
+	Report       *models.ReportMetadata
+	ReportBody   string
+	ReportPRURLs []string
 	// PrURL is a pull request or merge request URL to record on the story.
 	PrURL string
 	// BranchName is the git work branch name.
@@ -194,6 +197,9 @@ func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {
 	}
 
 	activityID := uuid.New().String()
+	if op.Kind == TrackerOpStage && strings.TrimSpace(op.Note) != "" && op.Report == nil && op.Stage != "new" {
+		op.Report = &models.ReportMetadata{PublicationID: activityID, Stage: op.Stage, Summary: "Sectile " + reportStageNames[op.Stage] + " report."}
+	}
 	now := time.Now()
 
 	// Une opération de lot n'appartient à aucun ticket : elle est rattachée au
@@ -971,7 +977,25 @@ func (d *DB) runStageOp(ctx context.Context, op TrackerOp, steps *[]string) (str
 		// The report is posted as whoever recorded the stage: the context names
 		// them. Its failure is not dropped, the activity would otherwise claim a
 		// report nobody can find on the ticket.
-		if err := d.AddTaskCommentAs(ctx, task.ID, commentBody); err != nil {
+		var reportErr error
+		if op.Report != nil {
+			prURLs := op.ReportPRURLs
+			if len(prURLs) == 0 && op.PrURL != "" {
+				prURLs = []string{op.PrURL}
+			}
+			body := op.ReportBody
+			if body == "" {
+				body = op.Note
+			}
+			receipt, err := d.PublishTaskReportAs(ctx, Actor{ID: op.UserID}, task.ID, body, *op.Report, prURLs, commentBody)
+			reportErr = err
+			if receipt != nil && receipt.Warning != "" {
+				*steps = append(*steps, "⚠️ Pièce jointe du rapport "+receipt.ID+" : "+receipt.Warning)
+			}
+		} else {
+			reportErr = d.AddTaskCommentAs(ctx, task.ID, commentBody)
+		}
+		if err := reportErr; err != nil {
 			*steps = append(*steps, fmt.Sprintf("❌ Rapport d'étape non consigné sur %s : %v", task.Key, err))
 			return "", err
 		}

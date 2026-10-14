@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Fixed
+
+- Jira stage reports preserve their full Markdown in attachments and Sectile history, with short summary comments and visible attachment failure notices.
+
 ## [0.6.0] - 2026-10-14
 
 ### Added

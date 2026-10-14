@@ -791,6 +791,20 @@ var migrations = []migration{
 		"ALTER TABLE task_activities ADD COLUMN dispatch_state TEXT NOT NULL DEFAULT '';",
 		"ALTER TABLE task_activities ADD COLUMN remote_run_id TEXT NOT NULL DEFAULT '';",
 	}},
+	{version: 55, name: "task_reports", statements: []string{
+		`CREATE TABLE task_reports (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    tracker_id TEXT NOT NULL,
+    publication_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    claim TEXT NOT NULL DEFAULT '',
+    claim_until TEXT NOT NULL DEFAULT '',
+    UNIQUE(task_id, tracker_id, publication_id)
+  )`,
+		`CREATE INDEX idx_task_reports_task ON task_reports(task_id, created_at, id)`,
+	}},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

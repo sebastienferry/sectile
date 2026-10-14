@@ -207,7 +207,7 @@ func TestAnExpiredGrantIsRefreshedForQueuedWrites(t *testing.T) {
 		t.Errorf("version %d → %d, disconnected %v", before.version, after.version, after.disconnected)
 	}
 
-	// A managed run reports a stage on its owner's behalf, hours later.
+	// A native run reports a stage on its owner's behalf, hours later.
 	f.expire(t, f.d, "usr_ada")
 	writes := len(f.fake.Writes())
 	_, stage, err := f.d.TransitionTaskStageBy("usr_ada", task.ID, "clarified", "Clarified while you were away", "", "")
@@ -219,6 +219,10 @@ func TestAnExpiredGrantIsRefreshedForQueuedWrites(t *testing.T) {
 	}
 	if done, err := f.d.GetActivityByID(stage.ID); err != nil || done.Status != string(models.ActivityStatusCompleted) {
 		t.Fatalf("the stage report: %+v %v", done, err)
+	}
+	reports, err := f.d.GetTaskReports(task.ID)
+	if err != nil || len(reports) != 1 || reports[0].Attachment == nil || reports[0].UploadStatus != "completed" {
+		t.Fatalf("OAuth stage attachment: %#v %v", reports, err)
 	}
 	if f.fake.Refreshes() != 2 || len(f.fake.Writes()) <= writes {
 		t.Errorf("refreshes %d, writes %+v", f.fake.Refreshes(), f.fake.Writes())

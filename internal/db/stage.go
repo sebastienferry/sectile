@@ -15,28 +15,28 @@ import (
 // and enqueues tracker synchronization (labels, status, comments) in the activity queue.
 // The transition is recorded without an actor; callers that know who asked for
 // it use TransitionTaskStageBy.
-func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note string, prURL string, branch string) (*models.Task, *models.TaskActivity, error) {
-	return d.TransitionTaskStageBy("", taskIDOrKey, targetStage, note, prURL, branch)
+func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note string, prURL string, branch string, reports ...*models.ReportMetadata) (*models.Task, *models.TaskActivity, error) {
+	return d.TransitionTaskStageBy("", taskIDOrKey, targetStage, note, prURL, branch, reports...)
 }
 
 // TransitionTaskStageBy is TransitionTaskStage attributed to a user, recorded
 // on the transition's activity.
-func (d *DB) TransitionTaskStageBy(actorID string, taskIDOrKey string, targetStage string, note string, prURL string, branch string) (*models.Task, *models.TaskActivity, error) {
-	return d.TransitionTaskStageWithPRs(actorID, taskIDOrKey, targetStage, note, []string{prURL}, branch)
+func (d *DB) TransitionTaskStageBy(actorID string, taskIDOrKey string, targetStage string, note string, prURL string, branch string, reports ...*models.ReportMetadata) (*models.Task, *models.TaskActivity, error) {
+	return d.TransitionTaskStageWithPRs(actorID, taskIDOrKey, targetStage, note, []string{prURL}, branch, reports...)
 }
 
 // TransitionTaskStageWithPRs is TransitionTaskStageBy for a ticket that may
 // carry one pull request per repository it changed (#456). The first link is
 // the one prUrl names; the others follow in any order.
-func (d *DB) TransitionTaskStageWithPRs(actorID string, taskIDOrKey string, targetStage string, note string, prURLs []string, branch string) (*models.Task, *models.TaskActivity, error) {
-	return d.transitionTaskStage(actorID, "", taskIDOrKey, targetStage, note, prURLs, branch, false)
+func (d *DB) TransitionTaskStageWithPRs(actorID string, taskIDOrKey string, targetStage string, note string, prURLs []string, branch string, reports ...*models.ReportMetadata) (*models.Task, *models.TaskActivity, error) {
+	return d.transitionTaskStage(actorID, "", taskIDOrKey, targetStage, note, prURLs, branch, false, reports...)
 }
 
 // TransitionTaskStageIn is TransitionTaskStageBy made from a project's board:
 // the tracker status the stage lands on is read through that project's stage
 // mapping when it selects the ticket's tracker (#741, stagemapping.go).
-func (d *DB) TransitionTaskStageIn(actorID string, projectID string, taskIDOrKey string, targetStage string, note string, prURL string, branch string) (*models.Task, *models.TaskActivity, error) {
-	return d.transitionTaskStage(actorID, projectID, taskIDOrKey, targetStage, note, []string{prURL}, branch, false)
+func (d *DB) TransitionTaskStageIn(actorID string, projectID string, taskIDOrKey string, targetStage string, note string, prURL string, branch string, reports ...*models.ReportMetadata) (*models.Task, *models.TaskActivity, error) {
+	return d.transitionTaskStage(actorID, projectID, taskIDOrKey, targetStage, note, []string{prURL}, branch, false, reports...)
 }
 
 // TransitionTaskStageWithoutRepositoryChange is TransitionTaskStageBy for a
@@ -44,11 +44,24 @@ func (d *DB) TransitionTaskStageIn(actorID string, projectID string, taskIDOrKey
 // an API (#584). The statement stands in for the pull request a stage would
 // otherwise require, and the report says that none was expected. It is refused
 // when the task shows that it did change a repository.
-func (d *DB) TransitionTaskStageWithoutRepositoryChange(actorID string, taskIDOrKey string, targetStage string, note string, branch string) (*models.Task, *models.TaskActivity, error) {
-	return d.transitionTaskStage(actorID, "", taskIDOrKey, targetStage, note, nil, branch, true)
+func (d *DB) TransitionTaskStageWithoutRepositoryChange(actorID string, taskIDOrKey string, targetStage string, note string, branch string, reports ...*models.ReportMetadata) (*models.Task, *models.TaskActivity, error) {
+	return d.transitionTaskStage(actorID, "", taskIDOrKey, targetStage, note, nil, branch, true, reports...)
 }
 
-func (d *DB) transitionTaskStage(actorID string, projectID string, taskIDOrKey string, targetStage string, note string, prURLs []string, branch string, noRepositoryChange bool) (*models.Task, *models.TaskActivity, error) {
+func (d *DB) transitionTaskStage(actorID string, projectID string, taskIDOrKey string, targetStage string, note string, prURLs []string, branch string, noRepositoryChange bool, reports ...*models.ReportMetadata) (*models.Task, *models.TaskActivity, error) {
+	originalNote := note
+	var report *models.ReportMetadata
+	if len(reports) > 0 {
+		report = reports[0]
+	}
+	if report != nil {
+		if strings.TrimSpace(note) == "" {
+			return nil, nil, fmt.Errorf("rapport vide")
+		}
+		if err := report.Validate(targetStage); err != nil {
+			return nil, nil, err
+		}
+	}
 	prURL := ""
 	if len(prURLs) > 0 {
 		prURL = prURLs[0]
@@ -160,7 +173,7 @@ func (d *DB) transitionTaskStage(actorID string, projectID string, taskIDOrKey s
 	activity, job, err := buildTrackerOpJob(TrackerOp{
 		Kind: TrackerOpStage, ProjectID: task.ProjectID, TrackerID: trackerID, TaskID: task.ID,
 		TaskKey: task.Key, Stage: cleanStage, TargetStatus: trackerStatusTarget,
-		Note: note, PrURL: mrURL, BranchName: branch, UserID: actorID,
+		Note: note, ReportBody: originalNote, Report: report, ReportPRURLs: append([]string{mrURL}, otherPRs...), PrURL: mrURL, BranchName: branch, UserID: actorID,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -230,6 +243,12 @@ func (d *DB) transitionTaskStage(actorID string, projectID string, taskIDOrKey s
 			if _, err := tx.Exec(`UPDATE tasks SET status = ?, labels = ?, tracker_status = ?, pr_url = ?, pr_links = ?, pr_links_detached = CASE WHEN ? = 1 THEN 0 ELSE pr_links_detached END, branch_name = ?, updated_at = ? WHERE id = ?`,
 				string(newStatus), string(labelsJSON), trackerStatus, pullRequestURLValue(links), encodePullRequestLinks(links), attached, branchName, now, task.ID); err != nil {
 				return err
+			}
+			if job.Op.Report != nil {
+				r := models.TaskReport{ID: activity.ID, TaskID: task.ID, TrackerID: trackerID, ActorID: actorID, ReportMetadata: *job.Op.Report, Body: originalNote, PRURLs: job.Op.ReportPRURLs, CreatedAt: nowT.UTC(), UploadStatus: "pending", CommentStatus: "pending"}
+				if _, err := retainReport(tx, r); err != nil {
+					return err
+				}
 			}
 			task.PrLinks = links
 			return insertTaskActivity(tx, d.instanceID, *activity)

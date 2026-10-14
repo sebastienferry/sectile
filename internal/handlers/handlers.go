@@ -1806,16 +1806,17 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 
 	if (r.URL.Path == "/api/tasks/stage" || r.URL.Path == "/api/tasks/transition") && r.Method == http.MethodPost {
 		var req struct {
-			TaskID  string `json:"taskId"`
-			TaskKey string `json:"taskKey"`
-			ID      string `json:"id"`
-			Key     string `json:"key"`
-			Stage   string `json:"stage"`
-			Label   string `json:"label"`
-			Note    string `json:"note"`
-			Comment string `json:"comment"`
-			PrURL   string `json:"prUrl"`
-			Branch  string `json:"branch"`
+			TaskID  string                 `json:"taskId"`
+			TaskKey string                 `json:"taskKey"`
+			ID      string                 `json:"id"`
+			Key     string                 `json:"key"`
+			Stage   string                 `json:"stage"`
+			Label   string                 `json:"label"`
+			Note    string                 `json:"note"`
+			Report  *models.ReportMetadata `json:"report,omitempty"`
+			Comment string                 `json:"comment"`
+			PrURL   string                 `json:"prUrl"`
+			Branch  string                 `json:"branch"`
 			// ProjectID is the project the move is made from, whose stage
 			// mapping applies (#741).
 			ProjectID string `json:"projectId"`
@@ -1850,7 +1851,7 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		if note == "" {
 			note = req.Comment
 		}
-		task, act, err := h.db.TransitionTaskStageIn(h.webSessionUser(r), req.ProjectID, targetID, stage, note, req.PrURL, req.Branch)
+		task, act, err := h.db.TransitionTaskStageIn(h.webSessionUser(r), req.ProjectID, targetID, stage, note, req.PrURL, req.Branch, req.Report)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2366,6 +2367,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(rawPath, "/assignable"):
 		subAction = "assignable"
 		id = strings.TrimSuffix(rawPath, "/assignable")
+	case strings.HasSuffix(rawPath, "/reports"):
+		subAction = "reports"
+		id = strings.TrimSuffix(rawPath, "/reports")
 	case strings.HasSuffix(rawPath, "/comments"):
 		subAction = "comments"
 		id = strings.TrimSuffix(rawPath, "/comments")
@@ -2915,15 +2919,16 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	// repo skill only produces text in the terminal, it never touches the ticket.
 	if subAction == "advance-confirm" && r.Method == http.MethodPost {
 		var req struct {
-			SkillID string `json:"skillId"`
-			Note    string `json:"note"`
+			SkillID string                 `json:"skillId"`
+			Note    string                 `json:"note"`
+			Report  *models.ReportMetadata `json:"report,omitempty"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		if strings.TrimSpace(req.SkillID) == "" {
 			writeError(w, http.StatusBadRequest, "skillId manquant")
 			return
 		}
-		task, act, err := h.db.CompleteInteractiveStep(h.webSessionUser(r), id, req.SkillID, req.Note)
+		task, act, err := h.db.CompleteInteractiveStep(h.webSessionUser(r), id, req.SkillID, req.Note, req.Report)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2963,16 +2968,17 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var req struct {
-			TaskID  string `json:"taskId"`
-			TaskKey string `json:"taskKey"`
-			ID      string `json:"id"`
-			Key     string `json:"key"`
-			Stage   string `json:"stage"`
-			Label   string `json:"label"`
-			Note    string `json:"note"`
-			Comment string `json:"comment"`
-			PrURL   string `json:"prUrl"`
-			Branch  string `json:"branch"`
+			TaskID  string                 `json:"taskId"`
+			TaskKey string                 `json:"taskKey"`
+			ID      string                 `json:"id"`
+			Key     string                 `json:"key"`
+			Stage   string                 `json:"stage"`
+			Label   string                 `json:"label"`
+			Note    string                 `json:"note"`
+			Report  *models.ReportMetadata `json:"report,omitempty"`
+			Comment string                 `json:"comment"`
+			PrURL   string                 `json:"prUrl"`
+			Branch  string                 `json:"branch"`
 			// ProjectID is the project the move is made from, whose stage
 			// mapping applies (#741).
 			ProjectID string `json:"projectId"`
@@ -3019,7 +3025,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if note == "" {
 			note = req.Comment
 		}
-		task, act, err := h.db.TransitionTaskStageIn(h.webSessionUser(r), req.ProjectID, targetID, stage, note, req.PrURL, req.Branch)
+		task, act, err := h.db.TransitionTaskStageIn(h.webSessionUser(r), req.ProjectID, targetID, stage, note, req.PrURL, req.Branch, req.Report)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -3174,6 +3180,16 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, people)
+		return
+	}
+
+	if subAction == "reports" && r.Method == http.MethodGet {
+		reports, err := h.db.GetTaskReports(id)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, reports)
 		return
 	}
 

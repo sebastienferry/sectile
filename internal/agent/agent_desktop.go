@@ -1195,10 +1195,11 @@ func (d *agentDaemon) desktopTaskTransition(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var input struct {
-		ProjectID string `json:"projectId"`
-		TaskID    string `json:"taskId"`
-		Stage     string `json:"stage"`
-		Note      string `json:"note"`
+		ProjectID string                 `json:"projectId"`
+		TaskID    string                 `json:"taskId"`
+		Stage     string                 `json:"stage"`
+		Note      string                 `json:"note"`
+		Report    *models.ReportMetadata `json:"report,omitempty"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536)).Decode(&input) != nil {
 		http.Error(w, "Invalid request body", 400)
@@ -1216,9 +1217,10 @@ func (d *agentDaemon) desktopTaskTransition(w http.ResponseWriter, r *http.Reque
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	body := mustJSON(map[string]string{
-		"stage": strings.TrimSpace(input.Stage),
-		"note":  input.Note,
+	body := mustJSON(map[string]any{
+		"stage":  strings.TrimSpace(input.Stage),
+		"note":   input.Note,
+		"report": input.Report,
 	})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(input.TaskID)+"/stage", strings.NewReader(body))
 	if err != nil {
