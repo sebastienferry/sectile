@@ -78,9 +78,10 @@ type Config struct {
 	// project selects its tickets from, the label it selects them by, and,
 	// for a configuration read for a task, that task's tracker. The tracker
 	// fields above then describe that tracker. An older agent ignores them.
-	Trackers []TrackerRef `json:"trackers,omitempty"`
-	Label    string       `json:"label,omitempty"`
-	Tracker  *TrackerRef  `json:"tracker,omitempty"`
+	DefaultTrackerID string       `json:"defaultTrackerId,omitempty"`
+	Trackers         []TrackerRef `json:"trackers,omitempty"`
+	Label            string       `json:"label,omitempty"`
+	Tracker          *TrackerRef  `json:"tracker,omitempty"`
 }
 
 // TrackerRef names one tracker of a project: its provider, its site when it

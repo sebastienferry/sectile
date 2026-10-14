@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  openPR:url=>ipcRenderer.invoke('open-pr',url),
  openLink:url=>ipcRenderer.invoke('open-link',url),
  createTask:input=>ipcRenderer.invoke('create-task',input),
+ taskIssueTypes:(projectId,trackerId)=>ipcRenderer.invoke('task-issue-types',{projectId,trackerId}),
  taskPageAvailable:()=>ipcRenderer.invoke('task-page-available'),
  task:(projectId,taskId)=>ipcRenderer.invoke('task',{projectId,taskId}),
  updateTask:(projectId,taskId,changes)=>ipcRenderer.invoke('update-task',{projectId,taskId,changes}),

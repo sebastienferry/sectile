@@ -10,7 +10,7 @@ const LOADED_DESCRIPTION='Intro paragraph\n\n* first\n* second\n\n__bold__ word 
 const SOURCE_ONLY='<details>\n<summary>More</summary>\n\nHidden\n\n</details>\n\nA note[^1].\n\n[^1]: The footnote.\n'
 
 function agent(){
- const state={taskPage:true,failCreate:false,failUpdate:false,creates:[],updates:[],searches:[],launches:[],detailReads:0,created:0}
+ const state={taskPage:true,taskFields:true,failCreate:false,failUpdate:false,creates:[],updates:[],searches:[],launches:[],detailReads:0,created:0,typeRequests:[],typeReplies:new Map(),typeHolds:new Map()}
  const tasks=new Map([
   ['t1',{id:'t1',key:'#41',projectId:'project-a',source:'github',trackerId:'gh',title:'Loaded title',description:LOADED_DESCRIPTION,assignee:'octocat',prLinks:[{url:'https://github.com/acme/repo/pull/1',state:'merged',branch:'feat/1'}],prUrl:'https://github.com/acme/repo/pull/1',externalUrl:'https://github.com/acme/repo/issues/41'}],
   ['t2',{id:'t2',key:'#42',projectId:'project-a',source:'github',trackerId:'gh',title:'Raw source task',description:SOURCE_ONLY,prLinks:[]}],
@@ -27,7 +27,13 @@ function agent(){
   res.setHeader('Content-Type','application/json')
   const url=new URL(req.url,'http://localhost'),q=key=>url.searchParams.get(key)
   const send=(value,status=200)=>{res.writeHead(status);res.end(JSON.stringify(value))}
-  if(url.pathname==='/desktop/status')return send({connected:true,server:'http://example.test',capabilities:['create-task',...state.taskPage?['task-page']:[]]})
+  if(url.pathname==='/desktop/status')return send({connected:true,server:'http://example.test',capabilities:['create-task',...state.taskPage?['task-page']:[],...state.taskFields?['task-fields']:[]]})
+  if(url.pathname==='/desktop/tasks/issue-types'){
+   const id=q('trackerId');state.typeRequests.push({projectId:q('projectId'),trackerId:id})
+   const reply=state.typeReplies.get(id)||{supported:true,issueTypes:id==='gh'?['Bug','Story']:['Incident','Task']}
+   if(state.typeHolds.has(id))await state.typeHolds.get(id)
+   return send(reply,reply.error?502:200)
+  }
   if(url.pathname==='/desktop/projects')return send([{id:'project-a',name:'Project A',path:'/tmp/a',configured:true},{id:'project-b',name:'Project B',path:'/tmp/b',configured:true}])
   if(url.pathname==='/desktop/project')return send(projects[q('id')]||{configured:false})
   if(url.pathname==='/desktop/runs')return send(runs)
@@ -36,7 +42,7 @@ function agent(){
    const body=await read(req);state.creates.push(body)
    if(state.failCreate)return send({error:'Tracker unavailable'},502)
    const id='created-'+(++state.created),provider=projects[body.projectID].server.trackers.find(item=>item.id===body.trackerID)?.provider||projects[body.projectID].server.issueTracker
-   const task={id,key:'#'+(50+state.created),projectId:body.projectID,source:provider,trackerId:body.trackerID||projects[body.projectID].server.trackers[0].id,title:body.title,description:body.description,prLinks:[]}
+   const task={id,key:'#'+(50+state.created),projectId:body.projectID,source:provider,trackerId:body.trackerID||projects[body.projectID].server.trackers[0].id,title:body.title,description:body.description,issueType:body.issueType,priority:body.priority,prLinks:[]}
    tasks.set(id,task);return send(task,201)
   }
   if(url.pathname==='/desktop/tasks/detail'){
@@ -57,7 +63,7 @@ function agent(){
   if(url.pathname==='/desktop/tasks')return send([...tasks.values()].filter(task=>task.projectId===q('projectId')))
   res.writeHead(404).end('{}')
  })
- return {state,tasks,server}
+ return {state,tasks,server,projects}
 }
 
 test('the task page creates and edits a task',async()=>{
@@ -92,7 +98,7 @@ test('the task page creates and edits a task',async()=>{
   assert.equal(await page.locator('.quick-add,.quick-add-dialog').count(),0)
   await expect(titleField).toBeFocused()
   assert.equal(await page.getByRole('combobox',{name:'Project',exact:true}).inputValue(),'project-a')
-  // One tracker: no tracker select. A GitHub tracker takes a free login.
+  // One tracker: its issue types load without a tracker select.
   await expect(page.getByRole('combobox',{name:'Tracker',exact:true})).toBeHidden()
   await expect(pane.locator('.task-page-unsaved')).toBeHidden()
 
@@ -101,7 +107,7 @@ test('the task page creates and edits a task',async()=>{
   await expect(statusLine).toHaveText('A title is required.')
   assert.equal(state.creates.length,0)
 
-  // Title, rich description through the slash menu and the toolbar, a login and a link.
+  // Title, rich description through the slash menu and toolbar, type, priority and link.
   await titleField.fill('Created from the page')
   await expect(pane.locator('.task-page-unsaved')).toBeVisible()
   await description.click()
@@ -117,7 +123,9 @@ test('the task page creates and edits a task',async()=>{
   for(let i=0;i<4;i++)await page.keyboard.press('Shift+ArrowLeft')
   await expect(page.locator('.md-toolbar')).toBeVisible()
   await page.keyboard.press(mod+'+b')
-  await page.getByRole('textbox',{name:'Assignee',exact:true}).fill('octocat')
+  assert.equal(await page.getByRole('textbox',{name:'Assignee',exact:true}).count(),0)
+  await page.getByRole('combobox',{name:'Issue type',exact:true}).selectOption('Bug')
+  await page.getByRole('combobox',{name:'Priority',exact:true}).selectOption('high')
   const linkInput=page.getByRole('textbox',{name:'Pull request link',exact:true})
   await linkInput.fill('not a link');await page.getByRole('button',{name:'Add',exact:true}).click()
   await expect(pane.getByText('Enter an absolute http or https link.',{exact:true})).toBeVisible()
@@ -135,17 +143,18 @@ test('the task page creates and edits a task',async()=>{
   await expect(save).toBeEnabled()
   state.failCreate=false
 
-  // A creation sends create-task, then one update with the login and the links (AC2).
+  // A creation sends its fields, then one update with the links (AC2).
   await save.click()
   await expect(pane.locator('.task-page-created-text')).toHaveText('Created #51 · Created from the page')
   await page.screenshot({path:path.join(root,'task-page-created.png')})
   console.log('Screenshot:',path.join(root,'task-page-created.png'))
   assert.equal(state.creates.length,2)
   const sent=state.creates.at(-1)
-  assert.equal(sent.projectID,'project-a');assert.equal(sent.title,'Created from the page');assert.equal(sent.trackerID,undefined)
+  assert.equal(sent.projectID,'project-a');assert.equal(sent.title,'Created from the page');assert.equal(sent.trackerID,'gh')
+  assert.equal(sent.issueType,'Bug');assert.equal(sent.priority,'high')
   assert.equal(sent.description,'- [ ] item\n\na **word** here\n')
   assert.equal(state.updates.length,1)
-  assert.deepEqual(state.updates[0],{taskId:'created-1',body:{assignee:'octocat',assigneeAccountId:'',assigneeAvatar:'',prLinks:[{url:'https://github.com/acme/repo/pull/9'}]}})
+  assert.deepEqual(state.updates[0],{taskId:'created-1',body:{prLinks:[{url:'https://github.com/acme/repo/pull/9'}]}})
   await expect(heading).toHaveText('#51')
   await expect(pane.locator('.task-page-unsaved')).toBeHidden()
   await expect(page.getByRole('button',{name:'Clarify now',exact:true})).toBeFocused()
@@ -155,13 +164,12 @@ test('the task page creates and edits a task',async()=>{
   await expect(heading).toHaveText('New task')
   assert.equal(await page.getByRole('combobox',{name:'Project',exact:true}).inputValue(),'project-a')
 
-  // Several trackers: the select appears, and a Jira assignee waits for the creation (US1.2, US4.3).
+  // Several trackers: the select appears and types follow the selection.
   await page.getByRole('combobox',{name:'Project',exact:true}).selectOption('project-b')
   const trackerSelect=page.getByRole('combobox',{name:'Tracker',exact:true})
   await expect(trackerSelect).toBeVisible()
   await trackerSelect.selectOption('jira-b')
-  await expect(page.getByRole('combobox',{name:'Assignee',exact:true})).toBeDisabled()
-  await expect(pane.getByText('Search becomes available once the task is created.',{exact:true})).toBeVisible()
+  await page.getByRole('combobox',{name:'Issue type',exact:true}).selectOption('Incident')
   await titleField.fill('Jira creation')
   // A failed follow-up update leaves the created task's links unsaved (US1.8).
   await linkInput.fill('https://gitlab.example/g/p/-/merge_requests/3');await linkInput.press('Enter')
@@ -178,19 +186,12 @@ test('the task page creates and edits a task',async()=>{
   assert.deepEqual(state.updates.at(-1).body,{prLinks:[{url:'https://gitlab.example/g/p/-/merge_requests/3'}]})
   await expect(pane.locator('.task-page-unsaved')).toBeHidden()
 
-  // The Jira assignee search runs through the agent and sends name and account id (AC9).
-  const picker=page.getByRole('combobox',{name:'Assignee',exact:true})
-  await expect(picker).toBeEnabled()
-  await picker.click()
-  await expect(page.getByRole('option',{name:/Jane Doe/})).toBeVisible()
-  await picker.fill('john')
-  await expect(page.getByRole('option')).toHaveCount(1)
-  assert.equal(state.searches.at(-1).query,'john')
-  await page.keyboard.press('Enter')
-  await expect(picker).toHaveValue('John Roe')
+  // Type and priority edits are changed-only writes.
+  await page.getByRole('combobox',{name:'Issue type',exact:true}).selectOption('')
+  await page.getByRole('combobox',{name:'Priority',exact:true}).selectOption('urgent')
   await save.click()
   await expect(statusLine).toHaveText('Saved')
-  assert.deepEqual(state.updates.at(-1).body,{assignee:'John Roe',assigneeAccountId:'7c22',assigneeAvatar:''})
+  assert.deepEqual(state.updates.at(-1).body,{issueType:'',priority:'urgent'})
 
   // Leaving with unsaved changes asks; Keep editing keeps them (AC11).
   await titleField.fill('Unsaved title')
@@ -204,6 +205,7 @@ test('the task page creates and edits a task',async()=>{
   await page.getByRole('button',{name:'Discard',exact:true}).click()
   await expect(pane).toBeHidden()
   assert.equal(tasks.get('created-2').title,'Jira creation')
+  assert.equal(tasks.get('t1').assignee,'octocat')
 
   // Edit task from the run header reads the task fresh (AC4); a title-only
   // change sends only the title, never the reserialized description (AC5).
@@ -234,17 +236,15 @@ test('the task page creates and edits a task',async()=>{
   await page.keyboard.press(mod+'+z')
   await expect(save).toBeDisabled()
 
-  // A GitHub assignee is a free login; links are reordered and removed (AC10).
-  const login=page.getByRole('textbox',{name:'Assignee',exact:true})
-  await expect(login).toHaveValue('octocat')
-  await login.fill('hubot')
+  // Assignment is absent; links are reordered and removed (AC10).
+  assert.equal(await page.getByRole('textbox',{name:'Assignee',exact:true}).count(),0)
   await linkInput.fill('https://github.com/acme/repo/pull/2');await linkInput.press('Enter')
   await expect(pane.locator('.task-page-link').last()).toContainText('Current')
   await page.getByRole('button',{name:'Move https://github.com/acme/repo/pull/2 up',exact:true}).click()
   await expect(pane.locator('.task-page-link').last()).toContainText('https://github.com/acme/repo/pull/1')
   await save.click()
   await expect(statusLine).toHaveText('Saved')
-  assert.deepEqual(state.updates.at(-1).body,{assignee:'hubot',assigneeAccountId:'',assigneeAvatar:'',prLinks:[{url:'https://github.com/acme/repo/pull/2'},{url:'https://github.com/acme/repo/pull/1',state:'merged',branch:'feat/1'}]})
+  assert.deepEqual(state.updates.at(-1).body,{prLinks:[{url:'https://github.com/acme/repo/pull/2'},{url:'https://github.com/acme/repo/pull/1',state:'merged',branch:'feat/1'}]})
   await page.getByRole('button',{name:'Remove https://github.com/acme/repo/pull/2',exact:true}).click()
   await page.getByRole('button',{name:'Remove https://github.com/acme/repo/pull/1',exact:true}).click()
   await expect(pane.getByText('No pull request',{exact:true})).toBeVisible()
@@ -321,8 +321,7 @@ test('the task page creates and edits a task',async()=>{
   await expect(page.locator('#tickets-pane .board-area')).toBeVisible()
   await page.getByRole('button',{name:'Close board',exact:true}).click()
 
-  // An agent without the task page: edition says it is outdated, a plain
-  // creation still works (AC12).
+  // An outdated agent refuses new fields while preserving pending creation.
   state.taskPage=false
   await page.locator('#toolbar').getByRole('button',{name:'Edit task',exact:true}).click()
   await expect(statusLine).toContainText('The running local agent is outdated.')
@@ -330,8 +329,13 @@ test('the task page creates and edits a task',async()=>{
   await page.keyboard.press(mod+'+n')
   await expect(heading).toHaveText('New task')
   await expect(page.getByRole('textbox',{name:'Assignee',exact:true})).toHaveCount(0)
-  await expect(page.getByRole('textbox',{name:'Pull request link',exact:true})).toHaveCount(0)
+  state.taskFields=false
+  await expect(page.getByRole('textbox',{name:'Pull request link',exact:true})).toHaveCount(1)
   await titleField.fill('Basic creation')
+  await save.click()
+  await expect(statusLine).toContainText('The running local agent is outdated.')
+  await expect(titleField).toHaveValue('Basic creation')
+  state.taskFields=true
   await save.click()
   await expect(pane.locator('.task-page-created-text')).toHaveText('Created #53 · Basic creation')
   state.taskPage=true
@@ -380,6 +384,95 @@ test('closing the window with unsaved changes asks first',async()=>{
   assert.equal(await app.evaluate(()=>globalThis.asked),2)
  }finally{
   if(app)await app.close().catch(()=>{})
+  await new Promise(resolve=>server.close(resolve))
+ }
+})
+
+
+test('issue type discovery preserves edits and ignores stale tracker and destroyed-page responses',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-task-types-'))
+ const {state,tasks,server,projects}=agent()
+ projects['project-b'].server.defaultTrackerId='jira-b'
+ tasks.get('t1').issueType='Legacy';tasks.get('t1').priority='low'
+ tasks.get('t1').trackerId='task-specific'
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+ fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test-secret'}))
+ const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
+ let app,release
+ try{
+  app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
+  const page=await app.firstWindow();page.setDefaultTimeout(7000)
+  const mod=process.platform==='darwin'?'Meta':'Control'
+  const types=page.getByRole('combobox',{name:'Issue type',exact:true})
+  const priority=page.getByRole('combobox',{name:'Priority',exact:true})
+  const title=page.getByRole('textbox',{name:'Title',exact:true})
+  const pane=page.locator('#task-page-pane'),save=pane.locator('.task-page-save')
+  await page.getByRole('button',{name:'▾ Project A',exact:true}).waitFor()
+  await page.keyboard.press(mod+'+n')
+  await expect(types.locator('option')).toHaveText(['Default','Bug','Story'])
+  await expect(types).toHaveValue('');await expect(priority).toHaveValue('medium')
+  await types.selectOption('Bug');await expect(pane.locator('.task-page-unsaved')).toBeVisible()
+  await types.selectOption('');await expect(pane.locator('.task-page-unsaved')).toBeHidden()
+  await priority.selectOption('urgent');await expect(pane.locator('.task-page-unsaved')).toBeVisible()
+  await priority.selectOption('medium');await expect(pane.locator('.task-page-unsaved')).toBeHidden()
+  assert.deepEqual(await pane.locator('.task-page-body > .task-page-field').evaluateAll(nodes=>nodes.filter(n=>!n.hidden).map(n=>n.querySelector('label,.task-page-label')?.textContent)),['Project','Title','Issue type','Priority','Description','Pull requests'])
+  await title.focus();await page.keyboard.press('Tab');await expect(types).toBeFocused()
+  await page.keyboard.press('ArrowDown');await page.keyboard.press('Tab');await expect(priority).toBeFocused()
+  await priority.selectOption('high');await title.fill('Pending values')
+  state.typeHolds.set('jira-a',new Promise(resolve=>{release=resolve}))
+  await page.getByRole('combobox',{name:'Project',exact:true}).selectOption('project-b')
+  await expect(page.getByRole('combobox',{name:'Tracker',exact:true})).toHaveValue('jira-b')
+  await page.getByRole('combobox',{name:'Tracker',exact:true}).selectOption('jira-a')
+  await expect.poll(()=>state.typeRequests.at(-1)?.trackerId).toBe('jira-a')
+  state.typeReplies.set('jira-b',{supported:true,issueTypes:['Improvement','Improvement','']})
+  await page.getByRole('combobox',{name:'Tracker',exact:true}).selectOption('jira-b')
+  await expect(types.locator('option')).toHaveText(['Default','Improvement'])
+  release();state.typeHolds.delete('jira-a')
+  await expect(types.locator('option')).toHaveText(['Default','Improvement'])
+  await types.selectOption('Improvement')
+  state.typeReplies.set('jira-a',{error:'Discovery unavailable'})
+  await page.getByRole('combobox',{name:'Tracker',exact:true}).selectOption('jira-a')
+  await expect(pane.getByText('Could not load issue types: Discovery unavailable',{exact:true})).toBeVisible()
+  await expect(types).toHaveValue('Improvement');await expect(priority).toHaveValue('high');await expect(title).toHaveValue('Pending values')
+  state.typeReplies.set('jira-a',{supported:false,issueTypes:[]})
+  await page.getByRole('button',{name:'Retry issue types',exact:true}).click()
+  await expect(pane.getByText('This tracker does not support issue type discovery.',{exact:true})).toBeVisible()
+  await expect(types).toHaveValue('')
+  await page.getByRole('button',{name:'Close',exact:true}).click()
+  await page.getByRole('button',{name:'Discard',exact:true}).click()
+  state.typeReplies.set('task-specific',{error:'Discovery unavailable'})
+  await page.locator('.local-task .run').first().click()
+  await page.locator('#toolbar').getByRole('button',{name:'Edit task',exact:true}).click()
+  await expect(types).toHaveValue('Legacy');await expect(priority).toHaveValue('low')
+  await expect.poll(()=>state.typeRequests.at(-1)?.trackerId).toBe('task-specific')
+  await expect(pane.getByText('Could not load issue types: Discovery unavailable',{exact:true})).toBeVisible()
+  await expect(save).toBeDisabled()
+  state.typeReplies.set('task-specific',{supported:true,issueTypes:[]})
+  await page.getByRole('button',{name:'Retry issue types',exact:true}).click()
+  await expect(pane.getByText('No issue types are available.',{exact:true})).toBeVisible()
+  await expect(types.locator('option')).toHaveText(['Default','Legacy']);await expect(save).toBeDisabled()
+  state.taskFields=false
+  await priority.selectOption('urgent');await save.click()
+  await expect(pane.locator('.task-page-status')).toContainText('The running local agent is outdated.')
+  assert.equal(state.updates.length,0);await expect(priority).toHaveValue('urgent')
+  state.taskFields=true;await save.click()
+  await expect(pane.locator('.task-page-status')).toHaveText('Saved')
+  assert.deepEqual(state.updates.at(-1).body,{priority:'urgent'});assert.equal(tasks.get('t1').assignee,'octocat')
+  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(760,650))
+  await page.screenshot({path:path.join(root,'task-fields-narrow.png')})
+  console.log('Screenshot:',path.join(root,'task-fields-narrow.png'))
+  assert.equal(await pane.evaluate(node=>node.scrollWidth<=node.clientWidth),true)
+  state.typeHolds.set('task-specific',new Promise(resolve=>{release=resolve}))
+  // Reopen starts a request; closing destroys that page before it returns.
+  await page.getByRole('button',{name:'Close',exact:true}).click()
+  await page.locator('#toolbar').getByRole('button',{name:'Edit task',exact:true}).click()
+  await expect(types).toHaveValue('Legacy')
+  await page.getByRole('button',{name:'Close',exact:true}).click()
+  release();state.typeHolds.delete('task-specific')
+  await expect(pane).toBeHidden()
+ }finally{
+  release?.()
+  if(app)await app.close()
   await new Promise(resolve=>server.close(resolve))
  }
 })

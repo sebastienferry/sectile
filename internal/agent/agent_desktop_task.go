@@ -15,6 +15,9 @@ import (
 // assignees of a task for its task page (#805).
 const taskPageCapability = "task-page"
 
+// taskFieldsCapability includes tracker discovery and type/priority writes.
+const taskFieldsCapability = "task-fields"
+
 // desktopTaskDetail serves the task page: GET reads a task of the project,
 // PUT forwards the fields the page edits. Any other field of the body is
 // dropped, so the page cannot move a task's stage or project by accident.
@@ -31,6 +34,8 @@ func (d *agentDaemon) desktopTaskDetail(w http.ResponseWriter, r *http.Request) 
 	var update models.UpdateTaskRequest
 	if r.Method == http.MethodPut {
 		var input struct {
+			IssueType         *string                   `json:"issueType"`
+			Priority          *models.Priority          `json:"priority"`
 			Title             *string                   `json:"title"`
 			Description       *string                   `json:"description"`
 			Assignee          *string                   `json:"assignee"`
@@ -58,7 +63,7 @@ func (d *agentDaemon) desktopTaskDetail(w http.ResponseWriter, r *http.Request) 
 				}
 			}
 		}
-		update = models.UpdateTaskRequest{Title: input.Title, Description: input.Description, Assignee: input.Assignee, AssigneeAccountID: input.AssigneeAccountID, AssigneeAvatar: input.AssigneeAvatar, PrLinks: input.PrLinks}
+		update = models.UpdateTaskRequest{IssueType: input.IssueType, Priority: input.Priority, Title: input.Title, Description: input.Description, Assignee: input.Assignee, AssigneeAccountID: input.AssigneeAccountID, AssigneeAvatar: input.AssigneeAvatar, PrLinks: input.PrLinks}
 	}
 	if !d.desktopTaskOfProject(w, r, projectID, taskID) {
 		return
@@ -138,4 +143,34 @@ func (d *agentDaemon) relayServer(w http.ResponseWriter, r *http.Request, method
 func webLink(value string) bool {
 	parsed, err := url.Parse(strings.TrimSpace(value))
 	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" && parsed.User == nil
+}
+
+// desktopTaskIssueTypes validates the configured scope before relaying discovery.
+func (d *agentDaemon) desktopTaskIssueTypes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	projectID, trackerID := strings.TrimSpace(r.URL.Query().Get("projectId")), strings.TrimSpace(r.URL.Query().Get("trackerId"))
+	if projectID == "" || trackerID == "" {
+		http.Error(w, "Project and tracker required", 400)
+		return
+	}
+	config, err := d.fetchConfig(r.Context(), projectID, "")
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	found := false
+	for _, selected := range config.Trackers {
+		if selected.ID == trackerID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.Error(w, "The tracker does not belong to this project", 400)
+		return
+	}
+	d.relayServer(w, r, http.MethodGet, "/api/projects/"+url.PathEscape(projectID)+"/trackers/"+url.PathEscape(trackerID)+"/issue-types", "")
 }

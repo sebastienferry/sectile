@@ -1326,7 +1326,7 @@ func TestDesktopCreateTaskForwardsTheTracker(t *testing.T) {
 		loopback: loopbackServer{desktopToken: "private"},
 		link:     serverLink{serverURL: srv.URL},
 	}
-	raw, _ := json.Marshal(map[string]string{"projectId": "p", "title": " New ticket ", "trackerId": "be"})
+	raw, _ := json.Marshal(map[string]string{"projectId": "p", "title": " New ticket ", "trackerId": "be", "issueType": "Bug", "priority": "high"})
 	req := httptest.NewRequest(http.MethodPost, "/desktop/create-task", bytes.NewReader(raw))
 	req.Header.Set("Authorization", "Bearer private")
 	w := httptest.NewRecorder()
@@ -1334,7 +1334,7 @@ func TestDesktopCreateTaskForwardsTheTracker(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("creation: %d %s", w.Code, w.Body.String())
 	}
-	if created.ProjectID != "p" || created.TrackerID != "be" || created.Title != "New ticket" || !created.RequireRemoteCreation {
+	if created.ProjectID != "p" || created.TrackerID != "be" || created.Title != "New ticket" || created.IssueType != "Bug" || created.Priority != "high" || !created.RequireRemoteCreation {
 		t.Fatalf("the creation must carry the project and the tracker: %+v", created)
 	}
 

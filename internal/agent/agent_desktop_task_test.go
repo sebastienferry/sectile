@@ -17,11 +17,12 @@ import (
 // taskPageServer stands in for the server behind the task page routes: one
 // task of project "p", t2 of project "other", and a record of every write.
 type taskPageServer struct {
-	mu        sync.Mutex
-	puts      []map[string]json.RawMessage
-	tokens    []string
-	queries   []string
-	putStatus int
+	mu             sync.Mutex
+	puts           []map[string]json.RawMessage
+	tokens         []string
+	queries        []string
+	putStatus      int
+	discoveryCalls int
 }
 
 func (s *taskPageServer) start(t *testing.T) *httptest.Server {
@@ -32,7 +33,10 @@ func (s *taskPageServer) start(t *testing.T) *httptest.Server {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/api/v1/agent/config"):
-			_ = json.NewEncoder(w).Encode(agentconfig.Config{SchemaVersion: agentconfig.Version, ProjectID: r.URL.Query().Get("projectId")})
+			_ = json.NewEncoder(w).Encode(agentconfig.Config{SchemaVersion: agentconfig.Version, ProjectID: r.URL.Query().Get("projectId"), Trackers: []agentconfig.TrackerRef{{ID: "selected"}}})
+		case r.URL.Path == "/api/projects/p/trackers/selected/issue-types":
+			s.discoveryCalls++
+			_, _ = w.Write([]byte(`{"supported":true,"issueTypes":["Bug"]}`))
 		case r.URL.Path == "/api/tasks/t1/assignable":
 			s.queries = append(s.queries, r.URL.Query().Get("q"))
 			_, _ = w.Write([]byte(`[{"accountId":"42","displayName":"Jane Doe"}]`))
@@ -85,12 +89,15 @@ func TestDesktopStatusAnnouncesTheTaskPage(t *testing.T) {
 		Capabilities []string `json:"capabilities"`
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &status)
-	for _, capability := range status.Capabilities {
-		if capability == taskPageCapability {
-			return
+	for _, required := range []string{taskPageCapability, taskFieldsCapability} {
+		found := false
+		for _, capability := range status.Capabilities {
+			found = found || capability == required
+		}
+		if !found {
+			t.Fatalf("/desktop/status must announce %q", required)
 		}
 	}
-	t.Fatalf("/desktop/status must announce %q: %s", taskPageCapability, w.Body.String())
 }
 
 func TestDesktopTaskDetailReadsOnlyTheProjectsTasks(t *testing.T) {
@@ -204,5 +211,48 @@ func TestDesktopTaskAssignableRelaysTheSearch(t *testing.T) {
 	w = taskPageRequest(d, http.MethodGet, "/desktop/tasks/assignable?projectId=p&taskId=t2", "")
 	if w.Code != http.StatusBadRequest || len(server.queries) != 1 {
 		t.Fatalf("a task of another project is not searched: %d %v", w.Code, server.queries)
+	}
+}
+
+func TestDesktopTaskFieldsPreserveEmptyTypeAndRejectWorkflowFields(t *testing.T) {
+	s := &taskPageServer{}
+	d := taskPageDaemon(t, s.start(t))
+	w := taskPageRequest(d, http.MethodPut, "/desktop/tasks/detail?projectId=p&taskId=t1", `{"issueType":"","priority":"low","status":"finished","projectId":"other"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("update: %d %s", w.Code, w.Body.String())
+	}
+	body := s.puts[0]
+	if string(body["issueType"]) != `""` || string(body["priority"]) != `"low"` || body["status"] != nil || body["projectId"] != nil {
+		t.Fatalf("forwarded fields: %v", body)
+	}
+}
+
+func TestDesktopIssueTypesValidateScopeAndRelayPairedDiscovery(t *testing.T) {
+	s := &taskPageServer{}
+	d := taskPageDaemon(t, s.start(t))
+	for _, target := range []string{"/desktop/tasks/issue-types", "/desktop/tasks/issue-types?projectId=p", "/desktop/tasks/issue-types?projectId=p&trackerId=foreign"} {
+		w := taskPageRequest(d, http.MethodGet, target, "")
+		if w.Code != http.StatusBadRequest || s.discoveryCalls != 0 {
+			t.Fatalf("invalid scope: %d %s", w.Code, w.Body.String())
+		}
+	}
+	w := taskPageRequest(d, http.MethodPost, "/desktop/tasks/issue-types?projectId=p&trackerId=selected", "")
+	if w.Code != http.StatusMethodNotAllowed || s.discoveryCalls != 0 {
+		t.Fatalf("write discovery: %d", w.Code)
+	}
+	w = taskPageRequest(d, http.MethodGet, "/desktop/tasks/issue-types?projectId=p&trackerId=selected", "")
+	if w.Code != http.StatusOK || s.discoveryCalls != 1 || !strings.Contains(w.Body.String(), `"issueTypes":["Bug"]`) {
+		t.Fatalf("discovery: %d %s", w.Code, w.Body.String())
+	}
+	for _, token := range s.tokens {
+		if token != "Bearer paired" {
+			t.Fatal("discovery did not use paired credentials")
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/desktop/tasks/issue-types?projectId=p&trackerId=selected", nil)
+	refused := httptest.NewRecorder()
+	d.desktopHandler(refused, req)
+	if refused.Code != http.StatusUnauthorized || s.discoveryCalls != 1 {
+		t.Fatalf("unauthenticated discovery: %d", refused.Code)
 	}
 }

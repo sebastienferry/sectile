@@ -1,5 +1,5 @@
 import {createMarkdownEditor} from './markdown-editor.mjs'
-import {validateTitle,validateDescription,validatePullRequestUrl,addLink,removeLink,moveLink,taskChanges,assigneeLookup,TITLE_LIMIT} from './task-form.mjs'
+import {validateTitle,validateDescription,validatePullRequestUrl,addLink,removeLink,moveLink,taskChanges,normalizeIssueTypes,TITLE_LIMIT} from './task-form.mjs'
 import {defaultActionShortcut,defaultActionLabel} from './dialog-default.mjs'
 import {pullRequestPresentation} from './pullRequests.mjs'
 import {ipcMessage} from './execution-fields.mjs'
@@ -22,7 +22,9 @@ export function openTaskPage(container,{mode,projectId,taskId,deps}){
  const {api,mac}=deps
  const page=document.createElement('section');page.className='task-page';page.setAttribute('aria-label','Task')
  container.replaceChildren(page)
- const state={mode,projectId:projectId||'',taskId:taskId||'',task:null,loaded:null,form:{title:'',assignee:'',assigneeAccountId:'',assigneeAvatar:'',prLinks:[]},trackers:[],provider:'',available:true,saving:false,editor:null,destroyed:false,unsaved:new Set()}
+ const initialProjectId=projectId||''
+ let initialTrackerId=null
+ const state={mode,projectId:projectId||'',taskId:taskId||'',task:null,loaded:null,form:{title:'',issueType:'',priority:'medium',prLinks:[]},trackers:[],available:true,saving:false,trackersLoading:false,editor:null,destroyed:false,unsaved:new Set()}
  const element=(tag,className,text)=>{const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node}
  const button=(text,className,label)=>{const node=element('button',className,text);node.type='button';if(label){node.setAttribute('aria-label',label);node.title=label}return node}
 
@@ -61,15 +63,46 @@ export function openTaskPage(container,{mode,projectId,taskId,deps}){
  const title=element('input');title.placeholder='What needs doing?';title.required=true;title.maxLength=TITLE_LIMIT;title.autocomplete='off'
  const titleField=field('Title',title)
 
- // Assignee: a tracker search where the tracker can look people up, else a
- // free login.
- const assigneeBox=element('div','task-page-assignee')
- const assignee=element('input');assignee.autocomplete='off'
- const assigneeClear=button('Clear','secondary','Clear the assignee')
- const assigneeList=element('ul','task-page-assignee-results');assigneeList.id='task-page-assignee-results';assigneeList.setAttribute('role','listbox');assigneeList.setAttribute('aria-label','Assignees');assigneeList.hidden=true
- const assigneeNote=element('small','task-page-hint')
- assigneeBox.append(assignee,assigneeClear,assigneeList)
- const assigneeField=field('Assignee',assigneeBox,{id:'task-page-assignee'});assignee.id='task-page-assignee';assigneeField.append(assigneeNote)
+ const issueType=element('select'),priority=element('select')
+ const typeNote=element('small','task-page-hint');typeNote.setAttribute('role','status')
+ const typeRetry=button('Retry','secondary','Retry issue types');typeRetry.hidden=true
+ const typeField=field('Issue type',issueType);typeField.append(typeNote,typeRetry)
+ const priorityField=field('Priority',priority)
+ for(const [value,label] of [['urgent','Urgent'],['high','High'],['medium','Medium'],['low','Low']]){
+  const option=element('option','',label);option.value=value;priority.append(option)
+ }
+ let typeGeneration=0,typeValues=[]
+ function renderTypes(){
+  issueType.replaceChildren()
+  const defaultOption=element('option','','Default');defaultOption.value='';issueType.append(defaultOption)
+  for(const value of normalizeIssueTypes([...typeValues,state.loaded?.issueType,state.form.issueType])){
+   const option=element('option','',value);option.value=value;issueType.append(option)
+  }
+  issueType.value=state.form.issueType
+  priority.value=state.form.priority
+ }
+ async function loadTypes(){
+  const generation=++typeGeneration
+  const projectID=state.projectId,trackerID=state.mode==='edit'?state.task?.trackerId:tracker.value
+  typeValues=[];renderTypes();typeRetry.hidden=true
+  if(!projectID||!trackerID){typeNote.textContent='Select a project and tracker to load issue types.';return}
+  typeNote.textContent='Loading issue types…'
+  try{
+   const result=await api.taskIssueTypes(projectID,trackerID)
+   if(state.destroyed||generation!==typeGeneration)return
+   if(typeof result?.supported!=='boolean'||!Array.isArray(result.issueTypes))throw Error('Invalid issue type response')
+   typeValues=normalizeIssueTypes(result.issueTypes)
+   if(state.mode==='create'&&!typeValues.includes(state.form.issueType))state.form.issueType=''
+   typeNote.textContent=!result.supported?'This tracker does not support issue type discovery.':!typeValues.length?'No issue types are available.':''
+   renderTypes();refresh()
+  }catch(err){
+   if(state.destroyed||generation!==typeGeneration)return
+   typeNote.textContent='Could not load issue types: '+ipcMessage(err);typeRetry.hidden=false
+  }
+ }
+ typeRetry.onclick=()=>state.trackers.length?loadTypes():loadTrackers()
+ issueType.onchange=()=>{state.form.issueType=issueType.value;refresh()}
+ priority.onchange=()=>{state.form.priority=priority.value;refresh()}
 
  // Pull requests: the ordered set, the last one being the current.
  const links=element('ul','task-page-links')
@@ -96,16 +129,17 @@ export function openTaskPage(container,{mode,projectId,taskId,deps}){
   if(state.destroyed||!state.available&&state.mode==='edit')return false
   if(state.mode==='edit'&&!state.loaded)return false
   if(state.unsaved.size)return true
+  if(state.mode==='create'&&(state.projectId!==initialProjectId||(initialTrackerId!==null&&tracker.value!==initialTrackerId)))return true
   return Object.keys(pendingChanges()).length>0
  }
  function pendingChanges(){
-  const base=state.mode==='create'?{title:'',assignee:'',assigneeAccountId:'',prLinks:[]}:state.loaded
+  const base=state.mode==='create'?{title:'',issueType:'',priority:'medium',prLinks:[]}:state.loaded
   return taskChanges(base,{...state.form,title:title.value,description:state.editor?state.editor.markdown():''},{descriptionChanged:!!state.editor?.changed()})
  }
  function refresh(){
   const changed=dirty()
   mark.hidden=!changed
-  save.disabled=state.saving||(state.mode==='edit'?!changed||!state.loaded:false)
+  save.disabled=state.saving||(state.mode==='create'&&state.trackersLoading)||(state.mode==='edit'?!changed||!state.loaded:false)
  }
 
  function renderHeading(){
@@ -116,22 +150,6 @@ export function openTaskPage(container,{mode,projectId,taskId,deps}){
   const external=state.task?.externalUrl
   trackerLink.hidden=!(state.mode==='edit'&&/^https?:\/\//i.test(external||''))
   trackerLink.onclick=()=>api.openLink(external).catch(err=>setStatus(ipcMessage(err),'error'))
- }
-
- function renderAssignee(){
-  const lookup=assigneeLookup(state.provider)
-  assignee.value=state.form.assignee
-  assigneeClear.hidden=!lookup||!state.form.assignee
-  assigneeNote.textContent=''
-  if(lookup){
-   assignee.setAttribute('role','combobox');assignee.setAttribute('aria-controls',assigneeList.id);assignee.setAttribute('aria-expanded','false');assignee.setAttribute('aria-autocomplete','list')
-   assignee.placeholder='Search people'
-   assignee.disabled=state.mode==='create'
-   if(state.mode==='create')assigneeNote.textContent='Search becomes available once the task is created.'
-  }else{
-   for(const name of ['role','aria-controls','aria-expanded','aria-autocomplete'])assignee.removeAttribute(name)
-   assignee.placeholder='Login';assignee.disabled=false
-  }
  }
 
  function renderLinks(){
@@ -161,55 +179,9 @@ export function openTaskPage(container,{mode,projectId,taskId,deps}){
  linkInput.onkeydown=event=>{if(event.key==='Enter'&&!event.metaKey&&!event.ctrlKey){event.preventDefault();addTypedLink()}}
  linkInput.oninput=()=>{linkNote.textContent='';linkInput.removeAttribute('aria-invalid')}
 
- // The assignee search: the ticket's team without a query, the tracker with one.
- let searchTimer=0,searchGeneration=0,results=[],active=-1
- const closeResults=()=>{assigneeList.hidden=true;assignee.setAttribute('aria-expanded','false');assignee.removeAttribute('aria-activedescendant');active=-1}
- const markActive=()=>{
-  for(const [index,item] of [...assigneeList.children].entries())item.setAttribute('aria-selected',String(index===active))
-  const current=assigneeList.children[active]
-  if(current?.id){assignee.setAttribute('aria-activedescendant',current.id);current.scrollIntoView?.({block:'nearest'})}else assignee.removeAttribute('aria-activedescendant')
- }
- const pick=person=>{
-  state.form.assignee=person.displayName||'';state.form.assigneeAccountId=person.accountId||'';state.form.assigneeAvatar=person.avatarUrl||''
-  closeResults();renderAssignee();refresh()
- }
- async function search(){
-  const generation=++searchGeneration,query=assignee.value===state.form.assignee?'':assignee.value.trim()
-  try{
-   const people=await api.assignable(state.projectId,state.taskId,query)
-   if(generation!==searchGeneration||state.destroyed)return
-   results=Array.isArray(people)?people:[];active=results.length?0:-1
-   assigneeList.replaceChildren();assigneeNote.textContent=''
-   if(!results.length){const empty=element('li','task-page-assignee-empty','Nobody found');empty.setAttribute('role','presentation');assigneeList.append(empty)}
-   for(const [index,person] of results.entries()){
-    const item=element('li','task-page-assignee-option');item.id='task-page-assignee-'+index;item.setAttribute('role','option')
-    item.append(element('span','',person.displayName||person.accountId))
-    if(person.email||person.teamName)item.append(element('small','',person.email||person.teamName))
-    item.onmousedown=event=>{event.preventDefault();pick(person)}
-    assigneeList.append(item)
-   }
-   assigneeList.hidden=false;assignee.setAttribute('aria-expanded','true');markActive()
-  }catch(err){if(generation===searchGeneration&&!state.destroyed){closeResults();assigneeNote.textContent='Could not search assignees: '+ipcMessage(err)}}
- }
- assignee.onfocus=()=>{if(assigneeLookup(state.provider)&&state.mode==='edit')search()}
- assignee.oninput=()=>{
-  if(!assigneeLookup(state.provider)){state.form.assignee=assignee.value.trim();state.form.assigneeAccountId='';state.form.assigneeAvatar='';refresh();return}
-  clearTimeout(searchTimer);searchTimer=setTimeout(search,250)
- }
- assignee.onkeydown=event=>{
-  if(!assigneeLookup(state.provider)||assigneeList.hidden)return
-  if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();if(results.length){active=(active+(event.key==='ArrowDown'?1:results.length-1))%results.length;markActive()}}
-  else if(event.key==='Enter'&&!event.metaKey&&!event.ctrlKey){event.preventDefault();if(results[active])pick(results[active])}
-  else if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeResults();assignee.value=state.form.assignee}
- }
- // Typing searches; only a pick changes the assignee, so leaving the field
- // puts back the name it holds.
- assignee.onblur=()=>{if(assigneeLookup(state.provider)){closeResults();assignee.value=state.form.assignee;searchGeneration++}}
- assigneeClear.onclick=()=>{pick({displayName:'',accountId:'',avatarUrl:''});assignee.focus()}
-
  title.oninput=()=>{title.removeAttribute('aria-invalid');refresh()}
  project.onchange=()=>{project.removeAttribute('aria-invalid');state.projectId=project.value;loadTrackers()}
- tracker.onchange=()=>{state.provider=state.trackers.find(item=>item.id===tracker.value)?.provider||'';renderAssignee()}
+ tracker.onchange=()=>{loadTypes();refresh()}
  sourceToggle.onclick=()=>{
   if(!state.editor)return
   const on=!state.editor.sourceMode()
@@ -227,16 +199,22 @@ export function openTaskPage(container,{mode,projectId,taskId,deps}){
  let trackerGeneration=0
  async function loadTrackers(){
   const generation=++trackerGeneration
-  state.trackers=[];state.provider='';tracker.replaceChildren();trackerField.hidden=true;renderAssignee()
-  if(!state.projectId)return
+  state.trackersLoading=true
+  state.trackers=[];tracker.replaceChildren();trackerField.hidden=true;typeGeneration++;typeValues=[];typeRetry.hidden=true;renderTypes();typeNote.textContent='Loading trackers…';refresh()
+  if(!state.projectId){state.trackersLoading=false;loadTypes();refresh();return}
   let info=null
-  try{info=await api.project(state.projectId)}catch{}
+  try{info=await api.project(state.projectId)}catch(err){
+   if(generation!==trackerGeneration||state.destroyed)return
+   state.trackersLoading=false;typeNote.textContent='Could not load trackers: '+ipcMessage(err);typeRetry.hidden=false;refresh();return
+  }
   if(generation!==trackerGeneration||state.destroyed)return
+  state.trackersLoading=false
   state.trackers=Array.isArray(info?.server?.trackers)?info.server.trackers:[]
   for(const item of state.trackers){const option=element('option','',item.name||item.scope||item.provider);option.value=item.id;tracker.append(option)}
-  trackerField.hidden=!state.available||state.trackers.length<2
-  state.provider=state.trackers[0]?.provider||info?.server?.issueTracker||''
-  renderAssignee()
+  tracker.value=state.trackers.some(item=>item.id===info?.server?.defaultTrackerId)?info.server.defaultTrackerId:state.trackers[0]?.id||''
+  if(initialTrackerId===null&&state.projectId===initialProjectId)initialTrackerId=tracker.value
+  trackerField.hidden=state.trackers.length<2
+  loadTypes();refresh()
  }
 
  function buildCreate(){
@@ -246,12 +224,9 @@ export function openTaskPage(container,{mode,projectId,taskId,deps}){
   for(const item of known){const option=element('option','',item.name);option.value=item.id;project.append(option)}
   project.value=state.projectId
   body.replaceChildren(projectField,trackerField,titleField)
-  // An agent without the task page creates a task the way it always did:
-  // title, description and project only.
-  if(state.available)body.append(assigneeField,linksField)
-  body.append(descriptionField)
+  body.append(typeField,priorityField,descriptionField,linksField)
   trackerField.hidden=true
-  renderHeading();renderAssignee();renderLinks()
+  renderHeading();renderTypes();renderLinks()
   loadTrackers()
   mountEditor('').then(()=>{if(!state.destroyed)(state.projectId?title:project).focus()})
   ;(state.projectId?title:project).focus()
@@ -259,9 +234,8 @@ export function openTaskPage(container,{mode,projectId,taskId,deps}){
 
  function fillFromTask(task){
   state.task=task;state.taskId=task.id
-  state.loaded={title:task.title||'',assignee:task.assignee||'',assigneeAccountId:task.assigneeAccountId||'',prLinks:(task.prLinks||[]).map(link=>({...link}))}
-  state.form={title:state.loaded.title,assignee:state.loaded.assignee,assigneeAccountId:state.loaded.assigneeAccountId,assigneeAvatar:task.assigneeAvatar||'',prLinks:state.loaded.prLinks.map(link=>({...link}))}
-  state.provider=task.source||''
+  state.loaded={title:task.title||'',issueType:task.issueType||'',priority:task.priority||'medium',prLinks:(task.prLinks||[]).map(link=>({...link}))}
+  state.form={title:state.loaded.title,issueType:state.loaded.issueType,priority:state.loaded.priority,prLinks:state.loaded.prLinks.map(link=>({...link}))}
   title.value=state.loaded.title
  }
  function buildEdit(){
@@ -269,8 +243,8 @@ export function openTaskPage(container,{mode,projectId,taskId,deps}){
   projectText.textContent=projectName
   const trackerName=state.trackers.find(item=>item.id===state.task.trackerId)
   trackerText.textContent=trackerName?.name||trackerName?.scope||state.task.source||'Tracker'
-  body.replaceChildren(field('Project',projectText),field('Tracker',trackerText),titleField,assigneeField,linksField,descriptionField)
-  renderHeading();renderAssignee();renderLinks();refresh()
+  body.replaceChildren(field('Project',projectText),field('Tracker',trackerText),titleField,typeField,priorityField,descriptionField,linksField)
+  renderHeading();renderTypes();renderLinks();refresh()
  }
 
  // Edition reads the task fresh from the server, never from a list.
@@ -283,7 +257,7 @@ export function openTaskPage(container,{mode,projectId,taskId,deps}){
    if(state.destroyed)return
    state.trackers=Array.isArray(info?.server?.trackers)?info.server.trackers:[]
    fillFromTask(task);footer.hidden=false;setStatus('')
-   buildEdit();await mountEditor(task.description||'')
+   buildEdit();loadTypes();await mountEditor(task.description||'')
    if(!state.destroyed&&document.activeElement===document.body)title.focus()
   }catch(err){
    if(state.destroyed)return
@@ -309,7 +283,7 @@ export function openTaskPage(container,{mode,projectId,taskId,deps}){
  }
 
  async function submit(){
-  if(state.saving||state.mode==='edit'&&(!state.loaded||!state.available))return
+  if(state.saving||state.mode==='create'&&state.trackersLoading||state.mode==='edit'&&(!state.loaded||!state.available))return
   const checked=validateTitle(title.value)
   if(state.mode==='create'&&!project.value){project.setAttribute('aria-invalid','true');setStatus('Select a project.','error');project.focus();return}
   if(!checked.ok){title.setAttribute('aria-invalid','true');setStatus(checked.reason,'error');title.focus();return}
@@ -337,21 +311,18 @@ export function openTaskPage(container,{mode,projectId,taskId,deps}){
    if(!('description' in changes)||(task.description??'')===changes.description)state.editor.rebase()
    else state.editor.reset(task.description||'')
   }
-  renderHeading();renderAssignee();renderLinks()
+  renderHeading();renderTypes();renderLinks()
  }
 
  async function create(titleText,description){
   state.saving=true;refresh();setStatus('Creating the task on the server and its tracker…')
   const projectID=project.value
   const extra={}
-  if(state.available){
-   if(state.form.assignee)Object.assign(extra,{assignee:state.form.assignee,assigneeAccountId:state.form.assigneeAccountId,assigneeAvatar:state.form.assigneeAvatar})
-   if(state.form.prLinks.length)extra.prLinks=state.form.prLinks.map(link=>({...link}))
-  }
+  if(state.form.prLinks.length)extra.prLinks=state.form.prLinks.map(link=>({...link}))
   let task
   try{
-   const input={projectID,title:titleText,description}
-   if(state.available&&tracker.value&&state.trackers.length>1)input.trackerID=tracker.value
+   const input={projectID,title:titleText,description,issueType:state.form.issueType,priority:state.form.priority}
+   if(tracker.value)input.trackerID=tracker.value
    task=await api.createTask(input)
   }catch(err){
    state.saving=false
@@ -364,10 +335,11 @@ export function openTaskPage(container,{mode,projectId,taskId,deps}){
   // the fields the creation does not carry follow in one update.
   state.mode='edit';state.projectId=projectID;state.taskId=task.id
   const form={...state.form}
-  fillFromTask({...task,title:task.title??titleText,description,assignee:'',assigneeAccountId:'',prLinks:[]})
-  state.form={...form,title:state.loaded.title}
-  state.editor?.rebase()
-  buildEdit()
+  fillFromTask({...task,title:task.title??titleText})
+  state.form={...state.form,prLinks:form.prLinks}
+  if((task.description||'')===description)state.editor?.rebase()
+  else state.editor?.reset(task.description||'')
+  buildEdit();loadTypes()
   let failure=''
   if(Object.keys(extra).length){
    try{
@@ -384,7 +356,7 @@ export function openTaskPage(container,{mode,projectId,taskId,deps}){
   state.saving=false;renderHeading();refresh()
   deps.saved?.(projectID,state.task)
   if(failure){
-   const what=[extra.assignee!==undefined?'assignee':'',extra.prLinks?'pull requests':''].filter(Boolean).join(' and ')
+   const what='pull requests'
    setStatus('Created '+(task.key||task.id)+', but '+what+' could not be saved: '+failure,'error')
   }else setStatus('')
   showCreated({...task,title:state.loaded.title})
@@ -418,6 +390,6 @@ export function openTaskPage(container,{mode,projectId,taskId,deps}){
   projectId:()=>state.projectId,
   taskId:()=>state.taskId,
   mode:()=>state.mode,
-  destroy(){state.destroyed=true;clearTimeout(searchTimer);state.editor?.destroy();state.editor=null;page.remove()},
+  destroy(){state.destroyed=true;typeGeneration++;trackerGeneration++;state.editor?.destroy();state.editor=null;page.remove()},
  }
 }

@@ -24,7 +24,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   if(req.url==='/desktop/create-task'){
    let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{createdInput=JSON.parse(raw);res.writeHead(201);res.end(JSON.stringify({id:'created',key:'#49',projectId:createdInput.projectID,title:createdInput.title}))});return
   }
-  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:['create-task','task-engines','archive-workspace']}));return}
+  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:['create-task','task-fields','task-engines','archive-workspace']}));return}
   if(req.url==='/desktop/engines'){res.end(JSON.stringify({catalogue:[{id:'e-opus',name:'Claude Opus',provider:'claude',model:'claude-opus-5'},{id:'e-codex',name:'Codex',provider:'codex'}],default:'e-opus',projects:{},taskCounts:{}}));return}
   if(req.url==='/desktop/runs'&&!available){res.writeHead(503).end();return}
   if(req.url==='/desktop/runs'){res.end(JSON.stringify([{id:'run-1',taskId:'task-1',taskKey:'#48',projectId:'project-a',skill:'specify',prompt:'Previous instructions',directory:'/tmp/spec-worktree',sessionId:withoutConsole?'':'run-1',status:withoutConsole?'failed':stopped?'canceled':runStatus},...(extraRun?[{id:'run-0',taskId:'task-1',taskKey:'#48',projectId:'project-a',skill:'clarify',status:'completed',sessionId:'run-0'}]:[])]));return}

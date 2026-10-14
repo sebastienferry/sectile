@@ -249,3 +249,29 @@ func TestAgentConfigDirectContentIsProjectNeutral(t *testing.T) {
 		t.Fatal("the project's own content must still reach its runs")
 	}
 }
+
+func TestAgentConfigNamesTheProjectsDefaultTracker(t *testing.T) {
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), NewDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Default tracker", IssueTracker: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := database.AgentConfig(project.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.DefaultTrackerID == "" || config.DefaultTrackerID != project.DefaultTrackerID {
+		t.Fatalf("default tracker = %q, want %q", config.DefaultTrackerID, project.DefaultTrackerID)
+	}
+	found := false
+	for _, selected := range config.Trackers {
+		found = found || selected.ID == config.DefaultTrackerID
+	}
+	if !found {
+		t.Fatal("the default tracker must belong to the configured trackers")
+	}
+}

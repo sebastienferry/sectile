@@ -835,3 +835,88 @@ func TestTheDetectedStatusesOfATrackerAreItsOwn(t *testing.T) {
 		}
 	}
 }
+
+// issueTypesFake records the acting user and scope reaching provider discovery.
+type issueTypesFake struct {
+	tracker.BaseTicketingSystem
+	values []string
+	err    error
+	calls  int
+	user   string
+	scope  string
+}
+
+func (f *issueTypesFake) ListIssueTypes(ctx context.Context, req tracker.ProjectRequest) ([]string, error) {
+	f.calls++
+	f.user = tracker.ActingUser(ctx)
+	f.scope = req.Tracker.Scope
+	return f.values, f.err
+}
+
+func TestProjectIssueTypesAuthorizeScopeAndKeepDiscoveryOutcomesDistinct(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	adminID, admin := account(t, database, "admin-types@example.com")
+	memberID, member := account(t, database, "member-types@example.com")
+	fake := &issueTypesFake{BaseTicketingSystem: tracker.BaseTicketingSystem{TrackerName: "jira", Capabilities: []tracker.Capability{tracker.CapBoard}}, values: []string{"Bug", "", "Bug", "Custom type"}}
+	database.TrackerRegistry().Register("jira", fake)
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Types", IssueTracker: "jira", JiraProject: "TYPES"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := database.CreateProject(models.CreateProjectRequest{Name: "Other", IssueTracker: "jira", JiraProject: "OTHER"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := projectServer(t, h)
+	route := "/api/projects/" + project.ID + "/trackers/" + project.DefaultTrackerID + "/issue-types"
+	for _, identity := range []struct {
+		id      string
+		cookies *http.Cookie
+	}{{adminID, admin}, {memberID, member}} {
+		status, body := call(t, server, identity.cookies, http.MethodGet, route, "")
+		if status != http.StatusOK || !strings.Contains(body, `"issueTypes":["Bug","Custom type"]`) || !strings.Contains(body, `"supported":true`) {
+			t.Fatalf("discovery: %d %s", status, body)
+		}
+		if fake.user != identity.id || fake.scope != "TYPES" {
+			t.Fatalf("provider context: user=%q scope=%q", fake.user, fake.scope)
+		}
+	}
+	before := fake.calls
+	for _, request := range []struct {
+		cookies *http.Cookie
+		route   string
+		status  int
+	}{
+		{nil, route, http.StatusUnauthorized},
+		{member, "/api/projects/" + project.ID + "/trackers/" + foreign.DefaultTrackerID + "/issue-types", http.StatusForbidden},
+		{member, "/api/projects/missing/trackers/" + project.DefaultTrackerID + "/issue-types", http.StatusNotFound},
+	} {
+		status, body := call(t, server, request.cookies, http.MethodGet, request.route, "")
+		if status != request.status || fake.calls != before {
+			t.Fatalf("unauthorized discovery: %d %s, calls=%d", status, body, fake.calls)
+		}
+	}
+	for _, outcome := range []struct {
+		values []string
+		err    error
+		status int
+		body   string
+	}{
+		{nil, nil, http.StatusOK, `"supported":true,"issueTypes":[]`},
+		{nil, tracker.Unsupported("jira", tracker.CapBoard), http.StatusOK, `"supported":false,"issueTypes":[]`},
+		{nil, fmt.Errorf("provider unavailable"), http.StatusBadGateway, "provider unavailable"},
+	} {
+		fake.values, fake.err = outcome.values, outcome.err
+		status, body := call(t, server, member, http.MethodGet, route, "")
+		if status != outcome.status || !strings.Contains(body, outcome.body) {
+			t.Fatalf("outcome: %d %s", status, body)
+		}
+	}
+	fake.Capabilities = nil
+	before = fake.calls
+	status, body := call(t, server, member, http.MethodGet, route, "")
+	if status != http.StatusOK || !strings.Contains(body, `"supported":false`) || fake.calls != before {
+		t.Fatalf("unsupported capability: %d %s", status, body)
+	}
+}

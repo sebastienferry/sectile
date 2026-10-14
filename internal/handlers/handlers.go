@@ -890,6 +890,16 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		id = parts[0]
 	}
 
+	if len(parts) == 4 && parts[1] == "trackers" && parts[3] == "issue-types" {
+		trackerID, err := url.PathUnescape(parts[2])
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "ID du tracker invalide")
+			return
+		}
+		h.projectTrackerIssueTypes(w, r, id, trackerID)
+		return
+	}
+
 	// Sub-action: /api/projects/{id}/epics/create: create an epic, the container
 	// a split needs as a target
 	if len(parts) >= 3 && isMacroSegment(parts[1]) && parts[2] == "create" && r.Method == http.MethodPost {
