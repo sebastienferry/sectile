@@ -275,7 +275,7 @@ func (c *Client) TransferGithubIssue(source, path string, n int, target, targetP
 			}
 		}
 	}
-	err = c.graphql(context.Background(), c.githubGraphQLEndpoint(), "Bearer "+c.GithubToken, `mutation($issue:ID!,$repo:ID!){transferIssue(input:{issueId:$issue,repositoryId:$repo}){issue{number url}}}`, map[string]any{"issue": issue.ID, "repo": repo.ID}, &res)
+	err = c.githubGrantRefused(c.graphql(context.Background(), c.githubGraphQLEndpoint(), "Bearer "+c.GithubToken, `mutation($issue:ID!,$repo:ID!){transferIssue(input:{issueId:$issue,repositoryId:$repo}){issue{number url}}}`, map[string]any{"issue": issue.ID, "repo": repo.ID}, &res))
 	if err == nil && (res.TransferIssue.Issue.Number < 1 || res.TransferIssue.Issue.URL == "") {
 		err = fmt.Errorf("tracker did not confirm issue transfer")
 	}
@@ -446,7 +446,7 @@ func (c *Client) IssuePullRequests(repo string, issueNumber int) ([]PullRequest,
 	query := `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){closedByPullRequestsReferences(first:20,includeClosedPrs:true){nodes{url headRefName createdAt state merged isDraft}}}}}`
 	vars := map[string]any{"owner": parts[0], "name": parts[1], "number": issueNumber}
 	if err = c.graphql(context.Background(), c.githubGraphQLEndpoint(), "Bearer "+c.GithubToken, query, vars, &res); err != nil {
-		return nil, err
+		return nil, c.githubGrantRefused(err)
 	}
 	var found []PullRequest
 	for _, node := range res.Repository.Issue.ClosedByPullRequestsReferences.Nodes {

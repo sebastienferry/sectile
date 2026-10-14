@@ -654,7 +654,7 @@ func (c *Client) GithubGraphQL(query string) ([]byte, error) {
 	endpoint := c.githubGraphQLEndpoint()
 	var data json.RawMessage
 	if err := c.graphql(context.Background(), endpoint, "Bearer "+c.GithubToken, query, nil, &data); err != nil {
-		return nil, err
+		return nil, c.githubGrantRefused(err)
 	}
 	return json.Marshal(map[string]any{"data": data})
 }

@@ -116,6 +116,22 @@ func TestAGitHub401OnAGrantCallsOnUnauthorizedAndSaysReconnect(t *testing.T) {
 	}
 }
 
+// GitHub's GraphQL endpoint refusing a grant's token is the same revocation
+// as a REST 401: the transfer, the board status and the pull request reads
+// disconnect the grant and say reconnect too.
+func TestAGitHubGraphQL401OnAGrantCallsOnUnauthorized(t *testing.T) {
+	s := newForgeSite(t)
+	called := 0
+	c := &Client{HTTP: s.server.Client(), GithubURL: s.server.URL, GithubToken: "revoked", oauthGrant: true, onUnauthorized: func() { called++ }}
+	_, err := c.GithubGraphQL(`query{viewer{login}}`)
+	if err == nil || !strings.Contains(err.Error(), "Reconnectez GitHub") || !isUnauthorized(err) {
+		t.Fatalf("a refused grant on GraphQL: %v", err)
+	}
+	if called != 1 {
+		t.Errorf("the hook must be called once, got %d", called)
+	}
+}
+
 // A pasted token refused by GitHub disconnects nothing and keeps its wording.
 func TestAGitHub401OnAPastedTokenDoesNotDisconnect(t *testing.T) {
 	s := newForgeSite(t)

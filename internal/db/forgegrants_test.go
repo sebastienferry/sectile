@@ -570,6 +570,11 @@ func TestASelfHostedGitLabTrackerRefusesTheGrant(t *testing.T) {
 		{"gitlab", "", true},
 		{"gitlab", "https://gitlab.com/api/v4", true},
 		{"gitlab", "https://gitlab.acme.io/api/v4", false},
+		// The bearer token never leaves in clear, nor for another port.
+		{"github", "http://api.github.com", false},
+		{"github", "https://api.github.com:443", true},
+		{"gitlab", "http://gitlab.com/api/v4", false},
+		{"gitlab", "https://gitlab.com:8443/api/v4", false},
 		{"jira", "https://acme.atlassian.net", false},
 	} {
 		if got := ForgeSiteGranted(c.tracker, c.site); got != c.granted {
@@ -641,6 +646,26 @@ func TestDisconnectRevokesBestEffort(t *testing.T) {
 			}
 			if got := f.fake.Revocations(); len(got) != 1 {
 				t.Errorf("nothing more reached the forge: %v", got)
+			}
+		})
+	}
+}
+
+// Reconnecting GitLab revokes the replaced grant, whose refresh token would
+// otherwise stay alive at gitlab.com; the new grant keeps working. GitHub
+// revokes the whole authorisation, so a reconnect revokes nothing there.
+func TestReconnectingRevokesTheReplacedGitLabGrant(t *testing.T) {
+	for _, trackerName := range forgeTrackers {
+		t.Run(trackerName, func(t *testing.T) {
+			f := newForgeGrantFixture(t, trackerName)
+			f.connect(t, f.d, "usr_ada", "ada")
+			f.connect(t, f.d, "usr_ada", "ada")
+			want := map[string][]string{"github": nil, "gitlab": {"ada"}}[trackerName]
+			if got := f.fake.Revocations(); !slices.Equal(got, want) {
+				t.Fatalf("revocations after a reconnect = %v, want %v", got, want)
+			}
+			if token, err := f.writeToken(t, f.d, "usr_ada"); err != nil || f.account(t, token) != "ada" {
+				t.Fatalf("the new grant must still write: %v", err)
 			}
 		})
 	}

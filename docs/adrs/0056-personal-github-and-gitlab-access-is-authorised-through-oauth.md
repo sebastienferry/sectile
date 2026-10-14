@@ -70,7 +70,8 @@ migrated, and the server credential stays a token (ADR 0028, ADR 0029).
 
 **A grant serves the public instance only.** A personal call through a forge
 grant is made only when the tracker's API host is `api.github.com` or
-`gitlab.com`. A GitHub Enterprise or self-hosted GitLab tracker refuses it with
+`gitlab.com`, over HTTPS on the default port, so the bearer token never leaves
+in clear. A GitHub Enterprise or self-hosted GitLab tracker refuses it with
 the missing-credential error, telling the person to use a personal token for
 that site, and nothing falls back to the server credential. Since there is one
 row per provider, a person who connects GitLab loses their pasted token for a
@@ -91,6 +92,10 @@ row, or replacing the grant with a pasted token, then calls the provider's
 revocation (`DELETE /applications/{client_id}/grant` on GitHub, which revokes
 every token of the app for that person; `POST /oauth/revoke` on GitLab). A
 failed revocation is logged and changes nothing: the row is already gone.
+Reconnecting GitLab revokes the replaced grant the same way, since its refresh
+token would otherwise stay valid. Reconnecting GitHub revokes nothing: the
+grant-level revocation would withdraw the new token too, and GitHub caps the
+live tokens of one app for one person on its own.
 
 **The apps are configured by an admin, never committed.** Each forge has its
 row in `tracker_oauth_apps`, edited from Administration

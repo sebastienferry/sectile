@@ -101,6 +101,20 @@ func (d *DB) SaveForgeGrant(tracker, userID string, tokens forgeoauth.Tokens, ac
 	if err != nil {
 		return err
 	}
+	// Reconnecting GitLab leaves the replaced grant's refresh token alive at
+	// gitlab.com, so it is revoked once the new one is stored. GitHub's
+	// revocation withdraws the whole authorisation, the new token with it, so
+	// a replaced GitHub token is left to GitHub's own cap. The revocation is
+	// registered before the lock, so it runs after the lock is released.
+	revoke, committed := func() {}, false
+	if tracker == "gitlab" {
+		revoke = d.forgeGrantRevocation(userID, tracker)
+	}
+	defer func() {
+		if committed {
+			revoke()
+		}
+	}()
 	now := time.Now()
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -130,7 +144,11 @@ func (d *DB) SaveForgeGrant(tracker, userID string, tokens forgeoauth.Tokens, ac
 	if _, err := tx.Exec(`DELETE FROM user_credential_unlocks WHERE user_id = ? AND tracker = ?`, userID, tracker); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 // ForgeSiteGranted says whether a forge grant may serve a tracker's site: the
@@ -146,14 +164,18 @@ func ForgeSiteGranted(tracker, site string) bool {
 }
 
 // forgeSiteHost is the host of a site, the provider's default when it is
-// empty.
+// empty. A site reached over plain HTTP or on another port answers no host:
+// the grant's bearer token would leave in clear, or for another service.
 func forgeSiteHost(site, fallback string) string {
 	site = strings.TrimSpace(site)
 	if site == "" {
 		site = fallback
 	}
 	parsed, err := url.Parse(site)
-	if err != nil {
+	if err != nil || !strings.EqualFold(parsed.Scheme, "https") {
+		return ""
+	}
+	if port := parsed.Port(); port != "" && port != "443" {
 		return ""
 	}
 	return strings.ToLower(parsed.Hostname())
