@@ -18,3 +18,10 @@ test('project view rejects foreign tasks, including stale responses and new even
   assert.deepEqual(tasksInProject([sectile], 'default'), [])
   assert.deepEqual(tasksInProject([fretzee, sectile], 'all'), [fretzee, sectile])
 })
+
+test('tasks belonging to multiple projects match each project and bookmarked all scope', () => {
+  const shared = { id: 'jira-1', key: 'GODE-1', projectId: 'delivery', projectIds: ['delivery', 'bidder'], title: 'Shared' }
+  assert.deepEqual(tasksInProject([shared, fretzee], 'bidder'), [shared])
+  assert.deepEqual(tasksInProject([shared, fretzee], 'all', new Set(['bidder'])), [shared])
+})
+

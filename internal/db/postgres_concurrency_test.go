@@ -157,7 +157,7 @@ func TestPostgresDiscoveryRacingTransitionsKeepsEveryLink(t *testing.T) {
 		url := fmt.Sprintf("https://github.com/o/r/pull/%d", i+1)
 		if i%4 < 2 {
 			task, _ := d.GetTaskByID("t1")
-			if _, _, err := d.applyDiscoveredPullRequests(task, []models.TaskPullRequest{{URL: url, Branch: "feat/1"}}); err != nil {
+			if _, _, err := d.applyDiscoveredPullRequests(task, []models.TaskPullRequest{{URL: url, Branch: "feat/1"}}, false); err != nil {
 				t.Errorf("discovery %d: %v", i, err)
 			}
 			return

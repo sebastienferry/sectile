@@ -10,6 +10,7 @@ import {
   canCheck,
   credentialState,
   initialTracker,
+  jiraSite,
   needsCredentialsFor,
   saveBlockedReason,
   scopesFor,
@@ -18,6 +19,8 @@ import {
   sealingInvitation,
   storedFor,
   trackerFields,
+  trackerSetupTargetFor,
+  trackerSiteFor,
   getTrackers,
 } from '../src/lib/trackers.ts'
 
@@ -164,6 +167,76 @@ test('a project only asks for credentials the person does not already have', () 
 
   // A local project needs nothing.
   assert.equal(needsCredentialsFor('local', noServer, []), false)
+})
+
+test('a project checks credentials against the chosen tracker site and opens setup on that tracker (#795)', () => {
+  assert.equal(jiraSite('acme.atlassian.net/browse/PE-1'), 'https://acme.atlassian.net')
+  assert.equal(jiraSite('https://ACME.atlassian.net/'), 'https://acme.atlassian.net')
+
+  const acmeTracker = {
+    provider: 'jira',
+    site: 'https://acme.atlassian.net',
+    identity: 'jira|acme.atlassian.net|PE',
+    local: false,
+  }
+  const otherTracker = {
+    provider: 'jira',
+    site: 'https://other.atlassian.net',
+    identity: 'jira|other.atlassian.net|OPS',
+    local: false,
+  }
+  const deploymentTracker = {
+    provider: 'jira',
+    site: '',
+    identity: 'jira|acme.atlassian.net|PE',
+    local: false,
+  }
+
+  const acmeToken = [{ tracker: 'jira', siteUrl: 'acme.atlassian.net', email: 'ada@example.com', sealed: false, unlocked: true }]
+  // Covered when the API token matches the tracker's site (or identity/deployment fallback).
+  assert.equal(needsCredentialsFor(acmeTracker, {}, acmeToken), false)
+  assert.equal(needsCredentialsFor(deploymentTracker, { jiraUrl: 'https://acme.atlassian.net' }, acmeToken), false)
+  assert.equal(trackerSetupTargetFor([acmeTracker], {}, acmeToken), null)
+
+  // Not covered when the user's Jira token is for another site.
+  assert.equal(needsCredentialsFor(otherTracker, {}, acmeToken), true)
+  assert.deepEqual(trackerSetupTargetFor([acmeTracker, otherTracker], {}, acmeToken), {
+    provider: 'jira',
+    site: 'https://other.atlassian.net',
+  })
+
+  // OAuth grant coverage checks grantedSites and disconnected state.
+  const connectedGrant = [
+    {
+      tracker: 'jira',
+      kind: 'oauth',
+      disconnected: false,
+      grantedSites: ['https://acme.atlassian.net'],
+      sealed: false,
+      unlocked: true,
+    },
+  ]
+  assert.equal(needsCredentialsFor(acmeTracker, {}, connectedGrant), false)
+  assert.equal(needsCredentialsFor(otherTracker, {}, connectedGrant), true)
+
+  const disconnectedGrant = [
+    {
+      tracker: 'jira',
+      kind: 'oauth',
+      disconnected: true,
+      grantedSites: ['https://acme.atlassian.net'],
+      sealed: false,
+      unlocked: true,
+    },
+  ]
+  assert.equal(needsCredentialsFor(acmeTracker, {}, disconnectedGrant), true)
+  assert.equal(trackerSiteFor(deploymentTracker, { jiraUrl: 'acme.atlassian.net' }), 'https://acme.atlassian.net')
+
+  // Setup description states that credentials are needed to act under your own account rather than importing nothing.
+  assert.match(translations.fr.trackerCredentials.setup.description, /propre compte/)
+  assert.doesNotMatch(translations.fr.trackerCredentials.setup.description, /synchronisation ne ramène rien/)
+  assert.match(translations.en.trackerCredentials.setup.description, /own account/)
+  assert.doesNotMatch(translations.en.trackerCredentials.setup.description, /synchronization fetches nothing/)
 })
 
 test('tracker credentials translations are complete and localized states format correctly', () => {

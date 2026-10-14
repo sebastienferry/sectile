@@ -45,7 +45,7 @@ import type {
   EpicAxisFields,
 } from '../types'
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
-import { TRACKER_PROVIDER_NAMES, needsCredentialsFor, trackerDisplayName } from '../lib/trackers'
+import { TRACKER_PROVIDER_NAMES, trackerDisplayName, trackerSetupTargetFor } from '../lib/trackers'
 import {
   addTracker,
   effectiveDefaultTracker,
@@ -146,6 +146,7 @@ export const ProjectModal: React.FC = () => {
     updateProject,
     deleteProject,
     setIsTrackerSetupOpen,
+    openTrackerSetup,
     userCredentials,
     refreshUserCredentials,
     settings,
@@ -492,11 +493,12 @@ export const ProjectModal: React.FC = () => {
       setIsProjectModalOpen(false)
       setEditingProject(null)
 
-      // Un projet posé sur un tracker distant sans accès configurés ne ramènera
-      // rien : autant le dire maintenant, plutôt qu'après une synchronisation
-      // vide. L'écran se ferme sans rien remplir, la configuration pouvant venir
-      // plus tard depuis les réglages.
-      if (selectedChoices.some(option => needsCredentialsFor(option.provider, settings, userCredentials))) {
+      // A selected remote tracker whose site is not covered by the person's
+      // credentials opens the setup dialog straight on that tracker (#795),
+      // so they can add their credential to act on it under their own account.
+      const setupTarget = trackerSetupTargetFor(selectedChoices, settings, userCredentials)
+      if (setupTarget) {
+        openTrackerSetup?.(setupTarget)
         setIsTrackerSetupOpen(true)
       }
     } finally {

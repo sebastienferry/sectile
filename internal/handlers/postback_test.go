@@ -109,3 +109,59 @@ func TestEventBroadcasting(t *testing.T) {
 		t.Fatalf("timeout waiting for broadcast event")
 	}
 }
+
+func TestPostBackBroadcastsHydratedTaskAndActivity(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+
+	task, err := database.CreateTask(models.CreateTaskRequest{
+		ProjectID: "default",
+		Title:     "Hydrated Event Task",
+		Status:    models.StatusToClarify,
+	})
+	if err != nil || task == nil {
+		t.Fatalf("failed to create task: %v", err)
+	}
+
+	ch := h.SubscribeEvents()
+	defer h.UnsubscribeEvents(ch)
+
+	updatedTitle := "Hydrated Title"
+	errMsg := "simulated postback warning"
+	_, _, _ = database.PostBackTask(models.TaskPostBackPayload{
+		TaskID: task.ID,
+		Title:  &updatedTitle,
+		Error:  &errMsg,
+	})
+
+	select {
+	case evt := <-ch:
+		if evt.Type != "task_updated" {
+			t.Fatalf("expected task_updated event, got %q", evt.Type)
+		}
+		if evt.Task == nil {
+			t.Fatalf("expected hydrated Task on event")
+		}
+		if evt.Task.ProjectID != "default" {
+			t.Errorf("expected Task.ProjectID = default, got %q", evt.Task.ProjectID)
+		}
+		if len(evt.Task.ProjectIDs) == 0 || evt.Task.ProjectIDs[0] != "default" {
+			t.Errorf("expected Task.ProjectIDs to include default, got %+v", evt.Task.ProjectIDs)
+		}
+		if evt.Activity == nil {
+			t.Fatalf("expected hydrated Activity on event")
+		}
+		if evt.Activity.TaskKey != task.Key {
+			t.Errorf("expected Activity.TaskKey = %q, got %q", task.Key, evt.Activity.TaskKey)
+		}
+		if evt.Activity.TaskTitle != updatedTitle {
+			t.Errorf("expected Activity.TaskTitle = %q, got %q", updatedTitle, evt.Activity.TaskTitle)
+		}
+		if evt.Activity.ProjectID != "default" {
+			t.Errorf("expected Activity.ProjectID = default, got %q", evt.Activity.ProjectID)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timeout waiting for broadcast event")
+	}
+}
+

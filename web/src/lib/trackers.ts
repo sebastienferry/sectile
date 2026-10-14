@@ -329,23 +329,124 @@ export function scopesFor(_tracker: TrackerKind): CredentialScope[] {
 }
 
 /**
- * Un projet posé sur un tracker distant sans accès ne ramènera rien : autant le
- * dire à la création plutôt qu'après une synchronisation vide.
+ * Reduces a Jira address to the scheme and host the server reaches it on
+ * (`trackerapi.JiraSite`), so two spellings of the same site match.
+ */
+export function jiraSite(raw?: string): string {
+  const trimmed = (raw || '').trim()
+  if (!trimmed) return ''
+  const withScheme = trimmed.includes('://') ? trimmed : `https://${trimmed}`
+  try {
+    const parsed = new URL(withScheme)
+    if (!parsed.host) return ''
+    const scheme = parsed.protocol === 'http:' ? 'http' : 'https'
+    return `${scheme}://${parsed.host.toLowerCase()}`
+  } catch {
+    return ''
+  }
+}
+
+function trackerSiteAddress(raw?: string): string {
+  let address = (raw || '').trim()
+  const schemeIndex = address.indexOf('://')
+  if (schemeIndex >= 0) address = address.slice(schemeIndex + 3)
+  address = address.replace(/\/+$/, '')
+  const slashIndex = address.indexOf('/')
+  if (slashIndex >= 0) {
+    return `${address.slice(0, slashIndex).toLowerCase()}/${address.slice(slashIndex + 1)}`
+  }
+  return address.toLowerCase()
+}
+
+export interface TrackerSetupTarget {
+  provider: TrackerKind
+  site: string
+}
+
+/**
+ * The site a tracker works against: its own when set (or its identity's site),
+ * falling back to the deployment's stored site for that provider.
+ */
+export function trackerSiteFor(
+  tracker: IssueTracker | string | { provider: string; site?: string; identity?: string },
+  settings: StoredSettings = {}
+): string {
+  const kind = (typeof tracker === 'string' ? tracker : tracker?.provider || '').toLowerCase()
+  if (kind === 'local' || kind === '') return ''
+  const explicitSite = typeof tracker === 'string' ? '' : (tracker?.site || '').trim()
+  const identitySite =
+    typeof tracker === 'string' || !tracker?.identity || tracker.identity.startsWith('local|')
+      ? ''
+      : (tracker.identity.split('|')[1] || '').trim()
+  const fallbackSite = storedFor(settings, kind as TrackerKind).siteUrl
+  if (kind === 'jira') {
+    return jiraSite(explicitSite) || jiraSite(identitySite) || jiraSite(fallbackSite)
+  }
+  return explicitSite || identitySite || fallbackSite
+}
+
+function jiraCredentialCoversSite(credential: StoredUserCredential, targetSite: string): boolean {
+  if (credential.kind === 'oauth') {
+    if (credential.disconnected) return false
+    const granted = (credential.grantedSites ?? []).map(site => jiraSite(site)).filter(Boolean)
+    return !targetSite ? granted.length > 0 : granted.includes(targetSite)
+  }
+  if (!targetSite) return true
+  const credentialSite = jiraSite(credential.siteUrl)
+  return Boolean(credentialSite) && credentialSite === targetSite
+}
+
+/**
+ * Whether a selected tracker lacks credentials covering its site (#795).
  *
- * Pour Jira, seul un jeton personnel permet d'agir. Pour GitHub, le jeton
- * personnel ou le jeton d'environnement du serveur permet la synchronisation.
+ * For Jira, only a personal API token or connected OAuth grant covering the
+ * tracker's site lets the person act on the tracker under their own account.
+ * For GitHub and GitLab, a personal token covering the site (or the server
+ * token on the deployment's site) satisfies the check.
  */
 export function needsCredentialsFor(
-  tracker: IssueTracker | string,
+  tracker: IssueTracker | string | { provider: string; site?: string; identity?: string },
   settings: StoredSettings,
   mine: StoredUserCredential[]
 ): boolean {
-  const kind = String(tracker)
+  const kind = (typeof tracker === 'string' ? tracker : tracker?.provider || '').toLowerCase()
   if (kind === 'local' || kind === '') return false
-  if (mine.some(c => c.tracker === kind)) return false
-  if (kind === 'jira') return true
+  const targetSite = trackerSiteFor(tracker, settings)
+  if (kind === 'jira') {
+    return !mine.some(c => c.tracker === 'jira' && jiraCredentialCoversSite(c, targetSite))
+  }
+  const targetAddress = trackerSiteAddress(targetSite)
+  if (
+    mine.some(
+      c =>
+        c.tracker === kind &&
+        (!targetAddress || !c.siteUrl?.trim() || trackerSiteAddress(c.siteUrl) === targetAddress)
+    )
+  ) {
+    return false
+  }
   const stored = storedFor(settings, kind as TrackerKind)
+  const storedAddress = trackerSiteAddress(stored.siteUrl)
+  if (targetAddress && storedAddress && targetAddress !== storedAddress) return true
   return !stored.tokenIsSet && !stored.tokenFromEnv
+}
+
+/**
+ * The first selected remote tracker that needs credentials after a project
+ * save (#795), with its provider and resolved site so `TrackerSetup` opens
+ * straight on it.
+ */
+export function trackerSetupTargetFor(
+  trackers: ReadonlyArray<{ provider: string; site?: string; identity?: string; local?: boolean }>,
+  settings: StoredSettings,
+  mine: StoredUserCredential[]
+): TrackerSetupTarget | null {
+  const target = trackers.find(option => !option.local && needsCredentialsFor(option, settings, mine))
+  if (!target) return null
+  return {
+    provider: initialTracker(target.provider),
+    site: trackerSiteFor(target, settings),
+  }
 }
 
 /**

@@ -14,6 +14,17 @@ func (d *DB) EnsureDefaultBookmark(userID string) error {
 		return nil
 	}
 
+	if ids, _, ok := d.trackerCache.getBookmarks(userID); ok && len(ids) > 0 {
+		return nil
+	}
+
+	d.mu.RLock()
+	ids, err := d.getUserProjectBookmarksUnsafe(userID)
+	d.mu.RUnlock()
+	if err != nil || len(ids) > 0 {
+		return err
+	}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -27,6 +38,7 @@ func (d *DB) ensureDefaultBookmarkUnsafe(userID string) error {
 		return err
 	}
 	if count > 0 {
+		_, _ = d.getUserProjectBookmarksUnsafe(userID)
 		return nil
 	}
 
@@ -47,6 +59,10 @@ func (d *DB) ensureDefaultBookmarkUnsafe(userID string) error {
 	// it is called on every sign-in — so a row that is already there is not an
 	// error to report.
 	_, err = d.conn.Exec("INSERT INTO user_project_bookmarks (user_id, project_id) VALUES (?, ?) ON CONFLICT DO NOTHING", userID, defaultProjectID)
+	if err == nil {
+		d.trackerCache.clearBookmarks()
+		_, _ = d.getUserProjectBookmarksUnsafe(userID)
+	}
 	return err
 }
 
@@ -67,6 +83,11 @@ func (d *DB) GetUserProjectBookmarks(userID string) ([]string, error) {
 }
 
 func (d *DB) getUserProjectBookmarksUnsafe(userID string) ([]string, error) {
+	if ids, _, ok := d.trackerCache.getBookmarks(userID); ok {
+		return ids, nil
+	}
+	_, gen, _ := d.trackerCache.getBookmarks(userID)
+
 	rows, err := d.conn.Query("SELECT project_id FROM user_project_bookmarks WHERE user_id = ? ORDER BY created_at ASC", userID)
 	if err != nil {
 		return nil, err
@@ -80,6 +101,12 @@ func (d *DB) getUserProjectBookmarksUnsafe(userID string) ([]string, error) {
 			return nil, err
 		}
 		projectIDs = append(projectIDs, pid)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(projectIDs) > 0 {
+		d.trackerCache.putBookmarks(userID, projectIDs, gen)
 	}
 	if projectIDs == nil {
 		projectIDs = []string{}
@@ -120,6 +147,10 @@ func (d *DB) BookmarkProject(userID, projectID string) error {
 	}
 
 	_, err = d.conn.Exec("INSERT INTO user_project_bookmarks (user_id, project_id) VALUES (?, ?) ON CONFLICT DO NOTHING", userID, actualID)
+	if err == nil {
+		d.trackerCache.clearBookmarks()
+		_, _ = d.getUserProjectBookmarksUnsafe(userID)
+	}
 	return err
 }
 
@@ -135,6 +166,10 @@ func (d *DB) UnbookmarkProject(userID, projectID string) error {
 	defer d.mu.Unlock()
 
 	_, err := d.conn.Exec("DELETE FROM user_project_bookmarks WHERE user_id = ? AND (project_id = ? OR project_id = (SELECT id FROM projects WHERE slug = ?))", userID, projectID, projectID)
+	if err == nil {
+		d.trackerCache.clearBookmarks()
+		_, _ = d.getUserProjectBookmarksUnsafe(userID)
+	}
 	return err
 }
 
@@ -168,9 +203,16 @@ func (d *DB) ToggleProjectBookmark(userID, projectID string) (bool, error) {
 	if n, err := res.RowsAffected(); err != nil {
 		return false, err
 	} else if n > 0 {
+		d.trackerCache.clearBookmarks()
+		_, _ = d.getUserProjectBookmarksUnsafe(userID)
 		return false, nil
 	}
 
 	_, err = d.conn.Exec("INSERT INTO user_project_bookmarks (user_id, project_id) VALUES (?, ?) ON CONFLICT DO NOTHING", userID, actualID)
+	if err == nil {
+		d.trackerCache.clearBookmarks()
+		_, _ = d.getUserProjectBookmarksUnsafe(userID)
+	}
 	return true, err
 }
+

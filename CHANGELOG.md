@@ -17,6 +17,8 @@ test fixtures or internal plumbing.
 
 - Jira stage reports preserve their full Markdown in attachments and Sectile history, with short summary comments and visible attachment failure notices.
 
+## [0.6.0] - 2026-10-14
+
 ### Added
 
 - **Antigravity in the Desktop conversation view.** When **Settings → General → AI consoles** is set to **Conversation**, interactive ticket launches, discussions and project prompts running on Antigravity open in the chat view with streaming replies and thinking, tool cards, slash-command completion, Sectile MCP status, per-turn model, effort and permission modes, and a default **Conversation permission mode** in **Settings → Antigravity settings**.
@@ -29,6 +31,14 @@ test fixtures or internal plumbing.
 - Desktop task creation and editing now offer tracker-specific issue types and priority, place pull requests below the description, and omit the assignee field. (#825)
 - Tool calls in Sectile Desktop conversations sit as compact borderless rows, drawing a frame only when waiting for your approval.
 - Redesigned the Sectile logo and Desktop application icons around an *opus sectile* geometric mosaic mark, with theme-adaptive rendering in the web sidebar across dark and light modes.
+
+### Fixed
+
+- Saving a project after adding, removing, or reordering its trackers or changing its label now immediately refreshes the open board, list, and filter facets without requiring a page reload. (#793)
+- Saving a project now asks for tracker credentials only when a selected remote tracker lacks credentials covering its site, opening the setup dialog directly on that tracker's provider and site without a provider picker. (#795)
+- Live task and activity updates now apply in place across connected browsers without reloading the full task and activity lists on every event. (#722)
+- Listing tasks across all bookmarked projects no longer takes the database write lock on every read when the user's default bookmark is already set. (#723)
+- Detaching a task's pull request links while background pull request discovery is running no longer allows the in-flight discovery to re-attach them. (#440)
 
 ## [0.5.0] - 2026-10-12
 
@@ -822,7 +832,8 @@ release mechanism that will keep the following entries short.
   A run canceled because its client disconnected can still be finished by the
   agent that owns it, so the chain carries on. (#315)
 
-[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/sebastienferry/sectile/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sebastienferry/sectile/compare/v0.4.5...v0.5.0
 [0.4.5]: https://github.com/sebastienferry/sectile/compare/v0.4.1...v0.4.5
 [0.4.1]: https://github.com/sebastienferry/sectile/compare/v0.4.0...v0.4.1

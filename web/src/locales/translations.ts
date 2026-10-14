@@ -1665,7 +1665,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       },
       setup: {
         title: "Connecter votre tracker",
-        description: "Sans ces valeurs, la synchronisation ne ramène rien et aucune écriture ne part. Elles sont vérifiées auprès de l'instance avant d'être enregistrées.",
+        description: "Nécessaire pour agir sur ce tracker sous votre propre compte. Vos accès sont vérifiés auprès de l'instance avant d'être enregistrés.",
         closeTitle: "Configurer plus tard",
         trackerLabel: "Tracker",
         later: "Plus tard",
@@ -2624,7 +2624,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       },
       setup: {
         title: 'Connect your tracker',
-        description: 'Without these values, synchronization fetches nothing and no writes are dispatched. They are verified with the instance before being saved.',
+        description: 'Needed to act on this tracker under your own account. Your credentials are verified with the instance before being saved.',
         closeTitle: 'Configure later',
         trackerLabel: 'Tracker',
         later: 'Later',

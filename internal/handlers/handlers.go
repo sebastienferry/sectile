@@ -114,6 +114,22 @@ func NewHandler(database *db.DB) *Handler {
 			if activity != nil && activity.SkillID == "remote_run" && (activity.Status == "completed" || activity.Status == "failed" || activity.Status == "canceled") {
 				h.agentDispatcher.ForgetRun(activity.ID)
 			}
+			// Re-read the task and activity as deliverRelayedEvent does on other
+			// replicas (#722), so ProjectIDs, Batch, UserName and TaskKey are
+			// populated for in-place SSE updates in every connected browser.
+			if task != nil && task.ID != "" {
+				if currentTask, rerr := h.db.GetTaskByID(task.ID); rerr == nil && currentTask != nil {
+					task = currentTask
+				}
+			}
+			if activity != nil && activity.ID != "" {
+				if currentActivity, rerr := h.db.GetActivityByID(activity.ID); rerr == nil && currentActivity != nil {
+					activity = currentActivity
+				}
+				if activity.ProjectID == "" && task != nil {
+					activity.ProjectID = task.ProjectID
+				}
+			}
 			errStr := ""
 			if err != nil {
 				errStr = err.Error()
@@ -264,6 +280,9 @@ func (h *Handler) deliverRelayedEvent(msg db.BusMessage) {
 	}
 	if msg.ActivityID != "" {
 		if activity, err := h.db.GetActivityByID(msg.ActivityID); err == nil {
+			if activity != nil && activity.ProjectID == "" && event.Task != nil {
+				activity.ProjectID = event.Task.ProjectID
+			}
 			event.Activity = activity
 			if activity != nil && (activity.Status == "completed" || activity.Status == "failed" || activity.Status == "canceled") {
 				h.agentDispatcher.ForgetRun(activity.ID)

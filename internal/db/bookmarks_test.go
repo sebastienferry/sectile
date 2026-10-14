@@ -235,3 +235,47 @@ func TestUserBookmarkTaskAndFacetScoping(t *testing.T) {
 
 	_ = t2
 }
+
+func TestGetTasksInScopeAllDoesNotTakeWriteLockOrIssueBookmarkStatement(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	user := "user-readlock"
+	if err := database.EnsureDefaultBookmark(user); err != nil {
+		t.Fatalf("EnsureDefaultBookmark failed: %v", err)
+	}
+
+	// Warm the membership index so the task list read measures only the task list statements.
+	if _, err := database.GetTasksInScope(TaskScope{ProjectID: "default"}, "", "", "", "", "", "", "", "", nil, nil, false); err != nil {
+		t.Fatalf("warm GetTasksInScope failed: %v", err)
+	}
+
+	// Holding RLock here would deadlock if GetTasksInScope or EnsureDefaultBookmark
+	// tried to acquire d.mu.Lock() (the exclusive write lock).
+	database.mu.RLock()
+	before := database.conn.queries.Load()
+	tasks, err := database.GetTasksInScope(TaskScope{UserID: user, ProjectID: "all"}, "", "", "", "", "", "", "", "", nil, nil, false)
+	cost := database.conn.queries.Load() - before
+	database.mu.RUnlock()
+	if err != nil {
+		t.Fatalf("GetTasksInScope failed: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("expected 0 tasks, got %d", len(tasks))
+	}
+	// Only the tasks SELECT statement is issued (1 query), with zero bookmark statements.
+	if cost != 1 {
+		t.Fatalf("expected 1 query (the tasks SELECT alone, 0 bookmark statements), got %d", cost)
+	}
+
+	// Even when the in-memory bookmark cache is cold, a user who already has a
+	// bookmark in the database never takes the exclusive write lock.
+	database.trackerCache.clearBookmarks()
+	database.mu.RLock()
+	_, err = database.GetTasksInScope(TaskScope{UserID: user, ProjectID: "all"}, "", "", "", "", "", "", "", "", nil, nil, false)
+	database.mu.RUnlock()
+	if err != nil {
+		t.Fatalf("GetTasksInScope with cold bookmark cache failed: %v", err)
+	}
+}
+

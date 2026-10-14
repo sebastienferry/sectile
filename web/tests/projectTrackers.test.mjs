@@ -6,6 +6,7 @@ import {
   isLocalIdentity,
   missingTrackerReason,
   moveTracker,
+  projectSaveRefreshesBoard,
   projectSelectionPayload,
   removeTracker,
   selectedTrackerIds,
@@ -96,3 +97,33 @@ test("the project's own local board stays offered and selected", () => {
     { trackerId: 'gode', identity: 'jira|acme.atlassian.net|GODE' },
   ])
 })
+
+test('saving trackers or label refreshes the open board when the project is in scope (#793)', () => {
+  const project = { id: 'p-1', slug: 'delivery' }
+  assert.equal(projectSaveRefreshesBoard(project, { trackers: [], label: 'da' }, { selectedProjectId: 'p-1' }), true)
+  assert.equal(projectSaveRefreshesBoard(project, { label: '' }, { selectedProjectId: 'delivery' }), true)
+  assert.equal(projectSaveRefreshesBoard(project, { trackers: [] }, { selectedProjectId: 'all' }), true)
+  assert.equal(projectSaveRefreshesBoard(project, { label: 'da' }, { selectedProjectId: 'p-2' }), false)
+  assert.equal(
+    projectSaveRefreshesBoard(project, { label: 'da' }, { selectedProjectId: 'p-2', selectedViewId: 'v-1', viewProjectIds: ['p-1', 'p-3'] }),
+    true
+  )
+  assert.equal(
+    projectSaveRefreshesBoard(project, { label: 'da' }, { selectedProjectId: 'p-1', selectedViewId: 'v-1', viewProjectIds: ['p-2'] }),
+    false
+  )
+  // Sprint-only saves from the timeline do not touch membership.
+  assert.equal(projectSaveRefreshesBoard(project, {}, { selectedProjectId: 'p-1' }), false)
+})
+
+test('trackerOptions carries the tracker site from summaries and fallback identities (#795)', () => {
+  const options = trackerOptions(
+    [{ id: 'gode', name: 'GODE', provider: 'jira', site: 'https://acme.atlassian.net', scope: 'GODE', identity: 'jira|acme.atlassian.net|GODE' }],
+    [{ trackerId: 'other', identity: 'jira|other.atlassian.net|OPS' }, { trackerId: 'loc', identity: 'local||p1' }]
+  )
+  assert.equal(options.find(o => o.id === 'gode')?.site, 'https://acme.atlassian.net')
+  assert.equal(options.find(o => o.id === 'other')?.site, 'other.atlassian.net')
+  assert.equal(options.find(o => o.id === 'loc')?.site, '')
+})
+
+
