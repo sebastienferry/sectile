@@ -1,0 +1,14 @@
+# Implementation checklist
+
+- [ ] 1. Add local setup-state readback and durable provider/project decisions using existing settings persistence; advertise capability and expose validated/redacted IPC. Test unknown versus incomplete, acknowledgement concurrency and cross-provider isolation.
+- [ ] 2. Implement actual MCP, skills and SDD observation/fingerprints and permission-review invalidation. Test changed pairing, missing/edited installed assets, changed root/framework, explicit skips and restart persistence. Keep unrelated configuration intact.
+- [ ] 3. Add pure assistant state/reducer and renderer module; integrate Settings > General, catalogue selection, explicit skills source and SDD target, keyboard/focus navigation and French outcomes. Test unsupported/empty catalogue and stale asynchronous responses.
+- [ ] 4. Wire optional provider-skills deployment and MCP choices through existing APIs, including advanced STDIO and explicit Claude repair. Test structured failure inside HTTP success, secret-free previews, preserved plugins and other MCP servers, local-agent dependency guidance and retries.
+- [ ] 5. Reuse Claude permissions/sandbox, Codex reviewer and Antigravity permission mode controls; support explicit retention. Test no automatic escalation, scoped saves, changed settings invalidation and Windows limitation messaging.
+- [ ] 6. Wire optional framework deployment and summary; preserve independent successful outcomes after cancellation, failure and reopen. Test missing folder/framework, active execution conflict, skip and retry without replaying accepted steps.
+- [ ] 7. Add once-per-launch in-window startup toast after readable state; test complete, incomplete, unknown, delayed reconnect, dismissal and subsequent relaunch, without OS notification authorization.
+- [ ] 8. Add meaningful Node tests in desktop/tests for state and IPC and UI cases with existing harness; add Go setup-state tests and extend initialization/MCP tests only where changed. Run `npm --prefix desktop test`, relevant UI tests, `npm --prefix desktop run build`, `go test ./internal/agent/... ./internal/agentconfig/...`, then repository-required checks for the final code scope. Any added process launch uses agentexec.Hidden and Windows CREATE_NO_WINDOW tests.
+- [ ] 9. Add one English Added changelog line describing the guided Desktop engine setup assistant under Unreleased; check every requirement/scenario, validate OpenSpec strictly and update the existing draft PR after implementation. No workflow promotion to reviewed in this stage.
+
+## Specification-stage validation
+Run `openspec validate 842-desktop-engine-setup --strict` and `git diff --check`. Manually cross-check requirements against clarification round 4 and ensure behavior and technical choices remain in separate files. No runtime changes or executable tests are part of this specification commit.
