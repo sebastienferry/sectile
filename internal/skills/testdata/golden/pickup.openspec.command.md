@@ -236,10 +236,13 @@ Report and persist before continuing:
 - How this project builds and tests. Find the real commands, do not assume them.
 
 1. Reuse the assigned worktree and branch, including a shared batch branch. Never implement on the default branch.
-2. On a multi-repo project, `$SECTILE_REPOSITORIES` lists the task's folders. Work in the
-   primary worktree; the other repositories are read-only context. To change one, call
-   `prepare_repository_worktree` for it first and work in the worktree it returns: each
-   changed repository then needs its own pull request, given to `transition_stage` in `prUrls`.
+2. When the task has more than one folder, `$SECTILE_REPOSITORIES` (and the prompt's folder
+   block) lists them with their role: the project's repositories, the folders attached to the
+   project on this workstation, and the specifications folder. Work in the primary worktree.
+   A `context` folder is read-only: to change it, call `prepare_repository_worktree` for its
+   repository first and work in the worktree it returns. That repository then has role
+   `changed` and needs its own pull request, given to `transition_stage` in `prUrls`. A
+   `local` folder (attached, no remote) is changed in place, with no worktree and no pull request.
    A repository the task needs but no folder holds is refused unless the workstation has the
    project's Any repository option on: then pass the top level of a local checkout of it as
    `path`, or omit `path` to let the agent clone it. When the launch says no worktree was
