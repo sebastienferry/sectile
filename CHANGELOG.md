@@ -13,6 +13,8 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-14
+
 ### Added
 
 - **Antigravity in the Desktop conversation view.** When **Settings → General → AI consoles** is set to **Conversation**, interactive ticket launches, discussions and project prompts running on Antigravity open in the chat view with streaming replies and thinking, tool cards, slash-command completion, Sectile MCP status, per-turn model, effort and permission modes, and a default **Conversation permission mode** in **Settings → Antigravity settings**.
@@ -826,7 +828,8 @@ release mechanism that will keep the following entries short.
   A run canceled because its client disconnected can still be finished by the
   agent that owns it, so the chain carries on. (#315)
 
-[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/sebastienferry/sectile/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sebastienferry/sectile/compare/v0.4.5...v0.5.0
 [0.4.5]: https://github.com/sebastienferry/sectile/compare/v0.4.1...v0.4.5
 [0.4.1]: https://github.com/sebastienferry/sectile/compare/v0.4.0...v0.4.1
