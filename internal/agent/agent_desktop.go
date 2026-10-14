@@ -179,7 +179,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"batch-launch", "git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", codexSettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability, taskPageCapability, taskFieldsCapability, stageMoveCapability}
+		capabilities := []string{"batch-launch", "git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", "agy-conversation", codexSettingsCapability, agySettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability, taskPageCapability, taskFieldsCapability, stageMoveCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -278,6 +278,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/codex-settings" {
 		d.desktopCodexSettings(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/agy-settings" {
+		d.desktopAgySettings(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/conversation-mode" {

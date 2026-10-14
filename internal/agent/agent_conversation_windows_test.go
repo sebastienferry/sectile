@@ -25,3 +25,10 @@ func TestCodexConversationChildDoesNotOpenAWindowsConsole(t *testing.T) {
 		t.Fatal("Codex conversation child would open a console window")
 	}
 }
+
+func TestAgyConversationChildDoesNotOpenAWindowsConsole(t *testing.T) {
+	cmd := agyConversationCommand(t.TempDir(), "", "", "accept-edits", "", "", []string{`C:\with space`}, nil)
+	if cmd.SysProcAttr == nil || cmd.SysProcAttr.CreationFlags&windows.CREATE_NO_WINDOW == 0 {
+		t.Fatal("Antigravity conversation child would open a console window")
+	}
+}

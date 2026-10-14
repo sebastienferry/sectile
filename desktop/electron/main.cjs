@@ -425,6 +425,8 @@ ipcMain.handle('save-workstation-settings',(_,defaults)=>{
 // The workstation Sandbox values and their project whitelist (#730).
 ipcMain.handle('codex-settings',()=>api('/desktop/codex-settings'))
 ipcMain.handle('save-codex-settings',(_,values)=>api('/desktop/codex-settings','PUT',values))
+ipcMain.handle('agy-settings',()=>api('/desktop/agy-settings'))
+ipcMain.handle('save-agy-settings',(_,values)=>api('/desktop/agy-settings','PUT',values))
 ipcMain.handle('workstation-sandbox',()=>api('/desktop/workstation/sandbox'))
 ipcMain.handle('save-workstation-sandbox',(_,values)=>{
  if(!values||typeof values!=='object'||Array.isArray(values))throw Error('Invalid Sandbox settings')

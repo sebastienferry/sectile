@@ -29,33 +29,33 @@ export const SectileLogo: React.FC<SectileLogoProps> = ({
       <defs>
         {/* Theme-Adaptive Badge Gradient */}
         <linearGradient id="sectile-badge-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#1e1b4b" style={{ stopColor: 'var(--logo-badge-start, #1e1b4b)' }} />
-          <stop offset="50%" stopColor="#0f172a" style={{ stopColor: 'var(--logo-badge-mid, #0f172a)' }} />
-          <stop offset="100%" stopColor="#020617" style={{ stopColor: 'var(--logo-badge-end, #020617)' }} />
+          <stop offset="0%" stopColor="#4f46e5" style={{ stopColor: 'var(--logo-badge-start, #4f46e5)' }} />
+          <stop offset="50%" stopColor="#312e81" style={{ stopColor: 'var(--logo-badge-mid, #312e81)' }} />
+          <stop offset="100%" stopColor="#1e1b4b" style={{ stopColor: 'var(--logo-badge-end, #1e1b4b)' }} />
         </linearGradient>
 
-        {/* Central Keystone Facet Gradient (Violet -> Indigo -> Cyan) */}
+        {/* Central Keystone Facet Gradient (Luminous Orchid -> Bright Indigo -> Electric Cyan) */}
         <linearGradient id="sectile-stream-primary" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#a855f7" style={{ stopColor: 'var(--logo-keystone-start, #a855f7)' }} />
-          <stop offset="50%" stopColor="#6366f1" style={{ stopColor: 'var(--logo-keystone-mid, #6366f1)' }} />
-          <stop offset="100%" stopColor="#06b6d4" style={{ stopColor: 'var(--logo-keystone-end, #06b6d4)' }} />
+          <stop offset="0%" stopColor="#f5d0fe" style={{ stopColor: 'var(--logo-keystone-start, #f5d0fe)' }} />
+          <stop offset="50%" stopColor="#818cf8" style={{ stopColor: 'var(--logo-keystone-mid, #818cf8)' }} />
+          <stop offset="100%" stopColor="#22d3ee" style={{ stopColor: 'var(--logo-keystone-end, #22d3ee)' }} />
         </linearGradient>
 
-        {/* Upper Arch Facet Gradient (Sky -> Indigo) */}
+        {/* Upper Arch Facet Gradient (Ice Sky -> Indigo) */}
         <linearGradient id="sectile-stream-secondary" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#38bdf8" style={{ stopColor: 'var(--logo-arch-top-start, #38bdf8)' }} />
+          <stop offset="0%" stopColor="#e0f2fe" style={{ stopColor: 'var(--logo-arch-top-start, #e0f2fe)' }} />
           <stop offset="100%" stopColor="#6366f1" style={{ stopColor: 'var(--logo-arch-top-end, #6366f1)' }} />
         </linearGradient>
 
-        {/* Lower Arch Facet Gradient (Indigo -> Violet) */}
+        {/* Lower Arch Facet Gradient (Bright Indigo -> Luminous Violet) */}
         <linearGradient id="sectile-facet-bot" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#6366f1" style={{ stopColor: 'var(--logo-arch-bot-start, #6366f1)' }} />
-          <stop offset="100%" stopColor="#a855f7" style={{ stopColor: 'var(--logo-arch-bot-end, #a855f7)' }} />
+          <stop offset="0%" stopColor="#818cf8" style={{ stopColor: 'var(--logo-arch-bot-start, #818cf8)' }} />
+          <stop offset="100%" stopColor="#e879f9" style={{ stopColor: 'var(--logo-arch-bot-end, #e879f9)' }} />
         </linearGradient>
 
         {/* Terminal Inlay Facet Glow Gradient */}
         <linearGradient id="sectile-glow" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#7dd3fc" style={{ stopColor: 'var(--logo-inlay-start, #7dd3fc)' }} />
+          <stop offset="0%" stopColor="#ffffff" style={{ stopColor: 'var(--logo-inlay-start, #ffffff)' }} />
           <stop offset="100%" stopColor="#38bdf8" style={{ stopColor: 'var(--logo-inlay-end, #38bdf8)' }} />
         </linearGradient>
       </defs>
@@ -75,12 +75,13 @@ export const SectileLogo: React.FC<SectileLogoProps> = ({
             width="35"
             height="35"
             rx="8.5"
-            stroke="#6366f1"
-            strokeOpacity="0.4"
+            fill="none"
+            stroke="#818cf8"
+            strokeOpacity="0.55"
             strokeWidth="1"
             style={{
-              stroke: 'var(--logo-badge-stroke, #6366f1)',
-              strokeOpacity: 'var(--logo-badge-stroke-opacity, 0.4)',
+              stroke: 'var(--logo-badge-stroke, #818cf8)',
+              strokeOpacity: 'var(--logo-badge-stroke-opacity, 0.55)',
             }}
           />
         </>

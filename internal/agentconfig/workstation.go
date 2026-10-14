@@ -76,6 +76,10 @@ type Defaults struct {
 	ConversationMode string `json:"conversationMode,omitempty"`
 	// CodexApprovalsReviewer routes conversation approvals to the user or native automatic review.
 	CodexApprovalsReviewer string `json:"codexApprovalsReviewer,omitempty"`
+	// AgyConversationMode is the permission mode the first turn of every new
+	// Antigravity conversation runs in on this workstation: "default",
+	// "accept-edits", "auto" or "plan". Empty means "accept-edits".
+	AgyConversationMode string `json:"agyConversationMode,omitempty"`
 	// ClaudeSandbox is the Sandbox values every covered project applies
 	// (#730), under its own values. Nil states nothing.
 	ClaudeSandbox *ClaudeSandbox `json:"claudeSandbox,omitempty"`

@@ -1,35 +1,45 @@
 <svg width="64" height="64" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
+    <linearGradient id="sectile-badge-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a5b4fc" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#4338ca" />
+    </linearGradient>
+
     <linearGradient id="sectile-badge-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1e1b4b" />
-      <stop offset="50%" stop-color="#0f172a" />
-      <stop offset="100%" stop-color="#020617" />
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="50%" stop-color="#312e81" />
+      <stop offset="100%" stop-color="#1e1b4b" />
     </linearGradient>
 
     <linearGradient id="sectile-stream-primary" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#a855f7" />
-      <stop offset="50%" stop-color="#6366f1" />
-      <stop offset="100%" stop-color="#06b6d4" />
+      <stop offset="0%" stop-color="#f5d0fe" />
+      <stop offset="22%" stop-color="#d8b4fe" />
+      <stop offset="58%" stop-color="#818cf8" />
+      <stop offset="100%" stop-color="#22d3ee" />
     </linearGradient>
 
     <linearGradient id="sectile-stream-secondary" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38bdf8" />
-      <stop offset="100%" stop-color="#6366f1" />
+      <stop offset="0%" stop-color="#e0f2fe" />
+      <stop offset="40%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#818cf8" />
     </linearGradient>
 
     <linearGradient id="sectile-facet-bot" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#6366f1" />
-      <stop offset="100%" stop-color="#a855f7" />
+      <stop offset="0%" stop-color="#93c5fd" />
+      <stop offset="50%" stop-color="#a855f7" />
+      <stop offset="100%" stop-color="#f0abfc" />
     </linearGradient>
 
     <linearGradient id="sectile-glow" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#7dd3fc" />
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="35%" stop-color="#bae6fd" />
       <stop offset="100%" stop-color="#38bdf8" />
     </linearGradient>
   </defs>
 
-  <rect width="36" height="36" rx="9" fill="url(#sectile-badge-grad)" />
-  <rect x="0.5" y="0.5" width="35" height="35" rx="8.5" stroke="#6366f1" stroke-opacity="0.4" stroke-width="1" />
+  <rect width="36" height="36" rx="9" fill="url(#sectile-badge-rim)" />
+  <rect x="0.5" y="0.5" width="35" height="35" rx="8.5" fill="url(#sectile-badge-grad)" />
 
   <path d="M 22.85 8.45 Q 23.41 8.13 23.97 8.45 L 27.84 10.68 Q 28.40 11.00 28.40 11.65 L 28.40 13.85 Q 28.40 14.50 27.81 14.23 L 20.04 10.68 Q 19.45 10.41 20.01 10.09 Z" fill="url(#sectile-glow)" />
   <path d="M 7.60 11.65 Q 7.60 11.00 8.16 10.68 L 17.44 5.32 Q 18.00 5.00 18.56 5.33 L 21.59 7.07 Q 22.15 7.40 21.59 7.72 L 8.16 15.48 Q 7.60 15.80 7.60 15.15 Z" fill="url(#sectile-stream-secondary)" />

@@ -218,8 +218,10 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	// A conversation created here starts in the workstation default mode,
 	// read before the queue lock is taken.
 	defaultMode := ""
+	defaultAgyMode := ""
 	if id == "" && r.Method == http.MethodPost {
 		defaultMode = d.workstationConversationMode()
+		defaultAgyMode = d.workstationAgyConversationMode()
 	}
 	var input struct {
 		SourceRunID string `json:"sourceRunId"`
@@ -254,8 +256,11 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 			return
 		}
 		model := ""
-		if source.desktop.Provider == "claude" || source.desktop.Provider == "codex" {
+		if source.desktop.Provider == "claude" || source.desktop.Provider == "codex" || source.desktop.Provider == "agy" {
 			model = source.desktop.Model
+		}
+		if source.desktop.Provider == "agy" {
+			defaultMode = defaultAgyMode
 		}
 		run, err := d.newConversationLocked(source.desktop.ProjectID, source.desktop.Directory, model, defaultMode, "This conversation is independent of the selected execution and uses the same directory.", source.desktop.Provider)
 		if err != nil {
@@ -402,7 +407,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	if input.Mode != "" {
 		run.conversation.mode = input.Mode
 	}
-	if run.desktop.Provider == "codex" {
+	if run.desktop.Provider == "codex" || run.desktop.Provider == "agy" {
 		run.conversation.effort = input.Effort
 	}
 	// A message sent while Claude works joins the turn, as in Claude Code;
@@ -410,7 +415,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	if run.conversation.busy {
 		conversationWrite(run.trace, "user", input.Message, "")
 		message := withShellContext(run.conversation, input.Message)
-		queued := run.desktop.Provider == "codex" || run.conversation.input == nil || run.conversation.input.send(conversationUserMessage(message)) != nil
+		queued := run.desktop.Provider == "codex" || run.desktop.Provider == "agy" || run.conversation.input == nil || run.conversation.input.send(conversationUserMessage(message)) != nil
 		if queued {
 			run.conversation.next = append(run.conversation.next, message)
 		} else {
@@ -457,8 +462,8 @@ func (d *agentDaemon) newConversationLocked(projectID, directory, model, mode, o
 // does not hold becomes acceptEdits. The queue lock is held.
 func startConversationLocked(run *controlledRun, model, mode, origin string, provider ...string) {
 	run.desktop.Provider = "claude"
-	if len(provider) > 0 && provider[0] == "codex" {
-		run.desktop.Provider = "codex"
+	if len(provider) > 0 && (provider[0] == "codex" || provider[0] == "agy") {
+		run.desktop.Provider = provider[0]
 	}
 	run.desktop.Model = model
 	run.desktop.Conversation, run.desktop.Headless = true, true
@@ -470,6 +475,11 @@ func startConversationLocked(run *controlledRun, model, mode, origin string, pro
 		run.conversation.mode = "workspace-write"
 		run.conversation.commands = []conversationSlash{}
 		conversationWrite(run.trace, "notice", "Codex conversation · experimental", "Codex uses its sandbox and asks for approval when needed. "+origin)
+		return
+	}
+	if run.desktop.Provider == "agy" {
+		run.conversation.mode = providerConversationMode("agy", mode)
+		conversationWrite(run.trace, "notice", "Antigravity conversation · experimental", "Workspace edits are accepted by default; choose Auto-approve all tools in the composer when a turn needs commands or external tools that would otherwise be skipped in headless mode. "+origin)
 		return
 	}
 	conversationWrite(run.trace, "notice", "Claude Code conversation · experimental", "Sectile's tools are accepted; what your rules and the chosen mode do not allow asks for your approval. "+origin)
@@ -571,6 +581,10 @@ const conversationInterruptGrace = 5 * time.Second
 func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	if run.desktop.Provider == "codex" {
 		d.codexConversationTurn(run, prompt)
+		return
+	}
+	if run.desktop.Provider == "agy" {
+		d.agyConversationTurn(run, prompt)
 		return
 	}
 	d.queue.mu.Lock()
@@ -895,8 +909,14 @@ func (d *agentDaemon) loadConversationCommandsLocked(run *controlledRun) {
 	for key, value := range c.env {
 		env[key] = value
 	}
-	cmd := claudeConversationCommand(run.desktop.Directory, run.desktop.Model, "", c.mode, "", "", c.extraDirs, env)
+	var cmd *exec.Cmd
 	probe := d.probeConversationCommands
+	if run.desktop.Provider == "agy" {
+		cmd = agyConversationCommand(run.desktop.Directory, run.desktop.Model, "", c.mode, "", "/skills", c.extraDirs, env)
+		probe = d.probeAgyConversationCommands
+	} else {
+		cmd = claudeConversationCommand(run.desktop.Directory, run.desktop.Model, "", c.mode, "", "", c.extraDirs, env)
+	}
 	if d.probeCommandsFn != nil {
 		probe = d.probeCommandsFn
 	}

@@ -39,7 +39,9 @@ func TestConversationDiscussionEngine(t *testing.T) {
 		{agentconfig.Config{AIProvider: "claude"}, true},
 		{agentconfig.Config{AIProvider: " Claude "}, true},
 		{agentconfig.Config{AIProvider: "codex"}, true},
-		{agentconfig.Config{}, false},
+		{agentconfig.Config{AIProvider: "agy"}, true},
+		{agentconfig.Config{}, true},
+		{agentconfig.Config{AIProvider: "custom"}, false},
 		{agentconfig.Config{AIProvider: "claude", AICommandTemplate: "claude --model {model} '{prompt}'"}, true},
 	} {
 		if got := conversationDiscussionEngine(tc.config); got != tc.want {

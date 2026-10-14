@@ -132,6 +132,7 @@ func overlay(base, top Settings) Settings {
 		// Nor the conversation permission mode, which came after them.
 		ConversationMode:       top.Defaults.ConversationMode,
 		CodexApprovalsReviewer: top.Defaults.CodexApprovalsReviewer,
+		AgyConversationMode:    top.Defaults.AgyConversationMode,
 		// No legacy layout knows the Sandbox values (#700, #730) either.
 		ClaudeSandbox:         firstSandbox(top.Defaults.ClaudeSandbox, base.Defaults.ClaudeSandbox),
 		ClaudeSandboxProjects: firstList(top.Defaults.ClaudeSandboxProjects, base.Defaults.ClaudeSandboxProjects),
