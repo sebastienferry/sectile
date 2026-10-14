@@ -25,6 +25,10 @@ test fixtures or internal plumbing.
 - Tool calls in Sectile Desktop conversations sit as compact borderless rows, drawing a frame only when waiting for your approval.
 - Redesigned the Sectile logo and Desktop application icons around an *opus sectile* geometric mosaic mark, with theme-adaptive rendering in the web sidebar across dark and light modes.
 
+### Fixed
+
+- Saving a project after adding, removing, or reordering its trackers or changing its label now immediately refreshes the open board, list, and filter facets without requiring a page reload. (#793)
+
 ## [0.5.0] - 2026-10-12
 
 ### Added

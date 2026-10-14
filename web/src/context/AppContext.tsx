@@ -53,6 +53,7 @@ import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
 import type { StoredUserCredential, OrphanedCredentialReport, TrackerKind } from '../lib/trackers'
 import { NO_ORPHANED_CREDENTIALS, fetchTrackerSummaries, getTrackers, orphanedCredentialsFrom } from '../lib/trackers'
+import { projectSaveRefreshesBoard } from '../lib/projectTrackers'
 import { boardRunProject, runRefusal, type RunProjectCandidate } from '../lib/runProject'
 import {
   NO_JIRA_OAUTH,
@@ -2506,6 +2507,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
       const updated: Project = await res.json()
       await fetchProjects()
+      // A project save that touches its trackers or label changes which tickets
+      // it shows (#741): reload the board and its facets when that project is
+      // on screen (#793).
+      if (
+        projectSaveRefreshesBoard(updated, updates, {
+          selectedProjectId,
+          selectedViewId,
+          viewProjectIds: currentBoardView?.projectIds,
+        })
+      ) {
+        fetchTasks()
+        fetchTaskFacets()
+      }
       addToast({
         type: 'success',
         title: t.operations.projects.updated,
