@@ -38,3 +38,12 @@ No new process launch, migration, batch persistence, parallel dispatch or execut
 - Backlog screenshot inspected: checkbox column and toolbar fit the established ticket layout.
 
 Initial sandbox-only runs could not bind loopback test servers or use the default Go cache; checks were rerun with local-server access and a writable temporary cache. A relay fixture initially omitted its required skill directory and was corrected before the successful final checks. No remaining test failure. Accepted artifacts and existing published history were preserved.
+
+## Adjustment Review
+
+- Verified the existing PR #829 is open for `main <- feat/826` before editing. GitHub issue comments, PR comments, reviews and inline review comments were retrieved successfully. PR feedback lists were empty; there is no unaddressed reviewer feedback. Ticket clarification and stage reports were checked against the implementation and require no further change.
+- Reviewed the complete branch diff against the accepted requirements, including project membership, ordered lead identity, unsupported agents, cancellation, pending submission, refusal/transport retention, single-ticket compatibility and authoritative server checks. No actionable production defect was found.
+- Merged the current default branch without rewriting published history. Removed one trailing blank line from the clarification report so the complete PR diff passes whitespace checks; accepted report content is unchanged.
+- Reviewer focus: the renderer preparation snapshot and pending controls, Electron capability check, and agent forwarding of ordered membership with explicit active project/local device. The server remains responsible for member eligibility and busy races.
+- Replay checks: `cd desktop && npm test`; `cd desktop && node --test --test-concurrency=1 tests/board.ui.cjs tests/project-open-tasks.ui.cjs`; `cd desktop && npm run build`; `GOCACHE=/private/tmp/sectile-826-go-cache go test ./internal/agent ./internal/handlers`; `go vet ./internal/agent ./internal/handlers`; `go build ./cmd/agent`; `make fmt-check`; `openspec validate 826-desktop-batch --strict`; `git diff origin/main...HEAD --check`.
+- Desktop unit tests passed (284/284), Board/Backlog UI tests passed (19/19), production build passed with the existing large-chunk warning, and static analysis, agent build, formatting and strict specification validation passed. The first restricted unit-test attempt could not bind loopback; its rerun with loopback access passed.
