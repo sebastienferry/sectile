@@ -1027,13 +1027,11 @@ export interface TrackerAutoSyncState {
   lastFullSyncAt?: string
 }
 
-// A link a toast offers to the thing it announces: opened in the app, and on
-// its tracker page when it has one.
-export interface ToastLink {
-  label: string
-  onOpen: () => void
-  externalUrl?: string
-}
+// A toast action opens an in-app destination or a tracker-only issue.
+export type ToastLink = { label: string } & (
+  | { onOpen: () => void; externalUrl?: string }
+  | { onOpen?: never; externalUrl: string }
+)
 
 export interface ToastMessage {
   id: string
@@ -1042,6 +1040,7 @@ export interface ToastMessage {
   description?: string
   duration?: number
   link?: ToastLink
+  links?: ToastLink[]
 }
 
 export interface InstalledSkillInfo {

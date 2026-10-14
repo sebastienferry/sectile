@@ -1,4 +1,4 @@
-const {app,BrowserWindow,Menu,ipcMain,dialog,nativeTheme,safeStorage,shell,clipboard}=require('electron')
+const {app,BrowserWindow,Menu,ipcMain,dialog,nativeTheme,safeStorage,shell,clipboard,Notification,powerMonitor}=require('electron')
 const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypto'),os=require('node:os')
 const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
@@ -123,6 +123,25 @@ const settingsStore=settingsFiles({
  sharedPath:settingsPath(),
  legacyPath:path.join(app.getPath('userData'),'agent-settings.json'),
 })
+const {createDesktopUpdates,safeLink}=require('./desktop-updates.cjs')
+const desktopUpdates=createDesktopUpdates({
+ installedVersion:app.getVersion(),
+ storage:{read:()=>readDesktopSettings().desktopUpdates,write:value=>settingsStore.updateDesktop(saved=>{saved.desktopUpdates=value})},
+ publish:state=>{if(window&&!window.isDestroyed())window.webContents.send('desktop-updates',state)},
+ notify:release=>{
+  if(!Notification.isSupported())return
+  const notice=new Notification({title:'Sectile Desktop update available',body:`Version ${release.version} is available. Open Settings → Changelog for downloads.`})
+  notice.show()
+ },
+})
+ipcMain.handle('desktop-updates',()=>desktopUpdates.snapshot())
+ipcMain.handle('check-desktop-updates',()=>desktopUpdates.check())
+ipcMain.handle('open-desktop-update',(_,url)=>{
+ const available=desktopUpdates.snapshot().available
+ if(!available||![available.releaseUrl,available.downloadUrl].includes(url)||!safeLink(url,url===available.downloadUrl))throw Error('Invalid Desktop update link')
+ return shell.openExternal(url)
+})
+app.on('before-quit',()=>desktopUpdates.stop())
 function readDesktopSettings(){
  try{return settingsStore.readDesktop()}catch{return {}}
 }
@@ -692,6 +711,10 @@ else{
  app.whenReady().then(()=>{
   if(process.platform==='darwin'&&app.dock)app.dock.setIcon(path.join(__dirname,'../assets/icon.png'))
   openWindow()
+  if(process.env.SECTILE_DESKTOP_TEST!=='1'){
+   desktopUpdates.start()
+   powerMonitor.on('resume',()=>desktopUpdates.resume())
+  }
  })
  app.on('activate',openWindow)
  // The detached agent and its PTYs survive closing or quitting this UI.

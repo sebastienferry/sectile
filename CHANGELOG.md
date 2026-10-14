@@ -13,6 +13,14 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- Sectile Desktop checks for new stable releases at startup, daily, and from Changelog settings, keeps an update indicator, and offers release and matching download links.
+
+### Fixed
+
+- Issue creation and edit notifications now link to the affected issues, including clones and tracker-only macro stories.
+
 ## [0.6.0] - 2026-10-14
 
 ### Added

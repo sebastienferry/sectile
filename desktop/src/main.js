@@ -1,3 +1,4 @@
+import { renderDesktopUpdates } from './desktop-updates.mjs'
 import { batchMembers, moveBatchMember, suggestedBatchWorktreeName, buildBatchPickupPrompt } from './batch-pickup.mjs'
 import { skillCommandMapping } from './skill-command-mapping.mjs'
 import { installSettingsSearch } from './settings-search.mjs'
@@ -2293,6 +2294,16 @@ async function openSettings(initial='Profile',project){
 }
 const settingsButton=document.querySelector('#settings')
 settingsButton.onclick=()=>openSettings('Profile')
+const updateMarker=document.createElement('span')
+updateMarker.title='Desktop update available';updateMarker.setAttribute('aria-label','Desktop update available');updateMarker.className='desktop-update-marker';updateMarker.textContent='Update available';updateMarker.hidden=true
+settingsButton.after(updateMarker)
+function showDesktopUpdates(state){
+ updateMarker.hidden=!state.available
+ const panel=document.querySelector('.desktop-updates')
+ if(panel)renderDesktopUpdates(panel,state,api)
+}
+api.onDesktopUpdates(showDesktopUpdates)
+api.desktopUpdates().then(showDesktopUpdates).catch(()=>{})
 api.onOpenSettings(()=>{if(!dialog.open&&!configurationActive())openSettings('Profile')})
 const settingsMac=isMacPlatform(navigator)
 settingsButton.title='Settings ('+configShortcutLabel(settingsMac)+')'
@@ -2385,7 +2396,9 @@ async function fillChangelogPanel(panel){
  versions.append(desktopRow,agentRow)
  const notesHeading=document.createElement('h3');notesHeading.className='changelog-heading';notesHeading.textContent='Release notes'
  const notes=document.createElement('div');notes.className='changelog'
- panel.append(versions,notesHeading,notes)
+ const updates=document.createElement('section');updates.className='desktop-updates';updates.setAttribute('aria-label','Desktop updates')
+ panel.append(versions,updates,notesHeading,notes)
+ api.desktopUpdates().then(state=>{if(updates.isConnected)renderDesktopUpdates(updates,state,api)}).catch(()=>{})
 
  const releases=parseChangelog(changelogSource)
  renderChangelog(notes,releases)
