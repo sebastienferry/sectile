@@ -125,7 +125,7 @@ func TestReportUploadFailureIsWarning(t *testing.T) {
 			remote.uploadErr = uploadErr
 			meta := models.ReportMetadata{PublicationID: "spec", Stage: "specified", Summary: "Specification ready."}
 			receipt, err := d.PublishTaskReportAs(context.Background(), Actor{}, task.ID, "full **`report`**", meta, []string{"https://github.com/acme/app/pull/1"}, "")
-			if err != nil || receipt.Warning == "" || receipt.CommentStatus != "completed" || remote.comments != 1 || !strings.Contains(remote.summary, "n'a pas pu être joint") || !strings.Contains(remote.summary, "/pull/1") {
+			if err != nil || receipt.Warning == "" || receipt.CommentStatus != "completed" || remote.comments != 1 || !strings.Contains(remote.summary, "could not be attached") || !strings.Contains(remote.summary, "/pull/1") {
 				t.Fatalf("fallback: %#v %v %s", receipt, err, remote.summary)
 			}
 			if _, err := d.PublishTaskReportAs(context.Background(), Actor{}, task.ID, "full **`report`**", meta, []string{"https://github.com/acme/app/pull/1"}, ""); err != nil || remote.uploads != 1 {

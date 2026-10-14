@@ -18,8 +18,12 @@ import (
 
 var reportFilenameChars = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 
+// reportStageNames names a report after the stage it closes, in the attachment
+// filename and in the summary comment the tracker shows.
+var reportStageNames = map[string]string{"clarified": "clarification", "specified": "specification", "implemented": "implementation", "reviewed": "review", "finished": "handoff"}
+
 func reportFilename(taskKey string, r models.TaskReport) string {
-	stage := map[string]string{"clarified": "clarification", "specified": "specification", "implemented": "implementation", "reviewed": "review", "finished": "handoff"}[r.Stage]
+	stage := reportStageNames[r.Stage]
 	if r.Round > 0 {
 		stage += fmt.Sprintf("-round-%d", r.Round)
 	}
@@ -229,9 +233,9 @@ func (d *DB) PublishTaskReportAs(ctx context.Context, actor Actor, taskID, body 
 		}
 		summary := meta.Summary
 		if r.Attachment != nil {
-			summary += "\n\nRapport complet : " + r.Attachment.Name + "\n" + r.Attachment.URL
+			summary += "\n\nFull report: " + r.Attachment.Name + "\n" + r.Attachment.URL
 		} else {
-			summary += "\n\nLe rapport complet n'a pas pu être joint. Il reste disponible dans l'historique Sectile."
+			summary += "\n\nThe full report could not be attached. It remains available in the Sectile task history."
 		}
 		for _, link := range prURLs {
 			if link != "" {

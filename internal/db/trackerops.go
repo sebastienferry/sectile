@@ -198,7 +198,7 @@ func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {
 
 	activityID := uuid.New().String()
 	if op.Kind == TrackerOpStage && strings.TrimSpace(op.Note) != "" && op.Report == nil && op.Stage != "new" {
-		op.Report = &models.ReportMetadata{PublicationID: activityID, Stage: op.Stage, Summary: "Rapport de l'étape « " + op.Stage + " » disponible."}
+		op.Report = &models.ReportMetadata{PublicationID: activityID, Stage: op.Stage, Summary: "Sectile " + reportStageNames[op.Stage] + " report."}
 	}
 	now := time.Now()
 
