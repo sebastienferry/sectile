@@ -73,6 +73,22 @@
     --header-input-border: #30343a;
     --header-text: #f5f6f8;
     --header-text-muted: #a1a9b4;
+
+    /* --- Sectile logo palette (dark badge by default) --- */
+    --logo-badge-start: #1e1b4b;
+    --logo-badge-mid: #0f172a;
+    --logo-badge-end: #020617;
+    --logo-badge-stroke: #6366f1;
+    --logo-badge-stroke-opacity: 0.4;
+    --logo-keystone-start: #a855f7;
+    --logo-keystone-mid: #6366f1;
+    --logo-keystone-end: #06b6d4;
+    --logo-arch-top-start: #38bdf8;
+    --logo-arch-top-end: #6366f1;
+    --logo-arch-bot-start: #6366f1;
+    --logo-arch-bot-end: #a855f7;
+    --logo-inlay-start: #7dd3fc;
+    --logo-inlay-end: #38bdf8;
   }
 
   .light {
@@ -95,6 +111,21 @@
     --header-accent-tint: rgb(var(--accent-rgb) / 0.08);
     --sidebar-accent-tint: rgb(var(--accent-rgb) / 0.09);
     --sidebar-border: var(--border-color);
+
+    --logo-badge-start: #ffffff;
+    --logo-badge-mid: #eef2ff;
+    --logo-badge-end: #e0e7ff;
+    --logo-badge-stroke: #6366f1;
+    --logo-badge-stroke-opacity: 0.3;
+    --logo-keystone-start: #9333ea;
+    --logo-keystone-mid: #4f46e5;
+    --logo-keystone-end: #0891b2;
+    --logo-arch-top-start: #0284c7;
+    --logo-arch-top-end: #4f46e5;
+    --logo-arch-bot-start: #4f46e5;
+    --logo-arch-bot-end: #9333ea;
+    --logo-inlay-start: #0ea5e9;
+    --logo-inlay-end: #0284c7;
   }
 
   /* =======================================================================
