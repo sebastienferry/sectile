@@ -179,7 +179,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"batch-launch", "git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", "agy-conversation", codexSettingsCapability, agySettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability, taskPageCapability, taskFieldsCapability, stageMoveCapability}
+		capabilities := []string{"engine-setup", "batch-launch", "git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", "agy-conversation", codexSettingsCapability, agySettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability, taskPageCapability, taskFieldsCapability, stageMoveCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -274,6 +274,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/console-view" {
 		d.desktopConsoleView(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/setup" {
+		d.desktopSetup(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/codex-settings" {
@@ -935,6 +939,12 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, mappingErr.Error(), 400)
 		return
 	}
+	if r.URL.Query().Get("action") == "framework" {
+		if provider := r.URL.Query().Get("provider"); provider != "" && !setupProvider(provider) {
+			http.Error(w, "Fournisseur non pris en charge", 400)
+			return
+		}
+	}
 	// Do not change scaffolding underneath active native clients.
 	d.queue.mu.Lock()
 	for _, run := range d.queue.runs {
@@ -976,6 +986,12 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		var result initializationResult
 		if action == "provider-skills" {
 			result, _ = installProviderSkills(root, config, provider)
+			if result.Skills.Status == "success" {
+				if err := d.recordSetupAssets(provider, "skills", id, root, config.SpecFramework); err != nil {
+					result.Success = false
+					result.Skills = initializationStep{Status: "failed", Message: "Installation effectuée, mais sa vérification a échoué. Réessayez."}
+				}
+			}
 		} else {
 			result, _ = d.initializeProvider(root, config, provider)
 		}
@@ -997,6 +1013,12 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		if result.Error != "" {
 			http.Error(w, result.Error, 500)
 			return
+		}
+		if provider := r.URL.Query().Get("provider"); provider != "" {
+			if err := d.recordSetupAssets(provider, "sdd", id, root, config.SpecFramework); err != nil {
+				http.Error(w, "Installation effectuée, mais sa vérification a échoué. Réessayez.", 500)
+				return
+			}
 		}
 		_ = json.NewEncoder(w).Encode(result)
 	default:

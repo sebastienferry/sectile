@@ -33,3 +33,16 @@ Claude: reuse conversation permissions and workstation sandbox/whitelist, with e
 Configuration readback proves saved configuration only. Summary includes per-step outcomes and restart reminder, without launching AI sessions. Reject automatic startup modal, blanket completion flags, automatic permission presets, auto-installing plugins, silently selecting the first project, and a second provider configuration writer. Runtime additions follow the accepted French surface requirement; existing unrelated strings are not translated. Artifacts/comments/tests remain English.
 
 Test the reducer and integration boundary with real outcome shapes, then Desktop UI and Go handlers. Include restart, changed-file invalidation, missing capability, partial failure and stale response cases. No production builds are required to validate this documentation-only stage; implementation checks are listed in tasks.md.
+
+## Implementation decisions
+
+The setup readback is provider-scoped (`/desktop/setup?provider=...`) rather than
+one combined inventory response. Desktop aggregates the distinct catalogue
+providers; each view includes the selected SDD project's scope. This keeps
+unknown reads isolated while reusing existing per-provider APIs. Installer
+manifest assets verify standalone skills; SDD observation covers framework
+configuration, scripts/templates and framework-specific command/skill folders,
+excluding changing issue artifacts and unrelated plugins. Permission saves use
+the existing provider APIs and Sandbox panel; explicit review acknowledges the
+refreshed effective controls. Electron owns the once-per-application-launch toast
+guard so renderer reloads cannot repeat it.

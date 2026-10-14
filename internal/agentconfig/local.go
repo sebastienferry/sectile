@@ -26,9 +26,10 @@ type MCPConnection struct {
 // it is the only source of the execution settings: the workstation defaults,
 // one section per project, and what the server no longer holds.
 type Settings struct {
-	Layout          int                        `json:"layout,omitempty"`
-	Defaults        Defaults                   `json:"defaults"`
-	ProjectSettings map[string]ProjectSettings `json:"projectSettings,omitempty"`
+	Setup           map[string]map[string]SetupOutcome `json:"setup,omitempty"`
+	Layout          int                                `json:"layout,omitempty"`
+	Defaults        Defaults                           `json:"defaults"`
+	ProjectSettings map[string]ProjectSettings         `json:"projectSettings,omitempty"`
 	// Repositories maps a repository, by identity, to the local folder that
 	// holds its checkout (#456). Keyed by repository rather than by project,
 	// one checkout serves every project that works in it.
