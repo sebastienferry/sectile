@@ -567,11 +567,14 @@ dialog.workstation-settings{width:min(1100px,94vw);max-height:90vh}
 .conversation-speaker{display:block;font-size:11px;color:var(--text-faint);margin-bottom:6px}
 .conversation-event pre{padding:12px;overflow:auto;background:var(--button-bg);border:1px solid var(--border-strong);border-radius:8px;white-space:pre-wrap}
 .conversation-event code{font-family:Menlo,Consolas,monospace;font-size:12px}
-.conversation-tool{padding:8px 12px;border:1px solid var(--border-strong);border-radius:8px}
+.conversation-tool{padding:2px 6px;border:1px solid transparent;border-radius:8px}
 .conversation-tool summary{cursor:pointer;font-weight:600}
 /* Tool cards: the summary line names the tool, what it acted on and a short
-   note; the body, when there is one, opens on demand. */
-.tool-card{padding:6px 12px}
+   note; the body, when there is one, opens on demand. Cards sit as plain lines
+   with tight spacing, and only a card waiting for approval draws a frame. */
+.tool-card+.tool-card{margin-top:-12px}
+details.tool-card[open]+.tool-card,.tool-card+details.tool-card[open],.tool-card-asking+.tool-card,.tool-card+.tool-card-asking{margin-top:-8px}
+details.tool-card:not([open]):not(.tool-card-asking):hover{background:var(--surface)}
 .tool-card-summary{display:flex;align-items:baseline;gap:8px;min-width:0;font-weight:400}
 details.tool-card>summary{list-style:none}
 details.tool-card>summary::-webkit-details-marker{display:none}
@@ -581,18 +584,17 @@ details.tool-card[open]>summary::before{content:'▾'}
 .tool-card-name{font-weight:600;flex:none}
 .tool-card-target{font:12px Menlo,Consolas,monospace;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .tool-card-note{margin-left:auto;padding-left:8px;font-size:12px;color:var(--text-faint);white-space:nowrap;flex:none}
-.conversation-event pre.tool-card-diff,.conversation-event pre.tool-card-code{margin:8px 0 2px;max-height:420px;overflow:auto;font:12px/1.5 Menlo,Consolas,monospace}
+.conversation-event pre.tool-card-diff,.conversation-event pre.tool-card-code{margin:6px 0 2px;max-height:420px;overflow:auto;font:12px/1.5 Menlo,Consolas,monospace}
 .conversation-event pre.tool-card-diff{white-space:pre;padding:8px 0}
 .tool-card-diff span{display:block;padding:0 12px;min-width:max-content}
-.tool-card-todos{list-style:none;margin:8px 0 2px;padding:0 0 0 16px;display:flex;flex-direction:column;gap:3px}
+.tool-card-todos{list-style:none;margin:6px 0 2px;padding:0 0 0 16px;display:flex;flex-direction:column;gap:3px}
 .tool-card-todo{display:flex;gap:8px;align-items:center}.tool-card-todo input{display:inline-block;width:auto;flex:none;margin:0;padding:0}
 .tool-card-todo-completed span{color:var(--text-faint);text-decoration:line-through}
 .tool-card-todo-in_progress span{font-weight:600}
-.conversation-event pre.tool-card-result{margin:8px 0 2px;max-height:320px;overflow:auto;font:12px/1.5 Menlo,Consolas,monospace;color:var(--text-secondary)}
+.conversation-event pre.tool-card-result{margin:6px 0 2px;max-height:320px;overflow:auto;font:12px/1.5 Menlo,Consolas,monospace;color:var(--text-secondary)}
 .conversation-event pre.tool-card-result-error{color:var(--danger);border-color:var(--danger)}
-.tool-card-failed{border-color:var(--danger)}
 .tool-card-failed .tool-card-status{color:var(--danger)}
-.tool-card-asking{border-color:var(--accent-border)}
+.tool-card-asking{padding:6px 12px;border-color:var(--accent-border)}
 .tool-approval{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0 2px;padding-top:8px;border-top:1px solid var(--border-subtle)}
 .tool-approval>p,.tool-approval>details{flex-basis:100%;min-width:0;margin:0;font-size:12px;overflow-wrap:anywhere}
 .tool-approval>details pre{max-height:180px;overflow:auto;white-space:pre-wrap}

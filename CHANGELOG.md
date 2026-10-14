@@ -22,6 +22,7 @@ test fixtures or internal plumbing.
 ### Changed
 
 - Desktop task creation and editing now offer tracker-specific issue types and priority, place pull requests below the description, and omit the assignee field. (#825)
+- Tool calls in Sectile Desktop conversations sit as compact borderless rows, drawing a frame only when waiting for your approval.
 - Redesigned the Sectile logo and Desktop application icons around an *opus sectile* geometric mosaic mark, with theme-adaptive rendering in the web sidebar across dark and light modes.
 
 ## [0.5.0] - 2026-10-12
