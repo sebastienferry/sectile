@@ -14,6 +14,15 @@ export function StatusBar() {
     <footer className="flex items-center justify-between border-t border-[var(--border-color)] bg-[var(--bg-secondary)] px-4 py-2 text-xs text-[var(--text-muted)]">
       <span>{currentProject?.name || t.shell.statusBar.allProjects}</span>
       <div className="flex items-center gap-4">
+        <a
+          href="/help/guide.html"
+          target="_blank"
+          rel="noopener noreferrer"
+          title={t.shell.statusBar.userGuideTitle}
+          className="hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+        >
+          {t.shell.statusBar.userGuide}
+        </a>
         {/* Le zoom et la densité, à portée du regard qui trouve l'écran trop
             petit plutôt qu'à quatre clics dans les réglages. */}
         <DisplayScaleMenu />

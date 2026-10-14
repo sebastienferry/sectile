@@ -375,6 +375,17 @@ export const CommandPalette: React.FC = () => {
         setIsProfileOpen(true)
       },
     },
+    {
+      id: 'open_guide',
+      title: t.shell.palette.userGuide,
+      icon: <HelpCircle size={16} className="text-amber-400" />,
+      shortcut: '?',
+      keywords: ['guide', 'help', 'aide', 'documentation', 'docs', 'manuel', 'workflow'],
+      action: () => {
+        setIsCommandPaletteOpen(false)
+        window.open('/help/guide.html', '_blank', 'noopener,noreferrer')
+      },
+    },
     ...(currentUser?.role === 'admin'
       ? [
           {
