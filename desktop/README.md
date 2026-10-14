@@ -105,17 +105,18 @@ app-server requests receive an explicit error and a transcript notice.
 ### Antigravity conversations
 
 Antigravity (`agy`) must already be installed and signed in. Each message runs
-`agy --output-format stream-json --verbose -p` and resumes the session with
-`--conversation=<uuid>`. The composer offers **Accept edits** (the default),
-**Ask before edits**, **Auto-approve all tools** and **Plan mode**, along with
-the Antigravity models configured in Settings and reasoning effort. Typing `/`
-completes the skills discovered from `agy -p=/skills` plus built-in commands
-(`/skills`, `/mcp`, `/stats`, `/models`), `!` runs a shell command in the
-conversation directory, and the **Sectile MCP** chip checks `agy mcp list`.
-Because `agy` print mode does not pause mid-turn for interactive tool approvals,
-any tool call blocked by the active mode is reported as a notice at the end of
-the turn, and a message sent while Antigravity answers is queued to start the
-next turn automatically.
+`agy --input-format stream-json --output-format stream-json -p=` and resumes the
+session with `--conversation=<uuid>`. **Settings → Antigravity settings →
+Conversation permission mode** sets the initial mode for new conversations, and
+the composer offers **Accept edits** (the default), **Ask / follow rules**,
+**Auto-approve all tools** and **Plan mode**, along with the Antigravity models
+configured in Settings and reasoning effort. Typing `/` completes the skills
+discovered from `agy -p=/skills` plus built-in commands (`/skills`, `/mcp`,
+`/stats`, `/models`), `!` runs a shell command in the conversation directory,
+and the **Sectile MCP** chip checks `agy mcp list`. Because `agy` print mode
+does not pause mid-turn for interactive tool approvals, any tool call blocked by
+the active mode is reported as a notice at the end of the turn, and a message
+sent while Antigravity answers is queued to start the next turn automatically.
 
 See [prototype notes](../docs/experiments/desktop-conversation.md).
 

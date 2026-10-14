@@ -168,8 +168,9 @@ See the [Desktop guide](../desktop/README.md#use) for installation, settings, co
 
 Codex conversations use **Settings → Codex settings → Approval reviewer** to
 choose **Ask me** or **Approve on my behalf**, applying from the next message
-with the sandbox still active. Claude’s initial **Conversation permission mode**
-is configured in **Settings → Claude settings**.
+with the sandbox still active. Claude’s and Antigravity’s initial **Conversation
+permission mode** are configured in **Settings → Claude settings** and
+**Settings → Antigravity settings**.
 
 Desktop **General** settings combine user profile information and appearance.
 Use **Search settings** to find fields across the loaded settings categories.

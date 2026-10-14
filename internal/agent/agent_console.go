@@ -94,6 +94,9 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	// not run, only its model is kept, and the first notice says so.
 	if input.View == "conversation" && (provider == "claude" || provider == "codex" || provider == "agy") {
 		mode := d.workstationConversationMode()
+		if provider == "agy" {
+			mode = d.workstationAgyConversationMode()
+		}
 		d.queue.mu.Lock()
 		run, err := d.newConversationLocked(input.ProjectID, root, conversationModel(config), mode, conversationOrigin(config, "It runs in this project's local repository."), provider)
 		if err != nil {

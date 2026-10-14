@@ -12,10 +12,16 @@ test('Antigravity conversation offers models, efforts, permission modes, slash s
   {kind:'tool',tool:'Edit',text:'Edit',toolId:'agy-step-2',input:{file_path:'/tmp/project/app.js',old_string:'old',new_string:'new'}},
   {kind:'tool_result',toolId:'agy-step-2',text:'Replaced 1 occurrence'}
  ]
- let busy=false,messages=[]
+ let busy=false,messages=[],agySettings={conversationMode:'accept-edits'}
  const server=http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json')
-  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,capabilities:['claude-conversation','codex-conversation','agy-conversation','conversation-controls','conversation-queue']}));return}
+  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,capabilities:['claude-conversation','codex-conversation','agy-conversation','agy-settings','conversation-controls','conversation-queue']}));return}
+  if(req.url==='/desktop/agy-settings'){
+   if(req.method==='GET'){res.end(JSON.stringify(agySettings));return}
+   let body='';req.on('data',chunk=>body+=chunk);req.on('end',()=>{
+    agySettings=JSON.parse(body);res.end(JSON.stringify(agySettings))
+   });return
+  }
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'p',name:'Project',path:'/tmp/project'}]));return}
   if(req.url.startsWith('/desktop/project?')){res.end(JSON.stringify({configured:true,server:{skills:[]}}));return}
   if(req.url.startsWith('/desktop/tasks?')){res.end('[]');return}
@@ -60,6 +66,13 @@ test('Antigravity conversation offers models, efforts, permission modes, slash s
   assert.equal(messages[0].mode,'auto')
   assert.equal(messages[0].effort,'high')
   assert.equal(messages[0].message,'/clarify-issue #42')
+  await page.locator('#settings').click()
+  await page.getByRole('tab',{name:'Antigravity settings',exact:true}).click()
+  const agyPanel=page.locator('#settings-panel-Antigravity')
+  const defaultPerm=agyPanel.getByLabel('Antigravity conversation permission mode',{exact:true})
+  await expect(defaultPerm).toHaveValue('accept-edits')
+  await defaultPerm.selectOption('auto')
+  await expect.poll(()=>agySettings.conversationMode).toBe('auto')
  }finally{
   if(app)await app.close()
   await new Promise(resolve=>server.close(resolve))

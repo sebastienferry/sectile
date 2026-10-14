@@ -1380,6 +1380,9 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 // first turn runs in the workstation default permission mode.
 func (d *agentDaemon) startLaunchConversation(run *controlledRun, entry desktopRun, model, origin, first string, env map[string]string, extraDirs []string, provider ...string) {
 	mode := d.workstationConversationMode()
+	if len(provider) > 0 && provider[0] == "agy" {
+		mode = d.workstationAgyConversationMode()
+	}
 	d.queue.mu.Lock()
 	entry.CreatedAt, entry.Prompt = run.desktop.CreatedAt, run.desktop.Prompt
 	run.desktop = entry

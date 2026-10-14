@@ -218,8 +218,10 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	// A conversation created here starts in the workstation default mode,
 	// read before the queue lock is taken.
 	defaultMode := ""
+	defaultAgyMode := ""
 	if id == "" && r.Method == http.MethodPost {
 		defaultMode = d.workstationConversationMode()
+		defaultAgyMode = d.workstationAgyConversationMode()
 	}
 	var input struct {
 		SourceRunID string `json:"sourceRunId"`
@@ -256,6 +258,9 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		model := ""
 		if source.desktop.Provider == "claude" || source.desktop.Provider == "codex" || source.desktop.Provider == "agy" {
 			model = source.desktop.Model
+		}
+		if source.desktop.Provider == "agy" {
+			defaultMode = defaultAgyMode
 		}
 		run, err := d.newConversationLocked(source.desktop.ProjectID, source.desktop.Directory, model, defaultMode, "This conversation is independent of the selected execution and uses the same directory.", source.desktop.Provider)
 		if err != nil {

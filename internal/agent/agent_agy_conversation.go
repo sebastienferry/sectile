@@ -5,16 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os/exec"
 	"sort"
 	"strings"
 	"time"
 
+	"tasks/internal/agentconfig"
 	"tasks/internal/agentexec"
 	"tasks/internal/runner"
 
 	"github.com/google/uuid"
 )
+
+const agySettingsCapability = "agy-settings"
 
 // agyConversationModes are the permission modes the owner can pick in an
 // Antigravity conversation:
@@ -27,6 +31,49 @@ var agyConversationModes = map[string]bool{
 	"accept-edits": true,
 	"auto":         true,
 	"plan":         true,
+}
+
+func (d *agentDaemon) workstationAgyConversationMode() string {
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	if err == nil && agyConversationModes[settings.Defaults.AgyConversationMode] {
+		return settings.Defaults.AgyConversationMode
+	}
+	return "accept-edits"
+}
+
+// desktopAgySettings reads and updates the workstation default permission mode
+// for new Antigravity conversations.
+func (d *agentDaemon) desktopAgySettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPut {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	mode := d.workstationAgyConversationMode()
+	if r.Method == http.MethodPut {
+		var input struct {
+			ConversationMode string `json:"conversationMode"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&input); err != nil || !agyConversationModes[input.ConversationMode] {
+			http.Error(w, "Invalid Antigravity conversation permission mode", http.StatusBadRequest)
+			return
+		}
+		d.prepareMu.Lock()
+		_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+			settings.Defaults.AgyConversationMode = ""
+			if input.ConversationMode != "accept-edits" {
+				settings.Defaults.AgyConversationMode = input.ConversationMode
+			}
+			return nil
+		})
+		d.prepareMu.Unlock()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		mode = input.ConversationMode
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"conversationMode": mode})
 }
 
 // agyLocalCommands are the slash commands Antigravity answers in the CLI itself

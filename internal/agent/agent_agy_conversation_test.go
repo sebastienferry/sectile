@@ -243,3 +243,45 @@ printf '%s\n' '{"event":"result","result":{"conversation_id":"11111111-1111-4111
 		t.Fatalf("trace missing expected assistant or command output:\n%s", joined)
 	}
 }
+
+func TestDesktopAgySettingsPersistsConversationMode(t *testing.T) {
+	testhome.Temp(t)
+	d := &agentDaemon{loopback: loopbackServer{desktopToken: "private"}}
+
+	get := func() string {
+		t.Helper()
+		w := conversationRequest(d, http.MethodGet, "/desktop/agy-settings", "", "private")
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET /desktop/agy-settings = %d %s", w.Code, w.Body.String())
+		}
+		var payload struct {
+			ConversationMode string `json:"conversationMode"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+			t.Fatal(err)
+		}
+		return payload.ConversationMode
+	}
+
+	if got := get(); got != "accept-edits" {
+		t.Fatalf("default conversationMode = %q, want accept-edits", got)
+	}
+
+	put := func(body string, wantCode int) {
+		t.Helper()
+		w := conversationRequest(d, http.MethodPut, "/desktop/agy-settings", body, "private")
+		if w.Code != wantCode {
+			t.Fatalf("PUT /desktop/agy-settings(%s) = %d %s, want %d", body, w.Code, w.Body.String(), wantCode)
+		}
+	}
+
+	put(`{"conversationMode":"auto"}`, http.StatusOK)
+	if got := get(); got != "auto" {
+		t.Fatalf("saved conversationMode = %q, want auto", got)
+	}
+	if got := d.workstationAgyConversationMode(); got != "auto" {
+		t.Fatalf("workstationAgyConversationMode() = %q, want auto", got)
+	}
+	put(`{"conversationMode":"invalid"}`, http.StatusBadRequest)
+}
+
