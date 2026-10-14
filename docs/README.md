@@ -6,6 +6,7 @@ Welcome to the comprehensive technical documentation for **Sectile** (formerly S
 
 ## 📚 Documentation Index
 
+- [**Embedded Web Help Guide** (`../web/public/help/guide.html`)](../web/public/help/guide.html): standalone interactive HTML user & developer workflow guide embedded in the Sectile web interface at `/help/guide.html`.
 - [**User guide** (`USER_GUIDE.md`)](./USER_GUIDE.md): sign in, configure
   tracker access and projects, pair a workstation, and work on tickets from
   Claude Code or Desktop.
