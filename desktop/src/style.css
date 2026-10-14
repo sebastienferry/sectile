@@ -779,3 +779,8 @@ dialog.palette-dialog #close-dialog{display:none}
 .skill-command-mapping tbody th{font-weight:500}
 .skill-command-mapping code{white-space:nowrap;color:var(--text-muted)}
 .skill-command-mapping input{min-width:160px;margin:0}
+
+.batch-toolbar,.batch-member{display:flex;align-items:center;gap:8px}
+.batch-members{display:grid;gap:8px;margin:16px 0}
+.batch-member span{flex:1}
+.batch-checkbox{width:16px;height:16px;flex-shrink:0}

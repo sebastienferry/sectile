@@ -49,3 +49,10 @@ test('a refused launch shows the reason, not the raw body', () => {
   assert.equal(launchErrorText(new Error('broken {json')), 'broken {json')
   assert.equal(launchErrorText('plain'), 'plain')
 })
+
+test('batch launch carries ordered full IDs without changing single-ticket payloads',()=>{
+ const ids=['full-2','full-1']
+ assert.deepEqual(launchRequest('p','full-2','pickup_issues','prompt','autonomous',false,'conversation',ids),{
+  route:'/desktop/tasks?projectId=p',body:{taskID:'full-2',skillID:'pickup_issues',prompt:'prompt',mode:'autonomous',view:'conversation',batchTaskIds:ids}
+ })
+})

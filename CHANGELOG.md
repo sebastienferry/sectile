@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Prepare and launch sequential ticket batches from Desktop Board and Backlog, with an editable execution order and shared worktree name.
 - Embedded **User & Workflow Guide** (`/help/guide.html`) accessible from the web status bar (**Guide**) and command palette (**User Guide**, `?`), covering project setup, personal tracker credentials, Sectile Desktop & CLI pairing, the five-stage SDD workflow, macros, MCP, and step-by-step How-To guides with screenshots.
 - Closing a sprint from the Timeline lets you pick which open sprint receives its unfinished work, not only the next one; the sprint you pick can be started automatically. (#821)
 

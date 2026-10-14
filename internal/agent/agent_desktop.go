@@ -179,7 +179,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", codexSettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability, taskPageCapability, stageMoveCapability}
+		capabilities := []string{"batch-launch", "git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", codexSettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability, taskPageCapability, stageMoveCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -1036,9 +1036,10 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		TaskID  string
-		SkillID string
-		Prompt  string
+		TaskID       string
+		SkillID      string
+		Prompt       string
+		BatchTaskIDs []string `json:"batchTaskIds"`
 		// Mode is the one-off execution mode the user chose in the Launch or
 		// Relaunch dialog. Empty means no override: the server's precedence
 		// still applies. The agent does not interpret it, it passes it on.
@@ -1056,6 +1057,21 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.TaskID == "" {
 		http.Error(w, "Task and skill required", 400)
 		return
+	}
+	if input.BatchTaskIDs != nil {
+		if len(input.BatchTaskIDs) < 2 || input.BatchTaskIDs[0] != input.TaskID || input.SkillID != "pickup_issues" || input.Force {
+			http.Error(w, "Select at least two batch tickets without forcing the launch", http.StatusBadRequest)
+			return
+		}
+		seen := make(map[string]bool)
+		for _, id := range input.BatchTaskIDs {
+			if strings.TrimSpace(id) == "" || seen[id] {
+				http.Error(w, "Batch tickets must be distinct", http.StatusBadRequest)
+				return
+			}
+			seen[id] = true
+		}
+		input.Mode = "autonomous"
 	}
 	var task models.Task
 	if err := d.readAPI(r.Context(), "/api/tasks/"+url.PathEscape(input.TaskID), &task); err != nil {
@@ -1094,7 +1110,11 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Identité du poste local indisponible", http.StatusBadRequest)
 		return
 	}
-	body := mustJSON(map[string]any{"targetDeviceId": d.link.deviceID, "skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force, "projectId": projectID})
+	payload := map[string]any{"targetDeviceId": d.link.deviceID, "skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force, "projectId": projectID}
+	if input.BatchTaskIDs != nil {
+		payload["batchTaskIds"] = input.BatchTaskIDs
+	}
+	body := mustJSON(payload)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)

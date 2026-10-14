@@ -1,3 +1,4 @@
+import { batchMembers, moveBatchMember, suggestedBatchWorktreeName, buildBatchPickupPrompt } from './batch-pickup.mjs'
 import { skillCommandMapping } from './skill-command-mapping.mjs'
 import { installSettingsSearch } from './settings-search.mjs'
 import { prLabel, pullRequestMenuEntries, pullRequestPresentation, renderPullRequestIndicator, repositoryPullRequests } from './pullRequests.mjs'
@@ -2919,6 +2920,7 @@ function closeTickets(restoreFocus=true){
  if(!ticketsOpen)return
  const projectID=ticketsView?.projectID,opener=ticketsView?.opener
  ticketsView?.closeOpenMenu?.()
+ batchSelection={projectID:null,ids:[]}
  ticketsOpen=false;ticketsView=null;ticketsPane.hidden=true;ticketsPane.replaceChildren()
  document.querySelector('#workspace article').hidden=false
  resize()
@@ -2931,8 +2933,84 @@ function closeTickets(restoreFocus=true){
  const target=reachable(opener)?opener:document.querySelector('.project-more[data-project-id="'+CSS.escape(projectID||'')+'"]')||document.querySelector('#command-palette')
  if(reachable(target))target.focus()
 }
+let batchSelection={projectID:null,ids:[]}
+function batchToolbar(view){
+ const group=document.createElement('div');group.className='batch-toolbar'
+ const count=document.createElement('span');count.setAttribute('role','status')
+ const clear=document.createElement('button');clear.type='button';clear.textContent='Clear selection'
+ const prepare=document.createElement('button');prepare.type='button';prepare.textContent='Prepare batch'
+ view.syncBatch=()=>{count.textContent=batchSelection.ids.length+' selected';clear.disabled=!batchSelection.ids.length;prepare.disabled=batchSelection.ids.length<2}
+ clear.onclick=()=>{batchSelection.ids=[];view.syncBatch();for(const box of view.list.querySelectorAll('.batch-checkbox'))box.checked=false}
+ prepare.onclick=()=>prepareBatch(view)
+ group.append(count,clear,prepare);view.syncBatch();return group
+}
+function batchCheckbox(view,task){
+ const box=document.createElement('input');box.type='checkbox';box.className='batch-checkbox'
+ box.setAttribute('aria-label','Select '+(task.key||task.id)+' for batch');box.checked=batchSelection.ids.includes(task.id)
+ box.onclick=event=>event.stopPropagation()
+ box.onpointerdown=event=>event.stopPropagation()
+ box.ondragstart=event=>{event.preventDefault();event.stopPropagation()}
+ box.onchange=()=>{batchSelection.ids=box.checked?[...batchSelection.ids,task.id]:batchSelection.ids.filter(id=>id!==task.id);view.syncBatch()}
+ return box
+}
+async function prepareBatch(view){
+ let ids=[...batchSelection.ids],pending=false,supported=false,tasks=[],readError=''
+ showDialog('Prepare batch')
+ const members=document.createElement('div');members.className='batch-members'
+ const label=document.createElement('label');label.textContent='Shared worktree name'
+ const name=document.createElement('input');name.setAttribute('aria-label','Shared worktree name');label.append(name)
+ name.value=suggestedBatchWorktreeName(ids.map(id=>view.tasks.find(task=>task.id===id)?.key||id))
+ let nameEdited=false;name.oninput=()=>{nameEdited=true}
+ const notice=document.createElement('p');notice.setAttribute('role','alert');notice.textContent='Checking batch support…'
+ const launch=document.createElement('button');launch.type='button';launch.textContent='Launch batch';launch.disabled=true
+ const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>dialog.close()
+ dialogBody.append(members,label,launch,cancel,notice)
+ function draw(focusId=null,offset=null){
+  members.replaceChildren()
+  ids.forEach((id,index)=>{
+   const task=tasks.find(task=>task.id===id)||view.tasks.find(task=>task.id===id)
+   const row=document.createElement('div');row.className='batch-member'
+   const title=document.createElement('span');title.textContent=task?(task.key||id)+' · '+task.title:id+' · unavailable'
+   row.append(title)
+   for(const [delta,text] of [[-1,'Move up'],[1,'Move down']]){
+    const button=document.createElement('button');button.type='button';button.textContent=text
+    button.dataset.member=id;button.dataset.offset=delta
+    button.setAttribute('aria-label',text+' '+(task?.key||id));button.disabled=pending||index+delta<0||index+delta>=ids.length
+    button.onclick=()=>{ids=moveBatchMember(ids,index,delta);draw(id,delta)};row.append(button)
+   }
+   members.append(row)
+  })
+  if(focusId){const buttons=[...members.querySelectorAll('button')];(buttons.find(button=>button.dataset.member===focusId&&Number(button.dataset.offset)===offset&&!button.disabled)||buttons.find(button=>button.dataset.member===focusId&&!button.disabled))?.focus()}
+ }
+ draw()
+ try{
+  const [agent,fresh]=await Promise.all([api.status(),api.serverTasks(view.projectID,'',false)])
+  supported=!!agent.capabilities?.includes('batch-launch');tasks=fresh
+  batchMembers(ids,tasks,view.projectID)
+ }catch(err){readError=launchErrorText(err)}
+ if(!members.isConnected)return
+ if(!readError&&!nameEdited)name.value=suggestedBatchWorktreeName(ids.map(id=>tasks.find(task=>task.id===id)?.key||id))
+ draw();notice.textContent=readError||(!supported?'Update and restart the local agent to launch a batch.':'');launch.disabled=!!readError||!supported||!view.info?.configured
+ launch.onclick=async()=>{
+  if(pending)return
+  let prompt
+  try{batchMembers(ids,tasks,view.projectID);prompt=buildBatchPickupPrompt(ids,name.value)}catch(err){notice.textContent=err.message;return}
+  pending=true;launch.disabled=true;cancel.disabled=true;name.disabled=true
+  const close=document.querySelector('#close-dialog'),preventClose=event=>event.preventDefault()
+  close.disabled=true;dialog.addEventListener('cancel',preventClose)
+  draw();notice.textContent='Submitting batch…'
+  try{
+   await api.launchServerTask(view.projectID,ids[0],'pickup_issues',prompt,'autonomous',false,consoleView,ids)
+   batchSelection.ids=[];view.syncBatch();for(const box of view.list.querySelectorAll('.batch-checkbox'))box.checked=false
+   dialog.close();view.status.textContent='Batch submitted';await refresh()
+  }catch(err){notice.textContent=launchErrorText(err)}
+  finally{pending=false;close.disabled=false;dialog.removeEventListener('cancel',preventClose);launch.disabled=false;cancel.disabled=false;name.disabled=false;draw()}
+ }
+ name.focus()
+}
 async function openTickets(projectID,initialQuery=''){
  if(taskPage&&!await confirmLeave())return
+ if(batchSelection.projectID!==projectID)batchSelection={projectID,ids:[]}
  selectedProject=projectID
  if(!agentConnected){showDialog('Tickets');paragraph('Connect to the local agent to browse this project\u2019s tickets.');return}
  const opener=document.activeElement
@@ -2945,7 +3023,7 @@ async function openTickets(projectID,initialQuery=''){
  document.querySelector('#workspace').hidden=false;document.querySelector('#setup').hidden=true
  const heading=document.createElement('h2');heading.textContent='Tickets · '+view.projectName
  const close=document.createElement('button');close.type='button';close.textContent='Close tickets';close.onclick=()=>closeTickets()
- const toolbar=document.createElement('div');toolbar.className='tickets-toolbar';toolbar.append(heading,close)
+ const toolbar=document.createElement('div');toolbar.className='tickets-toolbar';toolbar.append(heading,batchToolbar(view),close)
  const search=document.createElement('form'),query=document.createElement('input'),submit=document.createElement('button')
  query.placeholder='Search by title or task key';query.setAttribute('aria-label','Search server tasks');submit.textContent='Search'
  query.value=initialQuery
@@ -2975,7 +3053,7 @@ async function openTickets(projectID,initialQuery=''){
  search.onsubmit=event=>{event.preventDefault();load()}
  await load()
 }
-const TICKET_COLUMNS=[['state',''],['key','Key'],['title','Title'],['stage','Stage'],['priority','Priority'],['pr','PR'],['actions','Actions']]
+const TICKET_COLUMNS=[['selection',''],['state',''],['key','Key'],['title','Title'],['stage','Stage'],['priority','Priority'],['pr','PR'],['actions','Actions']]
 // The engine column sits before the PR one, and only with an agent that keeps
 // a per-task engine (#510).
 function ticketColumns(view){
@@ -3011,6 +3089,7 @@ function renderTicketsTable(view,focusField=null){
   }else{
    cell.textContent=label
    if(field==='state')cell.setAttribute('aria-label','Execution state')
+   if(field==='selection')cell.setAttribute('aria-label','Batch selection')
   }
   headRow.append(cell)
  }
@@ -3054,7 +3133,8 @@ function ticketRow(view,task){
  keyLink.title='Open task in Sectile';keyLink.setAttribute('aria-label','Open '+key+' in Sectile')
  keyLink.onclick=()=>api.openTask(task.id).catch(error)
  keyCell.append(keyLink)
- row.append(stateCell,keyCell,titleCell,stageCell,priorityCell)
+ const selectionCell=cell('ticket-selection');selectionCell.append(batchCheckbox(view,task))
+ row.append(selectionCell,stateCell,keyCell,titleCell,stageCell,priorityCell)
  if(view.engines){
   const engineCell=cell('ticket-engine')
   const toggle=document.createElement('button');toggle.type='button';toggle.className='engine-toggle'
@@ -3299,6 +3379,7 @@ async function submitNativeDiscussion(view,entry){
 const STAGE_NAMES={new:'New',clarified:'Clarified',specified:'Specified',implemented:'Implemented',reviewed:'Reviewed',finished:'Finished'}
 async function openBoard(projectID,initialQuery=''){
  if(taskPage&&!await confirmLeave())return
+ if(batchSelection.projectID!==projectID)batchSelection={projectID,ids:[]}
  selectedProject=projectID
  if(!agentConnected){showDialog('Board');paragraph('Connect to the local agent to see this project’s board.');return}
  const opener=document.activeElement
@@ -3312,7 +3393,7 @@ async function openBoard(projectID,initialQuery=''){
  const heading=document.createElement('h2');heading.textContent='Board · '+view.projectName
  const display=boardDisplayToggle(view)
  const close=document.createElement('button');close.type='button';close.textContent='Close board';close.onclick=()=>closeTickets()
- const toolbar=document.createElement('div');toolbar.className='tickets-toolbar board-toolbar';toolbar.append(heading,display,close)
+ const toolbar=document.createElement('div');toolbar.className='tickets-toolbar board-toolbar';toolbar.append(heading,display,batchToolbar(view),close)
  const search=document.createElement('form'),query=document.createElement('input'),submit=document.createElement('button')
  query.placeholder='Search by title or task key';query.setAttribute('aria-label','Search server tasks');submit.textContent='Search'
  query.value=initialQuery
@@ -3445,6 +3526,7 @@ function boardCard(view,task){
  actions.append(more,menu)
  // A condensed card holds on one line; a full one gives the title a line of
  // its own, so a long title wraps across the card's width.
+ line.append(batchCheckbox(view,task))
  if(full){line.append(keyLabel,state,actions);card.append(line,title,boardCardDetails(task))}
  else{line.append(keyLabel,title,state,actions);card.append(line)}
  const entry={task,row:card,state,run,more,menu,actions}
@@ -3454,7 +3536,7 @@ function boardCard(view,task){
   card.draggable=!busy
   if(busy)card.setAttribute('aria-busy','true')
   card.ondragstart=event=>{
-   if(view.moving.has(task.id)){event.preventDefault();return}
+   if(event.target.closest?.('.batch-checkbox')||view.moving.has(task.id)){event.preventDefault();return}
    view.dragging=task.id;card.classList.add('dragging')
    event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',task.id)
   }
