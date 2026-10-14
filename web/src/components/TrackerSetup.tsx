@@ -7,22 +7,19 @@ import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 
 /**
- * Connexion d'un tracker pour agir dessus sous son propre compte (#795).
- * Ouvert après l'enregistrement d'un projet pour un tracker précis, l'écran
- * s'ouvre directement sur son fournisseur et son site, sans sélecteur de
- * fournisseur ; il confie le reste au formulaire partagé avec le profil.
+ * Connects a tracker so the user acts on it under their own account (#795).
+ * Opened after a project save for one specific tracker, the dialog starts on
+ * that tracker's provider and site with no provider picker; the shared form,
+ * also used by the profile, handles the rest.
  */
 export const TrackerSetup: React.FC<{ onClose: () => void; target?: TrackerSetupTarget | null }> = ({ onClose, target }) => {
   const { settings, refreshUserCredentials, trackerSetupTarget, t } = useApp()
   const chosen = target ?? trackerSetupTarget ?? null
-  const [tracker, setTracker] = useState<TrackerKind>(chosen ? chosen.provider : initialTracker(settings.issueTracker))
+  // Only used when no tracker was chosen: a chosen one fixes the provider below.
+  const [tracker, setTracker] = useState<TrackerKind>(initialTracker(settings.issueTracker))
   const trackers = getTrackers(t)
 
   const backdrop = useBackdropDismiss(onClose)
-
-  useEffect(() => {
-    if (chosen) setTracker(chosen.provider)
-  }, [chosen])
 
   useEffect(() => {
     void refreshUserCredentials()
