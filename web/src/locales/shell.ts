@@ -14,6 +14,8 @@ const fr = {
   statusBar: {
     allProjects: 'Tous les projets',
     releaseNotes: 'Sectile {version}{commit} : notes de version',
+    userGuide: 'Guide',
+    userGuideTitle: 'Ouvrir le guide utilisateur Sectile',
   },
   pinned: {
     title: 'Épinglés',
@@ -135,6 +137,7 @@ const fr = {
     themeDark: 'Sombre',
     adminUsers: 'Administration : Utilisateurs & Rôles',
     runSkill: '⚡ Lancer {label} ({command})',
+    userGuide: '📖 Ouvrir le guide utilisateur',
   },
   nextStep: {
     new: {
@@ -415,6 +418,8 @@ const en: ShellStrings = {
   statusBar: {
     allProjects: 'All projects',
     releaseNotes: 'Sectile {version}{commit}: release notes',
+    userGuide: 'Guide',
+    userGuideTitle: 'Open the Sectile user guide',
   },
   pinned: {
     title: 'Pinned',
@@ -536,6 +541,7 @@ const en: ShellStrings = {
     themeDark: 'Dark',
     adminUsers: 'Administration: Users & Roles',
     runSkill: '⚡ Run {label} ({command})',
+    userGuide: '📖 Open the user guide',
   },
   nextStep: {
     new: {

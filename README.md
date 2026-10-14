@@ -236,6 +236,9 @@ test command. Run them from `web/` with an absolute path to Playwright's
 
 ## Documentation
 
+- [Embedded web help guide](./web/public/help/guide.html): interactive HTML
+  user and developer workflow guide served at `/help/guide.html` from the web
+  status bar and command palette.
 - [User guide](./docs/USER_GUIDE.md): sign-in, tracker credentials, projects,
   workstation setup, coding prompts, autonomous runs, and Desktop.
 - [Architecture](./docs/ARCHITECTURE.md): component boundaries, persistence,
