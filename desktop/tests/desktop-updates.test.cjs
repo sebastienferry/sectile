@@ -28,6 +28,18 @@ test('only repository HTTPS release links are allowed',()=>{
  assert.ok(safeLink(release().html_url));assert.ok(safeLink(release().assets[0].browser_download_url,true))
  for(const value of ['http://github.com/sebastienferry/sectile/releases/tag/v1','https://evil.test/','https://user@github.com/sebastienferry/sectile/releases/tag/v1',base+'tag/v1?token=secret',base+'../issues'])assert.equal(safeLink(value),false)
 })
+test('release links must identify the selected version and platform archive, including cached metadata',()=>{
+ for(const mutate of [
+  r=>{r.html_url=release('v0.8.0').html_url},
+  r=>{r.assets[0].browser_download_url=release('v0.8.0').assets[0].browser_download_url},
+  r=>{r.assets[0].browser_download_url=release('v0.10.0','win32','x64').assets[0].browser_download_url},
+ ]){
+  const invalid=release();mutate(invalid)
+  assert.equal(select([invalid],'0.9.0','darwin','arm64').status,'unavailable')
+  const f=fixture({storage:{read:()=>({lastSuccess:{checkedAt:1000,releases:[invalid]}}),write:()=>{}}})
+  assert.equal(f.service.snapshot().available,null);f.service.stop()
+ }
+})
 test('persistence, deduplication, stale errors and successful clearing',async()=>{
  const f=fixture();await f.service.check();await f.service.check();assert.equal(f.notifications.length,1)
  const stored=f.saved();f.service.stop()

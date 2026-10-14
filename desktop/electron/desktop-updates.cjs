@@ -23,8 +23,10 @@ function select(releases,installed,platform,arch){
  for(const r of ordered){
   if(compare(version(r.tag_name),own)<=0)continue
   const normalized=version(r.tag_name).join('.')
-  const asset=Array.isArray(r.assets)&&r.assets.find(a=>a?.name===archive(platform,arch)&&Number.isFinite(a.size)&&a.size>0&&safeLink(a.browser_download_url,true))
-  const compatible=asset&&safeLink(r.html_url)
+  const releasePath=`/sebastienferry/sectile/releases/`
+  const filename=archive(platform,arch)
+  const asset=Array.isArray(r.assets)&&r.assets.find(a=>a?.name===filename&&Number.isFinite(a.size)&&a.size>0&&safeLink(a.browser_download_url,true)&&new URL(a.browser_download_url).pathname===`${releasePath}download/${r.tag_name}/${filename}`)
+  const compatible=asset&&safeLink(r.html_url)&&new URL(r.html_url).pathname===`${releasePath}tag/${r.tag_name}`
   if(compatible&&!available)available={version:normalized,releaseUrl:r.html_url,downloadUrl:asset.browser_download_url}
   else if(!compatible&&!unavailableVersion)unavailableVersion=normalized
  }
