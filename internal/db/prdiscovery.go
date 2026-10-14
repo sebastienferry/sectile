@@ -131,7 +131,7 @@ func isUnauthorized(err error) bool {
 // candidate on a branch no link mentions is refused and reported, never
 // written. A task that holds none is seeded, oldest first, so `prUrl` resolves
 // to the newest. Nothing found, or nothing new, writes nothing at all.
-func (d *DB) applyDiscoveredPullRequests(task *models.Task, found []models.TaskPullRequest) (attached []string, warnings []string, err error) {
+func (d *DB) applyDiscoveredPullRequests(task *models.Task, found []models.TaskPullRequest, force bool) (attached []string, warnings []string, err error) {
 	if task == nil || len(found) == 0 {
 		return nil, nil, nil
 	}
@@ -151,6 +151,15 @@ func (d *DB) applyDiscoveredPullRequests(task *models.Task, found []models.TaskP
 		locked, err := d.lockTaskUnsafe(tx, task.ID)
 		if err != nil || locked == nil {
 			return err
+		}
+		if !force {
+			var detached int
+			if err := tx.QueryRow("SELECT pr_links_detached FROM tasks WHERE id = ?", task.ID).Scan(&detached); err != nil {
+				return err
+			}
+			if detached != 0 {
+				return nil
+			}
 		}
 		links = models.NormalizePullRequestLinks(locked.PrLinks)
 		seeding := len(links) == 0
@@ -222,9 +231,10 @@ func (d *DB) rediscoverPullRequests(ctx context.Context, proj *models.Project, t
 	if err != nil {
 		return []string{fmt.Sprintf("⚠️ Pull requests %s : %v", task.Key, err)}, halt
 	}
-	attached, warnings, err := d.applyDiscoveredPullRequests(task, found)
+	attached, warnings, err := d.applyDiscoveredPullRequests(task, found, force)
 	return discoveryReport(task, attached, warnings, err), false
 }
+
 
 // discoveryReport is what the synchronisation activity says about the links
 // discovery wrote for a task.
@@ -308,7 +318,7 @@ func (d *DB) discoverAndApply(ctx context.Context, proj *models.Project, ts trac
 	if err != nil {
 		return nil, nil, err
 	}
-	return d.applyDiscoveredPullRequests(task, found)
+	return d.applyDiscoveredPullRequests(task, found, true)
 }
 
 // discoverSecondaryPullRequests backfills the pull request of every repository
@@ -323,6 +333,9 @@ func (d *DB) discoverAndApply(ctx context.Context, proj *models.Project, ts trac
 func (d *DB) discoverSecondaryPullRequests(ctx context.Context, proj *models.Project, task *models.Task) []string {
 	actor := tracker.ActingUser(ctx)
 	if proj == nil || task == nil || actor == "" || task.BranchName == nil || strings.TrimSpace(*task.BranchName) == "" {
+		return nil
+	}
+	if d.pullRequestLinksDetached(task.ID) {
 		return nil
 	}
 	creation := "implemented"
@@ -350,6 +363,7 @@ func (d *DB) discoverSecondaryPullRequests(ctx context.Context, proj *models.Pro
 	if len(found) == 0 {
 		return nil
 	}
-	attached, warnings, err := d.applyDiscoveredPullRequests(task, found)
+	attached, warnings, err := d.applyDiscoveredPullRequests(task, found, false)
 	return discoveryReport(task, attached, warnings, err)
 }
+

@@ -62,7 +62,7 @@ Classes: READ 54, SINGLE 47, RMW 18, RCW 15, MEM 3.
 | db.go:3087 | MoveTask | RMW | labels recomputed from the row read | LOCK tasks row; the `position + 1` shift stays one statement |
 | board.go:275 | MoveTaskToTrackerStatus | RMW | labels and status from a task read without the lock | LOCK tasks row |
 | postback.go:85 | PostBackTask | RCW | running-stage guard, then labels, status, pr_links merged | LOCK tasks row, guard inside the tx |
-| prdiscovery.go:179 | applyDiscoveredPullRequests | RMW | pr_links and branch from a snapshot taken before the forge calls; detached flag checked earlier | LOCK tasks row; pr_links and branch_name re-read inside. The detached flag is still read before discovery: a detach made during a discovery is overridden by it, as it was on one process |
+| prdiscovery.go:179 | applyDiscoveredPullRequests | RMW | pr_links, branch, and pr_links_detached from a snapshot taken before the forge calls | LOCK tasks row; pr_links, branch_name, and pr_links_detached re-read inside, skipping the write when detached unless forced (#440) |
 | prstates.go:70 | applyPullRequestStates | RMW | pr_links states changed in Go, whole set written | LOCK tasks row |
 | adjustment.go:58 | adjustmentPrerequisite | RMW | pr_links appended from the caller's snapshot | LOCK tasks row; re-read pr_links inside |
 | pins.go:193 | SetTaskPinnedBy | RMW | labels plus or minus the pinned label | LOCK tasks row |

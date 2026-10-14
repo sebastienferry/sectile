@@ -314,7 +314,7 @@ func TestPostgresPullRequestDetachmentFlag(t *testing.T) {
 	if err != nil || task == nil {
 		t.Fatalf("reading the task back: %v", err)
 	}
-	attached, _, err := d.applyDiscoveredPullRequests(task, links)
+	attached, _, err := d.applyDiscoveredPullRequests(task, links, true)
 	if err != nil || len(attached) != 1 {
 		t.Fatalf("attaching a rediscovered link: %+v %v", attached, err)
 	}
