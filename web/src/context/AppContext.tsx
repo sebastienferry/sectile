@@ -51,7 +51,7 @@ import type {
 } from '../types'
 import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
-import type { StoredUserCredential, OrphanedCredentialReport, TrackerKind } from '../lib/trackers'
+import type { StoredUserCredential, OrphanedCredentialReport, TrackerKind, TrackerSetupTarget } from '../lib/trackers'
 import { NO_ORPHANED_CREDENTIALS, fetchTrackerSummaries, getTrackers, orphanedCredentialsFrom } from '../lib/trackers'
 import { projectSaveRefreshesBoard } from '../lib/projectTrackers'
 import { boardRunProject, runRefusal, type RunProjectCandidate } from '../lib/runProject'
@@ -219,6 +219,8 @@ interface AppContextType {
   /** Écran de connexion au tracker, ouvert à la demande et jamais au démarrage. */
   isTrackerSetupOpen: boolean
   setIsTrackerSetupOpen: (open: boolean) => void
+  trackerSetupTarget?: TrackerSetupTarget | null
+  openTrackerSetup?: (target?: TrackerSetupTarget | null) => void
   /** Vérifie des accès tracker sans rien enregistrer. */
   checkTrackerCredentials: (params: TrackerCredentials) => Promise<TrackerCheck>
   /** Les accès personnels de la personne connectée, jetons exclus. */
@@ -787,7 +789,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   })
   const [issueTypeFilters, setIssueTypeFiltersState] = useState<string[]>([])
   const [autoSync, setAutoSync] = useState<AutoSyncState | null>(null)
-  const [isTrackerSetupOpen, setIsTrackerSetupOpen] = useState(false)
+  const [isTrackerSetupOpen, setTrackerSetupOpenState] = useState(false)
+  const [trackerSetupTarget, setTrackerSetupTarget] = useState<TrackerSetupTarget | null>(null)
+  const setIsTrackerSetupOpen = useCallback((open: boolean) => {
+    setTrackerSetupOpenState(open)
+    if (!open) setTrackerSetupTarget(null)
+  }, [])
+  const openTrackerSetup = useCallback((target?: TrackerSetupTarget | null) => {
+    setTrackerSetupTarget(target ?? null)
+    setTrackerSetupOpenState(true)
+  }, [])
   const [trackerStatusFilters, setTrackerStatusFiltersState] = useState<string[]>([])
   const [teams, setTeams] = useState<TrackerTeam[]>([])
   const [sprintFilter, setSprintFilterState] = useState<string | null>(null)
@@ -4494,6 +4505,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         autoSync,
         isTrackerSetupOpen,
         setIsTrackerSetupOpen,
+        trackerSetupTarget,
+        openTrackerSetup,
         checkTrackerCredentials,
         userCredentials,
         orphanedCredentials,

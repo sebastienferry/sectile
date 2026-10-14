@@ -14,6 +14,7 @@ export interface TrackerOption {
   provider: string
   name: string
   scope: string
+  site?: string
   /** The project's own local board: never listed by GET /api/trackers. */
   local: boolean
 }
@@ -37,6 +38,7 @@ export function trackerOptions(summaries: TrackerSummary[], selected: ProjectTra
       provider: summary.provider,
       name: summary.name,
       scope: summary.scope,
+      site: summary.site || '',
       local: false,
     }))
   for (const ref of selected) {
@@ -47,6 +49,7 @@ export function trackerOptions(summaries: TrackerSummary[], selected: ProjectTra
       provider: isLocalIdentity(ref.identity) ? 'local' : ref.identity.split('|')[0] || '',
       name: '',
       scope: ref.identity.split('|').slice(2).join('|'),
+      site: isLocalIdentity(ref.identity) ? '' : ref.identity.split('|')[1] || '',
       local: isLocalIdentity(ref.identity),
     })
   }
