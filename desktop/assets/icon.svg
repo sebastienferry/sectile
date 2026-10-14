@@ -1,46 +1,57 @@
 <svg width="64" height="64" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <!-- Deep Tech Badge Gradient -->
-    <linearGradient id="sectile-badge-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1e1b4b" />
-      <stop offset="50%" stop-color="#0f172a" />
-      <stop offset="100%" stop-color="#020617" />
-    </linearGradient>
-
-    <!-- Central Keystone Facet Gradient (Violet -> Indigo -> Cyan) -->
-    <linearGradient id="sectile-stream-primary" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#a855f7" />
+    <!-- Specular Rim Gradient -->
+    <linearGradient id="sectile-badge-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a5b4fc" />
       <stop offset="50%" stop-color="#6366f1" />
-      <stop offset="100%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#4338ca" />
     </linearGradient>
 
-    <!-- Upper Arch Facet Gradient (Sky -> Indigo) -->
+    <!-- Vibrant Royal Indigo Badge Gradient -->
+    <linearGradient id="sectile-badge-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5" />
+      <stop offset="50%" stop-color="#312e81" />
+      <stop offset="100%" stop-color="#1e1b4b" />
+    </linearGradient>
+
+    <!-- Central Keystone Facet Gradient (Luminous Orchid -> Bright Indigo -> Electric Cyan) -->
+    <linearGradient id="sectile-stream-primary" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f5d0fe" />
+      <stop offset="22%" stop-color="#d8b4fe" />
+      <stop offset="58%" stop-color="#818cf8" />
+      <stop offset="100%" stop-color="#22d3ee" />
+    </linearGradient>
+
+    <!-- Upper Arch Facet Gradient (Ice Sky -> Bright Cyan-Indigo) -->
     <linearGradient id="sectile-stream-secondary" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38bdf8" />
-      <stop offset="100%" stop-color="#6366f1" />
+      <stop offset="0%" stop-color="#e0f2fe" />
+      <stop offset="40%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#818cf8" />
     </linearGradient>
 
-    <!-- Lower Arch Facet Gradient (Indigo -> Violet) -->
+    <!-- Lower Arch Facet Gradient (Bright Sky-Indigo -> Luminous Violet-Pink) -->
     <linearGradient id="sectile-facet-bot" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#6366f1" />
-      <stop offset="100%" stop-color="#a855f7" />
+      <stop offset="0%" stop-color="#93c5fd" />
+      <stop offset="50%" stop-color="#a855f7" />
+      <stop offset="100%" stop-color="#f0abfc" />
     </linearGradient>
 
-    <!-- Terminal Inlay Facet Glow Gradient -->
+    <!-- Terminal Inlay Facet Glow Gradient (Pure Ice -> Electric Cyan) -->
     <linearGradient id="sectile-glow" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#7dd3fc" />
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="35%" stop-color="#bae6fd" />
       <stop offset="100%" stop-color="#38bdf8" />
     </linearGradient>
   </defs>
 
-  <!-- Badge Container -->
-  <rect width="36" height="36" rx="9" fill="url(#sectile-badge-grad)" />
-  <rect x="0.5" y="0.5" width="35" height="35" rx="8.5" stroke="#6366f1" stroke-opacity="0.4" stroke-width="1" />
+  <!-- macOS-proportioned Squircle Badge Container (80.5% of canvas with standard outer margin) -->
+  <rect x="3.5" y="3.5" width="29" height="29" rx="6.5" fill="url(#sectile-badge-rim)" />
+  <rect x="3.85" y="3.85" width="28.3" height="28.3" rx="6.15" fill="url(#sectile-badge-grad)" />
 
   <!-- Opus Sectile Geometric Facets -->
-  <path d="M 22.85 8.45 Q 23.41 8.13 23.97 8.45 L 27.84 10.68 Q 28.40 11.00 28.40 11.65 L 28.40 13.85 Q 28.40 14.50 27.81 14.23 L 20.04 10.68 Q 19.45 10.41 20.01 10.09 Z" fill="url(#sectile-glow)" />
-  <path d="M 7.60 11.65 Q 7.60 11.00 8.16 10.68 L 17.44 5.32 Q 18.00 5.00 18.56 5.33 L 21.59 7.07 Q 22.15 7.40 21.59 7.72 L 8.16 15.48 Q 7.60 15.80 7.60 15.15 Z" fill="url(#sectile-stream-secondary)" />
-  <path d="M 7.60 17.70 Q 7.60 17.25 7.99 17.03 L 13.50 13.85 Q 14.00 13.56 14.56 13.71 L 27.97 17.24 Q 28.40 17.35 28.40 17.80 L 28.40 18.30 Q 28.40 18.75 28.01 18.97 L 22.50 22.15 Q 22.00 22.44 21.44 22.29 L 8.03 18.76 Q 7.60 18.65 7.60 18.20 Z" fill="url(#sectile-stream-primary)" />
-  <path d="M 28.40 24.35 Q 28.40 25.00 27.84 25.32 L 18.56 30.68 Q 18.00 31.00 17.44 30.67 L 14.41 28.93 Q 13.85 28.60 14.41 28.28 L 27.84 20.52 Q 28.40 20.20 28.40 20.85 Z" fill="url(#sectile-facet-bot)" />
-  <path d="M 13.15 27.55 Q 12.59 27.87 12.03 27.55 L 8.16 25.32 Q 7.60 25.00 7.60 24.35 L 7.60 22.15 Q 7.60 21.50 8.19 21.77 L 15.96 25.32 Q 16.55 25.59 15.99 25.91 Z" fill="url(#sectile-glow)" />
+  <path d="M 21.62 10.85 Q 22.06 10.60 22.49 10.85 L 25.37 12.50 Q 25.80 12.75 25.80 13.25 L 25.80 14.88 Q 25.80 15.38 25.35 15.17 L 19.54 12.52 Q 19.09 12.31 19.52 12.06 Z" fill="url(#sectile-glow)" />
+  <path d="M 10.20 13.25 Q 10.20 12.75 10.63 12.50 L 17.57 8.50 Q 18.00 8.25 18.43 8.50 L 20.68 9.80 Q 21.11 10.05 20.68 10.30 L 10.63 16.10 Q 10.20 16.35 10.20 15.85 Z" fill="url(#sectile-stream-secondary)" />
+  <path d="M 10.20 17.77 Q 10.20 17.44 10.49 17.27 L 14.62 14.89 Q 15.00 14.67 15.43 14.78 L 25.48 17.43 Q 25.80 17.51 25.80 17.85 L 25.80 18.23 Q 25.80 18.56 25.51 18.73 L 21.38 21.11 Q 21.00 21.33 20.57 21.22 L 10.52 18.57 Q 10.20 18.49 10.20 18.15 Z" fill="url(#sectile-stream-primary)" />
+  <path d="M 25.80 22.75 Q 25.80 23.25 25.37 23.50 L 18.43 27.50 Q 18.00 27.75 17.57 27.50 L 15.32 26.20 Q 14.89 25.95 15.32 25.70 L 25.37 19.90 Q 25.80 19.65 25.80 20.15 Z" fill="url(#sectile-facet-bot)" />
+  <path d="M 14.38 25.15 Q 13.94 25.40 13.51 25.15 L 10.63 23.50 Q 10.20 23.25 10.20 22.75 L 10.20 21.12 Q 10.20 20.62 10.65 20.83 L 16.46 23.48 Q 16.91 23.69 16.48 23.94 Z" fill="url(#sectile-glow)" />
 </svg>
