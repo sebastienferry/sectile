@@ -242,7 +242,7 @@ test('console next step rechecks task state, guards active history and handles f
   assert.equal(await page.evaluate(()=>document.querySelector('#retry-next-step').nextElementSibling.id),'force-next-step')
   // Closing the current step comes before launching the next one, in the order the user acts.
   assert.equal(await page.evaluate(()=>document.querySelector('#stop').nextElementSibling.id),'next-step','The closing control precedes the next action')
-  assert.equal(await page.evaluate(()=>document.querySelector('#stop').previousElementSibling.id),'save-log')
+  assert.equal(await page.locator('#task-actions-more').getAttribute('aria-controls'),'task-actions-menu')
   assert.equal(await page.evaluate(()=>!!document.querySelector('#stop').querySelector('path[d*="M7 7 17 17"]')),false,'The closing control drops the cross glyph')
   const screenshotDir=process.env.SECTILE_SCREENSHOT_DIR||root
   await page.emulateMedia({colorScheme:'light'})

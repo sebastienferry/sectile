@@ -64,13 +64,28 @@ const MAX_PARALLELISM=10
 // agentconfig.DefaultParallelism.
 const DEFAULT_PARALLELISM=5
 document.querySelector('#app').innerHTML=`
-<header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button></header>
+<header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div></header>
 <section id="setup" hidden><div class="setup-toolbar"><button id="setup-logs" type="button" title="View local-agent diagnostics">Agent logs</button></div><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p id="setup-intro">In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label>
 <div id="pair-again"><button id="browser-sign-in" type="button">Sign in with your browser</button><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label></div>
 <p class="start-reason" role="alert" hidden></p><button type="submit">Connect</button></form></section>
 <main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="worktree-folders" class="icon-button worktree-folders" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worktree-folders-menu" aria-label="Folders of this execution" title="Folders of this execution" hidden><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span><div id="worktree-folders-menu" class="folder-menu" role="menu" aria-label="Folders of this execution" hidden></div></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="selected-pr-more" class="icon-button selected-pr-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="selected-pr-menu" aria-label="Pull requests of this task" title="Pull requests of this task" hidden><span class="pr-count"></span><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div id="selected-pr-menu" class="folder-menu pr-menu" role="menu" aria-label="Pull requests of this task" hidden></div><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="edit-task" class="icon-button" type="button" aria-label="Edit task" title="Edit task" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Launch" title="Launch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop conversation" title="Stop conversation" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section><section id="task-page-pane" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
+const sidebarFooter=document.querySelector('.sidebar-footer')
+const headerControls=document.createElement('div')
+headerControls.className='sidebar-footer header-controls'
+headerControls.replaceChildren(...sidebarFooter.childNodes)
+sidebarFooter.remove()
+document.querySelector('header').append(headerControls)
+document.querySelector('#title').before(document.querySelector('#run-state'))
+const sidebarVersion=document.createElement('div')
+sidebarVersion.id='sidebar-version'
+sidebarVersion.textContent='Version …'
+document.querySelector('#workspace aside').append(sidebarVersion)
+api.version().then(({desktop})=>{
+ sidebarVersion.textContent=desktop?'v'+desktop:'Version unavailable'
+ if(desktop)sidebarVersion.title='Sectile Desktop version '+desktop
+}).catch(()=>{sidebarVersion.textContent='Version unavailable'})
 installTooltips()
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
 // and those draw their separators and icons from the Private Use Area. Menlo is a macOS font, so on
@@ -309,6 +324,7 @@ function agentUnavailable(){
  updateStartControl()
  document.querySelector('#shutdown').hidden=true
  document.querySelector('#restart').hidden=true
+ document.querySelector('#agent-actions-more')?.setAttribute('hidden','')
  document.querySelector('#agent-offline').hidden=false
  closeTickets(false)
  document.querySelector('#setup').hidden=configurationActive()
@@ -325,6 +341,7 @@ function ready(){
  document.querySelector('#agent-offline').hidden=true
  if(!projectsLoaded){projectsLoaded=true;loadProjects().catch(()=>{projectsLoaded=false});loadEditorSetting();api.syncConsoleView().catch(()=>{});api.syncConversationMode().catch(()=>{})}
  updateStartControl();document.querySelector('#restart').hidden=false;document.querySelector('#shutdown').hidden=false
+ document.querySelector('#agent-actions-more').hidden=false
  document.querySelector('#setup').hidden=true;document.querySelector('#workspace').hidden=false
  if(!document.querySelector('#connection a'))connectionStatus({text:'Local agent connected'})
  if(!opened){terminal.open(document.querySelector('#terminal'));opened=true;resize()}
@@ -597,7 +614,7 @@ function toolbarMenu(button,menu,items){
   menu.style.top=Math.max(4,Math.min(box.bottom+2,innerHeight-height-4))+'px'
   dismiss=event=>{if(event.type==='blur'||!menu.contains(event.target)&&!button.contains(event.target))close()}
   document.addEventListener('pointerdown',dismiss,true);window.addEventListener('blur',dismiss)
-  const first=menu.querySelector('[aria-checked=true]')||menu.querySelector('[role^=menuitem]')
+  const first=menu.querySelector('[aria-checked=true]:not(:disabled)')||menu.querySelector('[role^=menuitem]:not(:disabled)')
   first?.focus()
  }
  button.onclick=()=>{menu.hidden?open():close()}
@@ -606,7 +623,7 @@ function toolbarMenu(button,menu,items){
   if(event.target===button&&event.key==='ArrowDown'&&menu.hidden){event.preventDefault();open();return}
   if(menu.hidden)return
   if(event.key==='Tab'){close();return}
-  const entries=[...menu.querySelectorAll('[role^=menuitem]')],at=entries.indexOf(document.activeElement)
+  const entries=[...menu.querySelectorAll('[role^=menuitem]:not(:disabled)')],at=entries.indexOf(document.activeElement)
   const next={ArrowDown:at+1,ArrowUp:at-1,Home:0,End:entries.length-1}[event.key]
   if(next===undefined)return
   event.preventDefault()
@@ -614,6 +631,50 @@ function toolbarMenu(button,menu,items){
  }
  return {open,close}
 }
+const agentActionSources=document.createElement('div')
+agentActionSources.hidden=true
+agentActionSources.append(document.querySelector('.header-controls nav'))
+const agentMore=document.createElement('button')
+agentMore.id='agent-actions-more';agentMore.type='button';agentMore.className='icon-button';agentMore.hidden=true
+agentMore.setAttribute('aria-label','Agent actions');agentMore.title='Agent actions'
+agentMore.setAttribute('aria-haspopup','menu');agentMore.setAttribute('aria-expanded','false');agentMore.setAttribute('aria-controls','agent-actions-menu')
+agentMore.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>'
+const agentMenu=document.createElement('div')
+agentMenu.id='agent-actions-menu';agentMenu.className='folder-menu agent-actions-menu';agentMenu.hidden=true
+agentMenu.setAttribute('role','menu');agentMenu.setAttribute('aria-label','Agent actions')
+document.querySelector('.header-controls').insertBefore(agentActionSources,document.querySelector('#settings'))
+agentActionSources.after(agentMore,agentMenu)
+const agentOverflow=toolbarMenu(agentMore,agentMenu,()=>['restart','shutdown'].map(id=>document.getElementById(id)).filter(source=>!source.hidden).map(source=>{
+ const item=document.createElement('button');item.type='button';item.setAttribute('role','menuitem');item.dataset.action=source.id
+ item.disabled=source.disabled
+ const icon=source.querySelector('svg');if(icon)item.append(icon.cloneNode(true))
+ const label=document.createElement('span');label.textContent=source.getAttribute('aria-label');item.append(label)
+ item.onclick=()=>{agentOverflow.close(true);source.click()}
+ return item
+}))
+// Keep the original controls as action/state owners while presenting them in
+// the overflow menu. Existing render updates and handlers still address them.
+const taskActionSources=document.createElement('div');taskActionSources.hidden=true
+const taskActions=['edit-task','save-log'].map(id=>document.getElementById(id))
+taskActionSources.append(...taskActions)
+const taskMore=document.createElement('button')
+taskMore.id='task-actions-more';taskMore.type='button';taskMore.className='icon-button'
+taskMore.setAttribute('aria-label','More task actions');taskMore.title='More task actions'
+taskMore.setAttribute('aria-haspopup','menu');taskMore.setAttribute('aria-expanded','false');taskMore.setAttribute('aria-controls','task-actions-menu')
+taskMore.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>'
+const taskOverflowPanel=document.createElement('div')
+taskOverflowPanel.id='task-actions-menu';taskOverflowPanel.className='folder-menu task-actions-menu';taskOverflowPanel.hidden=true
+taskOverflowPanel.setAttribute('role','menu');taskOverflowPanel.setAttribute('aria-label','Task actions')
+document.querySelector('.toolbar-actions').append(taskActionSources,taskMore,taskOverflowPanel)
+const taskOverflow=toolbarMenu(taskMore,taskOverflowPanel,()=>taskActions.filter(source=>!source.hidden).map(source=>{
+ const item=document.createElement('button');item.type='button';item.setAttribute('role','menuitem');item.dataset.action=source.id
+ item.disabled=source.disabled
+ const icon=source.querySelector('svg');if(icon)item.append(icon.cloneNode(true))
+ const label=document.createElement('span');label.textContent=source.getAttribute('aria-label');item.append(label)
+ item.onclick=()=>{taskOverflow.close(true);source.click()}
+ return item
+}))
+document.querySelector('#execution-history').addEventListener('change',()=>taskOverflow.close())
 const foldersMenu=toolbarMenu(foldersButton,document.querySelector('#worktree-folders-menu'),()=>{
  const run=runs.find(item=>item.id===selected),folders=menuFolders(run)
  if(!folders.length)return []
@@ -660,9 +721,8 @@ const prMenu=toolbarMenu(prMoreButton,document.querySelector('#selected-pr-menu'
   return item
  })
 })
-// The state before the title is the one the sidebar row and the notification
-// already show, drawn from the shared definition, with its label spelled out:
-// the header has the room the row does not.
+// The state beside the task ID is the one the sidebar row and notification
+// already show, drawn from the shared definition with its label spelled out.
 function renderHeaderState(run){
  const element=document.querySelector('#run-state')
  element.hidden=!run
@@ -770,6 +830,8 @@ function renderHeader(){
  title.textContent=text;title.title=text
  renderHeaderState(run)
  const badge=document.querySelector('#skill-result'),result=skillResult(run,skillResults.get(run?.id))
+ const badgeHome=(conversation.active&&document.querySelector('.conversation-status-row'))||document.querySelector('#task-status .execution-status')
+ if(badge.parentElement!==badgeHome)badgeHome.append(badge)
  badge.hidden=!result
  if(result){badge.className='skill-result '+result.kind;if(badge.textContent!==result.icon+' '+result.label)badge.textContent=result.icon+' '+result.label;badge.title='Skill: '+result.label;badge.setAttribute('aria-label',badge.title)}
 }
@@ -2453,6 +2515,7 @@ async function openAddProject(){
  }catch(err){error(err)}
 }
 document.querySelector('#add-project').onclick=openAddProject
+document.querySelector('#add-project').setAttribute('aria-label','Add a remote project')
 function requestRemoveProject(id,name){
  showDialog('Remove '+name+' from desktop?')
  paragraph('Disconnect this project from this workstation and remove its local configuration. Repository files and server data are preserved. Add the project again before launching new executions.')
@@ -2917,9 +2980,10 @@ async function openProject(id,initial='Remove'){
 }
 
 const iconPaths={
- 'clear-history':'<path d="m15 3-6 9M7 11l7 5M8 12c-3 1-5 4-5 8h12c0-3-1-5-3-6M6 20l2-5M10 20l1-4"/>',
+ 'add-project':'<path d="M20 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2Z"/><path d="M12 10v7M8.5 13.5h7"/>',
+ 'clear-history':'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/><path d="m9.5 14 2 2 3.5-4"/>',
  'detach-terminal':'<path d="M17 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h4.5"/><path d="m7.5 11.5 2 2-2 2"/><path d="M15 4h5v5"/><path d="m13.5 10.5 6.5-6.5"/>',
- 'view-console':'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7.5 10 2.5 2.5-2.5 2.5"/><path d="M13 15h4"/>',
+ 'view-console':'<path d="M21 15a3 3 0 0 1-3 3H7l-4 3V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3Z"/><path d="M7 8h10M7 12h6"/>',
  'view-changes':'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v5"/><path d="M9.5 13.5h5"/><path d="M9.5 18.5h5"/>',
  'edit-task':'<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
  rerun:'<path d="M3.5 12a8.5 8.5 0 0 1 14.4-6.1L20.5 8"/><path d="M20.5 3.5V8h-4.5"/><path d="m10 9.4 5 2.9-5 2.9Z"/>',
@@ -2966,7 +3030,7 @@ function closeTickets(restoreFocus=true){
  // the app instead of dropping it on the body.
  if(!restoreFocus)return
  const reachable=element=>element?.isConnected&&element.offsetParent!==null
- const target=reachable(opener)?opener:document.querySelector('.project-more[data-project-id="'+CSS.escape(projectID||'')+'"]')||document.querySelector('#command-palette')
+ const target=reachable(opener)?opener:document.querySelector('.project-more[data-project-id="'+CSS.escape(projectID||'')+'"]')||document.querySelector('#toggle-sidebar')
  if(reachable(target))target.focus()
 }
 let batchSelection={projectID:null,ids:[]}
@@ -3907,7 +3971,6 @@ function openCommandPalette(){
  }
  dialogBody.append(filter,list,empty);draw();filter.focus()
 }
-document.querySelector('#command-palette').onclick=openCommandPalette
 window.addEventListener('keydown',event=>{
  const action=configShortcutAction({key:event.key,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey,repeat:event.repeat,defaultPrevented:event.defaultPrevented,mac:isMacPlatform(navigator),modalOpen:dialog.open,configurationOpen:configurationActive()})
  if(action==='ignore')return
@@ -4040,7 +4103,7 @@ function renderNextStep(){
  const submitted=submittedSteps.get(key)
  if(submitted&&((submitted.kind!=='pickup'&&submitted.skillId!==step.skillId)||runs.some(item=>taskKey(item)===key&&!submitted.runIds.includes(item.id))))submittedSteps.delete(key)
  const pending=submittingSteps.has(key)||submittedSteps.has(key)
- const message=submittingSteps.has(key)?'Submitting execution…':pending?'Execution submitted; waiting for its console':busy?'Execution in progress':nextStepErrors.get(key)||step.message
+ const message=submittingSteps.has(key)?'Submitting execution…':pending?'Execution submitted; waiting for its console':busy?run.conversation?'Conversation in progress':'Execution in progress':nextStepErrors.get(key)||step.message
  status.textContent=(nextStepData.task.key||run.taskKey||run.taskId)+' · '+step.stage+' · '+message
  if(pickupAvailable(nextStepData.project)&&taskStage(nextStepData.task)!=='finished'){chain.hidden=false;chain.disabled=busy||pending}
  // The most recent active execution names the button, then the launch in

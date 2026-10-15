@@ -66,6 +66,11 @@ function agent(){
  return {state,tasks,server,projects}
 }
 
+async function editTaskFromToolbar(page){
+ await page.getByRole('button',{name:'More task actions'}).click()
+ await page.getByRole('menuitem',{name:'Edit task',exact:true}).click()
+}
+
 test('the task page creates and edits a task',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-task-page-'))
  const {state,tasks,server}=agent()
@@ -210,7 +215,7 @@ test('the task page creates and edits a task',async()=>{
   // Edit task from the run header reads the task fresh (AC4); a title-only
   // change sends only the title, never the reserialized description (AC5).
   const readsBefore=state.detailReads
-  await page.locator('#toolbar').getByRole('button',{name:'Edit task',exact:true}).click()
+  await editTaskFromToolbar(page)
   await expect(heading).toHaveText('#41')
   await expect(titleField).toHaveValue('Loaded title')
   assert.ok(state.detailReads>readsBefore)
@@ -323,7 +328,7 @@ test('the task page creates and edits a task',async()=>{
 
   // An outdated agent refuses new fields while preserving pending creation.
   state.taskPage=false
-  await page.locator('#toolbar').getByRole('button',{name:'Edit task',exact:true}).click()
+  await editTaskFromToolbar(page)
   await expect(statusLine).toContainText('The running local agent is outdated.')
   await expect(titleField).toHaveCount(0)
   await page.keyboard.press(mod+'+n')
@@ -442,7 +447,7 @@ test('issue type discovery preserves edits and ignores stale tracker and destroy
   await page.getByRole('button',{name:'Discard',exact:true}).click()
   state.typeReplies.set('task-specific',{error:'Discovery unavailable'})
   await page.locator('.local-task .run').first().click()
-  await page.locator('#toolbar').getByRole('button',{name:'Edit task',exact:true}).click()
+  await editTaskFromToolbar(page)
   await expect(types).toHaveValue('Legacy');await expect(priority).toHaveValue('low')
   await expect.poll(()=>state.typeRequests.at(-1)?.trackerId).toBe('task-specific')
   await expect(pane.getByText('Could not load issue types: Discovery unavailable',{exact:true})).toBeVisible()
@@ -465,7 +470,7 @@ test('issue type discovery preserves edits and ignores stale tracker and destroy
   state.typeHolds.set('task-specific',new Promise(resolve=>{release=resolve}))
   // Reopen starts a request; closing destroys that page before it returns.
   await page.getByRole('button',{name:'Close',exact:true}).click()
-  await page.locator('#toolbar').getByRole('button',{name:'Edit task',exact:true}).click()
+  await editTaskFromToolbar(page)
   await expect(types).toHaveValue('Legacy')
   await page.getByRole('button',{name:'Close',exact:true}).click()
   release();state.typeHolds.delete('task-specific')

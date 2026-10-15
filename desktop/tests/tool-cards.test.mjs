@@ -32,7 +32,24 @@ test('a command shows its description on the line and the command in the body',(
  const card=toolCard(tool('Bash',{command:'go test ./...',description:'Run the tests'}))
  assert.equal(card.target,'Run the tests')
  assert.deepEqual(card.body,{type:'code',text:'$ go test ./...'})
- assert.equal(toolCard(tool('Bash',{command:'ls\npwd'})).target,'ls')
+ assert.equal(toolCard(tool('Bash',{command:'ls\npwd'})).target,'ls · pwd')
+})
+
+test('command summaries replace directory descriptions with recognizable actions',()=>{
+ const command="/bin/zsh -lc 'tail -8 /tmp/build.log; tail -8 /tmp/unit.log; git diff --check'"
+ const card=toolCard(tool('Bash',{command,description:'/repo'}),'/repo')
+ assert.equal(card.name,'Command')
+ assert.equal(card.target,'Read logs · Check whitespace errors')
+ assert.equal(card.body.text,'$ '+command)
+ assert.equal(toolCard(tool('Bash',{command:'npm run test; npm run build; npm run lint',description:'/repo'})).target,'Run tests · Build app · Check code quality')
+})
+
+test('command summaries preserve quoted examples and unknown commands without guessing',()=>{
+ assert.equal(toolCard(tool('Bash',{command:"/bin/zsh -lc 'npm run lint > /tmp/lint.log 2>&1'",description:'/repo'})).target,'Check code quality')
+ assert.equal(toolCard(tool('Bash',{command:"/bin/zsh -lc 'rg '\"'\"'foo|bar'\"'\"' src'",description:'/repo'})).target,'Search files')
+ assert.equal(toolCard(tool('Bash',{command:'echo "npm test; git push"',description:'/repo'})).target,'echo "npm test; git push"')
+ assert.equal(toolCard(tool('Bash',{command:'custom-tool --check',description:'/repo'})).target,'custom-tool --check')
+ assert.equal(toolCard(tool('Bash',{command:'npm test',description:'Verify roadmap filtering'})).target,'Verify roadmap filtering')
 })
 
 test('reads and searches are one line',()=>{

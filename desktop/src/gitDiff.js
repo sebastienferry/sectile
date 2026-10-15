@@ -11,14 +11,14 @@ export function createGitDiff({api,container,terminal,panel,divider,consoleButto
  // A Markdown file opens rendered; the raw diff is chosen per execution and
  // forgotten when another execution is selected.
  let rendered=true
- container.innerHTML='<div class="changes-toolbar"><button type="button" class="diff-refresh">Refresh</button><span class="diff-status" role="status" aria-live="polite"></span></div><p class="diff-error" role="alert" hidden></p><p class="diff-context"></p><p class="diff-summary"></p><select class="diff-files" aria-label="Changed file" hidden></select><div class="diff-body"><div class="diff-detail"><button type="button" class="diff-render-toggle" aria-pressed="false" hidden>Rendered</button><p class="diff-file-info"></p><p class="diff-render-note" hidden></p><pre class="diff-patch" tabindex="0" aria-label="Selected file diff"></pre><div class="diff-rendered" tabindex="0" aria-label="Rendered Markdown" hidden></div></div></div>'
+ container.innerHTML='<div class="changes-toolbar"><button type="button" class="diff-refresh icon-button" aria-label="Refresh changes" title="Refresh changes"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2 5"/></svg></button><button type="button" class="diff-render-toggle" role="switch" aria-checked="false" hidden><span class="diff-switch-track" aria-hidden="true"></span><span>Rendered</span></button><span class="diff-status" role="status" aria-live="polite"></span></div><p class="diff-error" role="alert" hidden></p><p class="diff-summary"></p><select class="diff-files" aria-label="Changed file" hidden></select><div class="diff-body"><div class="diff-detail"><p class="diff-file-info"></p><p class="diff-render-note" hidden></p><pre class="diff-patch" tabindex="0" aria-label="Selected file diff"></pre><div class="diff-rendered" tabindex="0" aria-label="Rendered Markdown" hidden></div></div></div>'
  const find=s=>container.querySelector(s)
  function clearDocument(){
   const toggle=find('.diff-render-toggle'),note=find('.diff-render-note'),view=find('.diff-rendered')
-  toggle.hidden=true;toggle.disabled=false;toggle.setAttribute('aria-pressed','false')
+  toggle.hidden=true;toggle.disabled=false;toggle.setAttribute('aria-checked','false')
   note.hidden=true;note.textContent='';view.hidden=true;view.replaceChildren();find('.diff-patch').hidden=false
  }
- function clear(){result=null;find('.diff-context').textContent='';find('.diff-summary').textContent='';find('.diff-files').replaceChildren();find('.diff-files').hidden=true;find('.diff-patch').replaceChildren();find('.diff-file-info').textContent='';clearDocument()}
+ function clear(){result=null;find('.diff-summary').textContent='';find('.diff-files').replaceChildren();find('.diff-files').hidden=true;find('.diff-patch').replaceChildren();find('.diff-file-info').textContent='';clearDocument()}
  // An image of a document is looked up among the paths the agent read for it
  // (#683); a target the agent did not list keeps its alt text.
  function documentImage(file,item){
@@ -32,7 +32,7 @@ export function createGitDiff({api,container,terminal,panel,divider,consoleButto
   const toggle=find('.diff-render-toggle'),note=find('.diff-render-note'),view=find('.diff-rendered')
   const reason=!result.markdownDocuments?'Update and restart the local agent to render Markdown.':!file.document?'This file cannot be rendered.':file.document.omittedReason
   const shown=rendered&&!reason
-  toggle.hidden=false;toggle.disabled=Boolean(reason);toggle.setAttribute('aria-pressed',String(shown))
+  toggle.hidden=false;toggle.disabled=Boolean(reason);toggle.setAttribute('aria-checked',String(shown))
   if(reason){note.textContent=reason;note.hidden=false}
   if(!shown)return false
   if(file.document.side==='old'){note.textContent='Old version: this file is deleted.';note.hidden=false}
@@ -49,9 +49,17 @@ export function createGitDiff({api,container,terminal,panel,divider,consoleButto
   for(const line of (file.patch||'').split('\n')){const node=document.createElement('span');node.className=line.startsWith('+')?'diff-add':line.startsWith('-')?'diff-delete':line.startsWith('@@')?'diff-hunk':'diff-line';node.textContent=line+'\n';patch.append(node)}
  }
  function render(){
-  find('.diff-context').textContent=`${result.taskId} · ${result.directory} · ${result.branch} · Baseline ${result.baseRef} at ${result.mergeBase} · Read ${result.generatedAt}`
-  find('.diff-summary').textContent=result.isClean?'No changes compared with baseline':`${result.filesChanged} changed files · +${result.additions} −${result.deletions}${result.countsPartial||!result.complete?' (partial totals)':''}`
-  if(result.warnings?.length)find('.diff-summary').textContent+=' · '+result.warnings.map(w=>w.message).join(' ')
+  const summary=find('.diff-summary')
+  summary.replaceChildren()
+  if(result.isClean)summary.textContent='No changes compared with baseline'
+  else {
+   summary.append(`${result.filesChanged} changed files · `)
+   const added=document.createElement('span');added.className='diff-summary-add';added.textContent=`+${result.additions}`
+   const deleted=document.createElement('span');deleted.className='diff-summary-delete';deleted.textContent=`−${result.deletions}`
+   summary.append(added,' ',deleted)
+   if(result.countsPartial||!result.complete)summary.append(' (partial totals)')
+  }
+  if(result.warnings?.length)summary.append(' · '+result.warnings.map(w=>w.message).join(' '))
   const files=find('.diff-files');files.replaceChildren()
   if(!result.files.some(f=>f.path===selection))selection=result.files[0]?.path||null
   for(const file of result.files){const option=document.createElement('option');option.value=file.path;option.textContent=(file.oldPath?file.oldPath+' → ':'')+file.path+' · '+file.status;files.append(option)}
