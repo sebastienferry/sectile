@@ -8,7 +8,8 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
   const { t } = useApp()
   const timerRef = useRef<DismissTimer | null>(null)
   // Only a toast offering a link waits for the user; the others keep their pace.
-  const holdable = toast.link ? timerRef : null
+  const links = toast.link ? [toast.link] : toast.links || []
+  const holdable = links.length ? timerRef : null
 
   const duration = toastDuration(toast)
 
@@ -55,32 +56,28 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
             {toast.description}
           </div>
         )}
-        {toast.link && (
-          <div className="flex items-center gap-2 mt-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                toast.link?.onOpen()
-                onRemove(toast.id)
-              }}
-              className="text-[11px] font-medium text-[var(--accent-color)] hover:underline"
-            >
-              {toast.link.label}
-            </button>
-            {toast.link.externalUrl && (
-              <a
-                href={toast.link.externalUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={t.toasts.openInTracker}
-                aria-label={t.toasts.openInTracker}
-                className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] rounded transition-colors"
-              >
+        {links.map((link, index) => (
+          <div key={index} className="flex items-center gap-2 mt-1.5">
+            {link.onOpen ? (
+              <button type="button" onClick={() => { link.onOpen?.(); onRemove(toast.id) }}
+                className="text-[11px] font-medium text-[var(--accent-color)] hover:underline">
+                {link.label}
+              </button>
+            ) : (
+              <a href={link.externalUrl} target="_blank" rel="noopener noreferrer"
+                className="text-[11px] font-medium text-[var(--accent-color)] hover:underline">
+                {link.label}
+              </a>
+            )}
+            {link.onOpen && link.externalUrl && (
+              <a href={link.externalUrl} target="_blank" rel="noopener noreferrer"
+                title={t.toasts.openInTracker} aria-label={`${t.toasts.openInTracker}: ${link.label}`}
+                className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] rounded transition-colors">
                 <ExternalLink size={12} />
               </a>
             )}
           </div>
-        )}
+        ))}
       </div>
       <button
         onClick={() => onRemove(toast.id)}

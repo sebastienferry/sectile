@@ -1,4 +1,4 @@
-const {app,BrowserWindow,Menu,ipcMain,dialog,nativeTheme,safeStorage,shell,clipboard}=require('electron')
+const {app,BrowserWindow,Menu,ipcMain,dialog,nativeTheme,safeStorage,shell,clipboard,Notification,powerMonitor}=require('electron')
 const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypto'),os=require('node:os')
 const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
@@ -123,6 +123,25 @@ const settingsStore=settingsFiles({
  sharedPath:settingsPath(),
  legacyPath:path.join(app.getPath('userData'),'agent-settings.json'),
 })
+const {createDesktopUpdates,safeLink}=require('./desktop-updates.cjs')
+const desktopUpdates=createDesktopUpdates({
+ installedVersion:app.getVersion(),
+ storage:{read:()=>readDesktopSettings().desktopUpdates,write:value=>settingsStore.updateDesktop(saved=>{saved.desktopUpdates=value})},
+ publish:state=>{if(window&&!window.isDestroyed())window.webContents.send('desktop-updates',state)},
+ notify:release=>{
+  if(!Notification.isSupported())return
+  const notice=new Notification({title:'Sectile Desktop update available',body:`Version ${release.version} is available. Open Settings → Changelog for downloads.`})
+  notice.show()
+ },
+})
+ipcMain.handle('desktop-updates',()=>desktopUpdates.snapshot())
+ipcMain.handle('check-desktop-updates',()=>desktopUpdates.check())
+ipcMain.handle('open-desktop-update',(_,url)=>{
+ const available=desktopUpdates.snapshot().available
+ if(!available||![available.releaseUrl,available.downloadUrl].includes(url)||!safeLink(url,url===available.downloadUrl))throw Error('Invalid Desktop update link')
+ return shell.openExternal(url)
+})
+app.on('before-quit',()=>desktopUpdates.stop())
 function readDesktopSettings(){
  try{return settingsStore.readDesktop()}catch{return {}}
 }
@@ -412,6 +431,23 @@ ipcMain.handle('copy-text',(_,text)=>{
  if(typeof text!=='string'||!text)throw Error('Nothing to copy')
  clipboard.writeText(text)
 })
+// The launch guard survives renderer reloads, but resets with Desktop.
+let setupPromptShown=false
+ipcMain.handle('claim-setup-prompt',()=>{if(setupPromptShown)return false;setupPromptShown=true;return true})
+// Setup exposes only the agent's redacted readback, never provider files.
+const setupProvider=value=>{if(!['claude','codex','agy'].includes(value))throw Error('Fournisseur non pris en charge');return encodeURIComponent(value)}
+ipcMain.handle('setup-state',(_,provider)=>api('/desktop/setup?provider='+setupProvider(provider)))
+ipcMain.handle('acknowledge-setup',(_,provider,decision)=>{
+ if(!decision||!['skills','permissions','sdd'].includes(decision.step)||!['retained','skipped'].includes(decision.decision)||typeof decision.fingerprint!=='string')throw Error('Décision invalide')
+ return api('/desktop/setup?provider='+setupProvider(provider),'POST',{step:decision.step,decision:decision.decision,fingerprint:decision.fingerprint})
+})
+ipcMain.handle('setup-claude-mode',async(_,value)=>{
+ if(!['default','acceptEdits','auto','plan'].includes(value))throw Error('Mode d’autorisation invalide')
+ const mode=normalizeConversationMode(value)
+ const result=await api('/desktop/conversation-mode','PUT',{mode})
+ settingsStore.updateDesktop(saved=>{saved.conversationMode=result.mode})
+ return result
+})
 ipcMain.handle('mcp-config',(_,provider)=>api('/desktop/mcp?provider='+encodeURIComponent(provider)))
 ipcMain.handle('configure-mcp',(_,provider,choice)=>api('/desktop/mcp?provider='+encodeURIComponent(provider),'POST',choice))
 ipcMain.handle('status',()=>api('/desktop/status'))
@@ -692,6 +728,10 @@ else{
  app.whenReady().then(()=>{
   if(process.platform==='darwin'&&app.dock)app.dock.setIcon(path.join(__dirname,'../assets/icon.png'))
   openWindow()
+  if(process.env.SECTILE_DESKTOP_TEST!=='1'){
+   desktopUpdates.start()
+   powerMonitor.on('resume',()=>desktopUpdates.resume())
+  }
  })
  app.on('activate',openWindow)
  // The detached agent and its PTYs survive closing or quitting this UI.

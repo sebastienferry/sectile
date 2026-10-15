@@ -1,3 +1,5 @@
+import {engineSetup,setupStartup} from './engine-setup.mjs'
+import { renderDesktopUpdates } from './desktop-updates.mjs'
 import { batchMembers, moveBatchMember, suggestedBatchWorktreeName, buildBatchPickupPrompt } from './batch-pickup.mjs'
 import { skillCommandMapping } from './skill-command-mapping.mjs'
 import { installSettingsSearch } from './settings-search.mjs'
@@ -316,7 +318,9 @@ function agentUnavailable(){
  openEditorAvailable=false;projectTerminalAvailable=false;renderOpenEditor()
  api.detach().catch(()=>{})
 }
+const checkEngineSetup=setupStartup(api,()=>openSettings('Profile').then(()=>document.querySelector('[data-open-engine-setup]')?.click()))
 function ready(){
+ checkEngineSetup()
  agentConnected=true
  document.querySelector('#agent-offline').hidden=true
  if(!projectsLoaded){projectsLoaded=true;loadProjects().catch(()=>{projectsLoaded=false});loadEditorSetting();api.syncConsoleView().catch(()=>{});api.syncConversationMode().catch(()=>{})}
@@ -2092,6 +2096,10 @@ async function openSettings(initial='Profile',project){
  const web=settingRow('Profile and API keys',null,openWeb)
  web.hint.textContent='Display name, password and API keys live in the web interface.'
  panels.Profile.append(account.section,device.section,web.section)
+ const assistant=engineSetup(api,projects,category=>openSettings(category))
+ const setupButton=document.createElement('button');setupButton.type='button';setupButton.textContent='Configurer un moteur IA';setupButton.dataset.openEngineSetup=''
+ setupButton.onclick=()=>assistant.open()
+ panels.Profile.append(settingRow('Assistant de configuration IA',null,setupButton).section,assistant.section)
 
  // Appearance: a workstation preference, applied as soon as it is pressed.
  // The main process stores it and switches the whole window; the buttons only
@@ -2293,6 +2301,16 @@ async function openSettings(initial='Profile',project){
 }
 const settingsButton=document.querySelector('#settings')
 settingsButton.onclick=()=>openSettings('Profile')
+const updateMarker=document.createElement('span')
+updateMarker.title='Desktop update available';updateMarker.setAttribute('aria-label','Desktop update available');updateMarker.className='desktop-update-marker';updateMarker.textContent='Update available';updateMarker.hidden=true
+settingsButton.after(updateMarker)
+function showDesktopUpdates(state){
+ updateMarker.hidden=!state.available
+ const panel=document.querySelector('.desktop-updates')
+ if(panel)renderDesktopUpdates(panel,state,api)
+}
+api.onDesktopUpdates(showDesktopUpdates)
+api.desktopUpdates().then(showDesktopUpdates).catch(()=>{})
 api.onOpenSettings(()=>{if(!dialog.open&&!configurationActive())openSettings('Profile')})
 const settingsMac=isMacPlatform(navigator)
 settingsButton.title='Settings ('+configShortcutLabel(settingsMac)+')'
@@ -2385,7 +2403,9 @@ async function fillChangelogPanel(panel){
  versions.append(desktopRow,agentRow)
  const notesHeading=document.createElement('h3');notesHeading.className='changelog-heading';notesHeading.textContent='Release notes'
  const notes=document.createElement('div');notes.className='changelog'
- panel.append(versions,notesHeading,notes)
+ const updates=document.createElement('section');updates.className='desktop-updates';updates.setAttribute('aria-label','Desktop updates')
+ panel.append(versions,updates,notesHeading,notes)
+ api.desktopUpdates().then(state=>{if(updates.isConnected)renderDesktopUpdates(updates,state,api)}).catch(()=>{})
 
  const releases=parseChangelog(changelogSource)
  renderChangelog(notes,releases)

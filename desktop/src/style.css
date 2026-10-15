@@ -786,3 +786,18 @@ dialog.palette-dialog #close-dialog{display:none}
 .batch-members{display:grid;gap:8px;margin:16px 0}
 .batch-member span{flex:1}
 .batch-checkbox{width:16px;height:16px;flex-shrink:0}
+
+.sidebar-footer:has(.desktop-update-marker:not([hidden])){flex-wrap:wrap}
+.desktop-update-marker{flex-basis:100%;text-align:right;font-size:11px;color:var(--accent);white-space:nowrap}
+.sidebar-hidden .desktop-update-marker{font-size:0;text-align:center}
+.sidebar-hidden .desktop-update-marker::after{content:"↑";font-size:14px}
+.desktop-updates{padding:12px 0;border-bottom:1px solid var(--border)}
+.desktop-updates button{margin:4px 8px 4px 0}
+
+.engine-setup {border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:16px}
+.engine-setup nav {display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.engine-setup nav [aria-current="step"] {font-weight:bold;text-decoration:underline}
+.engine-setup button,.engine-setup select {margin:4px}
+.engine-setup dd {overflow-wrap:anywhere;margin-bottom:8px}
+.engine-setup-toast {position:fixed;bottom:24px;right:24px;z-index:1000;max-width:440px;padding:16px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 20px var(--menu-shadow)}
+.engine-setup-toast button {margin:4px}

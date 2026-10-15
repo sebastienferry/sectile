@@ -11,9 +11,9 @@ export const TOAST_DURATION_MS = 3500
 export const TOAST_WITH_LINK_DURATION_MS = 8000
 
 /** The explicit duration when there is one, else a longer default for a toast with a link. */
-export function toastDuration(toast: { duration?: number; link?: unknown }): number {
+export function toastDuration(toast: { duration?: number; link?: unknown; links?: unknown[] }): number {
   if (toast.duration && toast.duration > 0) return toast.duration
-  return toast.link ? TOAST_WITH_LINK_DURATION_MS : TOAST_DURATION_MS
+  return toast.link || toast.links?.length ? TOAST_WITH_LINK_DURATION_MS : TOAST_DURATION_MS
 }
 
 /** What holds a toast on screen. Each reason is released on its own. */

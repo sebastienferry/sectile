@@ -164,4 +164,3 @@ func TestPostBackBroadcastsHydratedTaskAndActivity(t *testing.T) {
 		t.Fatalf("timeout waiting for broadcast event")
 	}
 }
-
