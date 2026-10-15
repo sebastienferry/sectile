@@ -254,7 +254,7 @@ test('Claude chat renders structured output safely and sends messages without a 
   assert.equal(await indicator(status,'content'),'none')
   await page.setViewportSize({width:1000,height:750})
   await page.screenshot({path:path.join(root,'conversation.png')})
-  await page.getByRole('button',{name:'Stop execution',exact:true}).click()
+  await page.getByRole('button',{name:'Stop conversation',exact:true}).click()
   await expect(input).toBeDisabled()
   await expect(page.getByLabel('Effort',{exact:true})).toBeDisabled()
   await expect(page.locator('.conversation-status')).toHaveText('Read-only history')

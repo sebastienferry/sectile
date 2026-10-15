@@ -63,7 +63,7 @@ test('desktop running icons pulse across polls and stop for other states or redu
    ['preparing',undefined,'queued','Queued'],
    ['completed',undefined,'completed','Finished'],
    ['failed',undefined,'failed','Failed'],
-   ['canceled',undefined,'canceled','Cancelled'],
+   ['canceled',undefined,'canceled','Stopped'],
   ]){
    run.status=status;run.waitingSince=waitingSince
    await expect(page.locator('.local-task .run')).toHaveAttribute('data-status',status)
