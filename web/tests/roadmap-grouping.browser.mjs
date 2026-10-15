@@ -8,7 +8,8 @@
 // empty ones included; a drop sets the section's value and nothing else; a
 // Ctrl click selection travels together; a drop on the epic's own section
 // saves nothing; the axis and the folded sections survive a reload; the
-// Hidden tab stays flat.
+// Hidden tab stays flat. A macro key linked to its tracker (#851) neither
+// changes the selection nor stops a drag of its row.
 import { createServer } from 'vite';
 import { browserRoot } from './browserRoot.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -22,7 +23,7 @@ const meta=(key,title,extra)=>({projectId:'p1',key,title,horizon:'now',descripti
 window.metas=[
   meta('PE-1','Platform AI',{priority:'p1'}),
   meta('PE-2','Grafana decision'),
-  meta('PE-3','Okta rollout',{priority:'p2',quarter:'2026-Q4'}),
+  meta('PE-3','Okta rollout',{priority:'p2',quarter:'2026-Q4',externalUrl:'https://tracker.example/browse/PE-3'}),
   meta('PE-4','Vault migration',{priority:'p2'}),
   meta('PE-5','Set aside',{horizon:'hidden',priority:'p3'}),
 ];
@@ -74,6 +75,10 @@ try {
   browser = await chromium.launch({ headless: true, channel: 'chrome' });
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   page.setDefaultTimeout(10000);
+  // A followed macro key opens a tab on the tracker: answer it locally and close it.
+  const popups = [];
+  await page.context().route('https://tracker.example/**', r => r.fulfill({ status: 200, contentType: 'text/html', body: 'tracker' }));
+  page.context().on('page', p => { popups.push(p.url()); p.close().catch(() => {}); });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
 
@@ -86,6 +91,7 @@ try {
   const keysIn = id => page.evaluate(id => [...document.querySelectorAll(`[data-section="${id}"] [data-epic-key]`)].map(r => r.dataset.epicKey), id);
   const row = key => page.locator(`[data-epic-key="${key}"]`);
   const header = id => page.locator(`[data-section="${id}"] > button`);
+  const keyLink = key => row(key).getByRole('link', { name: key, exact: true });
   const axis = page.getByRole('combobox', { name: 'Regrouper les macros' });
 
   // No grouping by default: no section, rows not draggable.
@@ -141,10 +147,28 @@ try {
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => document.querySelector('[data-epic-selection]') === null);
 
+  // #851: a drag started on a linked key drags the row, not the URL.
+  assert.equal(await keyLink('PE-3').getAttribute('draggable'), 'false');
+  await keyLink('PE-3').dragTo(header('priority:p3'));
+  await page.waitForFunction(() => window.saves.length === 5);
+  assert.deepEqual((await saves())[4], { key: 'PE-3', patch: { priority: 'p3' }, options: { quiet: true } });
+  await page.waitForFunction(() => document.querySelector('[data-section="priority:p3"] [data-epic-key="PE-3"]') !== null);
+
   // Shift click selects the range in display order: PE-2 (P0), PE-1 and PE-4 (P2).
   await row('PE-2').click({ modifiers: ['ControlOrMeta'] });
   await row('PE-4').click({ modifiers: ['Shift'] });
   await page.getByText('3 macros sélectionnées').waitFor();
+
+  // #851: following a linked key, plain or with Shift, Ctrl or Cmd, leaves the selection as it was.
+  for (const modifiers of [[], ['Shift'], ['ControlOrMeta']]) {
+    const before = popups.length;
+    await keyLink('PE-3').click({ modifiers });
+    for (let i = 0; i < 40 && popups.length === before; i++) await page.waitForTimeout(50);
+    await page.getByText('3 macros sélectionnées').waitFor();
+    assert.equal(await row('PE-3').getAttribute('aria-selected'), 'false', `a ${modifiers.join('+') || 'plain'} click on the key does not pick the macro`);
+    assert.equal(await row('PE-4').getAttribute('aria-selected'), 'true');
+    assert.ok(popups.length > before, `a ${modifiers.join('+') || 'plain'} click on the key opens the tracker page`);
+  }
 
   // US3: fold a section, whose epics leave the selection; the axis and the
   // fold survive a reload.

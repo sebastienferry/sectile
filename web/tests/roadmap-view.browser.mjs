@@ -1,5 +1,6 @@
 // Isolated browser regression (#629): the roadmap reopens as it was left, hides its panel, gives an expanded panel
 // the whole view, copies and opens the macro's own page, and writes the framing in a full-screen editor.
+// #851: the macro key itself opens the macro on its tracker, in the rows and the panel header, without selecting it.
 // Real RoadmapView, its children and styles; useApp is mocked in every component.
 // Run with Playwright available: node tests/roadmap-view.browser.mjs
 // PLAYWRIGHT_MODULE can point to an existing installation; Chrome is used with a fresh profile.
@@ -34,6 +35,11 @@ try {
   browser=await chromium.launch({headless:true,channel:'chrome'});
   const page=await browser.newPage({viewport:{width:1400,height:900}});
   page.setDefaultTimeout(10000);
+  // A followed macro key opens a tab on the tracker: answer it locally and close it.
+  const popups=[];
+  await page.context().route('https://github.com/acme/**',r=>r.fulfill({status:200,contentType:'text/html',body:'tracker'}));
+  page.context().on('page',p=>{popups.push(p.url());p.close().catch(()=>{})});
+  const waitPopup=async before=>{for(let i=0;i<40&&popups.length===before;i++) await page.waitForTimeout(50)};
   const errors=[];
   page.on('pageerror',e=>errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/fixture`);
@@ -44,7 +50,7 @@ try {
   const tabButton=name=>page.getByRole('button',{name:new RegExp('^'+name+' \\d+$')});
   const activeTab=()=>page.evaluate(()=>[...document.querySelectorAll('button')].find(b=>/^(NOW|NEXT|LATER)/.test(b.textContent||'')&&getComputedStyle(b).fontWeight==='700')?.textContent?.replace(/\d+$/,'').trim());
   const panel=()=>page.locator('aside');
-  const panelKey=()=>panel().locator('span.font-mono').first().textContent();
+  const panelKey=()=>panel().locator('.font-mono').first().textContent();
   const row=title=>page.locator('div.cursor-pointer').filter({hasText:title}).first();
   const remount=async()=>{await page.evaluate(()=>{mounted=false;render()});await panel().waitFor({state:'detached'});await page.evaluate(()=>{mounted=true;render()});await tabButton('NOW').waitFor()};
   const calls=name=>page.evaluate(n=>calls.filter(c=>c[0]===n),name);
@@ -56,7 +62,7 @@ try {
   assert.equal(await panelKey(),'M-1','the first macro is shown by default');
   await tabButton('LATER').click();
   await row('Macro quatre').click();
-  await page.waitForFunction(()=>document.querySelector('aside span.font-mono')?.textContent==='M-4');
+  await page.waitForFunction(()=>document.querySelector('aside .font-mono')?.textContent==='M-4');
   await remount();
   await panel().waitFor();
   assert.equal(await activeTab(),'LATER','the tab is remembered');
@@ -66,12 +72,12 @@ try {
   // The selected macro belongs to its project: another project has its own, and switching back finds M-4 again.
   const switchProject=id=>page.evaluate(id=>{window.ctx.currentProject={id,name:id,issueTracker:'github',sprints:[]};render()},id);
   await switchProject('q');
-  await page.waitForFunction(()=>document.querySelector('aside span.font-mono')?.textContent==='M-3');
+  await page.waitForFunction(()=>document.querySelector('aside .font-mono')?.textContent==='M-3');
   await row('Macro quatre').click();
   await row('Macro trois').click();
   await page.waitForFunction(()=>localStorage.getItem('sectile_roadmap_selected_key:q')==='M-3');
   await switchProject('p');
-  await page.waitForFunction(()=>document.querySelector('aside span.font-mono')?.textContent==='M-4');
+  await page.waitForFunction(()=>document.querySelector('aside .font-mono')?.textContent==='M-4');
   assert.equal(await page.evaluate(()=>localStorage.getItem('sectile_roadmap_selected_key:p')),'M-4','the other project did not overwrite it');
 
   const descriptionHeading=await page.evaluate(()=>window.ctx.t.planning.roadmap.framing.descriptionHeading);
@@ -100,7 +106,7 @@ try {
   assert.deepEqual((await calls('toast')).map(c=>c.slice(1)),[['Référence copiée','M-1: Macro un']]);
   await tabButton('LATER').click();
   await row('Macro trois').click();
-  await page.waitForFunction(()=>document.querySelector('aside span.font-mono')?.textContent==='M-3');
+  await page.waitForFunction(()=>document.querySelector('aside .font-mono')?.textContent==='M-3');
   assert.equal(await panel().getByRole('link').first().getAttribute('href'),'https://github.com/acme/app/milestone/3','the tracker link opens the macro itself');
   await page.evaluate(()=>{clip=[];calls=[]});
   await panel().getByRole('button',{name:'Copier',exact:true}).click();
@@ -114,6 +120,46 @@ try {
   assert.equal(refused[1],'Copie impossible');
   assert.ok(refused[2].includes('https://github.com/acme/app/milestone/3'),'the refusal gives the text to copy by hand');
   await page.evaluate(()=>{refuseClipboard=false});
+
+  // #851: the key is the link, in the panel header and in the rows; the panel has no separate link button.
+  const url='https://github.com/acme/app/milestone/3';
+  const assertKeyLink=async(link,where)=>{
+    assert.equal(await link.getAttribute('href'),url,where);
+    assert.equal(await link.getAttribute('target'),'_blank',where);
+    assert.equal(await link.getAttribute('rel'),'noreferrer',where);
+    assert.equal(await link.getAttribute('title'),'Ouvrir M-3 dans le tracker distant',where);
+  };
+  const rowKey=key=>page.locator(`[data-epic-key="${key}"]`).getByRole('link',{name:key,exact:true});
+  await assertKeyLink(panel().getByRole('link',{name:'M-3',exact:true}),'the panel header key');
+  assert.equal(await panel().getByRole('link').count(),1,'the header key is the panel\'s only tracker link');
+  assert.equal(await panel().getByText('Lien',{exact:true}).count(),0,'the panel has no "Lien" button');
+  await assertKeyLink(rowKey('M-3'),'the full row key');
+  assert.equal(await rowKey('M-4').count(),0,'a macro without a tracker page has a plain key');
+  assert.equal(await page.locator('[data-epic-key="M-4"] .font-mono').first().textContent(),'M-4');
+  // Following the key of another macro opens it and leaves the selected one in the panel.
+  await row('Macro quatre').click();
+  await page.waitForFunction(()=>document.querySelector('aside .font-mono')?.textContent==='M-4');
+  let before=popups.length;
+  await rowKey('M-3').click();
+  await waitPopup(before);
+  assert.deepEqual(popups.slice(before),[url],'the full row key opens the tracker page');
+  assert.equal(await panelKey(),'M-4','following the key does not select its macro');
+  // The condensed row offers the same link.
+  const condensedToggle=page.getByRole('button',{name:/^Condensé/});
+  await condensedToggle.click();
+  await page.waitForFunction(()=>document.querySelector('button[aria-pressed="true"]')?.textContent?.startsWith('Condensé'));
+  await assertKeyLink(rowKey('M-3'),'the condensed row key');
+  assert.equal(await rowKey('M-4').count(),0,'a condensed macro without a tracker page has a plain key');
+  before=popups.length;
+  await rowKey('M-3').click();
+  await waitPopup(before);
+  assert.deepEqual(popups.slice(before),[url],'the condensed row key opens the tracker page');
+  assert.equal(await panelKey(),'M-4','following the condensed key does not select its macro');
+  await condensedToggle.click();
+  await page.waitForFunction(()=>document.querySelector('button[aria-pressed="false"]')?.textContent?.startsWith('Condensé'));
+  // A click elsewhere on the row still selects it.
+  await row('Macro trois').click();
+  await page.waitForFunction(()=>document.querySelector('aside .font-mono')?.textContent==='M-3');
 
   // US4: the full-screen editor edits the same draft, shows its preview, and Escape closes it alone.
   await maximizeButtons().first().click();

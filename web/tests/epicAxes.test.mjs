@@ -57,6 +57,18 @@ test('the seeding proposes only the axes an epic has no value on', () => {
   ])
 })
 
+test('a seed line carries the macro tracker page only when the tracker gives one', () => {
+  const lines = seedProposals([
+    { ...row('PE-1', '', '', '2026.Q4 [P2] - Linked'), externalUrl: 'https://tracker.example/PE-1' },
+    { ...row('PE-2', '', '', '2026.Q4 [P1] - Not linked'), externalUrl: '' },
+    { ...row('PE-3', '', '', 'Nothing to propose'), externalUrl: 'https://tracker.example/PE-3' },
+  ])
+  assert.deepEqual(lines, [
+    { key: 'PE-1', title: '2026.Q4 [P2] - Linked', priority: 'p2', quarter: '2026-Q4', externalUrl: 'https://tracker.example/PE-1' },
+    { key: 'PE-2', title: '2026.Q4 [P1] - Not linked', priority: 'p1', quarter: '2026-Q4' },
+  ])
+})
+
 test('the priority sort keeps the backlog order and puts unprioritized epics last', () => {
   const rows = [row('A'), row('B', 'p2'), row('C', 'p0'), row('D', 'p2'), row('E'), row('F', 'p3')]
   const keys = list => list.map(r => r.key)

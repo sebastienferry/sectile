@@ -1367,6 +1367,29 @@ export const RoadmapView: React.FC = () => {
     )
   }
 
+  // The macro key, as a link to its tracker page when the tracker gives one,
+  // like the task key on a card (#851). The link stops the click and the
+  // mousedown so its container neither selects nor toggles anything, and is
+  // not draggable so a drag started on it drags the row, not the URL.
+  const renderMacroKey = (macroKey: string, url: string | undefined, className: string, style?: React.CSSProperties) =>
+    url ? (
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        draggable={false}
+        onClick={e => e.stopPropagation()}
+        onMouseDown={e => e.stopPropagation()}
+        title={format(strings.panel.openRemoteTitle, { key: macroKey })}
+        className={`${className} hover:underline focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]`}
+        style={style}
+      >
+        {macroKey}
+      </a>
+    ) : (
+      <span className={className} style={style}>{macroKey}</span>
+    )
+
   /**
    * The two shapes of a macro row.
    *
@@ -1397,7 +1420,7 @@ export const RoadmapView: React.FC = () => {
       >
         {epicColorsOn && <EpicBar parentKey={row.key} />}
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[11px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>{row.key}</span>
+          {renderMacroKey(row.key, row.externalUrl, 'text-[11px] font-mono font-bold', { color: 'var(--accent-color)' })}
           {foreignBadge(row)}
           <span className="text-[9.5px] px-1 rounded font-mono truncate max-w-[150px] bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-color)]" title={row.squad}>
             {row.squad}
@@ -1527,9 +1550,7 @@ export const RoadmapView: React.FC = () => {
         }}
       >
         {epicColorsOn && <EpicBar parentKey={row.key} />}
-        <span className="shrink-0 text-[10.5px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>
-          {row.key}
-        </span>
+        {renderMacroKey(row.key, row.externalUrl, 'shrink-0 text-[10.5px] font-mono font-bold', { color: 'var(--accent-color)' })}
         {foreignBadge(row)}
         <span className="flex-1 min-w-0 truncate text-[11.5px] text-[var(--text-primary)]" title={row.title}>
           {row.title}
@@ -2043,7 +2064,7 @@ export const RoadmapView: React.FC = () => {
             style={{ width: isPanelExpanded ? '100%' : panelWidth, flex: isPanelExpanded ? 1 : undefined }}>
             <div className="px-4 pt-3.5 pb-3 shrink-0 border-b border-[var(--border-color)]">
               <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                <span className="text-[11px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>{selected.key}</span>
+                {renderMacroKey(selected.key, selected.externalUrl, 'text-[11px] font-mono font-bold', { color: 'var(--accent-color)' })}
                 {selected.horizon && (
                   <span
                     className="px-1.5 py-0.5 rounded text-[9.5px] font-bold uppercase tracking-[.06em] text-white"
@@ -2083,19 +2104,6 @@ export const RoadmapView: React.FC = () => {
                     <span>{strings.panel.copy}</span>
                   </button>
 
-                  {selected.externalUrl && (
-                    <a href={selected.externalUrl} target="_blank" rel="noreferrer"
-                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold transition-colors"
-                      style={{
-                        color: 'var(--status-info)',
-                        background: 'rgb(var(--status-info-rgb) / 0.12)',
-                        border: '1px solid rgb(var(--status-info-rgb) / 0.32)',
-                      }}
-                      title={format(strings.panel.openRemoteTitle, { key: selected.key })}>
-                      <ExternalLink size={13} />
-                      <span>{strings.panel.link}</span>
-                    </a>
-                  )}
                   {/* Back to the ticket views, filtered on the epic (#630). An
                       epic without a ticket would open an empty list. */}
                   {selected.tasks.length > 0 && (
@@ -3785,7 +3793,7 @@ export const RoadmapView: React.FC = () => {
                     {seedLines.map(line => (
                       <tr key={line.key} className="border-t border-[var(--border-color)]">
                         <td className="py-1.5 pr-3">
-                          <span className="font-mono font-bold text-[var(--accent-color)] mr-2">{line.key}</span>
+                          {renderMacroKey(line.key, line.externalUrl, 'font-mono font-bold text-[var(--accent-color)] mr-2')}
                           <span className="text-[var(--text-primary)]">{line.title}</span>
                         </td>
                         {(['priority', 'quarter'] as const).map(axis => {
