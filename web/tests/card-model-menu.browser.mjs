@@ -11,7 +11,7 @@ const harness=`import React from 'react'; import {createRoot} from 'react-dom/cl
 window.calls=[]; window.condensed=false;
 const spy=(name)=>(...args)=>{window.calls.push([name,...args.map(x=>x?.id||x)])};
 const project={id:'p'};
-window.ctx={settings:{density:'standard'}, projects:[project],currentProject:project,activities:[], t:translations.fr, skillLabel:x=>x,skillCommand:(id,command)=>command,fetchActivities:async()=>{},isPinned:()=>false, parentFilter:null, advanceTask:async(...args)=>{spy('advance')(...args)},addToast:toast=>window.calls.push(['toast',toast.title,toast.description]),...Object.fromEntries(['setSelectedTask','togglePin','setParentFilter','setChatTask','runSkill','setIsTerminalPanelOpen'].map(n=>[n,spy(n)]))};
+window.ctx={settings:{density:'standard'}, projects:[project],currentProject:project,activities:[], t:translations.fr, skillLabel:x=>x,skillCommand:(id,command)=>command,fetchActivities:async()=>{},isPinned:()=>false,ticketLink:()=>undefined, parentFilter:null, advanceTask:async(...args)=>{spy('advance')(...args)},addToast:toast=>window.calls.push(['toast',toast.title,toast.description]),...Object.fromEntries(['setSelectedTask','togglePin','setParentFilter','setChatTask','runSkill','setIsTerminalPanelOpen'].map(n=>[n,spy(n)]))};
 window.engine={state:'reported',provider:'claude',model:'opus',models:['opus','sonnet','haiku'],modelSlot:true};
 window.task={id:'fixture',key:'#612',title:'Card',projectId:'p',status:'to_clarify',priority:'medium',source:'github',labels:['new'],description:'Body'};
 window.clip=[]; window.refuseClipboard=false;

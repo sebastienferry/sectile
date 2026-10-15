@@ -13,7 +13,7 @@ import type { Task } from '../types'
  * person's own credential, and the ticket joins the project.
  */
 export const TrackerBacklogView: React.FC = () => {
-  const { backlogTrackerId, trackers, projects, addToast, t } = useApp()
+  const { backlogTrackerId, trackers, projects, addToast, ticketLink, t } = useApp()
   const strings = t.trackerBacklog
   const tracker = trackers.find(item => item.id === backlogTrackerId)
   const trackerName = tracker ? trackerDisplayName(tracker) : strings.unknownTracker
@@ -67,12 +67,13 @@ export const TrackerBacklogView: React.FC = () => {
       await addBacklogTaskToProject(backlogTrackerId, task.id, projectId)
       // The ticket carries the project's label now: it left the backlog.
       setBacklog(current => ({ ...current, tasks: current.tasks.filter(item => item.id !== task.id) }))
-      addToast({ type: 'success', title: format(strings.added, { key: task.key, project: project?.name || projectId }) })
+      addToast({ type: 'success', title: format(strings.added, { key: task.key, project: project?.name || projectId }), link: ticketLink(task) })
     } catch (err) {
       addToast({
         type: 'error',
         title: format(strings.addFailed, { key: task.key }),
         description: err instanceof Error ? err.message : String(err),
+        link: ticketLink(task),
       })
     } finally {
       setBusy(null)

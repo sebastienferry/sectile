@@ -964,6 +964,10 @@ export interface TranslationSchema {
     priorityNotWritten: string
     openCreated: string
     openInTracker: string
+    /** The subject tickets a toast lists without a link, past the first five (#841). */
+    moreTickets: string
+    /** A toast link whose ticket could not be read when clicked (#841). */
+    ticketUnavailable: string
     taskUpdated: string
     taskMoved: string
     taskDeleted: string
@@ -1925,6 +1929,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       priorityNotWritten: 'Priorité non écrite sur Jira',
       openCreated: 'Ouvrir',
       openInTracker: 'Ouvrir dans le tracker',
+      moreTickets: '+{count} de plus',
+      ticketUnavailable: "Impossible d'ouvrir le ticket {key}",
       taskUpdated: 'Tâche mise à jour !',
       taskMoved: 'Statut de la tâche mis à jour',
       taskDeleted: 'Tâche supprimée',
@@ -2884,6 +2890,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       priorityNotWritten: 'Priority not written to Jira',
       openCreated: 'Open',
       openInTracker: 'Open in the tracker',
+      moreTickets: '+{count} more',
+      ticketUnavailable: 'Ticket {key} could not be opened',
       taskUpdated: 'Task updated successfully!',
       taskMoved: 'Task status updated',
       taskDeleted: 'Task deleted',

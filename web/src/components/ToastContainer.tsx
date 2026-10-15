@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import { CheckCircle2, AlertTriangle, AlertCircle, Info, X, ExternalLink } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { createDismissTimer, toastDuration, type DismissTimer } from '../lib/toastTimer'
+import { format } from '../lib/i18n'
 import type { ToastMessage } from '../types'
 
 const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void }> = ({ toast, onRemove }) => {
@@ -78,6 +79,11 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
             )}
           </div>
         ))}
+        {(toast.moreLinks ?? 0) > 0 && (
+          <div className="text-[11px] text-[var(--text-muted)] mt-1.5">
+            {format(t.toasts.moreTickets, { count: toast.moreLinks ?? 0 })}
+          </div>
+        )}
       </div>
       <button
         onClick={() => onRemove(toast.id)}

@@ -41,7 +41,7 @@ function formatWaited(since?: string): string {
 }
 
 export function RemoteRunBadge({ taskId }: { taskId: string }) {
-  const { activities, fetchActivities, addToast, t, settings } = useApp()
+  const { activities, fetchActivities, addToast, ticketLink, t, settings } = useApp()
   const locale = isLocale(settings.language) ? settings.language : 'fr'
   const strings = t.shell.remoteRun
   const [canceling, setCanceling] = useState(false)
@@ -95,7 +95,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
       // ours, so the server's answer is simply shown.
       const refused = typeof error === 'object' && error !== null && (error as { status?: number }).status === 403
       if (!force && !refused && !closing && typeof error === 'object' && error !== null && (error as { status?: number }).status === 502) setUnreachable(true)
-      addToast({ type: 'error', title: closing ? strings.closeFailed : strings.cancelFailed, description: error instanceof Error ? error.message : String(error) })
+      addToast({ type: 'error', title: closing ? strings.closeFailed : strings.cancelFailed, description: error instanceof Error ? error.message : String(error), link: ticketLink({ id: taskId, key: runs[0]?.taskKey }) })
     } finally { setCanceling(false) }
   }
 

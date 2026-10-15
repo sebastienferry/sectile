@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Changed
+
+- WebUI notifications about a ticket (runs, stage moves, syncs, comments, sprint or team changes, errors) now always offer a link to open it; notifications about several tickets list up to five. (#841)
+
 ## [0.7.0] - 2026-10-15
 
 ### Added

@@ -6,7 +6,7 @@ import type { TaskActivity } from '../types'
 
 /** One permission and recovery flow for task and activity surfaces. */
 export function ExecutionRecovery({ run }: { run: TaskActivity }) {
-  const { t, fetchActivities, fetchActivityStats, addToast } = useApp()
+  const { t, fetchActivities, fetchActivityStats, addToast, ticketLink } = useApp()
   const viewer = useViewer()
   const [busy, setBusy] = useState(false)
   const [unconfirmed, setUnconfirmed] = useState(false)
@@ -26,7 +26,7 @@ export function ExecutionRecovery({ run }: { run: TaskActivity }) {
       await fetchActivities()
       await fetchActivityStats()
     } catch (error) {
-      addToast({ type: 'error', title: t.shell.remoteRun.cancelFailed, description: error instanceof Error ? error.message : String(error) })
+      addToast({ type: 'error', title: t.shell.remoteRun.cancelFailed, description: error instanceof Error ? error.message : String(error), link: ticketLink({ id: run.taskId, key: run.taskKey }) })
     } finally { setBusy(false) }
   }
   return <span className="inline-flex gap-2" onClick={event => event.stopPropagation()}>

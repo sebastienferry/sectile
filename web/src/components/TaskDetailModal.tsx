@@ -88,6 +88,7 @@ export const TaskDetailModal: React.FC = () => {
     settings,
     updateSettings,
     addToast,
+    ticketLink,
     membersForTeam,
     searchAssignableUsers,
     searchTrackerTeams,
@@ -518,6 +519,7 @@ export const TaskDetailModal: React.FC = () => {
         type: 'error',
         title: td.toasts.copyFailedTitle,
         description: td.toasts.copyFailedDescription,
+        link: ticketLink(selectedTask),
       })
       return
     }
@@ -531,6 +533,7 @@ export const TaskDetailModal: React.FC = () => {
       type: 'success',
       title: td.toasts.keyCopiedTitle,
       description: format(td.toasts.keyCopiedDescription, { key }),
+      link: ticketLink(selectedTask),
     })
   }
 
@@ -800,6 +803,7 @@ export const TaskDetailModal: React.FC = () => {
       type: 'success',
       title: td.toasts.specCopiedTitle,
       description: td.toasts.specCopiedDescription,
+      link: ticketLink(selectedTask),
     })
   }
 
@@ -1003,6 +1007,7 @@ export const TaskDetailModal: React.FC = () => {
                           type: 'success',
                           title: td.toasts.descriptionUpdatedTitle,
                           description: td.toasts.descriptionUpdatedDescription,
+                          link: ticketLink(selectedTask),
                         })
                       }
                     }}
