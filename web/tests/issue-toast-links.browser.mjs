@@ -5,13 +5,17 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || '../../deskto
 const { root, preserveSymlinks } = browserRoot(import.meta.url)
 const harness = `import React from 'react'; import {createRoot} from 'react-dom/client'; import {AppProvider,useApp} from '/src/context/AppContext.tsx'; import {ToastContainer} from '/src/components/ToastContainer.tsx'; import '/src/index.css';
 const json=b=>new Response(JSON.stringify(b),{headers:{'Content-Type':'application/json'}});
-window.answer={};
+window.answer={};window.status=200;window.activities=[];window.byId={};
+const board=[{id:'L',projectId:'p',key:'L-1',title:'Loaded L',labels:[],externalUrl:'https://tracker.example/L',source:'local'}];
 window.fetch=async(input,init={})=>{const p=new URL(input,location.origin).pathname;
-if(init.method==='POST'||init.method==='PUT')return json(window.answer);
+if(['POST','PUT','PATCH','DELETE'].includes(init.method))return new Response(JSON.stringify(window.answer),{status:window.status,headers:{'Content-Type':'application/json'}});
 if(p==='/api/me')return json({userId:'u',signedIn:true,mode:'local',role:'admin'});
 if(p==='/api/settings')return json({language:'en'});
 if(p==='/api/tasks/facets')return json({});
 if(/stats|status/.test(p))return json({});
+if(p==='/api/tasks')return json(board);
+if(p==='/api/activities')return json(window.activities);
+const one=p.split('/');if(one.length===4&&one[2]==='tasks'&&one[3]!=='pins')return window.byId[one[3]]?json(window.byId[one[3]]):new Response('{}',{status:404});
 return json([])};
 function Probe(){window.ctx=useApp();return <><output>{window.ctx.selectedTask?.title||''}</output><ToastContainer/></>}
 createRoot(document.getElementById('root')).render(<AppProvider><Probe/></AppProvider>);`
@@ -73,6 +77,60 @@ try {
   assert.equal(await page.getByRole('button',{name:/^Open /}).count(),0)
   await invoke('createStoriesFromMacroTodos',['p','M-1',[]],{results:[{status:'skipped'}],created:0,failed:0,skipped:1})
   assert.equal(await page.getByRole('link').count(),0)
+  // #841: every toast about an existing ticket links it, whatever its type.
+  await page.evaluate(()=>{window.status=200})
+  await invoke('syncSingleTask',['a'],{task:task('a','https://tracker.example/a')})
+  await page.getByRole('button',{name:'Open a',exact:true}).click()
+  assert.equal(await page.locator('output').textContent(),'Returned a','sync success opens the realigned ticket')
+  await page.evaluate(()=>{window.status=500})
+  await invoke('updateTask',['L',{}],{error:'Refused by the server'})
+  await page.getByText('Refused by the server').waitFor()
+  await page.getByRole('button',{name:'Open L-1',exact:true}).click()
+  assert.equal(await page.locator('output').textContent(),'Loaded L','an error toast links its ticket from the board')
+  // The credential offer comes first, the ticket second.
+  await page.evaluate(()=>{window.status=403})
+  await invoke('setTaskSprint',['L','s1','Sprint 1'],{code:'tracker_credential_missing',tracker:'jira',error:'No token'})
+  const actions=page.locator('.pointer-events-auto button:not([aria-label])')
+  await actions.first().waitFor()
+  assert.deepEqual(await actions.allTextContents(),['Add my Jira token','Open L-1'])
+  // Several tickets: one link each up to five, then a count.
+  await page.evaluate(()=>{window.status=200})
+  await invoke('setTasksSprint',['p',['L','L','L'],'s1','Sprint 1'],{count:3})
+  await page.getByRole('button',{name:'Open L-1',exact:true}).first().waitFor()
+  assert.equal(await page.getByRole('button',{name:'Open L-1',exact:true}).count(),3)
+  assert.equal(await page.getByText(/^\+\d+ more$/).count(),0)
+  await page.evaluate(()=>{ctx.toasts.forEach(t=>ctx.removeToast(t.id))})
+  await page.evaluate(()=>ctx.addToast({type:'success',title:'Seven',...(()=>{const r=ctx.ticketLinks([...Array(5).fill({id:'L'}),{id:'x'},{id:'y'}]);return {links:r.links,moreLinks:r.more}})()}))
+  await page.getByText('+2 more',{exact:true}).waitFor()
+  assert.equal(await page.getByRole('button',{name:'Open L-1',exact:true}).count(),5)
+  await invoke('setTasksSprint',['p',['L','L','L','L','L','L','L'],'s1','Sprint 1'],{count:7})
+  await page.getByText('+2 more',{exact:true}).waitFor()
+  // A ticket off the board is read when its link is clicked; a failed read says so.
+  await page.evaluate(()=>{window.byId={U:{id:'U',projectId:'q',key:'U-7',title:'Remote U',labels:[],source:'local'}}})
+  await page.evaluate(()=>{ctx.toasts.forEach(t=>ctx.removeToast(t.id));ctx.addToast({type:'info',title:'Lazy',link:ctx.ticketLink({id:'U',key:'U-7'})})})
+  await page.getByRole('button',{name:'Open U-7',exact:true}).click()
+  await page.waitForFunction(()=>ctx.selectedTask?.title==='Remote U')
+  await page.evaluate(()=>{ctx.setSelectedTask(null);ctx.addToast({type:'info',title:'Gone',link:ctx.ticketLink({id:'gone',key:'J-9'})})})
+  await page.getByRole('button',{name:'Open J-9',exact:true}).click()
+  await page.getByText('Ticket J-9 could not be opened').waitFor()
+  assert.equal(await page.evaluate(()=>ctx.selectedTask),null)
+  assert.equal(await page.evaluate(()=>ctx.ticketLink({id:'nokey'})),undefined,'a lazy link needs the key')
+  // Run outcomes from the poller: a loaded ticket with its tracker icon, an unloaded one read on click.
+  await page.evaluate(()=>{ctx.toasts.forEach(t=>ctx.removeToast(t.id))})
+  const run=(id,taskId,taskKey,status)=>({id,taskId,taskKey,status,skillId:'implement',skillName:'Implement',action:'',output:'',steps:[],createdAt:'2026-10-15T00:00:00Z'})
+  await page.evaluate(async r=>{window.activities=r;await ctx.fetchActivities()},[run('r1','L','L-1','running'),run('r2','U','U-7','running')])
+  await page.waitForTimeout(4500)
+  await page.evaluate(r=>{window.activities=r},[run('r1','L','L-1','completed'),run('r2','U','U-7','failed')])
+  const loadedRun=page.getByRole('button',{name:'Open L-1',exact:true})
+  await loadedRun.waitFor({timeout:15000})
+  assert.equal(await page.getByRole('link',{name:'Open in the tracker: Open L-1'}).count(),1)
+  await page.getByRole('button',{name:'Open U-7',exact:true}).click()
+  await page.waitForFunction(()=>ctx.selectedTask?.title==='Remote U')
+  await page.evaluate(()=>{window.activities=[]})
+  // Deletion offers no link; last, since it takes L off the board.
+  await invoke('deleteTask',['L'],{})
+  await page.getByText('Task deleted').waitFor()
+  assert.equal(await page.getByRole('button',{name:/^Open /}).count(),0)
   assert.deepEqual(errors,[])
   console.log('Issue toast producer and navigation browser checks passed')
 } finally {await browser?.close();await server.close()}

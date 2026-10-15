@@ -100,6 +100,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     skillLabel,
     t,
     addToast,
+    ticketLink,
     setTaskSprint,
   } = useApp()
   const showsEpicColors = useEpicColors()
@@ -857,7 +858,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             onClick={() => {
               setIsMenuOpen(false)
               navigator.clipboard.writeText(`${task.key}: ${task.title}`)
-              addToast({ type: 'info', title: t.shell.card.copied, description: format(t.shell.card.copiedDescription, { key: task.key }) })
+              addToast({ type: 'info', title: t.shell.card.copied, description: format(t.shell.card.copiedDescription, { key: task.key }), link: ticketLink(task) })
             }}
             className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
           >

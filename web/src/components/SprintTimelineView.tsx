@@ -45,6 +45,7 @@ import { createSprints, deleteSprint, updateSprint, SprintRequestError, type Spr
 import { format, plural, formatDate } from '../lib/i18n'
 import type { Task, TrackerSprint, WorkflowStage } from '../types'
 import { resolveTaskStage } from '../lib/workflow'
+import { withTicketLinks } from '../lib/issueToast'
 import { Avatar } from './Avatar'
 import { EpicBar, useEpicColors } from './EpicMarker'
 
@@ -63,6 +64,7 @@ export const SprintTimelineView: React.FC = () => {
     setSelectedTask,
     addToast,
     refusalToast,
+    ticketLinks,
     startBatchPickup,
     t,
     settings,
@@ -665,11 +667,11 @@ export const SprintTimelineView: React.FC = () => {
 
     if (currentProject?.id && taskIds.length > 1) {
       await setTasksSprint(currentProject.id, taskIds, target.id, target.name)
-      addToast({
+      addToast(withTicketLinks({
         type: 'success',
         title: st.backlog.planned,
         description: plural(lang, taskIds.length, st.backlog.plannedDescription, { name: sprintName }),
-      })
+      }, ticketLinks(taskIds.map(id => ({ id })))))
     } else {
       for (const id of taskIds) {
         await setTaskSprint(id, target.id, target.name)
@@ -694,11 +696,11 @@ export const SprintTimelineView: React.FC = () => {
     const target = moveTarget(batchTargetSprint)
     if (currentProject?.id) {
       await setTasksSprint(currentProject.id, ids, target.id, target.name)
-      addToast({
+      addToast(withTicketLinks({
         type: 'success',
         title: st.backlog.assigned,
         description: plural(lang, ids.length, st.backlog.assignedDescription, { name: batchTargetSprint }),
-      })
+      }, ticketLinks(ids.map(id => ({ id })))))
     } else {
       for (const id of ids) {
         await setTaskSprint(id, target.id, target.name)

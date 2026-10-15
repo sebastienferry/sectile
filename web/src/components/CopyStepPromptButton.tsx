@@ -16,7 +16,7 @@ const FALLBACK_WIDTH = 280
  * the full chain one; this button is the shortcut for the former (#612).
  */
 export function CopyStepPromptButton({ task, className = '' }: { task: Task; className?: string }) {
-  const { skillCommand, projects, currentProject, addToast, t } = useApp()
+  const { skillCommand, projects, currentProject, addToast, ticketLink, t } = useApp()
   // What the clipboard refused, shown next to the button to select by hand.
   const [fallback, setFallback] = useState('')
   const [fallbackPos, setFallbackPos] = useState<AnchoredMenuPosition | null>(null)
@@ -70,7 +70,7 @@ export function CopyStepPromptButton({ task, className = '' }: { task: Task; cla
     try {
       await navigator.clipboard.writeText(prompt)
       setFallback('')
-      addToast({ type: 'info', title: t.shell.card.promptCopied, description: format(t.shell.card.promptCopiedDescription, { command, key: task.key }) })
+      addToast({ type: 'info', title: t.shell.card.promptCopied, description: format(t.shell.card.promptCopiedDescription, { command, key: task.key }), link: ticketLink(task) })
     } catch {
       // No clipboard (insecure origin) or a refused one: the prompt is still
       // there to select.

@@ -1041,6 +1041,8 @@ export interface ToastMessage {
   duration?: number
   link?: ToastLink
   links?: ToastLink[]
+  /** Subject tickets left without a link after the first five (#841). */
+  moreLinks?: number
 }
 
 export interface InstalledSkillInfo {

@@ -44,6 +44,7 @@ import { EpicBar, useEpicColors } from "./EpicMarker"
 import { shortElapsed, isElapsedStale } from "../lib/elapsed"
 import { format, formatDate, plural } from "../lib/i18n"
 import { partitionBulkOutcomes, type BulkOutcome } from "../lib/priorityMapping"
+import { withTicketLinks } from "../lib/issueToast"
 import { resolveTaskStage } from "../lib/workflow"
 import { isSelectableStage } from "../lib/boardSelection"
 import {
@@ -53,7 +54,7 @@ import {
   toggleBacklogRowDisplayMode,
   type BacklogRowDisplayMode,
 } from "../lib/backlogDisplayMode"
-import type { Task, Status, Priority, WorkflowStage } from "../types"
+import type { Task, Status, Priority, WorkflowStage, ToastMessage } from "../types"
 
 /** The flat table columns a header click sorts by. */
 type HeaderSortField = "key" | "title" | "status" | "priority" | "dueDate"
@@ -104,6 +105,7 @@ export const ListView: React.FC = () => {
     openEpicInRoadmap,
     startBatchPickup,
     addToast,
+    ticketLinks,
     t,
     settings,
   } = useApp()
@@ -337,6 +339,9 @@ export const ListView: React.FC = () => {
   // guessed, #679) does not stop the others: each is tried, its refusal is
   // toasted with the server's reason, and the summary names the refused ones
   // instead of counting them as written.
+  // A bulk toast links the selected tickets, five at most (#841).
+  const bulkToast = (toast: Omit<ToastMessage, "id">) => addToast(withTicketLinks(toast, ticketLinks(selectedTasks)))
+
   const handleBulkPriority = async (priority: Priority) => {
     if (selectedTasks.length === 0) return
     setIsBulkProcessing(true)
@@ -348,13 +353,13 @@ export const ListView: React.FC = () => {
       }
       const { written, refused } = partitionBulkOutcomes(outcomes)
       if (refused.length === 0) {
-        addToast({
+        bulkToast({
           type: "success",
           title: L.toasts.priorityUpdated,
           description: plural(lang, written, L.toasts.priorityUpdatedCount, { priority }),
         })
       } else {
-        addToast({
+        bulkToast({
           type: "error",
           title: L.toasts.priorityRefused,
           description: format(L.toasts.priorityRefusedDescription, { written, refused: refused.join(", ") }),
@@ -373,14 +378,14 @@ export const ListView: React.FC = () => {
       for (const task of selectedTasks) {
         await moveTaskWorkflowStage(task.id, stage)
       }
-      addToast({
+      bulkToast({
         type: "success",
         title: L.toasts.stageUpdated,
         description: plural(lang, selectedTasks.length, L.toasts.stageUpdatedCount, { stage }),
       })
       setActiveBulkDropdown(null)
     } catch (err: any) {
-      addToast({ type: "error", title: L.toasts.error, description: err.message })
+      bulkToast({ type: "error", title: L.toasts.error, description: err.message })
     } finally {
       setIsBulkProcessing(false)
     }
@@ -397,14 +402,14 @@ export const ListView: React.FC = () => {
           await moveTask(task.id, status as Status, 0)
         }
       }
-      addToast({
+      bulkToast({
         type: "success",
         title: L.toasts.statusUpdated,
         description: plural(lang, selectedTasks.length, L.toasts.statusUpdatedCount, { status }),
       })
       setActiveBulkDropdown(null)
     } catch (err: any) {
-      addToast({ type: "error", title: L.toasts.error, description: err.message })
+      bulkToast({ type: "error", title: L.toasts.error, description: err.message })
     } finally {
       setIsBulkProcessing(false)
     }
@@ -422,14 +427,14 @@ export const ListView: React.FC = () => {
           await updateTask(task.id, { labels: next })
         }
       }
-      addToast({
+      bulkToast({
         type: "success",
         title: L.toasts.labelAdded,
         description: plural(lang, selectedTasks.length, L.toasts.labelAddedCount, { label: clean }),
       })
       setBulkLabelInput("")
     } catch (err: any) {
-      addToast({ type: "error", title: L.toasts.error, description: err.message })
+      bulkToast({ type: "error", title: L.toasts.error, description: err.message })
     } finally {
       setIsBulkProcessing(false)
     }
@@ -447,13 +452,13 @@ export const ListView: React.FC = () => {
           await updateTask(task.id, { labels: next })
         }
       }
-      addToast({
+      bulkToast({
         type: "success",
         title: L.toasts.labelRemoved,
         description: format(L.toasts.labelRemovedDescription, { label: labelName }),
       })
     } catch (err: any) {
-      addToast({ type: "error", title: L.toasts.error, description: err.message })
+      bulkToast({ type: "error", title: L.toasts.error, description: err.message })
     } finally {
       setIsBulkProcessing(false)
     }
@@ -467,6 +472,7 @@ export const ListView: React.FC = () => {
       for (const task of selectedTasks) {
         await deleteTask(task.id)
       }
+      // The deleted tickets are gone: nothing to open (#841).
       addToast({
         type: "success",
         title: L.toasts.deleted,
@@ -474,7 +480,7 @@ export const ListView: React.FC = () => {
       })
       clearSelection()
     } catch (err: any) {
-      addToast({ type: "error", title: L.toasts.error, description: err.message })
+      bulkToast({ type: "error", title: L.toasts.error, description: err.message })
     } finally {
       setIsBulkProcessing(false)
     }
