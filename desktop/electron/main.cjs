@@ -431,6 +431,23 @@ ipcMain.handle('copy-text',(_,text)=>{
  if(typeof text!=='string'||!text)throw Error('Nothing to copy')
  clipboard.writeText(text)
 })
+// The launch guard survives renderer reloads, but resets with Desktop.
+let setupPromptShown=false
+ipcMain.handle('claim-setup-prompt',()=>{if(setupPromptShown)return false;setupPromptShown=true;return true})
+// Setup exposes only the agent's redacted readback, never provider files.
+const setupProvider=value=>{if(!['claude','codex','agy'].includes(value))throw Error('Fournisseur non pris en charge');return encodeURIComponent(value)}
+ipcMain.handle('setup-state',(_,provider)=>api('/desktop/setup?provider='+setupProvider(provider)))
+ipcMain.handle('acknowledge-setup',(_,provider,decision)=>{
+ if(!decision||!['skills','permissions','sdd'].includes(decision.step)||!['retained','skipped'].includes(decision.decision)||typeof decision.fingerprint!=='string')throw Error('Décision invalide')
+ return api('/desktop/setup?provider='+setupProvider(provider),'POST',{step:decision.step,decision:decision.decision,fingerprint:decision.fingerprint})
+})
+ipcMain.handle('setup-claude-mode',async(_,value)=>{
+ if(!['default','acceptEdits','auto','plan'].includes(value))throw Error('Mode d’autorisation invalide')
+ const mode=normalizeConversationMode(value)
+ const result=await api('/desktop/conversation-mode','PUT',{mode})
+ settingsStore.updateDesktop(saved=>{saved.conversationMode=result.mode})
+ return result
+})
 ipcMain.handle('mcp-config',(_,provider)=>api('/desktop/mcp?provider='+encodeURIComponent(provider)))
 ipcMain.handle('configure-mcp',(_,provider,choice)=>api('/desktop/mcp?provider='+encodeURIComponent(provider),'POST',choice))
 ipcMain.handle('status',()=>api('/desktop/status'))

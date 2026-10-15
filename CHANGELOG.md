@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Guided Desktop setup for Claude, Codex and Antigravity, with optional skills and project SDD, MCP configuration, permission review, and resumable outcomes.
+
 - Sectile Desktop checks for new stable releases at startup, daily, and from Changelog settings, keeps an update indicator, and offers release and matching download links.
 
 ### Fixed

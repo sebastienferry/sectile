@@ -1,3 +1,4 @@
+import {engineSetup,setupStartup} from './engine-setup.mjs'
 import { renderDesktopUpdates } from './desktop-updates.mjs'
 import { batchMembers, moveBatchMember, suggestedBatchWorktreeName, buildBatchPickupPrompt } from './batch-pickup.mjs'
 import { skillCommandMapping } from './skill-command-mapping.mjs'
@@ -317,7 +318,9 @@ function agentUnavailable(){
  openEditorAvailable=false;projectTerminalAvailable=false;renderOpenEditor()
  api.detach().catch(()=>{})
 }
+const checkEngineSetup=setupStartup(api,()=>openSettings('Profile').then(()=>document.querySelector('[data-open-engine-setup]')?.click()))
 function ready(){
+ checkEngineSetup()
  agentConnected=true
  document.querySelector('#agent-offline').hidden=true
  if(!projectsLoaded){projectsLoaded=true;loadProjects().catch(()=>{projectsLoaded=false});loadEditorSetting();api.syncConsoleView().catch(()=>{});api.syncConversationMode().catch(()=>{})}
@@ -2093,6 +2096,10 @@ async function openSettings(initial='Profile',project){
  const web=settingRow('Profile and API keys',null,openWeb)
  web.hint.textContent='Display name, password and API keys live in the web interface.'
  panels.Profile.append(account.section,device.section,web.section)
+ const assistant=engineSetup(api,projects,category=>openSettings(category))
+ const setupButton=document.createElement('button');setupButton.type='button';setupButton.textContent='Configurer un moteur IA';setupButton.dataset.openEngineSetup=''
+ setupButton.onclick=()=>assistant.open()
+ panels.Profile.append(settingRow('Assistant de configuration IA',null,setupButton).section,assistant.section)
 
  // Appearance: a workstation preference, applied as soon as it is pressed.
  // The main process stores it and switches the whole window; the buttons only
