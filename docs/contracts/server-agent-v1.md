@@ -1536,6 +1536,30 @@ in force. `/api/`, desktop/control routes and remote surfaces keep their existin
 authentication. Agent restart refreshes saved registrations to the current local
 port; automatic task setup preserves the selected mode. See ADR 0023.
 
+### Guided engine setup readback
+
+The additive `engine-setup` Desktop capability exposes authenticated
+`GET /desktop/setup?provider=claude|codex|agy`. Its version-1 view contains the
+normalized paired `server`, `provider`, `steps`, effective `permissions`, and a
+derived `complete` value. Steps are `skills`, `mcp`, `permissions`, and `sdd`;
+statuses distinguish `pending`, `success`, `skipped`, and `unknown`. Each step
+has a safe fingerprint and scope. Installed outcomes identify their source or
+target project; SDD also identifies its local root and configured framework.
+MCP `configuration` returns target, transport, present, valid and needsRepair
+booleans/enums, never credentials or a credential-bearing digest.
+
+`POST` to the same route acknowledges `{step, decision, fingerprint}`.
+`retained` applies only to permissions; `skipped` applies only to skills/SDD.
+Invalid combinations return 400 and stale/unavailable state returns 409.
+Acknowledgements do not write provider configuration or modify plugins.
+Existing provider-skills deployment records verified installer-manifest assets;
+framework deployment with an explicit `provider` records framework-owned assets
+and its selected project scope. Successful writes survive a failed metadata
+save and remain retryable. Readback detects changed/missing assets, changed
+project root/framework, permission changes, and relevant MCP/pairing changes.
+Missing pairing or unreadable configuration is unknown, not proof of incomplete
+setup. Completion confirms configuration only, never a live engine session.
+
 ## Connected workstation project inventory
 
 After registration, before announcing readiness, the agent sends an additive

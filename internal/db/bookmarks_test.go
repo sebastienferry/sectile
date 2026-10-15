@@ -278,4 +278,3 @@ func TestGetTasksInScopeAllDoesNotTakeWriteLockOrIssueBookmarkStatement(t *testi
 		t.Fatalf("GetTasksInScope with cold bookmark cache failed: %v", err)
 	}
 }
-

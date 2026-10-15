@@ -1,3 +1,4 @@
+import { issueToastLink } from '../lib/issueToast'
 import { BatchPickupModal } from '../components/BatchPickupModal'
 import { buildBatchPickupPrompt } from '../lib/batchPickup'
 import { sameTask, tasksInProject } from '../lib/taskIdentity'
@@ -1254,12 +1255,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     tRef.current = t
   }, [t])
 
-  // The link a creation toast offers: the new ticket in the detail view, and
-  // its tracker page when it has one.
-  const createdTaskLink = useCallback((task: Task): ToastLink => ({
-    label: `${t.toasts.openCreated} ${task.key}`,
-    onOpen: () => setSelectedTask(task),
-    externalUrl: task.externalUrl || undefined,
+  const taskLink = useCallback((task: Task): ToastLink | undefined => issueToastLink(task, setSelectedTask, {
+    internal: t.toasts.openCreated,
+    external: t.toasts.openInTracker,
   }), [t])
 
   /**
@@ -2745,7 +2743,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         type: 'success',
         title: t.toasts.taskCreated,
         description: `${created.key}: ${created.title} (${(created.source || 'local').toUpperCase()})`,
-        link: createdTaskLink(created),
+        link: taskLink(created),
       })
       // The ticket exists, without the priority the project's mapping only
       // guessed (#679): the server's sentence says which levels it accepts.
@@ -2792,6 +2790,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         type: 'success',
         title: t.operations.notifications.tasks.cloned,
         description: `${cloned.key}: ${cloned.title} (${(cloned.source || 'local').toUpperCase()})`,
+        link: taskLink(cloned),
       })
       if (openAfterClone) {
         setSelectedTask(cloned)
@@ -2828,6 +2827,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         type: 'success',
         title: t.toasts.taskUpdated,
         description: `${updated.key} ${t.toasts.taskUpdated.toLowerCase()}`,
+        link: taskLink(updated),
       })
       return updated
     } catch (err: any) {
@@ -3168,14 +3168,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await res.json().catch(() => ({}))
       const copy = t.operations.notifications.macros
       if (!res.ok) throw trackerError(res, data, copy.createRefused)
-      // A story created in a roadmap project stays in Jira (#632): it comes
-      // back without a local id, and there is nothing in Sectile to open.
+      // Tracker-only stories have no local detail view; their action opens Jira.
       const imported = Boolean(data.task?.id)
       addToast({
         type: 'success',
         title: copy.storyCreated,
         description: format(imported || !data.task ? copy.storyAttached : copy.storyStaysInTracker, { story: data.storyKey, macro: macroKey }),
-        link: data.task && imported ? createdTaskLink(data.task) : undefined,
+        link: data.task ? taskLink(data.task) : undefined,
       })
       // The story exists; what the tracker refused is said, not hidden.
       if (data.notice) addToast({ type: 'warning', title: copy.parentNotWritten, description: data.notice })
@@ -3227,7 +3226,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (missing) {
         addToast(tokenOfferToast(missing.tracker as TrackerKind))
       } else if (batch.failed === 0) {
-        addToast({ type: 'success', title: copy.storiesCreated, description: summary })
+        addToast({
+          type: 'success',
+          title: copy.storiesCreated,
+          description: summary,
+          links: batch.results.flatMap(result => {
+            const link = result.status === 'created' && result.task ? taskLink(result.task) : undefined
+            return link ? [link] : []
+          }),
+        })
       } else {
         addToast({ type: 'warning', title: batch.created > 0 ? copy.storiesPartial : copy.storiesFailed, description: summary })
       }
@@ -3457,7 +3464,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         type: 'success',
         title: copy.storyCreated,
         description: format(copy.storyUnder, { story: data.storyKey, macro: macroKey }),
-        link: data.task ? createdTaskLink(data.task) : undefined,
+        link: data.task ? taskLink(data.task) : undefined,
       })
       if (data.notice) addToast({ type: 'warning', title: copy.parentNotWritten, description: data.notice })
       fetchTasks()

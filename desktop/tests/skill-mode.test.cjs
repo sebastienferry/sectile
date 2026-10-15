@@ -55,7 +55,7 @@ test('the other console notices are unchanged',async()=>{
  const {consoleNotice,needsConsoleNotice}=await load()
  assert.match(consoleNotice({status:'queued'}),/Execution queued/)
  assert.match(consoleNotice({status:'preparing'}),/Preparing execution/)
- assert.match(consoleNotice({status:'canceled'}),/canceled before a console/)
+ assert.match(consoleNotice({status:'canceled'}),/stopped before a console/)
  assert.match(consoleNotice({status:'failed'}),/No console is available/)
  assert.equal(needsConsoleNotice({status:'running',sessionId:'s1'}),false)
 })

@@ -215,4 +215,3 @@ func (d *DB) ToggleProjectBookmark(userID, projectID string) (bool, error) {
 	}
 	return true, err
 }
-

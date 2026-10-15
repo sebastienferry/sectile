@@ -17,7 +17,7 @@ function verdict(state,skill,task){
   if(target&&stages.indexOf(taskStage(task||{}))<stages.indexOf(target))return {kind:'pending',icon:'◷',label:'Awaiting stage validation'}
   return {kind:'completed',icon:'✓',label:'Skill completed'}
  }
- if(state==='failed'||state==='canceled')return {kind:state,icon:state==='failed'?'!':'⊘',label:state==='failed'?'Skill failed':'Skill canceled'}
+ if(state==='failed'||state==='canceled')return {kind:state,icon:state==='failed'?'!':'⊘',label:state==='failed'?'Skill failed':'Skill stopped'}
  return null
 }
 // A stop that has been asked for and has not taken effect yet is the one process

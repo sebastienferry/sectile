@@ -104,3 +104,16 @@ test('a notifier that throws disables the channel instead of failing the poll', 
   }
   assert.doesNotThrow(() => announce([{ id: 'r1', state: 'waiting', name: 'x' }], Broken))
 })
+
+test('historical canceled runs retain their protocol and announce stopped wording', async () => {
+  const { runState, runStateLabel } = await import('../../shared/runStates.ts')
+  const historical = run({ status: 'canceled', output: 'Execution canceled by owner.' })
+  assert.equal(stateOf(historical), 'canceled')
+  assert.equal(runStateLabel(stateOf(historical)), 'Stopped')
+  assert.equal(notification({ state: stateOf(historical), name: '#174' }).body, '#174 was stopped')
+  assert.equal(runState('canceled').id, 'canceled')
+  assert.equal(runState('canceled').color, '#94a3b8')
+  assert.deepEqual(runState('canceled').icon, [['circle', { cx: 12, cy: 12, r: 10 }], ['line', { x1: 9, x2: 15, y1: 15, y2: 9 }]])
+  assert.equal(historical.output, 'Execution canceled by owner.')
+  assert.equal(historical.status, 'canceled')
+})

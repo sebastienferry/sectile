@@ -85,7 +85,7 @@ test('a conversation attaches a folder from its composer',async()=>{
   await expect(status).toHaveText('/dup is already attached')
 
   // Read-only history offers nothing to attach to.
-  await page.getByRole('button',{name:'Stop execution',exact:true}).click()
+  await page.getByRole('button',{name:'Stop conversation',exact:true}).click()
   await expect(add).toBeDisabled()
  }finally{await agent.close()}
 })

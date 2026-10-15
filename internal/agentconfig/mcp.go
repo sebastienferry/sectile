@@ -269,3 +269,20 @@ func selectedMCPEntry(provider, executable, server, apiKey, transport string, lo
 	}
 	return entry
 }
+
+// MCPEntryMatches verifies the complete Sectile entry without exposing its
+// contents or a credential-bearing digest. Other servers remain irrelevant.
+func MCPEntryMatches(provider, executable, server, apiKey, transport string, local bool) (bool, error) {
+	data, _, err := readMCPConfig(provider)
+	if err != nil {
+		return false, err
+	}
+	key := "mcpServers"
+	if provider == "codex" {
+		key = "mcp_servers"
+	}
+	servers, _ := data[key].(map[string]any)
+	actual, _ := json.Marshal(servers["sectile"])
+	expected, _ := json.Marshal(selectedMCPEntry(provider, executable, server, apiKey, transport, local))
+	return string(actual) == string(expected), nil
+}

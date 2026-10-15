@@ -81,3 +81,11 @@ test('a finished run the agent does not mark restored keeps its notice',async()=
  assert.equal(readOnlyConsole({status:'completed',sessionId:''}),false)
  assert.equal(readOnlyConsole({status:'completed',sessionId:'s1',restored:false}),false)
 })
+
+test('a canceled run without a console uses stopped wording',async()=>{
+ const {needsConsoleNotice,consoleNotice}=await load()
+ const run={status:'canceled',sessionId:''}
+ assert.equal(needsConsoleNotice(run),true)
+ assert.equal(consoleNotice(run),'Execution stopped before a console was created.')
+ assert.equal(run.status,'canceled')
+})
