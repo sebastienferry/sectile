@@ -13,10 +13,11 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-15
+
 ### Added
 
 - Guided Desktop setup for Claude, Codex and Antigravity, with optional skills and project SDD, MCP configuration, permission review, and resumable outcomes.
-
 - Sectile Desktop checks for new stable releases at startup, daily, and from Changelog settings, keeps an update indicator, and offers release and matching download links.
 
 ### Changed
@@ -858,7 +859,8 @@ release mechanism that will keep the following entries short.
   A run canceled because its client disconnected can still be finished by the
   agent that owns it, so the chain carries on. (#315)
 
-[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/sebastienferry/sectile/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/sebastienferry/sectile/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sebastienferry/sectile/compare/v0.4.5...v0.5.0
 [0.4.5]: https://github.com/sebastienferry/sectile/compare/v0.4.1...v0.4.5
