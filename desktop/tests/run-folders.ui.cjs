@@ -63,7 +63,7 @@ test('a conversation attaches a folder from its composer',async()=>{
   // Closing the picker changes nothing.
   await choose(null);await add.click()
   await expect(status).toHaveText('Ready')
-  await expect(status).toHaveAttribute('data-kind','idle')
+  await expect(status).toHaveAttribute('data-kind','ready')
   assert.equal(posted.length,0)
 
   // Claude may be working: the folder is still added, for the next turn.

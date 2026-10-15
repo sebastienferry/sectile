@@ -97,7 +97,7 @@ test('Changes shows the repository images a rendered document references',async(
   await page.waitForTimeout(150)
   assert.deepEqual(requests,[]);assert.equal(await page.evaluate(()=>window.hostile),undefined)
   // An agent without the capability: every image is its alt text, with no reason.
-  capabilities=['git-diff','markdown-documents'];await page.getByRole('button',{name:'Refresh',exact:true}).click();await expect(page.locator('.diff-status')).toHaveText('Changes loaded.')
+  capabilities=['git-diff','markdown-documents'];await page.getByRole('button',{name:'Refresh changes',exact:true}).click();await expect(page.locator('.diff-status')).toHaveText('Changes loaded.')
   await expect(view.locator('h1')).toHaveText('Guide')
   assert.equal(await view.locator('img').count(),0)
   await expect(fallback).toHaveCount(8)

@@ -149,13 +149,14 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.getByRole('button',{name:'Back',exact:true}).click()
   // The control is named for the click it offers, so its name flips with the panel.
   await page.getByRole('button',{name:'Hide projects',exact:true}).click()
-  // Collapsing hides the projects, not the footer: the agent controls, the
-  // settings entry and the connection dot survive as a narrow rail.
+  // Collapsing hides the projects while the connection and agent controls
+  // remain beside the command shortcut in the header.
   assert.equal(await page.locator('.sidebar-scroll').isVisible(),false)
   assert.equal(await page.locator('.sidebar-footer').isVisible(),true)
+  assert.equal(await page.locator('header .sidebar-footer').count(),1)
   assert.equal(await page.locator('#settings').isVisible(),true)
   assert.equal(await page.locator('.connection-dot').isVisible(),true)
-  assert.equal(await page.locator('.connection-label').isVisible(),false)
+  assert.equal(await page.locator('.connection-label').isVisible(),true)
   assert.ok((await page.locator('aside').boundingBox()).width<60,'Collapsed sidebar is a rail')
   await page.getByRole('button',{name:'Show projects',exact:true}).click()
   assert.equal(await page.locator('.sidebar-scroll').isVisible(),true)

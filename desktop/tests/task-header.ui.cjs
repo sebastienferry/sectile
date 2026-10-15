@@ -42,9 +42,14 @@ test('TTY header follows metadata and selection without disturbing the console',
   }
   const release=()=>{hold=false;for(const res of pending)respond(res);pending=[]}
   await expect(header()).toHaveText('#82 · implement')
+  await expect(page.locator('#command-palette')).toHaveCount(0)
+  await page.keyboard.press(process.platform==='darwin'?'Meta+K':'Control+K')
+  await expect(page.locator('#project-dialog')).toBeVisible()
+  await expect(page.locator('#dialog-body h2')).toHaveText('Commands')
+  await page.keyboard.press('Escape')
   await expect.poll(()=>pending.length).toBeGreaterThan(0)
   const otherBadge=page.locator('.task-skill-status[data-run-id="other"]')
-  await page.locator('#save-log').focus()
+  await page.locator('#task-actions-more').focus()
   await expect.poll(()=>attachments).toBe(1)
   const beforeStatus=[attachments,disconnections]
   reported={activity:{id:'other',taskId:'full-task-id',skillId:'specify',status:'completed'},task:{labels:['specified']}}
@@ -52,7 +57,7 @@ test('TTY header follows metadata and selection without disturbing the console',
   await expect(otherBadge).toHaveAttribute('title','Skill: Skill completed')
   await expect(page.locator('.task-skill-status[data-run-id="current"]')).not.toHaveText('✓')
   await expect(header()).toHaveText('#82 · implement')
-  await expect(page.locator('#save-log')).toBeFocused()
+  await expect(page.locator('#task-actions-more')).toBeFocused()
   assert.deepEqual([attachments,disconnections],beforeStatus)
   // An exited process alone never confirms the skill; the server must report the launched skill.
   const currentBadge=page.locator('.task-skill-status[data-run-id="current"]')
@@ -82,7 +87,7 @@ test('TTY header follows metadata and selection without disturbing the console',
   const counts=[attachments,disconnections]
   // Read actual terminal output through the existing export action.
   await app.evaluate(({ipcMain})=>{ipcMain.removeHandler('save-log');ipcMain.handle('save-log',(_,text)=>{global.headerTestLog=text})})
-  const output=async()=>{await page.locator('#save-log').click();return app.evaluate(()=>global.headerTestLog)}
+  const output=async()=>{await page.locator('#task-actions-more').click();await page.getByRole('menuitem',{name:'Export log'}).click();return app.evaluate(()=>global.headerTestLog)}
   assert.match(await output(),/Preserved console output/)
   tasks[0].title='<img src=x onerror=alert(1)> Updated title'
   await advance()
@@ -114,13 +119,13 @@ test('TTY header follows metadata and selection without disturbing the console',
   assert.equal(await page.locator('.toolbar-secondary #worktree, .toolbar-secondary .toolbar-actions').count(),2)
   const first=await page.locator('.toolbar-primary').boundingBox(),second=await page.locator('.toolbar-secondary').boundingBox()
   assert.ok(first.y+first.height<=second.y+1,'Task header rows remain ordered')
-  const selectors=['#execution-history','#selected-pr','#rerun','#save-log','#stop']
+  const selectors=['#execution-history','#selected-pr','#rerun','#task-actions-more','#stop']
   for(const selector of selectors){
    const control=page.locator(selector);await expect(control).toBeVisible()
    assert.ok(await control.evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight}))
    if(await control.isEnabled()){await control.focus();await expect(control).toBeFocused()}
   }
-  await page.locator('#rerun').focus();await page.keyboard.press('Tab');await expect(page.locator('#save-log')).toBeFocused()
+  await page.locator('#rerun').focus();await page.keyboard.press('Tab');await expect(page.locator('#task-actions-more')).toBeFocused()
   await page.screenshot({path:path.join(root,'task-header-narrow.png')})
   console.log('Header screenshot: '+path.join(root,'task-header-narrow.png'))
   const tracked=page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #82 in Sectile',exact:true})})
@@ -139,12 +144,12 @@ test('TTY header follows metadata and selection without disturbing the console',
   const consoleCounts=[attachments,disconnections]
   reported={activity:{id:'other',taskId:'full-task-id',skillId:'specify',status:'completed'},task:{labels:['specified']}}
   await expect(page.locator('#task-status #skill-result')).toHaveText('✓ Skill completed')
-  await expect(page.locator('#task-status #run-state')).toHaveText('Running')
-  await expect(page.locator('#toolbar #run-state, #toolbar #skill-result')).toHaveCount(0)
+  await expect(page.locator('#toolbar #run-state')).toHaveText('Running')
+  await expect(page.locator('#task-status #run-state, #toolbar #skill-result')).toHaveCount(0)
   await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(800,600))
   await expect.poll(()=>page.evaluate(()=>window.innerWidth)).toBe(800)
   for(const selector of ['#run-state','#skill-result','#next-step-status']){
-   assert.ok(await page.locator(selector).evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight}),'Footer status stays inside the narrow viewport')
+   assert.ok(await page.locator(selector).evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight}),'Execution status stays inside the narrow viewport')
   }
   const footerBounds=await page.locator('#task-status').boundingBox(),terminalBounds=await page.locator('#terminal').boundingBox()
   assert.ok(footerBounds.y>=terminalBounds.y+terminalBounds.height-1,'Execution status stays below the console')

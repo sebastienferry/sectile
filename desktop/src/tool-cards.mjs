@@ -26,6 +26,50 @@ export function toolResult(event) {
 
 const str = value => typeof value === 'string' ? value : ''
 
+// Describe recognizable commands without evaluating them. Quoted text stays
+// together, so an example printed by echo is never mistaken for an action.
+export function commandSummary(command, description = '', root = '') {
+  const detail = str(description).trim()
+  if (detail && detail !== root && !/^(?:\/|~\/|[A-Za-z]:[\\/])/.test(detail)) return detail
+  let source = str(command).trim()
+  const shell = source.match(/^(?:\/[^\s]+\/)?(?:ba|z|da)?sh\s+-[a-z]*c\s+(['"])([\s\S]*)\1$/)
+  if (shell) source = shell[1] === "'" ? shell[2].replace(/'"'"'/g, "'") : shell[2].replace(/\\(["\\$`])/g, '$1')
+  const parts = []; let part = '', quote = '', escaped = false
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]
+    if (escaped) { part += char; escaped = false; continue }
+    if (char === '\\' && quote !== "'") { part += char; escaped = true; continue }
+    if (quote) { part += char; if (char === quote) quote = ''; continue }
+    if (char === '"' || char === "'") { quote = char; part += char; continue }
+    if (';&|\n'.includes(char) && !(char === '&' && /[<>]/.test(source[index - 1] || ''))) { if (part.trim()) parts.push(part.trim()); part = ''; continue }
+    part += char
+  }
+  if (part.trim()) parts.push(part.trim())
+  const describe = value => {
+    const text = value.replace(/^(?:[A-Za-z_][\w]*=\S+\s+)+/, '')
+    if (/^git\s+diff\s+--check\b/.test(text)) return 'Check whitespace errors'
+    if (/^git\s+(?:diff|status)\b/.test(text)) return 'Inspect changes'
+    if (/^git\s+log\b/.test(text)) return 'Read commit history'
+    if (/^git\s+commit\b/.test(text)) return 'Commit changes'
+    if (/^git\s+push\b/.test(text)) return 'Push changes'
+    if (/^git\s+fetch\b/.test(text)) return 'Fetch remote changes'
+    if (/^git\s+merge-base\b/.test(text)) return 'Check branch ancestry'
+    if (/^git\s+archive\b/.test(text)) return 'Export repository snapshot'
+    if (/^ps\b/.test(text)) return 'Inspect running processes'
+    if (/^(?:go\s+test|(?:npm|pnpm|yarn)\s+(?:run\s+)?test(?::[^\s]+)?|node\s+--test|pytest|make\s+test)\b/.test(text)) return 'Run tests'
+    if (/^(?:(?:npm|pnpm|yarn)\s+(?:run\s+)?build|go\s+build|make\s+(?:build|server))\b/.test(text)) return 'Build app'
+    if (/^(?:(?:npm|pnpm|yarn)\s+(?:run\s+)?lint|(?:npx\s+)?oxlint)\b/.test(text)) return 'Check code quality'
+    if (/^(?:npx\s+)?tsc\b/.test(text)) return 'Check types'
+    if (/^(?:tail|head)\b/.test(text) && /\.log\b/.test(text)) return 'Read logs'
+    if (/^(?:cat|sed|head|tail)\b/.test(text)) return 'Read files'
+    if (/^(?:rg|grep)\b/.test(text)) return 'Search files'
+    if (/^node\s+\S*(?:test|spec)\S*\.(?:mjs|cjs|js)\b/.test(text)) return 'Run tests'
+    return value
+  }
+  const actions = [...new Set(parts.map(describe))]
+  return actions.slice(0, 3).join(' · ') + (actions.length > 3 ? ' · …' : '')
+}
+
 // A path inside the conversation's directory is shown relative to it.
 export function shortPath(path, root) {
   const value = str(path)
@@ -128,7 +172,7 @@ function baseCard(event, root) {
     }
     case 'Bash': {
       const command = str(args.command)
-      return { name, target: str(args.description) || command.split('\n')[0], note: args.run_in_background ? 'in background' : '', open: false, body: command ? { type: 'code', text: '$ ' + command } : null }
+      return { name: 'Command', target: commandSummary(command, args.description, root), note: args.run_in_background ? 'in background' : '', open: false, body: command ? { type: 'code', text: '$ ' + command } : null }
     }
     case 'Grep':
       return { name, target: str(args.pattern), note: [path, str(args.glob), str(args.type)].filter(Boolean).join(' · '), open: false, body: null }

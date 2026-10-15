@@ -21,6 +21,22 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- Desktop shows the connection label without an underline in the header.
+- Desktop displays its installed version at the bottom of the projects sidebar.
+- Desktop shows skill status beside conversation readiness above the discussion box and removes the header command button; ⌘K still opens commands.
+- Desktop groups restart and stop in an agent menu, and shows the execution state beside the task ID in the task header.
+- Desktop places connection status, agent controls, and Settings in the header.
+- Desktop groups Edit task and Export log in a three-dot toolbar menu.
+- Desktop uses a conversation bubble for the console view button.
+- Desktop keeps the Add project button visible as a folder-plus icon.
+- Desktop displays conversation status above the message box.
+- Desktop command activity describes the work being performed instead of repeating the working-directory path.
+- Desktop no longer displays technical repository metadata above the Changes panel.
+- Desktop places the Rendered toggle beside the Refresh icon in the Changes toolbar.
+- Desktop shows added lines in green and deleted lines in red in the Changes summary.
+- Desktop shows an outlined gray circle when a conversation is ready or waiting for input.
+- Desktop says “Conversation in progress” for an active conversation in the task footer.
+- Desktop uses a clear trash-and-check icon for removing finished consoles.
 - Execution outcomes now say “Stopped”, and the Desktop stop action is named “Stop conversation”.
 
 ### Fixed

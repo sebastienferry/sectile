@@ -174,7 +174,8 @@ test('Settings offers Start agent once a stop has finished',async()=>{
   const page=await application.firstWindow();page.setDefaultTimeout(10000)
   // The stop confirmation is a native dialog: it is answered here.
   await application.evaluate(({dialog})=>{dialog.showMessageBox=async()=>({response:1})})
-  await page.locator('#shutdown').click()
+  await page.getByRole('button',{name:'Agent actions'}).click()
+  await page.getByRole('menuitem',{name:'Stop agent'}).click()
   await page.getByText('Local agent is stopped',{exact:true}).waitFor()
   assert.ok(stopped)
   await expect(page.locator('#start button[type=submit]')).toBeEnabled()

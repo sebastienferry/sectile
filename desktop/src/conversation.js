@@ -116,6 +116,11 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
  // The outcome of an added folder stays in the status for a while, over polling.
  let notice='',noticeUntil=0
  // kind is working, asking or idle; the stylesheet draws the indicator from it.
+ const toolbarSpacer=document.createElement('span');toolbarSpacer.className='conversation-toolbar-spacer';toolbarSpacer.setAttribute('aria-hidden','true')
+ status.replaceWith(toolbarSpacer)
+ const statusRow=document.createElement('div');statusRow.className='conversation-status-row'
+ statusRow.append(status)
+ form.before(statusRow)
  const showStatus=(text,kind='idle')=>{status.textContent=text;status.dataset.kind=kind}
  const showAddFolder=()=>{addFolder.hidden=!selected||!canAddFolder();addFolder.disabled=readOnly||attaching}
  // While Claude answers, Stop answer appears; Send stays beside it when the
@@ -161,7 +166,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   else if(data.approvals?.some(item=>item.tool==='AskUserQuestion'))showStatus((provider==='codex'?'Codex':'Claude')+' is asking you a question','asking')
   else if(data.approvals?.length)showStatus('Waiting for your approval','asking')
   else if(data.busy)showStatus(providerLabel()+' is working…','working')
-  else showStatus('Ready')
+  else showStatus('Ready','ready')
  }
  // Claude may be working: the folder is attached at once and given from the
  // next turn on, so the action stays available while busy.

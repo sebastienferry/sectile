@@ -63,7 +63,6 @@ test('the chosen folder drives the path, the editor and Changes',async()=>{
   await expect(page.locator('#open-editor')).toBeVisible()
   await page.getByRole('button',{name:'Changes',exact:true}).click()
   await expect(page.locator('.diff-status')).toHaveText('Changes loaded.')
-  await expect(page.locator('.diff-context')).toContainText(worktree+' · feat/784')
   assert.deepEqual(state.diffs.at(-1),{id:'several',folder:null})
 
   // The menu is a single choice, the selected folder checked and focused.
@@ -79,7 +78,6 @@ test('the chosen folder drives the path, the editor and Changes',async()=>{
   await expect(menu).toBeHidden()
   await expect(directory).toHaveText(docs)
   assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),'untouched')
-  await expect(page.locator('.diff-context')).toContainText(docs+' · main')
   await expect(page.getByRole('combobox',{name:'Changed file'})).toHaveValue('docs.txt')
   assert.deepEqual(state.diffs.at(-1),{id:'several',folder:docs})
   await chevron.click()
@@ -118,12 +116,10 @@ test('the chosen folder drives the path, the editor and Changes',async()=>{
   await expect(chevron).toBeHidden()
   await page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #784 in Sectile',exact:true})}).locator('.run').click()
   await expect(directory).toHaveText(docs)
-  await expect(page.locator('.diff-context')).toContainText(docs+' · main')
 
   // A selected folder that leaves the list gives the toolbar back to the primary.
   runs[0].folders=[folders[0],folders[2]]
   await expect(directory).toHaveText(worktree,{timeout:15000})
-  await expect(page.locator('.diff-context')).toContainText(worktree+' · feat/784')
  }finally{
   if(app)await app.close()
   for(const client of ws.clients)client.terminate()
