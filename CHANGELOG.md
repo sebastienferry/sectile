@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Clickable macro keys in the Roadmap and the Timeline.** A macro's key opens the macro on its tracker (Jira epic, GitHub milestone) and has a button that copies the key, as a ticket key does in the ticket detail: on the Roadmap rows and side panel, whose **Link** button it replaces, and before the macro chip of the Timeline's tickets. (#809)
+
 - Guided Desktop setup for Claude, Codex and Antigravity, with optional skills and project SDD, MCP configuration, permission review, and resumable outcomes.
 
 - Sectile Desktop checks for new stable releases at startup, daily, and from Changelog settings, keeps an update indicator, and offers release and matching download links.
@@ -24,6 +26,8 @@ test fixtures or internal plumbing.
 - Execution outcomes now say “Stopped”, and the Desktop stop action is named “Stop conversation”.
 
 ### Fixed
+
+- **Hide a macro from the Roadmap panel again.** The side panel header shows NOW / NEXT / LATER / HIDDEN buttons instead of a read-only badge, so a macro can be hidden or brought back whatever the row shape, the condensed list included. (#808)
 
 - Issue creation and edit notifications now link to the affected issues, including clones and tracker-only macro stories.
 
