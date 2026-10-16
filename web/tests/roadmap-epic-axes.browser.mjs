@@ -21,7 +21,7 @@ const meta=(key,title,extra)=>({projectId:'p1',key,title,horizon:'now',descripti
 window.metas=[
   meta('PE-1','2026.Q4 [P2] - Platform AI'),
   meta('PE-2','Grafana decision',{priority:'p0',labelsWritable:false}),
-  meta('PE-3','2027 Q1 - [P1] Okta rollout'),
+  meta('PE-3','2027 Q1 - [P1] Okta rollout',{externalUrl:'https://tracker.example/browse/PE-3'}),
 ];
 const project={id:'p1',name:'Demo',slug:'demo',color:'indigo',icon:'Folder',issueTracker:'jira',jiraProject:'PE',isDefault:true,githubRepo:'',description:'',repoPath:'',enabledViews:['roadmap'],sprints:[]};
 window.ctx={
@@ -73,6 +73,10 @@ try {
   browser = await chromium.launch({ headless: true, channel: 'chrome' });
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   page.setDefaultTimeout(10000);
+  // A followed macro key opens a tab on the tracker: answer it locally and close it.
+  const popups = [];
+  await page.context().route('https://tracker.example/**', r => r.fulfill({ status: 200, contentType: 'text/html', body: 'tracker' }));
+  page.context().on('page', p => { popups.push(p.url()); p.close().catch(() => {}); });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
 
@@ -85,13 +89,13 @@ try {
   // each key is its row.
   const rowOrder = () => page.evaluate(() => {
     const seen = [];
-    for (const span of document.querySelectorAll('span')) {
-      const text = span.textContent.trim();
+    for (const el of document.querySelectorAll('span, a')) {
+      const text = el.textContent.trim();
       if (/^PE-\d$/.test(text) && !seen.includes(text)) seen.push(text);
     }
     return seen;
   });
-  const rowOf = key => page.locator('div.rounded-xl.border').filter({ has: page.locator('span', { hasText: new RegExp(`^${key}$`) }) }).first();
+  const rowOf = key => page.locator('div.rounded-xl.border').filter({ has: page.locator('span, a', { hasText: new RegExp(`^${key}$`) }) }).first();
 
   // US1: an urgent child does not make the epic urgent.
   assert.ok(await rowOf('PE-1').getByText('Sans priorité').isVisible(), 'PE-1 should show no priority');
@@ -135,7 +139,7 @@ try {
   await page.getByRole('combobox', { name: 'Trier les macros' }).selectOption('priority-desc');
   await page.waitForFunction(() => {
     const keys = [];
-    for (const s of document.querySelectorAll('span')) {
+    for (const s of document.querySelectorAll('span, a')) {
       const t = s.textContent.trim();
       if (/^PE-\d$/.test(t) && !keys.includes(t)) keys.push(t);
     }
@@ -151,6 +155,18 @@ try {
   const boxes = dialog.getByRole('checkbox');
   assert.equal(await boxes.count(), 2, 'PE-3 proposes a priority and a quarter');
   assert.ok(await dialog.getByText('2027-Q1').isVisible());
+  // #851: the proposed macro's key opens it on its tracker, and following it ticks or unticks nothing.
+  const seedKey = dialog.getByRole('link', { name: 'PE-3', exact: true });
+  assert.equal(await seedKey.getAttribute('href'), 'https://tracker.example/browse/PE-3');
+  assert.equal(await seedKey.getAttribute('target'), '_blank');
+  assert.equal(await seedKey.getAttribute('title'), 'Ouvrir PE-3 dans le tracker distant');
+  const ticked = async () => [await boxes.nth(0).isChecked(), await boxes.nth(1).isChecked()];
+  const tickedBefore = await ticked();
+  await seedKey.click();
+  for (let i = 0; i < 40 && popups.length === 0; i++) await page.waitForTimeout(50);
+  assert.deepEqual(popups, ['https://tracker.example/browse/PE-3']);
+  assert.ok(await dialog.isVisible(), 'the seeding dialog stays open');
+  assert.deepEqual(await ticked(), tickedBefore, 'following the key changes no checkbox');
   await boxes.nth(1).uncheck();
   const savesBeforeSeed = await saveCount();
   await dialog.getByRole('button', { name: 'Poser 1 valeur' }).click();

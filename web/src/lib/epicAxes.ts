@@ -81,6 +81,8 @@ export interface SeedLine {
   title: string
   priority?: EpicPriority
   quarter?: string
+  /** The macro's page on its tracker, absent when the tracker gives none. */
+  externalUrl?: string
 }
 
 /**
@@ -94,7 +96,9 @@ export const seedProposals = (rows: EpicRow[]): SeedLine[] => {
     const line: SeedLine = { key: row.key, title: row.title }
     if (!row.priority && found.priority) line.priority = found.priority
     if (!row.quarter && found.quarter) line.quarter = found.quarter
-    if (line.priority || line.quarter) out.push(line)
+    if (!line.priority && !line.quarter) return
+    if (row.externalUrl) line.externalUrl = row.externalUrl
+    out.push(line)
   })
   return out
 }

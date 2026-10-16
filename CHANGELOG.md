@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Changed
+
+- In the macro view, a macro's key opens the macro on its tracker in a new tab, and the side panel no longer has a separate link button.
+
 ## [0.7.0] - 2026-10-15
 
 ### Added
