@@ -58,7 +58,9 @@
     --bg-primary: #111315;
     --bg-secondary: #1c1f23;
     --bg-tertiary: #262a30;
+    --bg-input: #2e343d;
     --border-color: #30343a;
+    --border-input: #3e4550;
     --text-primary: #f5f6f8;
     --text-secondary: #a1a9b4;
     --text-muted: #969faa;
@@ -95,7 +97,9 @@
     --bg-primary: #f5f6f8;
     --bg-secondary: #ffffff;
     --bg-tertiary: #eceef1;
+    --bg-input: #ffffff;
     --border-color: #e1e4e8;
+    --border-input: #d0d7de;
     --text-primary: #111315;
     --text-secondary: #48515d;
     --text-muted: #626b77;
@@ -317,6 +321,23 @@
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-weight: 600;
+  }
+
+  /* Form fields and editing surfaces: generalized lighter grey background and crisp border */
+  input:where(
+    [type="text"],
+    [type="url"],
+    [type="email"],
+    [type="password"],
+    [type="search"],
+    [type="date"],
+    [type="number"],
+    :not([type])
+  ),
+  select,
+  textarea {
+    background-color: var(--bg-input);
+    border-color: var(--border-input);
   }
 }
 

@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Bold, Italic, Code, Link2, List, ListOrdered, Quote, Heading2, Eye, Pencil, CheckSquare, Maximize2, Minimize2 } from 'lucide-react'
+import { Bold, Italic, Code, Link2, List, ListOrdered, Quote, Heading2, Eye, Pencil, CheckSquare, Maximize2, Minimize2, Check } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useClickOutside } from '../hooks/useClickOutside'
 import type { TaskDetailStrings } from '../locales/taskDetail'
 
 type MarkdownStrings = TaskDetailStrings['markdown']
@@ -98,14 +99,58 @@ export const MarkdownEditor: React.FC<{
   maximizable?: boolean
   /** The heading of the full-screen editor, naming the field it edits. */
   maximizeTitle?: string
-}> = ({ value, onChange, placeholder, minHeight = 120, maxHeight, disabled, actions, onKeyDown, maximizable, maximizeTitle }) => {
+  /** Click-to-edit mode: shows rendered markdown when not empty; click switches to edit. */
+  clickToEdit?: boolean
+  /** Fills the parent flex container's available height. */
+  fillHeight?: boolean
+  className?: string
+}> = ({
+  value,
+  onChange,
+  placeholder,
+  minHeight = 120,
+  maxHeight,
+  disabled,
+  actions,
+  onKeyDown,
+  maximizable,
+  maximizeTitle,
+  clickToEdit = false,
+  fillHeight = false,
+  className = '',
+}) => {
   const [isPreview, setIsPreview] = useState(false)
+  const [isEditing, setIsEditing] = useState(() => !clickToEdit)
   const [isMaximized, setIsMaximized] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const maximizedRef = useRef<HTMLTextAreaElement>(null)
   const maximizeButtonRef = useRef<HTMLButtonElement>(null)
   const { t } = useApp()
   const strings = t.taskDetail.markdown
+
+  const enterEditing = () => {
+    setIsEditing(true)
+    setIsPreview(false)
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        const len = textareaRef.current.value.length
+        textareaRef.current.setSelectionRange(len, len)
+      }
+    })
+  }
+
+  // Gracefully return to markdown rendered view when clicking outside
+  useClickOutside(
+    containerRef,
+    () => {
+      if (clickToEdit && isEditing && value.trim()) {
+        setIsEditing(false)
+      }
+    },
+    clickToEdit && isEditing && !isMaximized
+  )
 
   const closeMaximized = () => {
     setIsMaximized(false)
@@ -220,9 +265,53 @@ export const MarkdownEditor: React.FC<{
     <span className="text-[11px] text-[var(--text-muted)] italic">{strings.emptyPreview}</span>
   )
 
+  if (clickToEdit && !isEditing && value.trim()) {
+    return (
+      <div
+        ref={containerRef}
+        onClick={e => {
+          if ((e.target as HTMLElement).closest('a')) return
+          enterEditing()
+        }}
+        title={strings.clickToEdit}
+        className={`group relative rounded-xl border border-[var(--border-input)] bg-[var(--bg-input)] hover:border-[var(--accent-color)]/60 transition-all cursor-pointer p-4 overflow-y-auto select-text ${
+          fillHeight ? 'flex-1 min-h-0' : ''
+        } ${className}`}
+        style={!fillHeight ? { minHeight, maxHeight } : undefined}
+      >
+        <div className="absolute top-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-secondary)] shadow-xs pointer-events-none">
+          <Pencil size={11} className="text-[var(--accent-color)]" />
+          <span>{strings.clickToEdit}</span>
+        </div>
+        <MarkdownView>{value}</MarkdownView>
+      </div>
+    )
+  }
+
+  if (clickToEdit && !isEditing && !value.trim()) {
+    return (
+      <div
+        ref={containerRef}
+        onClick={enterEditing}
+        className={`group rounded-xl border border-dashed border-[var(--border-input)] hover:border-[var(--accent-color)]/60 bg-[var(--bg-input)]/50 hover:bg-[var(--bg-input)] transition-all cursor-pointer p-4 flex items-center justify-center gap-2 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] ${
+          fillHeight ? 'flex-1 min-h-[140px]' : ''
+        } ${className}`}
+        style={!fillHeight ? { minHeight } : undefined}
+      >
+        <Pencil size={13} className="text-[var(--accent-color)] opacity-70 group-hover:opacity-100" />
+        <span>{placeholder || strings.addDescription}</span>
+      </div>
+    )
+  }
+
   return (
-    <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-tertiary)] overflow-hidden">
-      <div className="flex items-center gap-0.5 px-1.5 py-1 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]/60">
+    <div
+      ref={containerRef}
+      className={`rounded-xl border border-[var(--border-input)] bg-[var(--bg-input)] overflow-hidden flex flex-col ${
+        fillHeight ? 'flex-1 min-h-0' : ''
+      } ${className}`}
+    >
+      <div className="flex items-center gap-0.5 px-1.5 py-1 border-b border-[var(--border-input)] bg-[var(--bg-secondary)]/70 shrink-0">
         <button
           type="button"
           onClick={() => setIsPreview(false)}
@@ -250,35 +339,49 @@ export const MarkdownEditor: React.FC<{
           </div>
         )}
 
-        {(actions || maximizable) && (
-          <div className="ml-auto flex items-center gap-1.5">
-            {actions}
-            {maximizable && (
-              <button
-                ref={maximizeButtonRef}
-                type="button"
-                onClick={() => setIsMaximized(true)}
-                title={strings.maximize}
-                aria-label={strings.maximize}
-                className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer"
-              >
-                <Maximize2 size={12} />
-              </button>
-            )}
-          </div>
-        )}
+        <div className="ml-auto flex items-center gap-1.5">
+          {actions}
+          {clickToEdit && (
+            <button
+              type="button"
+              onClick={() => setIsEditing(false)}
+              title={strings.done}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-semibold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 transition-colors cursor-pointer"
+            >
+              <Check size={11} />
+              <span>{strings.done}</span>
+            </button>
+          )}
+          {maximizable && (
+            <button
+              ref={maximizeButtonRef}
+              type="button"
+              onClick={() => setIsMaximized(true)}
+              title={strings.maximize}
+              aria-label={strings.maximize}
+              className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer"
+            >
+              <Maximize2 size={12} />
+            </button>
+          )}
+        </div>
       </div>
 
       {isPreview ? (
-        <div className="px-3 py-2 overflow-auto" style={{ minHeight, maxHeight }}>
+        <div
+          className={`px-3 py-2 overflow-auto ${fillHeight ? 'flex-1 min-h-0' : ''}`}
+          style={!fillHeight ? { minHeight, maxHeight } : undefined}
+        >
           {preview}
         </div>
       ) : (
         <textarea
           ref={textareaRef}
           {...textareaProps('inline')}
-          style={{ minHeight, maxHeight }}
-          className="w-full px-3 py-2 text-[13px] bg-transparent text-[var(--text-primary)] focus:outline-none leading-relaxed resize-y font-[inherit]"
+          style={!fillHeight ? { minHeight, maxHeight } : undefined}
+          className={`w-full px-3 py-2 text-[13px] bg-transparent text-[var(--text-primary)] focus:outline-none leading-relaxed font-[inherit] ${
+            fillHeight ? 'flex-1 min-h-0 resize-none' : 'resize-y'
+          }`}
         />
       )}
 

@@ -61,8 +61,8 @@ export const TaskComments: React.FC<{ task: Task }> = ({ task }) => {
       : ''
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 flex-1 flex flex-col min-h-0">
+      <div className="flex items-center justify-between shrink-0">
         <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
           <MessageSquare size={12} className="text-[var(--accent-color)]" />
           <span>
@@ -82,10 +82,11 @@ export const TaskComments: React.FC<{ task: Task }> = ({ task }) => {
         </button>
       </div>
 
-      <div className="space-y-1.5">
+      <div className="space-y-2 shrink-0">
         <MarkdownEditor
           value={draft}
           onChange={setDraft}
+          clickToEdit
           minHeight={80}
           onKeyDown={e => {
             // Cmd/Ctrl+Entrée publie, comme partout ailleurs dans l'app.
@@ -100,30 +101,39 @@ export const TaskComments: React.FC<{ task: Task }> = ({ task }) => {
               : strings.placeholderLocal
           }
         />
-        <div className="flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={submit}
-            disabled={!draft.trim() || isPosting}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white accent-bg shadow-xs hover:opacity-90 disabled:opacity-40 transition-all cursor-pointer"
-          >
-            {isPosting ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
-            <span>{isPosting ? strings.posting : strings.post}</span>
-          </button>
-        </div>
+        {Boolean(draft.trim()) && (
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setDraft('')}
+              className="px-3 py-1.5 rounded-xl text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+            >
+              {t.taskModal.cancel}
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!draft.trim() || isPosting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white accent-bg shadow-xs hover:opacity-90 disabled:opacity-40 transition-all cursor-pointer"
+            >
+              {isPosting ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+              <span>{isPosting ? strings.posting : strings.post}</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {isLoading && comments.length === 0 ? (
-        <div className="flex items-center justify-center gap-2 py-6 text-[var(--text-muted)]">
+        <div className="flex-1 flex items-center justify-center gap-2 py-6 text-[var(--text-muted)]">
           <Loader2 size={14} className="animate-spin text-[var(--accent-color)]" />
           <span className="text-xs">{strings.loading}</span>
         </div>
       ) : comments.length === 0 ? (
-        <p className="text-[11px] text-[var(--text-muted)] py-2">
-          {onTracker ? format(strings.emptyTracker, { key: task.key, source: task.source || '' }) : strings.emptyLocal}
-        </p>
+        <div className="flex-1 flex items-center justify-center py-6 text-[11px] text-[var(--text-muted)]">
+          <p>{onTracker ? format(strings.emptyTracker, { key: task.key, source: task.source || '' }) : strings.emptyLocal}</p>
+        </div>
       ) : (
-        <div className="space-y-2 max-h-[calc(var(--app-h)*0.42)] overflow-y-auto pr-1">
+        <div className="space-y-2 flex-1 min-h-0 overflow-y-auto pr-1">
           {comments.map(comment => (
             <div
               key={comment.id}
