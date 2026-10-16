@@ -19,6 +19,7 @@ func checkPresenceDeviceUpgrade(t *testing.T, d *DB) {
 		`DROP TABLE agent_presence`,
 		`DROP TABLE IF EXISTS agent_workstation_presence`,
 		`CREATE TABLE agent_presence (user_id TEXT NOT NULL, project_id TEXT NOT NULL, instance_id TEXT NOT NULL, device_id TEXT NOT NULL DEFAULT '', connected_at DATETIME NOT NULL, disconnected_at DATETIME, PRIMARY KEY (user_id, project_id))`,
+		`ALTER TABLE jira_oauth_flows DROP COLUMN tracker`,
 		`DELETE FROM schema_migrations WHERE version >= 51`,
 	} {
 		if _, err := d.conn.Exec(query); err != nil {

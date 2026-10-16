@@ -16,6 +16,7 @@ test fixtures or internal plumbing.
 ### Added
 
 - The sprint timeline view can be filtered by Epic from a dedicated searchable dropdown in the toolbar, with matching sprint tracks, backlog counts, and one-click clear.
+- **Connect GitHub and GitLab from your profile.** Profile → Tracker credentials offers **Connect GitHub** and **Connect GitLab** once an admin has registered the app in Administration: one consent screen, and your writes on github.com and gitlab.com are made under your own account, with no token to create, paste or unseal. Disconnecting also revokes the access on the forge; GitHub Enterprise and self-hosted GitLab keep the personal token, still available behind **Use a token instead**. (#804)
 
 ### Changed
 
