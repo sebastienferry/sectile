@@ -1,0 +1,1 @@
+Record by hand that a ticket completed a stage, with the evidence the server checks. This is a standalone tool, not a step of the workflow: it does no stage work and starts no run. The server validates the transition and has the last word.

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"tasks/internal/models"
 	"tasks/internal/testhome"
 	"testing"
 )
@@ -139,7 +140,7 @@ func TestLegacyLayoutIsFoldedAndRewritten(t *testing.T) {
 		Repositories:         map[string]string{"github.com/o/r": "/other"},
 		DisconnectedProjects: map[string]bool{"gone": true},
 		MCPConnections:       map[string]MCPConnection{"claude": {Transport: "http", Target: "local"}},
-		Skills:               map[string]string{"implement": "local"},
+		Skills:               map[string]SkillOverride{"implement": {Content: "local"}},
 	}
 	// The engine settings land in the catalogue (#510), as ReadSettings converts.
 	if want = converted(want); !reflect.DeepEqual(got, want) {
@@ -297,6 +298,92 @@ func TestSkillSourceSettingsRoundTrip(t *testing.T) {
 	raw, _ := os.ReadFile(path)
 	if strings.Contains(string(raw), "customSkillsWin") || strings.Contains(string(raw), "installedSkillSource") {
 		t.Fatalf("absent settings were written: %s", raw)
+	}
+}
+
+// A plain string under "skills" is a full replacement, as before #732, and is
+// written back as a plain string, the shape every agent reads.
+func TestSettingsSkillsRoundTripPlainString(t *testing.T) {
+	testhome.Temp(t)
+	path, _ := SettingsPath()
+	os.MkdirAll(filepath.Dir(path), 0700)
+	os.WriteFile(path, []byte(`{"layout":3,"skills":{"implement":"local"}}`), 0600)
+	got, err := ReadSettings(t.TempDir())
+	if err != nil || got.Skills["implement"] != (SkillOverride{Content: "local"}) {
+		t.Fatalf("read: %+v %v", got.Skills, err)
+	}
+	if err := WriteSettings(got); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	var fields struct {
+		Skills map[string]json.RawMessage `json:"skills"`
+	}
+	if err := json.Unmarshal(raw, &fields); err != nil || string(fields.Skills["implement"]) != `"local"` {
+		t.Fatalf("a full replacement is not written back as a string: %s %v", raw, err)
+	}
+}
+
+// A skill stated as null is absent, not an empty full replacement that would
+// blank the skill (#732).
+func TestSettingsNullSkillOverrideIsAbsent(t *testing.T) {
+	testhome.Temp(t)
+	path, _ := SettingsPath()
+	os.MkdirAll(filepath.Dir(path), 0700)
+	os.WriteFile(path, []byte(`{"layout":3,"skills":{"clarify":null,"implement":"whole"}}`), 0600)
+	got, err := ReadSettings(t.TempDir())
+	if err != nil || !reflect.DeepEqual(got.Skills, map[string]SkillOverride{"implement": {Content: "whole"}}) {
+		t.Fatalf("read: %+v %v", got.Skills, err)
+	}
+}
+
+// An object states a work-only override (#732); it survives a round trip and
+// passes validation, while an unknown kind or a malformed body does not.
+func TestSettingsSkillsWorkObject(t *testing.T) {
+	testhome.Temp(t)
+	path, _ := SettingsPath()
+	os.MkdirAll(filepath.Dir(path), 0700)
+	os.WriteFile(path, []byte(`{"layout":3,"skills":{"clarify":{"kind":"work","content":"## Steps\nAsk."},"implement":{"content":"whole"}}}`), 0600)
+	want := map[string]SkillOverride{
+		"clarify":   {Kind: models.SkillOverrideWork, Content: "## Steps\nAsk."},
+		"implement": {Content: "whole"},
+	}
+	got, err := ReadSettings(t.TempDir())
+	if err != nil || !reflect.DeepEqual(got.Skills, want) {
+		t.Fatalf("read: %+v %v", got.Skills, err)
+	}
+	if err := ValidateSkillOverrides(got.Skills); err != nil {
+		t.Fatalf("a valid work override refused: %v", err)
+	}
+	if err := WriteSettings(got); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	var fields struct {
+		Skills map[string]json.RawMessage `json:"skills"`
+	}
+	json.Unmarshal(raw, &fields)
+	var clarify struct{ Kind, Content string }
+	if err := json.Unmarshal(fields.Skills["clarify"], &clarify); err != nil || clarify.Kind != "work" || clarify.Content != "## Steps\nAsk." {
+		t.Fatalf("the work override was not written as an object: %s %v", raw, err)
+	}
+	if string(fields.Skills["implement"]) != `"whole"` {
+		t.Fatalf("a full replacement object is not written back as a string: %s", raw)
+	}
+	if again, err := ReadSettings(t.TempDir()); err != nil || !reflect.DeepEqual(again.Skills, want) {
+		t.Fatalf("the rewrite changed the meaning: %+v %v", again.Skills, err)
+	}
+	for name, override := range map[string]map[string]SkillOverride{
+		"unknown kind":      {"clarify": {Kind: "partial", Content: "## Steps\nAsk."}},
+		"unknown skill":     {"nope": {Kind: models.SkillOverrideWork, Content: "## Steps\nAsk."}},
+		"preamble":          {"clarify": {Kind: models.SkillOverrideWork, Content: "Hello\n## Steps\nAsk."}},
+		"macro skill":       {"realign_macro": {Kind: models.SkillOverrideWork, Content: "## Steps\nAsk."}},
+		"pickup steps":      {"pickup": {Kind: models.SkillOverrideWork, Content: "## Steps\nAsk."}},
+		"empty work object": {"clarify": {Kind: models.SkillOverrideWork}},
+	} {
+		if err := ValidateSkillOverrides(override); err == nil {
+			t.Errorf("%s accepted", name)
+		}
 	}
 }
 

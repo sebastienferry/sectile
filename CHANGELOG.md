@@ -16,12 +16,15 @@ test fixtures or internal plumbing.
 ### Added
 
 - The sprint timeline view can be filtered by Epic from a dedicated searchable dropdown in the toolbar, with matching sprint tracks, backlog counts, and one-click clear.
+- **Override part of a skill without losing its Sectile steps.** In the web Skills view, a project's override of a stage skill can now be **Work only**: it replaces only the sections it states among Goal, Read first, Steps, the guard and Report, the others keep Sectile's, and Sectile keeps the task access, run reporting, stage transition, exit condition and pull-request policy around them, so the card still advances. A workstation does the same under `skills` in `settings.json` with `{"kind":"work","content":"..."}`, filling the sections the project left built-in. A command chosen for a stage in `skillCommands`, such as `/plan-jira`, now advances the card too. The direct skill copies a workstation installed follow the change: a section a project overrides gets one variant per project, and a save in the Skills view rewrites the copies of the connected workstations serving the project (others at their next `sectile-agent init`, **Initialize** or configuration sync). Upgrade the agent along with the server. (#732)
+- **Record a stage by hand with `/transition`.** `/transition <ticket> <stage>` reads the ticket, gathers the stage's evidence (note, branch, pull requests), checks the stage's exit condition, shows you what it will send and records the stage once you confirm, without starting a run. It ships in the Claude plugin and the direct setup, and is not offered as a launch. (#732)
 
 ### Changed
 
 - In the macro view, a macro's key opens the macro on its tracker in a new tab, and the side panel no longer has a separate link button.
 - Task details give the description and comments the remaining dialog height, display rendered Markdown by default, and switch to editing mode on click with a Done button.
 - Form inputs, selects, and text editing surfaces across the web interface use a lighter, unified background and border palette.
+- **Existing custom skills keep replacing the whole skill.** A project's override made before work-only overrides existed is shown as **Full replacement** in the Skills view and runs as before; switch it to **Work only** there to get Sectile's steps back. A workstation's plain-text entry under `skills` in `settings.json` stays a full replacement until it is rewritten as `{"kind":"work","content":"..."}`. (#732)
 
 ## [0.7.0] - 2026-10-15
 

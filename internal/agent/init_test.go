@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"tasks/internal/agentconfig"
+	"tasks/internal/models"
 	"tasks/internal/testhome"
 )
 
@@ -125,6 +126,24 @@ func TestInitBootstrapsMCPAndSkills(t *testing.T) {
 	skill2 := filepath.Join(home, ".gemini", "config", "skills", "code-issue", "SKILL.md")
 	if raw, err := os.ReadFile(skill2); err != nil || !strings.Contains(string(raw), "Implementation instructions") {
 		t.Fatalf("skill file missing or invalid at %s: %v, content: %s", skill2, err, string(raw))
+	}
+
+	// A workstation work-only override reaches the direct copy (#732); the
+	// skill nobody overrides keeps the server's content.
+	if _, err := agentconfig.UpdateSettings(repoDir, func(s *agentconfig.Settings) error {
+		s.Skills = map[string]agentconfig.SkillOverride{"implement": {Kind: models.SkillOverrideWork, Content: "## Steps\nWorkstation implementation steps."}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InitContext(context.Background(), []string{"--provider", "agy", "--url", srv.URL, "--token", "test-token", "--project", "proj-123", "--repo", repoDir}); err != nil {
+		t.Fatalf("Init with a work override failed: %v", err)
+	}
+	if raw, err := os.ReadFile(skill2); err != nil || !strings.Contains(string(raw), "Workstation implementation steps.") || !strings.Contains(string(raw), "transition_stage") {
+		t.Fatalf("the work override did not reach %s: %v, content: %s", skill2, err, string(raw))
+	}
+	if raw, err := os.ReadFile(skill1); err != nil || !strings.Contains(string(raw), "Specification instructions") {
+		t.Fatalf("a skill nobody overrides changed at %s: %v, content: %s", skill1, err, string(raw))
 	}
 }
 

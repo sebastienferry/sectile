@@ -8,9 +8,9 @@ Skills first use the local Sectile agent's exposed task-management interface, di
 
 Resolve the project by repository and verify the full task ID and external URL before a mutation. List tasks with the explicit project ID and send `taskId`, rather than a potentially ambiguous key such as `#47`, to the stage endpoint. Task creation also requires the explicit project ID.
 
-A managed run's supplied result contract takes precedence over standalone transitions. The agent validates local evidence and the server owns tracker synchronization. An active run with no usable completion contract must be reported; do not clear its activity or use another endpoint to bypass validation. A successful terminal launch is not proof that a workflow step completed.
+A run Sectile launched reports through `start_run`/`finish_run`, and records its stage when its skill moves one, like any other run. The agent validates local evidence and the server owns tracker synchronization. Never forge launch or completion status, clear a run's activity or use another endpoint to bypass validation. A successful terminal launch is not proof that a workflow step completed.
 
-These instructions are maintained in `internal/skills/catalog.go` and mirrored in the repository's skill and command files. Project-specific skill overrides remain authoritative and must receive the same correction through the supported project skill editor before redistribution. The known local-agent integration gap is tracked in [issue #50](https://github.com/sebastienferry/sectile/issues/50).
+These instructions are maintained in `internal/skills/catalog.go` and mirrored in the repository's skill and command files. A work-only override (see [Customizing a stage skill](#customizing-a-stage-skill)) receives these contracts as Sectile ships them; a full replacement remains authoritative and must receive the same correction through the supported project skill editor before redistribution. The known local-agent integration gap is tracked in [issue #50](https://github.com/sebastienferry/sectile/issues/50).
 
 ---
 
@@ -23,7 +23,7 @@ Sectile supports multiple concurrent software repositories and projects from a s
   - `git_remote_url`: Remote Git repository URL.
   - `issue_tracker`: Tracker provider (`github`, `gitlab`, `jira`, or `local`).
   - `tracker_columns` / `stage_columns`: Board columns, the tracker statuses they group, and the workflow stage each column carries. This is what maps a Sectile stage onto an external tracker state.
-  - `skill_overrides`: Project-specific prompt template overrides.
+  - `skill_overrides`: Project-specific skill overrides, each replacing either the work sections of a stage skill or the whole skill (#732).
   - `repositories`: The remotes its tickets work in, the code remote first. A ticket pinned to one of them runs in a worktree of it, an unpinned one in the code repository; the others are context the agent is told not to change (an instruction, not enforced), and a skill asks for a worktree in one before changing it, which then needs its own pull request (#456, ADR 0028, ADR 0036).
   - Attached folders: other folders a workstation attaches to the project in the desktop settings, kept on that workstation only and handed to every launch as context. An attached Git repository with a remote is changed through a worktree and its own pull request, a folder without a remote in place (#484, ADR 0036).
   - Any repository: a per-project workstation option, off by default, that lets a ticket change a repository the project neither declares, maps nor attaches. The session passes a local checkout it found to `prepare_repository_worktree` as `path` (checked against its `origin`), or the agent clones the repository into the project's clones folder; either is remembered in the workstation mapping. With the option on and the specifications away from the code checkout, a launch creates no code worktree until the session prepares the code repository, which then needs no pull request while unchanged. A ticket may be pinned to any remote; removing a repository from a project clears the pins to it (#737, ADR 0052).
@@ -164,6 +164,53 @@ requires a ready PR and a clean checkout. Missing credentials, disconnected agen
 unpushed commits and replacement PRs prevent completion. Human merge remains
 separate. Pickup skills retain ownership of their ordered stage checklist and
 must run the project's checks before submitting a transition.
+
+### Customizing a stage skill
+
+Every task-scope stage skill is made of Sectile contracts and work sections
+(#732, ADR 0056). Sectile owns the frontmatter, task access, the session title
+and status, the run lifecycle and waiting, `transition_stage` with its
+evidence and pull-request recording, the pull-request policy and the stage's
+exit condition. The work sections are `## Goal`, `## Read first`, `## Steps`,
+the guard (`## Do not`, or `## Recovery and blockers` for implement) and
+`## Report`.
+
+- **Work-only overrides.** A project's override, edited in the web Skills
+  view, either replaces the whole skill (*Full replacement*, the kind every
+  override made before #732 keeps) or only the work sections it states
+  (*Work only*, the default for a new override of a stage skill). A work-only
+  body is made only of those `## ` sections, each at most once and none
+  empty; a section left out keeps the built-in one, and Sectile keeps its
+  contracts around them. Pickup's steps are its inlined stages: override
+  clarify, specify, implement or adjust and pickup inlines that work. Macro
+  skills and `/transition` are replaced whole only.
+- **Workstation overrides.** Under `skills` in `~/.config/sectile/settings.json`,
+  a plain string still replaces the whole skill, and
+  `{"kind":"work","content":"..."}` replaces only the sections it states; a
+  work override that does not parse is ignored. A workstation full
+  replacement wins, then a project full replacement; otherwise each section
+  comes from the project's work override, else the workstation's, else the
+  built-in.
+- **Foreign commands.** A stage run through a command from `skillCommands`
+  (for example `/plan-jira`) is launched with a "Sectile stage contract"
+  appended to its prompt: the run lifecycle, the stage transition and its
+  exit condition, so the card still advances.
+- **Direct copies.** The direct setup's copy of a skill is shared by every
+  project of the workstation. When a known project, or the workstation, has a
+  work-only override of it, each overridden section holds one
+  `When get_project_context reports projectId "<id>"` subsection per project
+  and an `Otherwise` subsection with the workstation's or the built-in
+  section. A save, reset or import in the Skills view asks the connected
+  agents serving the project to rewrite, with the `refresh_skills` operation,
+  the direct copies they already manage, even without a local mapping for
+  that project; a workstation that is offline or has no direct setup catches
+  up at its next `sectile-agent init`, **Initialize** or `sync_config`. The plugin skill
+  is never rewritten.
+- **`/transition <taskKey> <stage>`.** Records a stage by hand: it reads the
+  task, gathers the stage's evidence (note, actual branch, `prUrl`/`prUrls` or
+  `noRepositoryChange`), checks the stage's exit condition, shows the evidence
+  and calls `transition_stage` once you confirm. It starts no run, takes no
+  override, and is not offered as a launch on the board or in Desktop.
 
 ### Stage 2: Technical Specification (`specify-issue` / `/specify`)
 - **Objective**: Generates an actionable, implementation-ready technical specification, following the Spec-Driven Design framework configured on the project.
@@ -474,7 +521,7 @@ how long the wait has lasted, and the activities view has a matching filter.
 Each clarification round publishes its complete section on the ticket, while the
 Markdown report preserves the history. Intermediate standalone rounds use comments;
 the final round uses the stage transition note once. Large sections are divided into
-numbered parts. Managed runs report through their supplied result contract.
+numbered parts.
 
 The project workflow setting `pushStageCommits` is off by default. When enabled,
 clarify and specify push their assigned branch after each artifact commit, setting

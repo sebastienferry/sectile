@@ -206,7 +206,7 @@ func TestSkillContentEditKeepsMode(t *testing.T) {
 	if err := d.SetProjectSkillMode(project.ID, "clarify", models.SkillModeAutonomous); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.SaveProjectSkillContent(project.ID, "clarify", "# Clarify\n\nEdited body.\n"); err != nil {
+	if _, err := d.SaveProjectSkillContent(project.ID, "clarify", "# Clarify\n\nEdited body.\n", fullOverride()); err != nil {
 		t.Fatal(err)
 	}
 	if got := d.ProjectSkillMode(project.ID, "clarify"); got != models.SkillModeAutonomous {

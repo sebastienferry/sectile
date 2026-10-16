@@ -25,6 +25,8 @@ import (
 
 	"tasks/internal/mcptest"
 	"tasks/internal/models"
+	"tasks/internal/runner"
+	"tasks/internal/skills"
 )
 
 func TestAgentCommandQuotesPrompt(t *testing.T) {
@@ -781,5 +783,64 @@ func TestBootstrapLocalMCPRecordsClaudeDefault(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(home, ".claude.json"))
 	if err != nil || !strings.Contains(string(raw), "Bearer second-key") || strings.Contains(string(raw), "first-key") {
 		t.Fatalf("key not refreshed: %s %v", raw, err)
+	}
+}
+
+// A foreign command (skillCommands) replaces the whole skill, so its launch
+// prompt carries the Sectile stage contract: /plan-jira still advances the card
+// (#732).
+func TestForeignCommandCarriesTheStageContract(t *testing.T) {
+	stage, _ := skills.StageSkillByID("clarify")
+	contract := skills.StageLaunchContract(stage)
+	c := agentconfig.Config{Skills: []agentconfig.Skill{{ID: "clarify", Directory: "clarify-issue", Command: "/plan-jira", CommandOverridden: true}}}
+	for name, contexts := range map[string][]agentCommandContext{
+		"command choice": {{Skill: &skillChoice{Kind: skillKindCommand, Command: "plan-jira", Directory: "clarify-issue"}}},
+		"no choice":      nil,
+	} {
+		// The dispatch names the skill by its ID, by its directory, or only
+		// through its action: the contract is the matched skill's each time.
+		for _, named := range []struct{ skillID, action string }{{"clarify", "clarify"}, {"clarify-issue", "clarify"}, {"plan-jira", "clarify"}} {
+			prompt, _, err := dispatchPrompt(c, "T-1", named.skillID, named.action, "", contexts)
+			if err != nil || !strings.HasPrefix(prompt, "/plan-jira T-1") || !strings.Contains(prompt, contract) || !strings.Contains(prompt, "transition_stage") {
+				t.Fatalf("%s, %s: %s %v", name, named.skillID, prompt, err)
+			}
+			if !strings.Contains(prompt, "## Specifications workspace") {
+				t.Fatalf("%s, %s: the prompt does not say where the issue artefacts go: %s", name, named.skillID, prompt)
+			}
+		}
+	}
+}
+
+// A catalogue command runs the installed Sectile skill, which carries the
+// contract itself, and a custom skill's file does too: no stage contract is
+// added to either (#732).
+func TestCatalogueCommandAddsNoStageContract(t *testing.T) {
+	c := agentconfig.Config{Skills: []agentconfig.Skill{{ID: "clarify", Directory: "clarify-issue", Command: "/clarify-issue"}}}
+	prompt, _, err := dispatchPrompt(c, "T-1", "clarify", "clarify", "", []agentCommandContext{{Skill: &skillChoice{Kind: skillKindDirect, Command: "clarify-issue"}}})
+	if err != nil || strings.Contains(prompt, "Sectile stage contract") {
+		t.Fatalf("catalogue command: %s %v", prompt, err)
+	}
+	c.Skills[0].Command, c.Skills[0].CommandOverridden = "/plan-jira", true
+	file := filepath.Join(t.TempDir(), "run-1", "clarify-issue", "SKILL.md")
+	prompt, _, err = dispatchPrompt(c, "T-1", "clarify", "clarify", "", []agentCommandContext{{Skill: &skillChoice{Kind: skillKindCustom, File: file}}})
+	if err != nil || strings.Contains(prompt, "Sectile stage contract") {
+		t.Fatalf("custom skill: %s %v", prompt, err)
+	}
+}
+
+// A foreign adjust command gets the stage contract and still exactly one
+// adjustment contract, and the runId line stays the launch's own (#732).
+func TestForeignAdjustCommandKeepsOneAdjustmentContract(t *testing.T) {
+	c := agentconfig.Config{Skills: []agentconfig.Skill{{ID: "adjust", Directory: "adjust-issue", Command: "/fix-review", CommandOverridden: true}}}
+	// The dispatch may name the skill by its directory: the contracts are the
+	// matched skill's all the same.
+	for _, skillID := range []string{"adjust", "adjust-issue"} {
+		prompt, _, err := dispatchPrompt(c, "T-1", skillID, "adjust", "Remote execution runId: run-1", []agentCommandContext{{Skill: &skillChoice{Kind: skillKindCommand, Command: "fix-review"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Count(prompt, runner.AdjustmentContract) != 1 || strings.Count(prompt, "Sectile stage contract") != 1 || strings.Count(prompt, "Remote execution runId") != 1 {
+			t.Fatalf("%s contracts: %s", skillID, prompt)
+		}
 	}
 }

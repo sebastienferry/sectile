@@ -367,7 +367,11 @@ func (d *agentDaemon) prepareSkill(config agentconfig.Config, skillID, action, p
 		if strings.TrimSpace(runID) == "" {
 			runID = "local-" + uuid.NewString()
 		}
-		if choice.File, err = writeRunSkill(runID, *skill); err != nil {
+		// A work-only override is composed here, from the embedded fragments,
+		// so the run reads this workstation's sections too (#732).
+		s := *skill
+		s.Content = runSkillContent(config, s)
+		if choice.File, err = writeRunSkill(runID, s); err != nil {
 			return nil, err
 		}
 		go func() {

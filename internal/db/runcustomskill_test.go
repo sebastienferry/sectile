@@ -70,7 +70,7 @@ func TestSkillEditorSaveCallsNoAgent(t *testing.T) {
 		}
 		return json.RawMessage(`{}`), nil
 	})
-	if _, err := database.SaveProjectSkillContent(project.ID, "clarify", "---\nname: clarify-issue\n---\nEdited."); err != nil {
+	if _, err := database.SaveProjectSkillContent(project.ID, "clarify", "---\nname: clarify-issue\n---\nEdited.", fullOverride()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.ResetProjectSkillContent(project.ID, "clarify"); err != nil {

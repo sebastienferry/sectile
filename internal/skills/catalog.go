@@ -48,6 +48,13 @@ type StageSkill struct {
 	Title           string
 	FrontmatterDesc string
 	GuardTitle      string
+
+	// HandTransition marks a skill that records a stage by hand: it starts no
+	// run, names no session and takes no work-only override (#732).
+	HandTransition bool
+	// ArgumentHint replaces the default argument hint of the skill's slash
+	// command when set.
+	ArgumentHint string
 }
 
 // StageSkills is the unified set: one skill per workflow step. Standalone
@@ -271,6 +278,27 @@ var StageSkills = []StageSkill{
 		FrontmatterDesc: "Batch process a list of selected board tickets sequentially in autonomy inside a single dedicated worktree, producing one combined Pull Request covered by tests and lints.",
 		GuardTitle:      "Do not",
 	},
+	{
+		ID:          "transition",
+		Name:        "Transition",
+		DirName:     models.SkillDirNames["transition"],
+		Command:     "/transition",
+		Description: "Enregistre à la main le passage d'un ticket à une étape, avec ses preuves, après confirmation de l'utilisateur.",
+		Icon:        "ArrowRightLeft",
+		Color:       "slate",
+		Steps: []string{
+			"Lecture du ticket et de l'étape demandée",
+			"Rassemblement des preuves : note, branche réelle, PR ou absence de changement de dépôt",
+			"Vérification de la condition de sortie de l'étape",
+			"Affichage des preuves et confirmation par l'utilisateur",
+			"Appel de transition_stage, sans démarrer ni terminer de run",
+		},
+		Title:           "Record a stage transition",
+		FrontmatterDesc: "Record by hand that a ticket completed a stage: gather the stage's evidence, show it, and call transition_stage once the user confirms.",
+		GuardTitle:      "Do not",
+		ArgumentHint:    "<TICKET-KEY> <stage>",
+		HandTransition:  true,
+	},
 }
 
 // StageSkillByID resolves canonical and legacy workflow identities.
@@ -301,14 +329,14 @@ func StageSkillByID(skillID string) (StageSkill, bool) {
 
 func readSkillFragment(skillID, name, framework string) string {
 	framework = strings.ToLower(strings.TrimSpace(framework))
+	// Embedded paths are slash-separated on every OS: filepath.Join would build
+	// backslashed names on Windows that the embed.FS never matches.
 	if framework != "" {
-		path := filepath.Join("fragments", skillID, name+"."+framework+".md")
-		if data, err := embeddedSkillsFS.ReadFile(path); err == nil {
+		if data, err := embeddedSkillsFS.ReadFile(path.Join("fragments", skillID, name+"."+framework+".md")); err == nil {
 			return string(data)
 		}
 	}
-	path := filepath.Join("fragments", skillID, name+".md")
-	data, err := embeddedSkillsFS.ReadFile(path)
+	data, err := embeddedSkillsFS.ReadFile(path.Join("fragments", skillID, name+".md"))
 	if err != nil {
 		return ""
 	}
@@ -316,7 +344,7 @@ func readSkillFragment(skillID, name, framework string) string {
 }
 
 func readContractFragment(name string) string {
-	data, err := embeddedSkillsFS.ReadFile(filepath.Join("fragments", "contracts", name+".md"))
+	data, err := embeddedSkillsFS.ReadFile(path.Join("fragments", "contracts", name+".md"))
 	if err != nil {
 		return ""
 	}
@@ -427,7 +455,7 @@ func renderSpecWorkspaceContract(s StageSkill) string {
 // for the skill based on its from/to stages in the sequence:
 // new -> clarified -> specified -> implemented -> reviewed -> finished
 func renderTicketTransitionContract(s StageSkill) string {
-	if s.Scope == "macro" {
+	if s.Scope == "macro" || s.HandTransition {
 		return ""
 	}
 	tmpl := readContractFragment("transition")
@@ -435,13 +463,51 @@ func renderTicketTransitionContract(s StageSkill) string {
 		"FromStage": s.FromStage,
 		"ToStage":   s.ToStage,
 		"ID":        s.ID,
+		"Exit":      stageExit(s.ID),
 	})
-	return strings.TrimRight(res, "\n") + "\n"
+	out := strings.TrimRight(res, "\n") + "\n"
+	if s.FromStage != "" {
+		out += strings.TrimRight(readContractFragment("stage-evidence"), "\n") + "\n"
+	}
+	return out
+}
+
+// stageExit is the condition a stage must meet before it is recorded (#732).
+// It belongs to the Sectile contract, not to the overridable guard, so a
+// project that replaces the work of a stage cannot drop it.
+func stageExit(id string) string {
+	if exit := strings.TrimSpace(readSkillFragment(id, "exit", "")); exit != "" {
+		return exit
+	}
+	return "this step is complete."
+}
+
+// handTransitionSteps are the steps of a hand transition: its own, then the
+// evidence rules and every stage's exit condition, generated from the same
+// contract fragments the stage skills carry so that they cannot drift (#732).
+// Pickup and pickup_issues are left out: they run the other stages, which
+// /transition records one by one.
+func handTransitionSteps(s StageSkill) string {
+	var b strings.Builder
+	b.WriteString(strings.TrimRight(readSkillFragment(s.ID, "steps", ""), "\n"))
+	b.WriteString("\n\n### Evidence\n")
+	b.WriteString(strings.TrimRight(readContractFragment("stage-evidence"), "\n"))
+	b.WriteString("\n\n### Exit condition per stage\nRecord a stage only when its exit condition is met:\n")
+	for _, stage := range StageSkills {
+		if stage.FromStage == "" || stage.Scope == "macro" || isPickup(stage.ID) {
+			continue
+		}
+		fmt.Fprintf(&b, "- `%s` (from `%s`, %s): %s\n", stage.ToStage, stage.FromStage, stage.Title, stageExit(stage.ID))
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // Pickup embeds the maintained stage bodies, so batch and single-ticket runs
-// cannot silently omit a validation rule added to a standalone step.
-func renderPickupSteps(specFramework string, batch bool) string {
+// cannot silently omit a validation rule added to a standalone step. Each
+// stage's work comes from its override when it has one (#732), its headings one
+// level down since it sits under the stage's "###"; its exit condition always
+// comes from the catalogue.
+func renderPickupSteps(specFramework string, batch bool, overrides SkillOverrides) string {
 	var b strings.Builder
 	tmpl := readContractFragment("pickup-header")
 	header := executeContractTemplate(tmpl, map[string]any{
@@ -449,40 +515,43 @@ func renderPickupSteps(specFramework string, batch bool) string {
 	})
 	b.WriteString(strings.TrimRight(header, "\n") + "\n")
 
-	for _, id := range []string{"clarify", "specify", "implement", "adjust"} {
+	for _, id := range pickupStages {
 		step, _ := StageSkillByID(id)
-		title := step.Title
-		readFirst := readSkillFragment(id, "read-first", specFramework)
-		steps := readSkillFragment(id, "steps", specFramework)
-		guard := readSkillFragment(id, "guard", "")
-		report := readSkillFragment(id, "report", "")
-		fmt.Fprintf(&b, "\n### %s\n%s\n\n%s\n\n%s\n\nReport and persist before continuing:\n%s\n", title, readFirst, steps, guard, report)
+		work := overrides[id].nested(1).Over(BuiltinWorkSections(step, specFramework))
+		fmt.Fprintf(
+			&b,
+			"\n### %s\n%s\n\n%s\n\n%s\n\nExit condition before recording %s: %s\n\nReport and persist before continuing:\n%s\n",
+			step.Title,
+			work.ReadFirst,
+			work.Steps,
+			work.Guard,
+			step.ToStage,
+			stageExit(id),
+			work.Report)
 	}
 	return b.String()
 }
 
+// skillDisplayName is the title of a skill rendered for one project: the SDD
+// framework is part of what some steps are.
+func skillDisplayName(s StageSkill, specFramework string) string {
+	switch s.ID {
+	case "specify":
+		return specifyFrameworkName(specFramework)
+	case "refine_macro":
+		return refineMacroFrameworkName(specFramework)
+	case "realign_macro":
+		return realignMacroFrameworkName(specFramework)
+	}
+	if s.Title != "" {
+		return s.Title
+	}
+	return s.Name
+}
+
 // RenderSkillContent builds the SKILL.md of one skill.
 func RenderSkillContent(s StageSkill, specFramework string) string {
-	name := s.Title
-	if name == "" {
-		name = s.Name
-	}
-	readFirst := readSkillFragment(s.ID, "read-first", specFramework)
-	steps := readSkillFragment(s.ID, "steps", specFramework)
-	if s.ID == "specify" {
-		name = specifyFrameworkName(specFramework)
-	}
-	if s.ID == "refine_macro" {
-		name = refineMacroFrameworkName(specFramework)
-	}
-	if s.ID == "realign_macro" {
-		name = realignMacroFrameworkName(specFramework)
-	}
-
-	if s.ID == "pickup" || s.ID == "pickup_issues" {
-		steps = renderPickupSteps(specFramework, s.ID == "pickup_issues")
-	}
-	return assembleSkill(s, name, readFirst, steps, directTaskAccessFallback)
+	return RenderComposedSkillContent(s, specFramework, nil)
 }
 
 // RenderGenericSkillContent builds the SKILL.md of one skill for every project
@@ -492,7 +561,7 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 // project's value from get_project_context at run time. The pull-request
 // policy is generic for the same reason.
 func RenderGenericSkillContent(s StageSkill) string {
-	return renderGenericSkill(s, genericTaskAccessFallback)
+	return renderDirectComposed(s, nil, nil, genericTaskAccessFallback)
 }
 
 // RenderDirectSkillContent builds the SKILL.md the direct setup installs in a
@@ -500,7 +569,7 @@ func RenderGenericSkillContent(s StageSkill) string {
 // workstation, so the content is the generic one, as in the plugin, with the
 // HTTP fallback of a skill that runs beside a local agent.
 func RenderDirectSkillContent(s StageSkill) string {
-	return renderGenericSkill(s, directTaskAccessFallback)
+	return RenderDirectComposedSkillContent(s, nil, nil)
 }
 
 // RenderDirectSkillCommand is RenderDirectSkillContent as a slash command, for
@@ -509,28 +578,8 @@ func RenderDirectSkillCommand(s StageSkill) string {
 	return skillCommand(s, RenderDirectSkillContent(s))
 }
 
-func renderGenericSkill(s StageSkill, taskAccessFallback string) string {
-	name := s.Title
-	if name == "" {
-		name = s.Name
-	}
-	readFirst := genericSkillFragment(s.ID, "read-first", "###")
-	steps := genericSkillFragment(s.ID, "steps", "###")
-	if s.ID == "pickup" || s.ID == "pickup_issues" {
-		steps = renderGenericPickupSteps(s.ID == "pickup_issues")
-	}
-	content := assembleSkill(s, name, readFirst, steps, taskAccessFallback)
-	if HasPullRequestPolicy(s.ID) {
-		content += GenericPullRequestPolicy()
-	}
-	return content
-}
-
-func assembleSkill(s StageSkill, name, readFirst, steps, taskAccessFallback string) string {
-	goal := readSkillFragment(s.ID, "goal", "")
-	guard := readSkillFragment(s.ID, "guard", "")
-	report := readSkillFragment(s.ID, "report", "")
-
+// assembleSkill puts the Sectile contracts around the work sections of a skill.
+func assembleSkill(s StageSkill, name string, work WorkSections, taskAccessFallback string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\nname: %s\ndescription: %s\n---\n", s.DirName, YAMLString(s.FrontmatterDesc))
 	fmt.Fprintf(&b, "# %s\n\n", name)
@@ -544,30 +593,28 @@ func assembleSkill(s StageSkill, name, readFirst, steps, taskAccessFallback stri
 	}
 	b.WriteString("\n\n")
 	b.WriteString(renderTaskAccessContract(taskAccessFallback))
-	b.WriteString(renderSessionTitleContract(s))
+	if !s.HandTransition {
+		b.WriteString(renderSessionTitleContract(s))
+	}
 	b.WriteString(renderSpecWorkspaceContract(s))
-	fmt.Fprintf(&b, "## Goal\n%s\n\n", goal)
-	if readFirst != "" {
-		fmt.Fprintf(&b, "## Read first\n%s\n\n", readFirst)
+	fmt.Fprintf(&b, "## Goal\n%s\n\n", work.Goal)
+	if work.ReadFirst != "" {
+		fmt.Fprintf(&b, "## Read first\n%s\n\n", work.ReadFirst)
 	}
-	if steps != "" {
-		fmt.Fprintf(&b, "## Steps\n%s\n\n", steps)
+	if work.Steps != "" {
+		fmt.Fprintf(&b, "## Steps\n%s\n\n", work.Steps)
 	}
-	if guard != "" {
-		guardTitle := s.GuardTitle
-		if guardTitle == "" {
-			guardTitle = "Do not"
-		}
-		fmt.Fprintf(&b, "## %s\n%s\n\n", guardTitle, guard)
+	if work.Guard != "" {
+		fmt.Fprintf(&b, "## %s\n%s\n\n", GuardHeading(s), work.Guard)
 	}
 	if contract := renderTicketTransitionContract(s); contract != "" {
-		fmt.Fprintf(&b, "## Report\n%s\n\n", report)
+		fmt.Fprintf(&b, "## Report\n%s\n\n", work.Report)
 		b.WriteString(contract)
 	} else if contract := renderMacroRunContract(s); contract != "" {
-		fmt.Fprintf(&b, "## Report\n%s\n\n", report)
+		fmt.Fprintf(&b, "## Report\n%s\n\n", work.Report)
 		b.WriteString(contract)
 	} else {
-		fmt.Fprintf(&b, "## Report\n%s\n", report)
+		fmt.Fprintf(&b, "## Report\n%s\n", work.Report)
 	}
 	return b.String()
 }
@@ -616,21 +663,30 @@ func genericSkillFragment(skillID, name, level string) string {
 }
 
 // renderGenericPickupSteps is renderPickupSteps with every framework variant
-// of the composed stages.
-func renderGenericPickupSteps(batch bool) string {
+// of the composed stages, and each project's override of their work (#732).
+func renderGenericPickupSteps(batch bool, workstation SkillOverrides, projects []ProjectOverrides) string {
 	var b strings.Builder
 	header := executeContractTemplate(readContractFragment("pickup-header"), map[string]any{
 		"Batch": batch,
 	})
 	b.WriteString(strings.TrimRight(header, "\n") + "\n")
 
-	for _, id := range []string{"clarify", "specify", "implement", "adjust"} {
+	for _, id := range pickupStages {
 		step, _ := StageSkillByID(id)
-		readFirst := genericSkillFragment(id, "read-first", "####")
-		steps := genericSkillFragment(id, "steps", "####")
-		guard := readSkillFragment(id, "guard", "")
-		report := readSkillFragment(id, "report", "")
-		fmt.Fprintf(&b, "\n### %s\n%s\n\n%s\n\n%s\n\nReport and persist before continuing:\n%s\n", step.Title, readFirst, steps, guard, report)
+		readFirst := directSection(id, "read-first", "####", workstation, projects)
+		steps := directSection(id, "steps", "####", workstation, projects)
+		guard := directSection(id, "guard", "####", workstation, projects)
+		report := directSection(id, "report", "####", workstation, projects)
+		fmt.Fprintf(
+			&b,
+			"\n### %s\n%s\n\n%s\n\n%s\n\nExit condition before recording %s: %s\n\nReport and persist before continuing:\n%s\n",
+			step.Title,
+			readFirst,
+			steps,
+			guard,
+			step.ToStage,
+			stageExit(id),
+			report)
 	}
 	return b.String()
 }
@@ -667,6 +723,16 @@ func ProjectPullRequestPolicy(timing string) string {
 	return out + pullRequestPolicyImplemented
 }
 
+// ProjectSkillPolicy is the policy appended to a skill rendered for one
+// project, "" for a skill that carries none. Clarification only hears about
+// pull requests when it opens one (#580).
+func ProjectSkillPolicy(id, timing string) string {
+	if !HasPullRequestPolicy(id) || (id == "clarify" && timing != models.PRCreationClarified) {
+		return ""
+	}
+	return ProjectPullRequestPolicy(timing)
+}
+
 // GenericPullRequestPolicy is the same section for every project: all
 // wordings, chosen by what get_project_context reports.
 func GenericPullRequestPolicy() string {
@@ -684,6 +750,11 @@ type ProjectSkillTemplate struct {
 	DirName     string
 	Description string
 	Content     string
+	// OverrideKind and WorkContent are copied from a project's override row
+	// (#732): a work-only override keeps its own sections in WorkContent while
+	// Content holds the composed skill.
+	OverrideKind models.SkillOverrideKind
+	WorkContent  string
 }
 
 // ProjectSkillTemplates returns the unified set ready to be written, with the
@@ -743,7 +814,9 @@ func skillCommand(s StageSkill, body string) string {
 	b.WriteString("---\n")
 	fmt.Fprintf(&b, "description: %s\n", YAMLString(s.FrontmatterDesc))
 	hint := "<TICKET-KEY> [contexte]"
-	if s.Scope == "macro" {
+	if s.ArgumentHint != "" {
+		hint = s.ArgumentHint
+	} else if s.Scope == "macro" {
 		hint = "<MACRO-KEY> [contexte]"
 	}
 	fmt.Fprintf(&b, "argument-hint: %s\n", hint)

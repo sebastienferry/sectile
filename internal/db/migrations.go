@@ -791,6 +791,16 @@ var migrations = []migration{
 		"ALTER TABLE task_activities ADD COLUMN dispatch_state TEXT NOT NULL DEFAULT '';",
 		"ALTER TABLE task_activities ADD COLUMN remote_run_id TEXT NOT NULL DEFAULT '';",
 	}},
+	{
+		// What a project's skill override replaces (#732): '' is the whole
+		// skill, which every row written before keeps meaning, and 'work' is
+		// the work sections only, around the Sectile contracts.
+		version: 55,
+		name:    "project_skills.override_kind",
+		statements: []string{
+			"ALTER TABLE project_skills ADD COLUMN override_kind TEXT NOT NULL DEFAULT '';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is
