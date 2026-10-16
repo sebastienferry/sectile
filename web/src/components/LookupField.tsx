@@ -153,7 +153,7 @@ export const LookupField: React.FC<{
               setIsOpen(false)
             }
           }}
-          className="w-full pl-7 pr-6 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] disabled:opacity-50"
+          className="w-full pl-7 pr-6 py-1.5 text-xs rounded-xl bg-[var(--bg-input)] border border-[var(--border-input)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] disabled:opacity-50"
         />
         <span className="absolute left-2.5 top-2.5 text-[var(--text-muted)] pointer-events-none">
           {isOpen ? <Search size={12} /> : icon}

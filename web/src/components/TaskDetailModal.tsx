@@ -933,10 +933,12 @@ export const TaskDetailModal: React.FC = () => {
   )
 
   const renderStoryInfoSection = () => (
-    <div className="space-y-5">
-      {renderRecommendedStep()}
+    <div className="space-y-5 flex-1 flex flex-col min-h-0">
+      <div className="shrink-0">
+        {renderRecommendedStep()}
+      </div>
       {/* Title Input */}
-      <div>
+      <div className="shrink-0">
         <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
           {td.fields.storyTitle}
         </label>
@@ -945,15 +947,15 @@ export const TaskDetailModal: React.FC = () => {
           value={title}
           onChange={e => setTitle(e.target.value)}
           placeholder={t.taskModal.titlePlaceholder}
-          className="w-full px-3.5 py-2 text-sm font-semibold rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+          className="w-full px-3.5 py-2 text-sm font-semibold rounded-xl bg-[var(--bg-input)] border border-[var(--border-input)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
         />
       </div>
 
       {/* Content comes first in both the visual and keyboard reading order. */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5 items-stretch flex-1 min-h-0">
         {/* Description / Acceptance criteria */}
-        <div className="min-w-0 space-y-2">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="min-w-0 space-y-2 flex flex-col flex-1 min-h-0">
+          <div className="flex items-center justify-between gap-2 flex-wrap shrink-0">
             <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
               {td.fields.description}
             </label>
@@ -985,7 +987,7 @@ export const TaskDetailModal: React.FC = () => {
           </div>
 
           {rewriteActivity?.output && rewriteActivity.id !== dismissedRewriteId && (
-            <div className="p-3.5 rounded-xl bg-cyan-950/20 border border-cyan-500/30 space-y-2">
+            <div className="p-3.5 rounded-xl bg-cyan-950/20 border border-cyan-500/30 space-y-2 shrink-0">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
                   <Sparkles size={14} />
@@ -1026,13 +1028,17 @@ export const TaskDetailModal: React.FC = () => {
             </div>
           )}
 
-          <MarkdownEditor
-            value={description}
-            onChange={setDescription}
-            placeholder={t.taskModal.descPlaceholder}
-            minHeight={320}
-            maxHeight={window.innerHeight * 0.6}
-          />
+          <div className="flex-1 flex flex-col min-h-[280px]">
+            <MarkdownEditor
+              value={description}
+              onChange={setDescription}
+              placeholder={t.taskModal.descPlaceholder}
+              clickToEdit
+              fillHeight
+              maximizable
+              maximizeTitle={td.fields.description}
+            />
+          </div>
         </div>
 
         <div className="min-w-0 space-y-5">
@@ -1046,7 +1052,7 @@ export const TaskDetailModal: React.FC = () => {
                 <select
                   value={trackerStatus}
                   onChange={e => applyTrackerStatus(e.target.value)}
-                  className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                  className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-input)] border border-[var(--border-input)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                   title={td.fields.trackerStatusTitle}
                 >
                   <option value="">{td.fields.notSet}</option>
@@ -1062,7 +1068,7 @@ export const TaskDetailModal: React.FC = () => {
                 <select
                   value={status}
                   onChange={e => handleStatusChange(e.target.value as Status)}
-                  className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                  className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-input)] border border-[var(--border-input)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                 >
                   <option value="to_clarify">{t.status.to_clarify} (#new)</option>
                   <option value="clarified">{t.status.clarified} (#clarified)</option>
@@ -1082,7 +1088,7 @@ export const TaskDetailModal: React.FC = () => {
               <select
                 value={currentStage}
                 onChange={e => applyStage(e.target.value as WorkflowStage)}
-                className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-input)] border border-[var(--border-input)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                 title={td.fields.stageTitle}
               >
                 {WORKFLOW_ORDER.map(stage => (
@@ -1099,7 +1105,7 @@ export const TaskDetailModal: React.FC = () => {
               <PrioritySelect
                 value={priority}
                 onChange={handlePriorityChange}
-                className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-input)] border border-[var(--border-input)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
               />
             </div>
 
@@ -1148,7 +1154,7 @@ export const TaskDetailModal: React.FC = () => {
                     setTaskProjectId(val)
                   }
                 }}
-                className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
+                className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-input)] border border-[var(--border-input)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
               >
                 {(() => {
                   const bookmarked = projects.filter(p => p.bookmarked)
@@ -1196,7 +1202,7 @@ export const TaskDetailModal: React.FC = () => {
                     setOtherRepository(value === OTHER_REPOSITORY)
                     setRepository(value === OTHER_REPOSITORY ? '' : value)
                   }}
-                  className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-mono"
+                  className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-input)] border border-[var(--border-input)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-mono"
                   title={td.fields.repositoryTitle}
                 >
                   <option value="">{td.fields.notPinned}</option>
@@ -1217,7 +1223,7 @@ export const TaskDetailModal: React.FC = () => {
                     title={td.fields.otherRepositoryTitle}
                     aria-label={td.fields.otherRepository}
                     autoFocus
-                    className="mt-1.5 w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-mono"
+                    className="mt-1.5 w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-input)] border border-[var(--border-input)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-mono"
                   />
                 )}
               </div>
@@ -1257,7 +1263,7 @@ export const TaskDetailModal: React.FC = () => {
                     value={assignee}
                     onChange={e => setAssignee(e.target.value)}
                     placeholder={td.lookups.assigneeFree}
-                    className="w-full pl-7 pr-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                    className="w-full pl-7 pr-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-input)] border border-[var(--border-input)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                   />
                   <User size={12} className="absolute left-2.5 top-2.5 text-[var(--text-muted)]" />
                 </div>
@@ -1271,7 +1277,7 @@ export const TaskDetailModal: React.FC = () => {
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
                   {td.fields.creator}
                 </label>
-                <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] h-[34px]">
+                <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-input)] border border-[var(--border-input)] text-[var(--text-secondary)] h-[34px]">
                   <Avatar
                     name={selectedTask.creator}
                     url={selectedTask.creatorAvatar}
@@ -1380,7 +1386,7 @@ export const TaskDetailModal: React.FC = () => {
                   type="date"
                   value={dueDate}
                   onChange={e => setDueDate(e.target.value)}
-                  className="w-full pl-7 pr-2 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                  className="w-full pl-7 pr-2 py-1.5 text-xs rounded-xl bg-[var(--bg-input)] border border-[var(--border-input)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                 />
                 <Calendar size={12} className="absolute left-2.5 top-2.5 text-[var(--text-muted)] pointer-events-none" />
               </div>
@@ -1392,7 +1398,7 @@ export const TaskDetailModal: React.FC = () => {
             <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
               {t.taskModal.labels}
             </label>
-            <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
+            <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl bg-[var(--bg-input)] border border-[var(--border-input)]">
               {labels.map(lbl => {
                 const lower = lbl.toLowerCase()
                 let badgeStyle = 'bg-[var(--accent-light)] accent-text'
@@ -1440,7 +1446,7 @@ export const TaskDetailModal: React.FC = () => {
       </div>
 
       {/* Pull requests span the full width below both columns. */}
-      <div className="space-y-1.5">
+      <div className="space-y-1.5 shrink-0 pt-1">
         <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
           {td.pr.title}
         </label>
@@ -1473,7 +1479,7 @@ export const TaskDetailModal: React.FC = () => {
                     type="url"
                     value={link.url}
                     onChange={e => setPrLinks(prLinks.map((l, i) => (i === index ? { ...l, url: e.target.value } : l)))}
-                    className="flex-1 min-w-0 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                    className="flex-1 min-w-0 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-input)] border border-[var(--border-input)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                   />
                   <span className="shrink-0 text-[10px] text-[var(--text-muted)] max-w-[10rem] truncate" title={link.branch || ''}>
                     {link.branch || EMPTY_VALUE}
@@ -1506,7 +1512,7 @@ export const TaskDetailModal: React.FC = () => {
               }
             }}
             placeholder="https://github.com/owner/repo/pull/42"
-            className="flex-1 min-w-0 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+            className="flex-1 min-w-0 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-input)] border border-[var(--border-input)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
           />
           <button
             type="button"
@@ -1875,7 +1881,7 @@ export const TaskDetailModal: React.FC = () => {
             </div>
 
             {/* Panel Scrollable Content Body */}
-            <div className="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
+            <div className="p-6 overflow-y-auto space-y-6 flex-1 text-xs flex flex-col">
               {activeTab === 'details' && renderStoryInfoSection()}
               {activeTab === 'comments' && <TaskComments task={selectedTask} />}
               {activeTab === 'skills' && renderSkillsSection()}
@@ -2099,7 +2105,7 @@ export const TaskDetailModal: React.FC = () => {
         </div>
 
         {/* Modal Scrollable Body */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
+        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-xs flex flex-col">
           {activeTab === 'details' && renderStoryInfoSection()}
           {activeTab === 'comments' && <TaskComments task={selectedTask} />}
           {activeTab === 'skills' && renderSkillsSection()}

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react'
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import {
   CalendarDays,
   Clock,
@@ -23,10 +23,14 @@ import {
   Archive,
   RotateCcw,
   Sparkles,
+  Target,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import { useEscapeKey } from '../hooks/useEscapeKey'
+import { useClickOutside } from '../hooks/useClickOutside'
+import { matchesSearch } from '../lib/searchFold'
+import { epicColorHex } from '../lib/epicColor'
 import {
   calculateSprintDates,
   closeTargets,
@@ -51,6 +55,254 @@ import { EpicBar, useEpicColors } from './EpicMarker'
 const DRAG_TASK_ID = 'application/x-sectile-task-id'
 const DRAG_TASK_IDS = 'application/x-sectile-task-ids'
 
+const EpicTimelineFilter: React.FC = () => {
+  const {
+    tasks,
+    parentFilter,
+    setParentFilter,
+    availableParents,
+    taskFacets,
+    t,
+  } = useApp()
+  const st = t.sprints
+
+  const [isOpen, setIsOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const containerRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  const close = useCallback(() => {
+    setIsOpen(false)
+    setSearch('')
+  }, [])
+  useClickOutside(containerRef, close, isOpen)
+  useEscapeKey(isOpen, close)
+
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 50)
+    }
+  }, [isOpen])
+
+  const epicOptions = useMemo(() => {
+    const list: Array<{ key: string; title: string; count?: number }> = []
+    const seen = new Set<string>()
+
+    if (taskFacets.macros && taskFacets.macros.length > 0) {
+      for (const m of taskFacets.macros) {
+        if (!m.key || seen.has(m.key)) continue
+        seen.add(m.key)
+        list.push({
+          key: m.key,
+          title: m.title || m.key,
+          count: m.count,
+        })
+      }
+    }
+    for (const p of availableParents) {
+      if (!p.key || seen.has(p.key)) continue
+      seen.add(p.key)
+      list.push({
+        key: p.key,
+        title: p.title || p.key,
+        count: p.count,
+      })
+    }
+    for (const t of tasks) {
+      if (!t.parentKey || seen.has(t.parentKey)) continue
+      seen.add(t.parentKey)
+      list.push({
+        key: t.parentKey,
+        title: t.parentTitle || t.parentKey,
+      })
+    }
+    return list
+  }, [taskFacets.macros, availableParents, tasks])
+
+  const selectedEpic = useMemo(() => {
+    if (!parentFilter) return null
+    if (parentFilter === '__no_macro__' || parentFilter === 'none') {
+      return { key: '__no_macro__', title: st.timeline.noEpic }
+    }
+    const found = epicOptions.find(e => e.key === parentFilter)
+    if (found) return found
+    return { key: parentFilter, title: parentFilter }
+  }, [parentFilter, epicOptions, st.timeline.noEpic])
+
+  const filteredOptions = useMemo(() => {
+    if (!search.trim()) return epicOptions
+    return epicOptions.filter(e => matchesSearch(search, e.key, e.title))
+  }, [epicOptions, search])
+
+  const isFiltered = Boolean(parentFilter)
+  const activeColor = selectedEpic ? epicColorHex(selectedEpic.key) : null
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer shadow-xs ${
+          isFiltered
+            ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/25'
+            : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]'
+        }`}
+        title={st.timeline.filterByEpicTitle}
+      >
+        <Target size={13} className={isFiltered ? 'text-amber-400' : 'text-[var(--text-muted)]'} />
+        {selectedEpic ? (
+          <div className="flex items-center gap-1.5 min-w-0 max-w-[200px]">
+            {activeColor && (
+              <span
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: activeColor }}
+              />
+            )}
+            <span className="truncate font-medium">
+              {selectedEpic.key === '__no_macro__' ? selectedEpic.title : `${selectedEpic.key} · ${selectedEpic.title}`}
+            </span>
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={e => {
+                e.stopPropagation()
+                setParentFilter(null)
+              }}
+              className="p-0.5 rounded-full hover:bg-black/20 text-current transition-colors ml-0.5"
+              title={st.timeline.clearEpicFilter}
+            >
+              <X size={11} />
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1">
+            <span>{st.timeline.epicFilter}</span>
+            <ChevronDown size={11} className="text-[var(--text-muted)]" />
+          </div>
+        )}
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 lg:right-0 lg:left-auto top-full mt-1.5 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] shadow-xl p-2 z-50 flex flex-col gap-1.5 text-xs animate-in fade-in zoom-in-95 duration-100">
+          {/* Search Input */}
+          <div className="relative">
+            <Search size={12} className="absolute left-2.5 top-2 text-[var(--text-muted)]" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder={st.timeline.searchEpicPlaceholder}
+              className="w-full pl-7 pr-7 py-1 text-xs rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2 top-1.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          {/* Quick choices: All / None */}
+          <div className="flex flex-col gap-0.5 pt-0.5">
+            <button
+              type="button"
+              onClick={() => {
+                setParentFilter(null)
+                close()
+              }}
+              className={`flex items-center justify-between px-2 py-1.5 rounded-lg text-left transition-colors cursor-pointer ${
+                !parentFilter
+                  ? 'bg-[var(--accent-light)] accent-text font-bold'
+                  : 'hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+              }`}
+            >
+              <span>{st.timeline.allEpics}</span>
+              {!parentFilter && <Check size={13} className="text-[var(--accent-color)]" />}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setParentFilter('__no_macro__')
+                close()
+              }}
+              className={`flex items-center justify-between px-2 py-1.5 rounded-lg text-left transition-colors cursor-pointer ${
+                parentFilter === '__no_macro__' || parentFilter === 'none'
+                  ? 'bg-[var(--accent-light)] accent-text font-bold'
+                  : 'hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
+              }`}
+            >
+              <span>{st.timeline.noEpic}</span>
+              {(parentFilter === '__no_macro__' || parentFilter === 'none') && (
+                <Check size={13} className="text-[var(--accent-color)]" />
+              )}
+            </button>
+          </div>
+
+          <div className="h-px bg-[var(--border-color)] my-0.5" />
+
+          {/* Epic list */}
+          <div className="max-h-56 overflow-y-auto space-y-0.5 pr-0.5">
+            {filteredOptions.length === 0 ? (
+              <div className="py-4 text-center text-xs text-[var(--text-muted)]">
+                {st.timeline.noEpicsFound}
+              </div>
+            ) : (
+              filteredOptions.map(option => {
+                const color = epicColorHex(option.key)
+                const isSelected = parentFilter === option.key
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => {
+                      setParentFilter(option.key)
+                      close()
+                    }}
+                    className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg text-left transition-colors cursor-pointer group ${
+                      isSelected
+                        ? 'bg-[var(--accent-light)] accent-text font-bold'
+                        : 'hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      {color ? (
+                        <span
+                          className="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs"
+                          style={{ backgroundColor: color }}
+                        />
+                      ) : (
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-slate-400" />
+                      )}
+                      <span className="font-mono text-[11px] font-bold shrink-0">{option.key}</span>
+                      <span className="truncate text-xs text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]">
+                        {option.title}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {typeof option.count === 'number' && (
+                        <span className="text-[10px] font-mono text-[var(--text-muted)] px-1.5 py-0.2 rounded bg-[var(--bg-tertiary)]">
+                          {option.count}
+                        </span>
+                      )}
+                      {isSelected && <Check size={13} className="text-[var(--accent-color)] shrink-0" />}
+                    </div>
+                  </button>
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export const SprintTimelineView: React.FC = () => {
   const {
     tasks,
@@ -64,6 +316,8 @@ export const SprintTimelineView: React.FC = () => {
     addToast,
     refusalToast,
     startBatchPickup,
+    parentFilter,
+    setParentFilter,
     t,
     settings,
   } = useApp()
@@ -294,6 +548,7 @@ export const SprintTimelineView: React.FC = () => {
       return (
         t.key.toLowerCase().includes(q) ||
         t.title.toLowerCase().includes(q) ||
+        (t.parentKey && t.parentKey.toLowerCase().includes(q)) ||
         (t.parentTitle && t.parentTitle.toLowerCase().includes(q)) ||
         (t.assignee && t.assignee.toLowerCase().includes(q))
       )
@@ -795,6 +1050,8 @@ export const SprintTimelineView: React.FC = () => {
 
           {/* Action Buttons & Display Mode Switcher */}
           <div className="flex items-center gap-2 self-end lg:self-auto flex-wrap">
+            <EpicTimelineFilter />
+
             {/* Display Mode: Cards vs Chips */}
             <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-xs">
               <button
@@ -1345,7 +1602,7 @@ export const SprintTimelineView: React.FC = () => {
                       <div className="p-2.5">
                         {sprintTasks.length === 0 ? (
                           <p className="text-[11px] text-[var(--text-muted)] italic px-1">
-                            {st.timeline.emptyCompact}
+                            {parentFilter ? st.timeline.emptyEpicSprint : st.timeline.emptyCompact}
                           </p>
                         ) : displayMode === 'chips' ? (
                           <div className="flex flex-wrap gap-1.5">
@@ -1423,8 +1680,19 @@ export const SprintTimelineView: React.FC = () => {
                                   </span>
                                   {task.parentTitle && (
                                     <span
-                                      className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-[var(--bg-tertiary)] text-[var(--text-muted)] truncate max-w-[100px]"
-                                      title={task.parentTitle}
+                                      className={`text-[9px] px-1.5 py-0.2 rounded font-bold bg-[var(--bg-tertiary)] truncate max-w-[100px] cursor-pointer transition-colors ${
+                                        parentFilter === task.parentKey
+                                          ? 'text-amber-400 bg-amber-500/15'
+                                          : 'text-[var(--text-muted)] hover:text-amber-400 hover:bg-amber-500/10'
+                                      }`}
+                                      title={format(t.shell.card.parentFilterTitle, { type: task.parentType || t.shell.card.parent, key: task.parentKey || task.parentTitle, title: task.parentTitle ? ` · ${task.parentTitle}` : '' })}
+                                      onClick={e => {
+                                        const key = task.parentKey || task.parentTitle
+                                        if (key) {
+                                          e.stopPropagation()
+                                          setParentFilter(parentFilter === key ? null : key)
+                                        }
+                                      }}
                                     >
                                       {task.parentTitle}
                                     </span>
@@ -1463,7 +1731,7 @@ export const SprintTimelineView: React.FC = () => {
                       <div className="p-3.5 space-y-2">
                         {sprintTasks.length === 0 ? (
                           <div className="p-5 rounded-xl border-2 border-dashed border-[var(--border-color)]/70 text-center text-xs text-[var(--text-muted)] bg-[var(--bg-primary)]/40 hover:bg-[var(--bg-primary)]/60 transition-colors">
-                            <p className="font-medium">{st.timeline.emptyTitle}</p>
+                            <p className="font-medium">{parentFilter ? st.timeline.emptyEpicSprint : st.timeline.emptyTitle}</p>
                             <p className="text-[10px] opacity-70 mt-0.5">
                               {st.timeline.emptyHint}
                             </p>
@@ -1551,8 +1819,19 @@ export const SprintTimelineView: React.FC = () => {
                                     </span>
                                     {task.parentTitle && (
                                       <span
-                                        className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-[var(--bg-tertiary)] text-[var(--text-muted)] truncate max-w-[110px]"
-                                        title={task.parentTitle}
+                                        className={`text-[9px] px-1.5 py-0.2 rounded font-bold bg-[var(--bg-tertiary)] truncate max-w-[110px] cursor-pointer transition-colors ${
+                                          parentFilter === task.parentKey
+                                            ? 'text-amber-400 bg-amber-500/15'
+                                            : 'text-[var(--text-muted)] hover:text-amber-400 hover:bg-amber-500/10'
+                                        }`}
+                                        title={format(t.shell.card.parentFilterTitle, { type: task.parentType || t.shell.card.parent, key: task.parentKey || task.parentTitle, title: task.parentTitle ? ` · ${task.parentTitle}` : '' })}
+                                        onClick={e => {
+                                          const key = task.parentKey || task.parentTitle
+                                          if (key) {
+                                            e.stopPropagation()
+                                            setParentFilter(parentFilter === key ? null : key)
+                                          }
+                                        }}
                                       >
                                         {task.parentTitle}
                                       </span>
@@ -1822,7 +2101,21 @@ export const SprintTimelineView: React.FC = () => {
                           {task.key}
                         </span>
                         {task.parentTitle && (
-                          <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-[var(--bg-tertiary)] text-[var(--text-muted)] truncate max-w-[120px]">
+                          <span
+                            className={`text-[9px] px-1.5 py-0.2 rounded font-bold bg-[var(--bg-tertiary)] truncate max-w-[120px] cursor-pointer transition-colors ${
+                              parentFilter === task.parentKey
+                                ? 'text-amber-400 bg-amber-500/15'
+                                : 'text-[var(--text-muted)] hover:text-amber-400 hover:bg-amber-500/10'
+                            }`}
+                            title={format(t.shell.card.parentFilterTitle, { type: task.parentType || t.shell.card.parent, key: task.parentKey || task.parentTitle, title: task.parentTitle ? ` · ${task.parentTitle}` : '' })}
+                            onClick={e => {
+                              const key = task.parentKey || task.parentTitle
+                              if (key) {
+                                e.stopPropagation()
+                                setParentFilter(parentFilter === key ? null : key)
+                              }
+                            }}
+                          >
                             {task.parentTitle}
                           </span>
                         )}

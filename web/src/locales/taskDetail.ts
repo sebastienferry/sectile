@@ -238,6 +238,10 @@ const fr = {
     emptyPreview: "Rien à afficher pour l'instant.",
     maximize: "Agrandir l'éditeur",
     restore: 'Réduire',
+    clickToEdit: 'Cliquer pour modifier',
+    edit: 'Modifier',
+    done: 'Terminer',
+    addDescription: 'Ajouter une description…',
     /** Each toolbar button: its title, and the text it inserts when nothing is selected. */
     snippets: {
       bold: { title: 'Gras', placeholder: 'texte' },
@@ -477,6 +481,10 @@ const en: TaskDetailStrings = {
     emptyPreview: 'Nothing to show yet.',
     maximize: 'Expand the editor',
     restore: 'Shrink',
+    clickToEdit: 'Click to edit',
+    edit: 'Edit',
+    done: 'Done',
+    addDescription: 'Add a description…',
     snippets: {
       bold: { title: 'Bold', placeholder: 'text' },
       italic: { title: 'Italic', placeholder: 'text' },

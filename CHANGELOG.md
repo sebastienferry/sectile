@@ -13,9 +13,15 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- The sprint timeline view can be filtered by Epic from a dedicated searchable dropdown in the toolbar, with matching sprint tracks, backlog counts, and one-click clear.
+
 ### Changed
 
 - In the macro view, a macro's key opens the macro on its tracker in a new tab, and the side panel no longer has a separate link button.
+- Task details give the description and comments the remaining dialog height, display rendered Markdown by default, and switch to editing mode on click with a Done button.
+- Form inputs, selects, and text editing surfaces across the web interface use a lighter, unified background and border palette.
 
 ## [0.7.0] - 2026-10-15
 
