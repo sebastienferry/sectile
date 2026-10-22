@@ -1985,7 +1985,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       },
       serverCredentials: {
         title: 'Accès trackers du serveur',
-        intro: 'Le compte avec lequel Sectile synchronise chaque tracker. Il sert à toutes les synchronisations, même celles lancées à la main ; les écritures faites par quelqu\'un restent faites avec son propre accès.',
+        intro: 'Le compte avec lequel Sectile travaille sur chaque tracker. Il sert à toutes les lectures et synchronisations, et à toutes les écritures que Sectile fait de lui-même : rapports d\'étape, macros, sprints et ce qu\'écrivent les agents pendant un run de skill. Les tickets qu\'une personne crée, modifie ou commente restent faits avec son propre accès.',
         stored: 'Enregistré',
         storedUnreadable: 'Enregistré, illisible avec la clé du serveur : enregistrez-le à nouveau',
         environment: 'Fourni par l\'environnement ({variables})',
@@ -3049,7 +3049,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       },
       serverCredentials: {
         title: 'Server tracker credentials',
-        intro: 'The account Sectile synchronises each tracker with. It serves every synchronisation, those started by hand included; a write somebody makes still goes with their own credential.',
+        intro: 'The account Sectile works with on each tracker. It serves every read and synchronisation, and every write Sectile makes by itself: stage reports, macros, sprints and what agents write during a skill run. The tickets a person creates, edits or comments on still go with their own access.',
         stored: 'Stored',
         storedUnreadable: 'Stored, unreadable with the server key: save it again',
         environment: 'Provided by the environment ({variables})',

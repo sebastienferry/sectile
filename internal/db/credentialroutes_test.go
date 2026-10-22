@@ -224,3 +224,49 @@ func TestADirectOperationFromASkillRunUsesTheServerCredential(t *testing.T) {
 		signedOnlyBy(t, f.github.since(before), round.token)
 	}
 }
+
+func TestStageMoveOnly(t *testing.T) {
+	cases := []struct {
+		before, after []string
+		want          bool
+	}{
+		{[]string{"#new", "bug"}, []string{"bug", "#clarified"}, true},
+		{[]string{"#new", "bug"}, []string{"#clarified"}, false},
+		{[]string{"#new"}, []string{"#new", "bug"}, false},
+		{[]string{"#new", "Bug"}, []string{"#new", "bug"}, false},
+		{[]string{"bug"}, []string{"bug", "#specified"}, true},
+	}
+	for _, c := range cases {
+		if got := stageMoveOnly(c.before, c.after); got != c.want {
+			t.Errorf("stageMoveOnly(%v, %v) = %v, want %v", c.before, c.after, got, c.want)
+		}
+	}
+}
+
+// Moving a ticket to another stage from the web travels as an update, but it
+// is a stage transition: when the stage label is all that changed, the sync
+// goes out with the server credential. An edit made together with it stays
+// the person's (ADR 0058).
+func TestAWebStageMoveUsesTheServerCredential(t *testing.T) {
+	f := newIsolationFixture(t)
+	task := f.remoteTask(t, "Stage move")
+	ada := Actor{ID: "usr_ada", Name: "Ada"}
+
+	before := f.github.count()
+	labels := SetWorkflowLabel(task.Labels, "#clarified")
+	status := models.StatusClarified
+	if _, err := f.d.UpdateTaskBy(ada, task.ID, models.UpdateTaskRequest{Labels: &labels, Status: &status}); err != nil {
+		t.Fatal(err)
+	}
+	f.settle(t)
+	writesSignedByReadsByServer(t, f.github.since(before), "server-token")
+
+	before = f.github.count()
+	labels = SetWorkflowLabel(labels, "#specified")
+	title := "Renamed while moving"
+	if _, err := f.d.UpdateTaskBy(ada, task.ID, models.UpdateTaskRequest{Labels: &labels, Title: &title}); err != nil {
+		t.Fatal(err)
+	}
+	f.settle(t)
+	writesSignedByReadsByServer(t, f.github.since(before), "ada-token")
+}

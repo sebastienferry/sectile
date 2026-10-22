@@ -2560,6 +2560,29 @@ func StaleWorkflowLabels(targetLabel string) []string {
 	return out
 }
 
+// stageMoveOnly reports whether going from before to after changes the
+// workflow stage label and no other label.
+func stageMoveOnly(before, after []string) bool {
+	stageOf := func(labels []string) string {
+		for _, l := range labels {
+			clean := strings.ToLower(strings.TrimLeft(strings.TrimSpace(l), "#"))
+			if _, isStage := stageToInternalStatus[clean]; isStage || clean == "untouched" || clean == "closed" {
+				return clean
+			}
+		}
+		return ""
+	}
+	others := func(labels []string) string {
+		rest := SetWorkflowLabel(labels, "")
+		for i := range rest {
+			rest[i] = strings.ToLower(rest[i])
+		}
+		sort.Strings(rest)
+		return strings.Join(rest, "\x00")
+	}
+	return stageOf(before) != stageOf(after) && others(before) == others(after)
+}
+
 // SetWorkflowLabel replaces the stage label in existingLabels with targetLabel.
 // Callers pass a stage name in whatever spelling they have, with or without the
 // "#" prefix and in any case: this function decides the spelling that gets
@@ -3056,6 +3079,10 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 	if existing == nil {
 		return nil, fmt.Errorf("task not found")
 	}
+	// What the ticket was, to tell a pure stage move from an edit once the
+	// request is merged in (ADR 0058).
+	beforeLabels := append([]string(nil), existing.Labels...)
+	beforeTitle, beforeDescription, beforePriority := existing.Title, existing.Description, existing.Priority
 	// A priority the project's mapping only guessed is refused before
 	// anything is written (#679), so the whole update is: a partial write
 	// would leave the card half-changed with nothing on the tracker.
@@ -3369,7 +3396,20 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 
 	// Enqueue async CLI tracker sync in task activities queue whenever task is modified
 	if req.Status != nil || req.Labels != nil || req.Title != nil || req.Description != nil || req.Priority != nil || req.TrackerStatus != nil {
-		d.enqueueTrackerUpdateAsUnsafe(actor, existing, req.Status, existing.Labels, removedLabels, TrackerFieldChanges{
+		// Moving a ticket to another workflow stage from the web is a stage
+		// transition, Sectile's own write, even though it travels as an
+		// update: when the stage label is all that changed, the sync goes out
+		// with the server credential (ADR 0058). An edit that also changes the
+		// title, the description, the priority or another label stays the
+		// person's.
+		syncActor := actor
+		edited := (req.Title != nil && *req.Title != beforeTitle) ||
+			(req.Description != nil && *req.Description != beforeDescription) ||
+			(req.Priority != nil && *req.Priority != beforePriority)
+		if !edited && stageMoveOnly(beforeLabels, existing.Labels) {
+			syncActor.ServiceCredential = true
+		}
+		d.enqueueTrackerUpdateAsUnsafe(syncActor, existing, req.Status, existing.Labels, removedLabels, TrackerFieldChanges{
 			Title:       req.Title != nil,
 			Description: req.Description != nil,
 			Priority:    req.Priority != nil,
