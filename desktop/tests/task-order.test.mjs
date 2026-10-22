@@ -54,3 +54,16 @@ test('a row leads with its running console but speaks for its newest skill',()=>
  // A single execution speaks for itself.
  assert.equal(orderedTaskGroups([[console_]])[0].skillRun.id,'old')
 })
+
+test('orders task groups by creation, ticket ID, or workflow stage',()=>{
+ const a=run('a','10','running','09',{taskKey:'#10'})
+ const b=run('b','2','completed','05',{taskKey:'#2'})
+ const c=run('c','','running','10',{kind:'console',taskKey:''})
+ const d=run('d','1','queued','02',{taskKey:'#1'})
+ const groups=[[a],[b],[c],[d]]
+ assert.deepEqual(orderedTaskGroups(groups,{sort:'created'}).map(g=>g.run.id),['c','a','b','d'])
+ assert.deepEqual(orderedTaskGroups(groups,{sort:'id'}).map(g=>g.run.id),['d','b','a','c'])
+ const stages={'10':'reviewed','2':'new','1':'specified'}
+ assert.deepEqual(orderedTaskGroups(groups,{sort:'stage',stageOf:r=>stages[r.taskId]}).map(g=>g.run.id),['b','d','a','c'])
+})
+

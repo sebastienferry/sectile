@@ -552,9 +552,10 @@ for the desktop development assets. On Apple Silicon the app is produced at
 The optional companion groups local executions under projects in a collapsible
 sidebar. Add projects by discovering the server catalog and mapping a local Git
 directory. Each task key in the sidebar is tinted after the task's workflow
-stage, named in its tooltip; **Group by stage** in a project's `…` menu lists
-that project's tasks from new to finished, a choice kept per project on this
-workstation. **Open terminal** in the same menu opens a native terminal window
+stage, named in its tooltip; **Sort by creation**, **Sort by ID** and **Group
+by stage** in a project's `…` menu order that project's tasks by creation time,
+natural ticket key or workflow stage from new to finished, a choice kept per
+project on this workstation. **Open terminal** in the same menu opens a native terminal window
 on the project's local repository, in the terminal set for the project.
 **Hide from sidebar** in the same menu takes a project out of the
 sidebar without touching its configuration or its executions; the project stays
