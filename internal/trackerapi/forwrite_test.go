@@ -71,7 +71,54 @@ func TestForWriteResolvesThePersonTheServerOrNothing(t *testing.T) {
 			if _, err = c.ForWrite(context.Background(), provider, "p1"); !errors.Is(err, ErrNoActingUser) {
 				t.Fatalf("a write naming neither a person nor the marker is refused: %v", err)
 			}
+
+			// A write Sectile makes by itself takes the server credential
+			// whoever it names, and never resolves a personal one: a sealed
+			// credential is not even opened (ADR 0058).
+			for _, user := range []string{"u-ada", "u-grace", "u-locked", ""} {
+				ctx := tracker.WithServiceCredential(tracker.WithActingUser(context.Background(), user))
+				client, err = c.ForWrite(ctx, provider, "p1")
+				if err != nil || token(client) != "server-"+provider {
+					t.Fatalf("%q: a write Sectile makes by itself uses the server credential: %v %v", user, client, err)
+				}
+			}
+
+			// A read never does either, whoever is looking.
+			if token(c.ForRead("p1")) != "server-"+provider {
+				t.Fatalf("a read uses the server credential: %v", c.ForRead("p1"))
+			}
 		})
+	}
+}
+
+// A call that needs the server credential when the deployment has none is
+// refused with a typed error, before anything leaves, so a stage transition
+// can report that an administrator has to set it (ADR 0058).
+func TestAMissingServerCredentialIsTyped(t *testing.T) {
+	requests := 0
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		fmt.Fprint(w, `{}`)
+	}))
+	defer site.Close()
+	c := &Client{HTTP: site.Client(), GithubURL: site.URL, GitlabURL: site.URL}
+	client, err := c.ForWrite(tracker.WithServiceCredential(tracker.WithActingUser(context.Background(), "u-ada")), "github", "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = NewGithubAdapter(client).AddComment(tracker.WithServiceCredential(context.Background()),
+		tracker.AddCommentRequest{Tracker: &models.Tracker{ID: "p1", Provider: "github", Scope: "acme/app"}, Key: "#7", Body: "report"})
+	if MissingServerCredentialTracker(err) != "github" {
+		t.Fatalf("the refusal must be typed for GitHub: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Administration") {
+		t.Fatalf("the refusal says where to set it: %v", err)
+	}
+	if requests != 0 {
+		t.Fatalf("nothing leaves without a credential, got %d request(s)", requests)
+	}
+	if MissingServerCredentialTracker(errors.New("other")) != "" || MissingCredentialTracker(err) != "" {
+		t.Fatal("the two refusals are told apart by type")
 	}
 }
 

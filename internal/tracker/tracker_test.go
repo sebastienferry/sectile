@@ -190,3 +190,23 @@ func TestUnattendedIsExplicitAndLosesToAPerson(t *testing.T) {
 		t.Fatal("a person named before the marker wins over it")
 	}
 }
+
+func TestServiceCredentialKeepsTheActingUser(t *testing.T) {
+	if ServiceCredential(context.Background()) {
+		t.Fatal("a context is not marked for the server credential by default")
+	}
+	//nolint:staticcheck // a nil context is what a careless caller passes
+	if ServiceCredential(nil) {
+		t.Fatal("a nil context is not marked")
+	}
+	marked := WithServiceCredential(WithActingUser(context.Background(), "u-ada"))
+	if !ServiceCredential(marked) {
+		t.Fatal("the marker must be read back")
+	}
+	if ActingUser(marked) != "u-ada" {
+		t.Fatalf("the acting user must survive the marker, got %q", ActingUser(marked))
+	}
+	if !ServiceCredential(WithActingUser(WithServiceCredential(context.Background()), "u-ada")) {
+		t.Fatal("naming a person after the marker does not clear it")
+	}
+}

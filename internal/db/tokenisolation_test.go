@@ -278,7 +278,26 @@ func TestConversionCreatesTheIssueAsThePerson(t *testing.T) {
 		t.Fatalf("the task must be converted: %+v", converted)
 	}
 	f.settle(t)
-	signedOnlyBy(t, f.github.since(before), "ada-token")
+	writesSignedByReadsByServer(t, f.github.since(before), "ada-token")
+}
+
+// writesSignedByReadsByServer checks a person's direct ticket action: every
+// write carries their token. A read is either part of the write itself, made
+// by the same client, or one Sectile makes around it, which carries the
+// server's (ADR 0058); no other token may appear.
+func writesSignedByReadsByServer(t *testing.T, requests []string, token string) {
+	t.Helper()
+	if len(requests) == 0 {
+		t.Fatal("no request reached GitHub")
+	}
+	for _, request := range requests {
+		if strings.HasPrefix(request, "GET ") && strings.HasSuffix(request, " server-token") {
+			continue
+		}
+		if !strings.HasSuffix(request, " "+token) {
+			t.Fatalf("writes must carry %s and reads server-token, got %v", token, requests)
+		}
+	}
 }
 
 // A story created under a macro is created, and put on the macro's milestone,

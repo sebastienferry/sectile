@@ -133,6 +133,11 @@ type PersonalCredential struct {
 // where they have any. The second result says whether the client carries a
 // personal credential: a tracker that attributes its writes to the account
 // behind the token uses it to refuse rather than write under the server's name.
+//
+// A personal credential signs only the ticket actions its owner performs
+// themself (ADR 0058), so only two callers remain: ForWrite, for such an
+// action, and the check of one's own credential on the profile. A read goes
+// through ForRead.
 func (c *Client) ForActingUser(userID, tracker, trackerID string) (*Client, bool, error) {
 	resolved := c.For(trackerID)
 	if resolved == nil || resolved.ResolveUser == nil || strings.TrimSpace(userID) == "" {
@@ -254,11 +259,15 @@ func providerName(tracker string) string {
 	return tracker
 }
 
-// ForWrite resolves the client for a tracker write. A named user gets their
-// personal credential or an error, never the server's; an unattended context
-// gets the server credential; a context naming neither is refused. Reads keep
-// ForActingUser and its fallback: a read attributes nothing.
+// ForWrite resolves the client for a tracker write. A write Sectile makes by
+// itself (tracker.WithServiceCredential) gets the server credential whoever it
+// names (ADR 0058). Otherwise a named user gets their personal credential or an
+// error, never the server's; an unattended context gets the server credential;
+// a context naming neither is refused. Reads go through ForRead.
 func (c *Client) ForWrite(ctx context.Context, trackerName, trackerID string) (*Client, error) {
+	if tracker.ServiceCredential(ctx) {
+		return c.For(trackerID), nil
+	}
 	user := tracker.ActingUser(ctx)
 	if user == "" {
 		if tracker.Unattended(ctx) {
@@ -274,6 +283,13 @@ func (c *Client) ForWrite(ctx context.Context, trackerName, trackerID string) (*
 		return nil, &MissingPersonalCredentialError{Tracker: strings.ToLower(strings.TrimSpace(trackerName))}
 	}
 	return client, nil
+}
+
+// ForRead resolves the client for a tracker read: always the server
+// credential, whoever is looking (ADR 0058). A personal credential never serves
+// a read, so what a screen shows does not depend on who opened it.
+func (c *Client) ForRead(trackerID string) *Client {
+	return c.For(trackerID)
 }
 
 func NewClient() *Client {
@@ -397,13 +413,48 @@ func (c *Client) missingCredential(tracker string) error {
 	if c != nil {
 		unreadable := map[string]bool{"github": c.unreadable.github, "gitlab": c.unreadable.gitlab, "jira": c.unreadable.jira}
 		if unreadable[name] {
-			return fmt.Errorf("the stored %s server credential cannot be decrypted with the server key: save it again in Administration", tracker)
+			return &MissingServerCredentialError{Tracker: name, Unreadable: true}
 		}
 		if c.actingUser != "" {
 			return fmt.Errorf("no %s credential: add yours in Profile → Tracker credentials", tracker)
 		}
 	}
-	return fmt.Errorf("no %s server credential: set %s or save one in Administration", tracker, serverCredentialVariables(name))
+	return &MissingServerCredentialError{Tracker: name}
+}
+
+// MissingServerCredentialError refuses a call that needs the server credential
+// of a provider when the deployment has none it can use. Since the server
+// credential signs every read and every write Sectile makes by itself, not
+// only the synchronisation (ADR 0058), a stage transition or a macro write
+// fails on it too. It is raised before any request leaves.
+type MissingServerCredentialError struct {
+	// Tracker is the provider, as the registry names it.
+	Tracker string
+	// Unreadable says a credential is stored but the server key does not open
+	// it, rather than none being set at all.
+	Unreadable bool
+}
+
+func (e *MissingServerCredentialError) Error() string {
+	if e.Unreadable {
+		return fmt.Sprintf("the stored %s server credential cannot be decrypted with the server key: save it again in Administration", providerName(e.Tracker))
+	}
+	return fmt.Sprintf("no %s server credential: set %s or save one in Administration", providerName(e.Tracker), serverCredentialVariables(e.Tracker))
+}
+
+// ServerCredentialMissingCode marks a call refused for want of the server
+// credential, so a client can tell it from a missing personal one
+// (CredentialMissingCode): only an administrator can fix it.
+const ServerCredentialMissingCode = "tracker_server_credential_missing"
+
+// MissingServerCredentialTracker returns the provider a call was refused for
+// when err is a refusal for want of the server credential, and "" otherwise.
+func MissingServerCredentialTracker(err error) string {
+	var missing *MissingServerCredentialError
+	if errors.As(err, &missing) {
+		return missing.Tracker
+	}
+	return ""
 }
 
 // serverCredentialVariables names the environment variables of one provider's

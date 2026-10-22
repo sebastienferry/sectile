@@ -74,28 +74,14 @@ func (g *GithubAdapter) IssuePullRequests(ctx context.Context, req tracker.Issue
 	return links, nil
 }
 
-// forProject is the client of one read: the same one when nothing is stored,
-// one carrying the tracker's own connection parameters otherwise, and the
-// acting person's own token where they stored one. A read nobody asked for, the
-// synchronisation, carries no acting person and gets the server credential
-// (#464).
-//
-// A personal token that cannot be resolved refuses the call: a sealed token
-// nobody unlocked is not an absence, and reading under the server token then
-// would put on the activity the name of somebody whose credential was never
-// used (ADR 0018).
-//
-// A person who stored no GitHub token at all keeps the server token for reads
-// only: a read attributes nothing, and refusing it would blank their screens.
-// Writes go through forWrite, which has no such fallback (#482, ADR 0029). The
-// tracker, too, is read from the context when the request carries none, for the
-// calls that take a key and nothing else.
+// forProject is the client of one read: the tracker's server credential,
+// whoever is looking (ADR 0058). A read attributes nothing, so a personal
+// credential has no business there, and what a screen shows does not depend on
+// who opened it. Writes go through forWrite. The tracker is read from the
+// context when the request carries none, for the calls that take a key and
+// nothing else.
 func (g *GithubAdapter) forProject(ctx context.Context, t *models.Tracker) (*Client, error) {
-	client, _, err := g.client.ForActingUser(tracker.ActingUser(ctx), "github", trackerIDOf(trackerOf(ctx, t)))
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
+	return g.client.ForRead(trackerIDOf(trackerOf(ctx, t))), nil
 }
 
 // forWrite is the client of one write: the acting person's own token, the

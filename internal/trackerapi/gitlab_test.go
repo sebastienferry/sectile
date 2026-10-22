@@ -346,8 +346,25 @@ func TestGitlabCredentials(t *testing.T) {
 	if err := g.AddComment(tracker.WithActingUser(context.Background(), "u-locked"), tracker.AddCommentRequest{Key: "#1", Body: "hi"}); err == nil {
 		t.Fatal("a sealed personal token refuses the write")
 	}
-	if _, err := g.SyncIssues(tracker.WithActingUser(context.Background(), "u-locked"), tracker.SyncRequest{}); err == nil {
-		t.Fatal("a sealed personal token refuses the read too")
+	// A read never resolves the personal credential (ADR 0058): even a person
+	// holding a token, or a sealed one, reads with the server's.
+	for _, user := range []string{"u-ada", "u-locked"} {
+		tokens = nil
+		if _, err := g.SyncIssues(tracker.WithActingUser(context.Background(), user), tracker.SyncRequest{}); err != nil {
+			t.Fatalf("%s: a read ignores the personal credential: %v", user, err)
+		}
+		if tokens[0] != "server-token" {
+			t.Fatalf("%s: a read carries the server credential: %q", user, tokens[0])
+		}
+	}
+	// A note Sectile posts by itself goes out with the server credential, even
+	// for a person holding a token.
+	tokens = nil
+	if err := g.AddComment(tracker.WithServiceCredential(tracker.WithActingUser(context.Background(), "u-ada")), tracker.AddCommentRequest{Key: "#1", Body: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	if tokens[0] != "server-token" {
+		t.Fatalf("a write Sectile makes by itself uses the server credential: %q", tokens[0])
 	}
 }
 

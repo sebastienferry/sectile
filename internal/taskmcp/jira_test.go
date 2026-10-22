@@ -207,7 +207,7 @@ func TestCreateTaskFilesUnderTheCallersOwnJiraAccount(t *testing.T) {
 	}
 }
 
-func TestGetTaskReadsJiraCommentsAsTheCaller(t *testing.T) {
+func TestGetTaskReadsJiraCommentsWithTheServerCredential(t *testing.T) {
 	site := newFakeJira(t)
 	database, project := jiraDatabase(t, site)
 	// The ticket is seeded by unattended work: the test is about reading it.
@@ -217,34 +217,27 @@ func TestGetTaskReadsJiraCommentsAsTheCaller(t *testing.T) {
 	}
 	caller := Caller{UserID: "usr_ada", Name: "Ada"}
 
-	// A caller with no personal token keeps the ticket and learns why its
-	// discussion is missing; the server credential is not used in their name.
-	result, err := callAs(t, database, &caller, "get_task", map[string]any{"taskKey": task.ID})
-	if err != nil {
-		t.Fatalf("get_task failed: %v", err)
-	}
-	if result["task"] == nil {
-		t.Fatalf("the task must be returned: %v", result)
-	}
-	if msg, _ := result["commentsError"].(string); !strings.Contains(msg, "no personal Jira token for this user") {
-		t.Fatalf("commentsError must say why: %v", result["commentsError"])
-	}
-	if got := site.authenticatedAs(http.MethodGet, "/rest/api/3/issue/PE-42/comment"); len(got) != 0 {
-		t.Fatalf("comments must not be read with the server credential for a named caller: %v", got)
-	}
-
-	if err := database.SetUserTrackerCredential("usr_ada", "jira", site.server.URL, "ada@example.com", "ada-token", ""); err != nil {
-		t.Fatal(err)
-	}
-	result, err = callAs(t, database, &caller, "get_task", map[string]any{"taskKey": task.ID})
-	if err != nil {
-		t.Fatalf("get_task failed: %v", err)
-	}
-	comments, _ := result["comments"].([]any)
-	if len(comments) != 1 || result["commentsError"] != nil {
-		t.Fatalf("the Jira comments must be returned: %v", result)
-	}
-	if got := site.authenticatedAs(http.MethodGet, "/rest/api/3/issue/PE-42/comment"); len(got) != 1 || got[0] != basic("ada@example.com", "ada-token") {
-		t.Fatalf("comments must be read with the caller's token: %v", got)
+	// A read never uses a personal credential (ADR 0058): a caller with no
+	// token of their own reads the discussion with the server's, and so does
+	// one who stored a token.
+	for _, round := range []string{"no personal token", "a personal token"} {
+		if round == "a personal token" {
+			if err := database.SetUserTrackerCredential("usr_ada", "jira", site.server.URL, "ada@example.com", "ada-token", ""); err != nil {
+				t.Fatal(err)
+			}
+		}
+		before := len(site.authenticatedAs(http.MethodGet, "/rest/api/3/issue/PE-42/comment"))
+		result, err := callAs(t, database, &caller, "get_task", map[string]any{"taskKey": task.ID})
+		if err != nil {
+			t.Fatalf("%s: get_task failed: %v", round, err)
+		}
+		comments, _ := result["comments"].([]any)
+		if len(comments) != 1 || result["commentsError"] != nil {
+			t.Fatalf("%s: the Jira comments must be returned: %v", round, result)
+		}
+		got := site.authenticatedAs(http.MethodGet, "/rest/api/3/issue/PE-42/comment")[before:]
+		if len(got) != 1 || got[0] != basic("server@example.com", "server-secret") {
+			t.Fatalf("%s: comments must be read with the server credential: %v", round, got)
+		}
 	}
 }
