@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"tasks/internal/models"
+	"tasks/internal/trackerapi"
 )
 
 // forgeAccounts answers GET /user for two tokens: the service account's and a
@@ -64,5 +65,24 @@ func TestEachCheckNamesTheAccountItBelongsTo(t *testing.T) {
 		if status, body := call(t, server, alice, http.MethodPost, "/api/setup/tracker/check", personalCheck); status != http.StatusOK || !strings.Contains(body, `"alice"`) {
 			t.Fatalf("%s: the personal check must name the caller's own account: %d %s", provider.name, status, body)
 		}
+	}
+}
+
+// A write refused for want of the server credential says so with its own code:
+// the caller has nothing to add, an administrator has to set it (ADR 0058).
+func TestAMissingServerCredentialAnswersItsOwnCode(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writeTrackerError(recorder, http.StatusInternalServerError, &trackerapi.MissingServerCredentialError{Tracker: "gitlab"})
+	var body map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.Code != http.StatusServiceUnavailable || body["code"] != trackerapi.ServerCredentialMissingCode || body["tracker"] != "gitlab" || !strings.Contains(body["error"], "Administration") {
+		t.Fatalf("got %d %v", recorder.Code, body)
+	}
+	recorder = httptest.NewRecorder()
+	writeTrackerError(recorder, http.StatusInternalServerError, &trackerapi.MissingPersonalCredentialError{Tracker: "gitlab"})
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), TrackerCredentialMissingCode) {
+		t.Fatalf("a missing personal credential keeps its 403: %d %s", recorder.Code, recorder.Body.String())
 	}
 }

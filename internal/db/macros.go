@@ -957,6 +957,9 @@ func (d *DB) CreateStoriesFromMacroTodos(ctx context.Context, projectID string, 
 			if tracker := trackerapi.MissingCredentialTracker(err); tracker != "" {
 				outcome.Code = trackerapi.CredentialMissingCode
 				outcome.Tracker = tracker
+			} else if tracker := trackerapi.MissingServerCredentialTracker(err); tracker != "" {
+				outcome.Code = trackerapi.ServerCredentialMissingCode
+				outcome.Tracker = tracker
 			}
 		default:
 			outcome.Status = MacroStoryCreated

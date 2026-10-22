@@ -341,6 +341,15 @@ func writeTrackerError(w http.ResponseWriter, status int, err error) {
 			"code":    TrackerCredentialMissingCode,
 			"tracker": trackerapi.MissingCredentialTracker(err),
 		})
+	case trackerapi.MissingServerCredentialTracker(err) != "":
+		// The deployment has no server credential for a write Sectile makes
+		// by itself (ADR 0058): nothing the caller can add, an administrator
+		// has to set it, so the server is the one not ready.
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":   err.Error(),
+			"code":    trackerapi.ServerCredentialMissingCode,
+			"tracker": trackerapi.MissingServerCredentialTracker(err),
+		})
 	case errors.Is(err, trackerapi.ErrNoActingUser):
 		// Over REST, a write that names nobody comes from a key tied to no
 		// user: say so, rather than name an internal invariant.
