@@ -540,7 +540,7 @@ session, never from the payload, and no answer ever carries a token.
 | `POST` | `/api/me/tracker-credentials/lock` | `{tracker}` | Forgets the derived key. |
 | `POST` | `/api/me/tracker-credentials/jira/connect` | (none) | Starts a Jira consent (#654): `{authorizeUrl}`, Atlassian's consent screen, where the web sends the browser. Only a web session may start one, an agent key is refused `403`; `409 {code: "jira_oauth_not_configured"}` without an OAuth app. |
 | `GET` | `/auth/jira/callback` | (query `state`, `code` or `error`) | Where Atlassian sends the browser back. Public like the rest of `/auth/`, it reads the web session itself and always redirects to `/?trackerCredentials=jira&jiraOAuth=<outcome>`, the outcome being `connected`, `cancelled`, `invalid` (missing, used, expired, or another session's or person's `state`), `no_site` (the grant covers no configured Jira site) or `unreachable`. Only `connected` stores anything. |
-| `POST` | `/api/me/tracker-credentials/{github,gitlab}/connect` | (none) | Starts a GitHub or GitLab consent (#804): `{authorizeUrl}`, the forge's consent screen. Only a web session may start one, an agent key is refused `403`; `409 {code: "github_oauth_not_configured"}` (or `gitlab_oauth_not_configured`) without that forge's OAuth app. |
+| `POST` | `/api/me/tracker-credentials/{github,gitlab}/connect` | (none) | Starts a GitHub or GitLab consent (#804, #855): `{authorizeUrl}`, the forge's consent screen. Only a web session may start one, an agent key is refused `403`; `409 {code: "github_oauth_not_configured"}` (or `gitlab_oauth_not_configured`) without that forge's OAuth app. |
 | `GET` | `/auth/{github,gitlab}/callback` | (query `state`, `code` or `error`) | Where the forge sends the browser back. Public like the rest of `/auth/`, it reads the web session itself and always redirects to `/?trackerCredentials=<tracker>&oauth=<outcome>`, the outcome being `connected`, `cancelled`, `invalid` (missing, used, expired, or another session's, person's or tracker's `state`) or `unreachable`. Only `connected` stores anything. |
 | `GET` | `/api/me/assignee-identities?projectId=\|viewId=` | (none) | Who My Tasks takes the caller to be: `{signedIn, fallback, trackers}`. `fallback` is the account's name and e-mail (the local profile's when signed out); `trackers` lists each non-local tracker of the tickets in scope as `{tracker, identity?, known}`. Same scope rules as `/api/tasks`, `404` on a view that is not the caller's. Answers signed-out callers too, and never reaches a tracker. |
 
@@ -575,12 +575,12 @@ the missing-credential error until the person connects again. The pending
 consents live in `jira_oauth_flows`, the state and the web session hashed,
 consumed by one statement.
 
-**GitHub and GitLab grants (#804, ADR 0056).** A row of `kind = 'oauth'` for
+**GitHub and GitLab grants (#855, ADR 0058).** A row of `kind = 'oauth'` for
 `github` or `gitlab` holds, sealed under the server key with `kind` added to its
 additional authenticated data, the JSON
 `{accessToken, refreshToken?, expiresAt, scope?}`. `site_url` and `email` are
 empty and `account` is the `login` (GitHub) or `username` (GitLab) that
-`GET /user` answered through the grant. The consent asks for `repo read:project`
+`GET /user` answered through the grant. The consent asks for `repo`
 on GitHub and `api` on GitLab. A grant serves only a tracker whose API host is
 `api.github.com` or `gitlab.com`: a GitHub Enterprise or self-hosted GitLab
 tracker fails with the missing-credential error ("site not granted") and never
@@ -594,6 +594,24 @@ token, revokes it at the provider afterwards, best effort: a failed revocation
 is only logged. The pending consents share `jira_oauth_flows`, whose `tracker`
 column (migration 55, default `jira`) lets only the callback of the tracker that
 started a flow consume its state.
+
+**Which credential a call uses (#855, ADR 0058).** A personal credential, of
+any kind and on every provider, signs only the ticket actions its owner
+performs outside a skill run: creating a ticket, editing it (fields, labels, a
+board column drop, assignee, parent or macro, team, sprint, transfer, delete)
+and posting a comment. A call belongs to a skill run when its MCP request
+carries `X-Sectile-Run-Id` or its MCP session holds a run it started and has
+not finished. Every other call uses the server credential and records the
+person on its activity: a ticket action inside a skill run, a stage transition
+(label, status, report), the macro lifecycle and every macro or epic mirror,
+sprint management, every read, the synchronisation and Administration. A
+ticket action without a personal credential is refused `403`
+`tracker_credential_missing`; a call that needs the server credential when the
+deployment has none is refused `503` `tracker_server_credential_missing`, with
+`tracker` naming the provider, and a stage transition keeps the local stage
+and fails its activity. The check button of the personal form
+(`POST /api/setup/tracker/check`) checks the token typed, else the caller's own
+token or grant, never the server's.
 
 **Jira OAuth app (admin).** `GET`, `PUT {clientId, clientSecret?, redirectUrl}`
 and `DELETE` on `/api/admin/jira-oauth` answer

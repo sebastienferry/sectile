@@ -148,9 +148,9 @@ serves Sectile's machinery.
   status list, pull-request states, an assignee or team search), **then** the
   request carries the server credential, never the person's.
 - **Given** a deployment with no server credential for a provider, **when**
-  something reads that provider, **then** the request goes out unauthenticated,
-  as it does today for the synchronisation, and the provider's answer (public
-  data, or an error) is shown as today.
+  something reads that provider, **then** the read fails with the error naming
+  the missing server credential, as the synchronisation already did; no
+  personal credential stands in.
 
 ### US4 - I can connect GitHub and GitLab through OAuth (P1)
 
@@ -198,6 +198,10 @@ instead of pasting a token.
 - **Given** a typed token, **then** that token is checked, as today.
 - **Given** no server credential for the provider, **then** the check says so
   instead of checking a personal one.
+- **Given** a person who presses *Verify* on their personal form with no token
+  typed, **then** their own stored token or grant is checked on every provider,
+  GitLab included, and a person who stored none is told so rather than shown
+  the service account.
 
 ### US6 - A missing server credential is visible (P2)
 

@@ -61,14 +61,16 @@ Clearing the configuration brings back the API token form; existing connections 
 
 A GitHub or GitLab project also needs your own access for actions attributed to you, set in the same **Profile → Tracker credentials** (*Profil → Identifiants Trackers*) area. When your administrator configured the connection, you connect your account with one consent screen instead of creating and pasting a personal token.
 
+Your own access, whether a connection or a token and on every tracker, Jira included, signs only what you do yourself on a ticket: creating it, editing it (fields, labels, a board move, the assignee, the epic or macro, the team, the sprint) and commenting. Everything else goes out under the deployment's service account, and Sectile's activity still names you: stage labels and stage reports, macros and their milestones or epics, sprints, whatever an agent writes during a skill run, and every read (ADR 0058).
+
 ### Connect GitHub
 
 When the GitHub connection is configured and one of the deployment's trackers is on github.com, the **GitHub** entry offers **Connect GitHub** (*Connecter GitHub*):
 
-1. Select **Connect GitHub**. Your browser goes to GitHub's authorisation screen, which lists what Sectile asks to do: access to your repositories (`repo`) and read access to your projects (`read:project`).
+1. Select **Connect GitHub**. Your browser goes to GitHub's authorisation screen, which lists what Sectile asks to do: access to your repositories (`repo`).
 2. Authorise the app. You land back on **Profile → Tracker credentials**, which shows **Connected to GitHub as** (*Connecté à GitHub en tant que*) your GitHub login.
 
-The connection does not expire: your queued writes and agent stage reports go out under your account while you are away, with no passphrase to unlock. Connecting replaces a GitHub token you had stored.
+The connection does not expire: a change you made keeps going out under your account if it is still queued after you leave, with no passphrase to unlock. Connecting replaces a GitHub token you had stored.
 
 If your organisation restricts OAuth app access and has not approved Sectile, its private repositories stay invisible to your connection: ask an organisation owner to approve the app. If you revoke Sectile in your GitHub settings, the next write is refused, the entry says the connection was lost and offers **Reconnect GitHub** (*Reconnecter GitHub*). **Disconnect** (*Déconnecter*) forgets the connection in Sectile and also revokes it on GitHub.
 
@@ -79,7 +81,7 @@ When the GitLab connection is configured and one of the deployment's trackers is
 1. Select **Connect GitLab**. Your browser goes to gitlab.com's authorisation screen, which asks for the `api` scope.
 2. Authorise the application. You land back on **Profile → Tracker credentials**, which shows **Connected to GitLab as** (*Connecté à GitLab en tant que*) your GitLab username.
 
-Sectile renews the connection in the background, so your writes keep going out under your account while you are away. Connecting replaces a GitLab token you had stored. If you revoke the application on gitlab.com, the next renewal fails and the entry says the connection was lost and offers **Reconnect GitLab** (*Reconnecter GitLab*); your GitLab writes are refused until you reconnect. **Disconnect** forgets the connection in Sectile and also revokes it on gitlab.com.
+Sectile renews the connection in the background, so a change you made keeps going out under your account if it is still queued after you leave. Connecting replaces a GitLab token you had stored. If you revoke the application on gitlab.com, the next renewal fails and the entry says the connection was lost and offers **Reconnect GitLab** (*Reconnecter GitLab*); your GitLab writes are refused until you reconnect. **Disconnect** forgets the connection in Sectile and also revokes it on gitlab.com.
 
 ### Use a token instead
 
@@ -91,7 +93,7 @@ The examples below use `https://sectile.internal.eqtv.dev` as the server's publi
 
 **GitHub.**
 
-1. Under the GitHub organisation that owns the repositories, open **Settings → Developer settings → OAuth Apps** and register a new **OAuth App** (not a GitHub App). Set its authorization callback URL to `https://sectile.internal.eqtv.dev/auth/github/callback`. Sectile asks for the scopes `repo` and `read:project` at consent time; an OAuth App declares none in advance.
+1. Under the GitHub organisation that owns the repositories, open **Settings → Developer settings → OAuth Apps** and register a new **OAuth App** (not a GitHub App). Set its authorization callback URL to `https://sectile.internal.eqtv.dev/auth/github/callback`. Sectile asks for the scope `repo` at consent time; an OAuth App declares none in advance.
 2. Generate a client secret.
 3. Each organisation that enforces OAuth app access restrictions must approve the app under **Organisation settings → Third-party access**, or its private repositories stay invisible to every connection.
 4. In Sectile, open **Administration → GitHub connection (OAuth App)** and save the client ID, the secret and the same callback URL, or set `SECTILE_GITHUB_OAUTH_CLIENT_ID`, `SECTILE_GITHUB_OAUTH_CLIENT_SECRET` and `SECTILE_GITHUB_OAUTH_REDIRECT_URL` on the server.
@@ -102,6 +104,8 @@ The examples below use `https://sectile.internal.eqtv.dev` as the server's publi
 2. In Sectile, open **Administration → GitLab connection (gitlab.com OAuth)** and save the application ID, the secret and the same callback URL, or set `SECTILE_GITLAB_OAUTH_CLIENT_ID`, `SECTILE_GITLAB_OAUTH_CLIENT_SECRET` and `SECTILE_GITLAB_OAUTH_REDIRECT_URL` on the server.
 
 A configuration saved on the page wins over the environment, and the secret is never shown again. **Connect** is offered only while the app is configured and at least one tracker uses github.com or gitlab.com. Clearing a configuration brings back the token form; existing GitLab connections stay stored but can no longer renew.
+
+**The service accounts.** The server credentials saved in **Administration → Server tracker credentials** sign every read and everything Sectile writes by itself: stage labels and reports, macro milestones and epics, sprints, and what agents write during skill runs. The GitHub, GitLab and Jira accounts behind them need write access to every project Sectile serves, and the GitHub one the scope its ProjectsV2 boards need. Without a server credential for a provider, those writes fail and say an administrator has to set it; a person's own edits are unaffected.
 
 ## Use an existing project
 

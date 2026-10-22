@@ -16,13 +16,18 @@ test fixtures or internal plumbing.
 ### Added
 
 - The sprint timeline view can be filtered by Epic from a dedicated searchable dropdown in the toolbar, with matching sprint tracks, backlog counts, and one-click clear.
-- **Connect GitHub and GitLab from your profile.** Profile → Tracker credentials offers **Connect GitHub** and **Connect GitLab** once an admin has registered the app in Administration: one consent screen, and your writes on github.com and gitlab.com are made under your own account, with no token to create, paste or unseal. Disconnecting also revokes the access on the forge; GitHub Enterprise and self-hosted GitLab keep the personal token, still available behind **Use a token instead**. (#804)
+- **Connect GitHub and GitLab from your profile.** Profile → Tracker credentials offers **Connect GitHub** and **Connect GitLab** once an admin has registered the app in Administration: one consent screen, and the tickets you create, edit and comment on github.com and gitlab.com are signed by your own account, with no token to create, paste or unseal. Disconnecting also revokes the access on the forge; GitHub Enterprise and self-hosted GitLab keep the personal token, still available behind **Use a token instead**. (#855)
 
 ### Changed
 
 - In the macro view, a macro's key opens the macro on its tracker in a new tab, and the side panel no longer has a separate link button.
 - Task details give the description and comments the remaining dialog height, display rendered Markdown by default, and switch to editing mode on click with a Done button.
 - Form inputs, selects, and text editing surfaces across the web interface use a lighter, unified background and border palette.
+- **Breaking:** your personal tracker access, a token or a connection, now signs only what you do yourself on a ticket: creating, editing and commenting. Stage labels and reports, macros and their milestones or epics, sprints, whatever an agent writes during a skill run, and every read now go out under the deployment's service account, still recorded as yours in Sectile. The GitHub, GitLab and Jira service accounts set in Administration need write access to every project; without one, those writes fail and say an administrator has to set it. (#855)
+
+### Fixed
+
+- Verifying your own tracker access in your profile no longer reports the service account: a GitLab check used the server token, and a check with nothing stored answered with the service account on every tracker. (#855)
 
 ## [0.7.0] - 2026-10-15
 
