@@ -31,7 +31,6 @@ const fr = {
       keptLocal: 'Conservés dans Sectile : cette macro ne porte pas de labels sur le tracker.',
       keptLocalForeign:
         "Conservés dans Sectile : cette épic appartient au projet {origin}. L'option « Écrire la priorité et le trimestre sur les épics des projets de roadmap » des réglages Tracker du projet les écrirait sur Jira.",
-      filterLabel: 'Filtrer les macros par priorité',
       sortLabel: 'Trier les macros',
       filterAll: 'Toutes priorités',
       filterChip: 'priorité {value}',
@@ -113,11 +112,8 @@ const fr = {
     pendingPushes: { one: '{count} label à pousser', other: '{count} labels à pousser' },
     importTitle: 'Relire les labels roadmap:, priority:, quarter: et readiness: portés par les épics du tracker et en tirer les valeurs locales',
     importLabels: 'Relire les labels',
-    activeFilterTitle: "Filtre actif : {label}. Cliquer pour l'enlever.",
     origins: {
       filter: 'Projets',
-      filterCount: 'Projets · {count}',
-      filterTitle: 'Choisir les projets Jira dont la roadmap montre les épics',
       filterReset: 'Revenir au projet seul',
       own: 'ce projet',
       chip: 'projets {keys}',
@@ -128,8 +124,6 @@ const fr = {
     },
     epicLabels: {
       filter: 'Labels',
-      filterCount: 'Labels · {count}',
-      filterTitle: "Ne montrer que les macros portant l'un des labels choisis",
       filterClear: 'Tout désélectionner',
       chip: 'label {label}',
       more: '+{count}',
@@ -541,7 +535,6 @@ const en: PlanningStrings = {
       keptLocal: 'Kept in Sectile: this macro carries no labels on the tracker.',
       keptLocalForeign:
         'Kept in Sectile: this epic belongs to the project {origin}. The option "Write the priority and the quarter on the epics of the roadmap projects" in the project\'s Tracker settings would write them on Jira.',
-      filterLabel: 'Filter macros by priority',
       sortLabel: 'Sort macros',
       filterAll: 'All priorities',
       filterChip: 'priority {value}',
@@ -623,11 +616,8 @@ const en: PlanningStrings = {
     pendingPushes: { one: '{count} label to push', other: '{count} labels to push' },
     importTitle: 'Read the roadmap:, priority:, quarter: and readiness: labels carried by the tracker epics again and derive the local values from them',
     importLabels: 'Read labels again',
-    activeFilterTitle: 'Active filter: {label}. Click to remove it.',
     origins: {
       filter: 'Projects',
-      filterCount: 'Projects · {count}',
-      filterTitle: 'Choose the Jira projects whose epics the roadmap shows',
       filterReset: 'Back to this project alone',
       own: 'this project',
       chip: 'projects {keys}',
@@ -638,8 +628,6 @@ const en: PlanningStrings = {
     },
     epicLabels: {
       filter: 'Labels',
-      filterCount: 'Labels · {count}',
-      filterTitle: 'Show only the macros carrying one of the chosen labels',
       filterClear: 'Clear selection',
       chip: 'label {label}',
       more: '+{count}',

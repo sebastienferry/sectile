@@ -45,7 +45,9 @@ try {
   const calls=name=>page.evaluate(n=>calls.filter(c=>c[0]===n),name);
   const clearCalls=()=>page.evaluate(()=>{window.calls.length=0});
   const strings=await page.evaluate(()=>window.ctx.t.planning.roadmap);
-  const prioritySelect=()=>page.getByLabel(strings.axes.filterLabel);
+  // The roadmap's value filters live in its "Filters" panel (#866).
+  const openFilters=async()=>{const b=page.getByRole('button',{name:/^Filtres( \d+)?$/});if((await b.getAttribute('aria-expanded'))!=='true')await b.click()};
+  const filterPriority=async level=>{await openFilters();await page.getByPlaceholder(strings.axes.filterAll).click();await page.locator('[data-portaled-panel]').getByRole('button',{name:new RegExp('^'+level)}).click();await page.keyboard.press('Escape')};
   const ticketsButton=()=>panel().getByRole('button',{name:strings.panel.openTickets});
 
   // US2.1, US2.4: from NOW with a priority filter hiding everything, a request for a LATER epic opens LATER on
@@ -53,12 +55,12 @@ try {
   await panel().waitFor();
   assert.equal(await activeTab(),'NOW');
   assert.equal(await panelKey(),'M-1');
-  await prioritySelect().selectOption('P1');
+  await filterPriority('P1');
   await panel().waitFor({state:'detached'});
   await page.evaluate(()=>focus('M-2'));
   await panelKeyIs('M-2');
   assert.equal(await activeTab(),'LATER','the epic horizon tab opens');
-  assert.equal(await prioritySelect().inputValue(),'','the priority filter is cleared');
+  assert.equal(await page.getByRole('button',{name:/^priorité /}).count(),0,'the priority filter is cleared: no chip names it');
   assert.equal((await calls('consumeRoadmapFocus')).length,1,'the request is consumed once');
   assert.equal(await page.evaluate(()=>localStorage.getItem('sectile_roadmap_selected_key:p')),'M-2','the epic is the remembered selection');
 
@@ -78,7 +80,7 @@ try {
   // US2.4, US2.6: a label filter hiding the epic is cleared; the sort chosen is kept.
   await tabButton('NOW').click();
   await page.getByLabel(strings.axes.sortLabel).selectOption('priority-desc');
-  await page.getByRole('button',{name:'Labels',exact:true}).click();
+  await openFilters();
   await page.getByRole('menuitemcheckbox',{name:/domain-billing/}).click();
   await page.keyboard.press('Escape');
   await page.getByRole('button',{name:'label domain-billing',exact:true}).waitFor();

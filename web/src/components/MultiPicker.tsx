@@ -64,8 +64,8 @@ export const MultiPicker: React.FC<{
             </span>
             <span className={`text-[11px] text-[var(--text-primary)] truncate flex-1 text-left ${mono ? 'font-mono' : ''}`}>
               {option.label ?? option.value}
-              {option.hint && <span className="ml-1 text-[9px] font-sans text-[var(--text-muted)]">{option.hint}</span>}
             </span>
+            {option.hint && <span className="shrink-0 text-[9px] text-[var(--text-muted)]">{option.hint}</span>}
             {option.count !== undefined && (
               <span className="text-[9.5px] font-mono text-[var(--text-muted)]">{option.count}</span>
             )}
