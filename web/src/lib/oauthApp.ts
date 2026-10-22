@@ -79,7 +79,7 @@ export const JIRA_OAUTH_SCOPES = [
  */
 export const OAUTH_APP_SCOPES: Record<OAuthTracker, readonly string[]> = {
   jira: JIRA_OAUTH_SCOPES,
-  github: ['repo'],
+  github: ['repo', 'read:project'],
   gitlab: ['api'],
 }
 

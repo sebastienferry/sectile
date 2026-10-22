@@ -364,9 +364,6 @@ func (d *DB) SaveEpicMeta(projectID string, key string, horizon *string, descrip
 // the framing that is not a bulk edit schedules its copy (#636). Neither runs
 // inside this call: the request does not wait on the tracker for them.
 func (d *DB) UpdateMacro(ctx context.Context, projectID string, key string, title *string, horizon *string, description *string, framingComment *string, todos *[]models.MacroTodo, closed *bool) (*models.MacroMeta, error) {
-	// The macro and its mirrors are Sectile's own writes: they go out with the
-	// server credential, whoever asked (ADR 0058).
-	ctx = tracker.WithServiceCredential(ctx)
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
 	if projectID == "" || key == "" {
@@ -1259,9 +1256,6 @@ func (d *DB) CreateStoryUnderEpic(ctx context.Context, projectID string, epicKey
 // client refuses it for want of their credential, the macro is recorded locally
 // as on any failed creation, and the refusal is returned with it (#482).
 func (d *DB) CreateMacro(ctx context.Context, projectID string, title string, horizon string, fields map[string]string) (*models.MacroMeta, error) {
-	// The macro and its mirrors are Sectile's own writes: they go out with the
-	// server credential, whoever asked (ADR 0058).
-	ctx = tracker.WithServiceCredential(ctx)
 	if err := (MacroMetadata{Title: &title, Horizon: &horizon}).validate(); err != nil {
 		return nil, err
 	}
@@ -1321,9 +1315,6 @@ func (d *DB) CreateEpic(ctx context.Context, projectID string, title string, hor
 // client refuses for want of their credential still deletes the macro locally,
 // as any failed milestone deletion does, and the refusal is returned (#482).
 func (d *DB) DeleteMacro(ctx context.Context, projectID string, key string) error {
-	// The macro and its mirrors are Sectile's own writes: they go out with the
-	// server credential, whoever asked (ADR 0058).
-	ctx = tracker.WithServiceCredential(ctx)
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
 	if projectID == "" || key == "" {
@@ -1465,9 +1456,6 @@ func IsProjectCompatible(p1, p2 *models.Project) bool {
 // project. Its GitHub writes are made as whoever the context names; a refusal
 // for want of their credential stops the migration before anything moves.
 func (d *DB) MigrateMacro(ctx context.Context, sourceProjectID string, macroKey string, targetProjectID string, migrateTasks bool) (*models.MacroMeta, int, error) {
-	// The macro and its mirrors are Sectile's own writes: they go out with the
-	// server credential, whoever asked (ADR 0058).
-	ctx = tracker.WithServiceCredential(ctx)
 	sourceProjectID = strings.TrimSpace(sourceProjectID)
 	macroKey = strings.TrimSpace(macroKey)
 	targetProjectID = strings.TrimSpace(targetProjectID)

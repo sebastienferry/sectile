@@ -259,7 +259,7 @@ func (d *DB) setTaskPinned(actor Actor, taskID string, decide func(currentlyPinn
 	}
 
 	if pinned && !hasPin {
-		d.enqueueTrackerUpdateAsUnsafe(actor, task, nil, task.Labels, nil, TrackerFieldChanges{})
+		d.enqueueTrackerUpdateAsUnsafe(actor.ID, task, nil, task.Labels, nil, TrackerFieldChanges{})
 	}
 	if !pinned && hasPin {
 		var actualRemoved []string
@@ -272,7 +272,7 @@ func (d *DB) setTaskPinned(actor Actor, taskID string, decide func(currentlyPinn
 		if len(actualRemoved) == 0 {
 			actualRemoved = []string{PinnedLabel}
 		}
-		d.enqueueTrackerUpdateAsUnsafe(actor, task, nil, task.Labels, actualRemoved, TrackerFieldChanges{})
+		d.enqueueTrackerUpdateAsUnsafe(actor.ID, task, nil, task.Labels, actualRemoved, TrackerFieldChanges{})
 	}
 	return pinned, nil
 }

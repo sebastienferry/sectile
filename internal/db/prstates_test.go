@@ -71,22 +71,17 @@ func TestPullRequestStateWritePreservesOrderAndDetachment(t *testing.T) {
 	}
 }
 
-// A pull-request state refresh is a read: it never resolves the personal
-// credential of whoever asked (ADR 0058), so a locked one cannot stop it, and
-// a merged state is kept as it is.
-func TestPullRequestRefreshNeverResolvesAPersonalCredential(t *testing.T) {
+func TestPullRequestRefreshPreservesStateOnLockedCredential(t *testing.T) {
 	d, p, task := discoveryTestDB(t, "#implemented")
 	link := models.TaskPullRequest{URL: "https://github.com/a/b/pull/1", State: "merged"}
 	d.conn.Exec("UPDATE tasks SET pr_links = ?, pr_url = ? WHERE id = ?", encodePullRequestLinks([]models.TaskPullRequest{link}), link.URL, task.ID)
-	resolved := 0
-	d.trackers = &trackerapi.Client{GithubURL: trackerapi.DefaultGithubURL, GithubToken: "server-token", ResolveUser: func(string, string, string) (trackerapi.PersonalCredential, error) {
-		resolved++
+	d.trackers = &trackerapi.Client{GithubURL: trackerapi.DefaultGithubURL, GithubToken: "must-not-fallback", ResolveUser: func(string, string, string) (trackerapi.PersonalCredential, error) {
 		return trackerapi.PersonalCredential{}, fmt.Errorf("locked credential")
 	}}
 	warnings := d.refreshProjectPullRequestStates(tracker.WithActingUser(context.Background(), "owner"), p.ID)
 	got, _ := d.GetTaskByID(task.ID)
-	if resolved != 0 || len(warnings) != 0 || got.PrLinks[0].State != "merged" {
-		t.Fatalf("resolved=%d warnings=%v links=%+v", resolved, warnings, got.PrLinks)
+	if len(warnings) == 0 || got.PrLinks[0].State != "merged" {
+		t.Fatalf("warnings=%v links=%+v", warnings, got.PrLinks)
 	}
 }
 

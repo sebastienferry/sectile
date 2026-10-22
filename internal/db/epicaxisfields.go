@@ -305,9 +305,6 @@ func (d *DB) discoveryEpic(proj *models.Project) (string, error) {
 // missing from the map is first looked up among the field's options on that
 // epic, and what the deduction finds there is stored on the project.
 func (d *DB) pushEpicAxisField(ctx context.Context, projectID string, macroKey string, axis string, mAxis macroAxis, value string) (string, error) {
-	// The macro and its mirrors are Sectile's own writes: they go out with the
-	// server credential, whoever asked (ADR 0058).
-	ctx = tracker.WithServiceCredential(ctx)
 	proj, err := d.GetProjectByID(strings.TrimSpace(projectID))
 	if err != nil || proj == nil || proj.IssueTracker != "jira" {
 		return "", nil

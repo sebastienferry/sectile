@@ -168,10 +168,10 @@ func (d *DB) PostTaskCommentAs(ctx context.Context, actor Actor, taskIDOrKey str
 		return d.getLocalComments(task.ID)
 	}
 
-	// The write runs as the actor: the tracker credential is theirs, and a
-	// comment posted under the server account would carry a name nobody chose.
-	// The re-read, like every read, uses the server credential (ADR 0058).
-	ctx = actor.trackerContext(ctx)
+	// The write and the re-read both run as the actor: the tracker credential
+	// is theirs, and a comment posted under the server account would carry a
+	// name nobody chose.
+	ctx = tracker.WithActingUser(ctx, actor.ID)
 	if err := d.AddTaskCommentAs(ctx, task.ID, body); err != nil {
 		return nil, err
 	}

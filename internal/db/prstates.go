@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 const taskPullRequestRefreshTimeout = 5 * time.Second
@@ -18,8 +19,13 @@ func (d *DB) refreshPullRequestStates(ctx context.Context, projectID string, tas
 	defer cancel()
 	var warnings []string
 	for _, forge := range []string{"github", "gitlab"} {
-		// A read, so the server credential, whoever asked (ADR 0058).
-		client := d.trackers.ForRead(projectCredentialRef(projectID))
+		// Resolve errors (including locked credentials) must never fall back to a
+		// different identity's token.
+		client, _, err := d.trackers.ForActingUser(tracker.ActingUser(ctx), forge, projectCredentialRef(projectID))
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("⚠️ Pull requests %s : %v", forge, err))
+			continue
+		}
 		if client == nil {
 			continue
 		}
@@ -53,7 +59,6 @@ func (d *DB) refreshPullRequestStates(ctx context.Context, projectID string, tas
 		}
 		var states map[string]string
 		if missing == "" {
-			var err error
 			states, err = client.PullRequestStates(ctx, forge, urls)
 			if err != nil {
 				if isRateLimited(err) {

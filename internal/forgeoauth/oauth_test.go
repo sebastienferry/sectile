@@ -24,7 +24,7 @@ func TestAuthorizeURLAsksForEveryScope(t *testing.T) {
 		extra    map[string]string
 		absent   string
 	}{
-		{"github", "https://github.com/login/oauth/authorize", "repo", map[string]string{"allow_signup": "false"}, "response_type"},
+		{"github", "https://github.com/login/oauth/authorize", "repo read:project", map[string]string{"allow_signup": "false"}, "response_type"},
 		{"gitlab", "https://gitlab.com/oauth/authorize", "api", map[string]string{"response_type": "code"}, "allow_signup"},
 	}
 	for _, tc := range cases {
@@ -145,7 +145,7 @@ func TestExchangeAndRefresh(t *testing.T) {
 		if !tokens.ExpiresAt.IsZero() || tokens.RefreshToken != "" {
 			t.Errorf("an OAuth App token never expires and has no refresh token: %+v", tokens)
 		}
-		if tokens.Scope != "repo" {
+		if tokens.Scope != "repo,read:project" {
 			t.Errorf("scope: %q", tokens.Scope)
 		}
 	})

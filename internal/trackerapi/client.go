@@ -147,10 +147,6 @@ type PersonalCredential struct {
 // where they have any. The second result says whether the client carries a
 // personal credential: a tracker that attributes its writes to the account
 // behind the token uses it to refuse rather than write under the server's name.
-//
-// A personal credential signs only the ticket actions its owner performs
-// themself (ADR 0058), so ForWrite is its only caller, for such an action. A
-// read goes through ForRead.
 func (c *Client) ForActingUser(userID, tracker, trackerID string) (*Client, bool, error) {
 	resolved := c.For(trackerID)
 	if resolved == nil || resolved.ResolveUser == nil || strings.TrimSpace(userID) == "" {
@@ -299,18 +295,12 @@ func providerName(tracker string) string {
 	return tracker
 }
 
-// ForWrite resolves the client for a tracker write. A write Sectile makes by
-// itself (tracker.WithServiceCredential) gets the server credential, whoever it
-// names (ADR 0058). Otherwise a named user gets their personal credential or an
-// error, never the server's; an unattended context gets the server credential.
-// A context naming neither a person nor the unattended marker is refused even
-// when marked for the server credential: losing the author on the way is a
-// failure, never a fallback (#482). Reads go through ForRead.
+// ForWrite resolves the client for a tracker write. A named user gets their
+// personal credential or an error, never the server's; an unattended context
+// gets the server credential; a context naming neither is refused. Reads keep
+// ForActingUser and its fallback: a read attributes nothing.
 func (c *Client) ForWrite(ctx context.Context, trackerName, trackerID string) (*Client, error) {
 	user := tracker.ActingUser(ctx)
-	if tracker.ServiceCredential(ctx) && (user != "" || tracker.Unattended(ctx)) {
-		return c.serverWriter(trackerName, trackerID)
-	}
 	if user == "" {
 		if tracker.Unattended(ctx) {
 			return c.serverWriter(trackerName, trackerID)
@@ -327,17 +317,17 @@ func (c *Client) ForWrite(ctx context.Context, trackerName, trackerID string) (*
 	return client, nil
 }
 
-// serverWriter is the server client of a write, refused up front when the
-// deployment has no server credential for the provider: some writes swallow a
-// failed call and keep the change locally, and they must still learn that an
-// administrator has to set the credential.
+// serverWriter is the server client of an unattended write, refused up front
+// when the deployment has no server credential for the provider: some writes
+// swallow a failed call and keep the change locally, and they must still learn
+// that an administrator has to set the credential.
 func (c *Client) serverWriter(trackerName, trackerID string) (*Client, error) {
 	resolved := c.For(trackerID)
 	if resolved == nil {
 		return nil, &MissingServerCredentialError{Tracker: strings.ToLower(strings.TrimSpace(trackerName))}
 	}
 	var set bool
-	switch name := strings.ToLower(strings.TrimSpace(trackerName)); name {
+	switch strings.ToLower(strings.TrimSpace(trackerName)) {
 	case "github":
 		set = resolved.GithubToken != ""
 	case "gitlab":
@@ -351,13 +341,6 @@ func (c *Client) serverWriter(trackerName, trackerID string) (*Client, error) {
 		return nil, resolved.missingCredential(providerName(trackerName))
 	}
 	return resolved, nil
-}
-
-// ForRead resolves the client for a tracker read: always the server
-// credential, whoever is looking (ADR 0058). A personal credential never serves
-// a read, so what a screen shows does not depend on who opened it.
-func (c *Client) ForRead(trackerID string) *Client {
-	return c.For(trackerID)
 }
 
 func NewClient() *Client {
@@ -491,10 +474,9 @@ func (c *Client) missingCredential(tracker string) error {
 }
 
 // MissingServerCredentialError refuses a call that needs the server credential
-// of a provider when the deployment has none it can use. Since the server
-// credential signs every read and every write Sectile makes by itself, not
-// only the synchronisation (ADR 0058), a stage transition or a macro write
-// fails on it too. It is raised before any request leaves.
+// of a provider when the deployment has none it can use: the synchronisation,
+// unattended work, or a read made for somebody who has no credential of their
+// own. It is raised before any request leaves.
 type MissingServerCredentialError struct {
 	// Tracker is the provider, as the registry names it.
 	Tracker string

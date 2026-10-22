@@ -598,9 +598,6 @@ func (d *DB) PushMacroFramingMirror(ctx context.Context, projectID, key string, 
 }
 
 func (d *DB) pushMacroCopy(ctx context.Context, part macroCopyPart, projectID, key string, force bool) (string, error) {
-	// The macro and its mirrors are Sectile's own writes: they go out with the
-	// server credential, whoever asked (ADR 0058).
-	ctx = tracker.WithServiceCredential(ctx)
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
 	proj, err := d.GetProjectByID(projectID)
@@ -786,9 +783,6 @@ type MacroTodoInput struct {
 // and the link is the one loss nobody would notice. The list must keep it by
 // id; only the panel removes it.
 func (d *DB) ReplaceMacroTodos(ctx context.Context, projectID, key string, items []MacroTodoInput) (*models.MacroMeta, error) {
-	// The macro and its mirrors are Sectile's own writes: they go out with the
-	// server credential, whoever asked (ADR 0058).
-	ctx = tracker.WithServiceCredential(ctx)
 	current, err := d.GetMacro(projectID, key)
 	if err != nil {
 		return nil, err

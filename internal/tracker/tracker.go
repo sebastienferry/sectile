@@ -248,31 +248,6 @@ func Unattended(ctx context.Context) bool {
 	return marked
 }
 
-// A personal credential signs only the ticket actions its owner performs
-// themself (ADR 0058). Everything else Sectile writes on a person's behalf (a
-// stage transition, a macro and its mirrors, whatever a skill run writes) goes
-// out under the server credential, while the activity keeps naming that
-// person. The context says so with WithServiceCredential.
-
-type serviceCredentialKey struct{}
-
-// WithServiceCredential marks a write Sectile makes by itself: its tracker call
-// uses the server credential. It keeps the acting user, who stays the author
-// recorded on the activity.
-func WithServiceCredential(ctx context.Context) context.Context {
-	return context.WithValue(ctx, serviceCredentialKey{}, true)
-}
-
-// ServiceCredential reports whether the context is marked as a write Sectile
-// makes by itself, whoever it names.
-func ServiceCredential(ctx context.Context) bool {
-	if ctx == nil {
-		return false
-	}
-	marked, _ := ctx.Value(serviceCredentialKey{}).(bool)
-	return marked
-}
-
 // The tracker travels the same way, and for the same reason: half of the write
 // side of TicketingSystem takes a work item key and nothing else, so an adapter
 // asked to move a card to a sprint has no way to learn which tracker it belongs
