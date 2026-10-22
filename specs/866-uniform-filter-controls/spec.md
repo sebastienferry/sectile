@@ -70,17 +70,21 @@ Out:
   macro") wherever it appears.
 - **US2.4** Every search field looks the same, filters as the user types, and
   offers a clear button once it holds text.
-- **US2.5** Every toggle and the Activities status selector use the same
-  pressed and released look.
+- **US2.5** Every toggle uses the same pressed and released look. The
+  Activities status selector and its status tiles keep their own look: the
+  tiles carry the run counts, which a toggle cannot show.
 
 ### US3 - See and clear active filters (P1)
 
-- **US3.1** Given a view with at least one active filter, a chip row under its
-  filter bar lists each active filter as one chip naming its value; a
-  multi-select picker gives one chip per chosen value.
+- **US3.1** Given a view with at least one active filter that its toolbar does
+  not already show pressed (a value picked in its panel, or a filter set
+  elsewhere, such as the header search on the roadmap), a chip row next to its
+  filter bar lists each such filter as one chip naming its value; a
+  multi-select picker gives one chip per chosen value. Toggles, the search
+  field and the board's priority dots show their own state and get no chip.
 - **US3.2** Pressing a chip clears that filter (or that value) only.
-- **US3.3** The chip row ends with "Clear all", which clears every filter the
-  row lists, and only those.
+- **US3.3** With two chips or more, the row ends with "Clear all", which clears
+  every filter the row lists, and only those.
 - **US3.4** A view with no active filter shows no chip row.
 - **US3.5** The roadmap's existing chips keep their meaning: the origin chip
   resets to the project's own key, as today.

@@ -132,3 +132,32 @@ already says.
   change what the server receives.
 - **Restyling the native `<select>` only.** Leaves single vs multi, search,
   chips and reset divergent, which is the ticket's point.
+
+## As implemented
+
+Departures from the plan above, found while implementing; none changes an
+acceptance criterion except where `spec.md` was amended with it.
+
+- **Flat files.** The controls live in `web/src/components/` (`FilterToggle`,
+  `FilterPanel`, `FilterPicker` with `FilterRow` and `SinglePicker`,
+  `MultiPicker`, `FilterSearch`, `ActiveFilterChips`, `useMacroFilterSearch`),
+  not in a `filters/` subfolder: every browser fixture mocks the context by
+  rewriting the exact import `'../context/AppContext'`, which a subfolder
+  would escape.
+- **No `FilterBar`, no `SegmentedFilter`.** Each view lays out its
+  `FilterPanel` and `ActiveFilterChips` in its existing toolbar row, which
+  wraps. The Activities status buttons and tiles are kept (spec US2.5).
+- **Escape** uses the existing `useEscapeKey`; `useClickOutside` is unchanged.
+  Escape closes the whole panel, a lookup list open inside it included.
+- **Chips** only for what the toolbar does not show pressed (spec US3.1);
+  "Clear all" from two chips (spec US3.3).
+- **Macro lookup** is one hook, `useMacroFilterSearch`, for the board, the
+  triage and the timeline; the triage and the timeline always offer "No
+  macro", as their drop-downs did.
+- **Triage** takes the board's wording for its pickers ("Tous sprints",
+  "Toutes macros…"); its own strings are removed. The timeline's macro picker
+  loses the epic colour dot of the old drop-down.
+- **Tests.** `board-filters.browser.mjs` was failing on `origin/main` because it
+  predated the Filters panel; it now opens the panel first. Four roadmap
+  browser tests open the panel instead of the removed buttons and select.
+

@@ -254,7 +254,7 @@ export const TriageView: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             <FilterSearch value={searchQuery} onChange={setSearchQuery} placeholder={strings.searchPlaceholder} />
 
             {/* Sprint and macro (#866): the shared pickers of the Filters panel.
