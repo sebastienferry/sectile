@@ -28,6 +28,10 @@ It consists of three complementary components:
   (`clarify-issue`, `specify-issue`, `implement-issue`, `create-pr` /
   `adjust-issue`, and `handoff-issue`), plus single-ticket (`pickup-issue`) and
   batch (`pickup-issues`) chains.
+- Offers on-demand [backlog orchestration](./docs/CAPABILITIES.md):
+  autonomous task chains run as the requesting user, assess project eligibility
+  guidelines before changes, share a project concurrency limit, and stop at
+  **Implemented** for human review.
 - Frames and slices multi-ticket initiatives with **Macros** (`refine-macro` and
   `realign-macro`).
 - Scaffolds **Spec Kit** and **OpenSpec** directly inside project repositories.

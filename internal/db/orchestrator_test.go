@@ -37,13 +37,13 @@ func TestEvaluateTaskEligibility(t *testing.T) {
 	d, _ := orchestratorTestDB(t)
 
 	// Short title
-	ok, reason := d.EvaluateTaskEligibility(&models.Task{Title: "hi", Description: "Valid technical description here."}, "")
+	ok, reason := d.EvaluateTaskEligibility(&models.Task{Title: "hi", Description: "Valid technical description here."})
 	if ok || reason == "" {
 		t.Fatalf("expected ineligible for short title, got %v (%s)", ok, reason)
 	}
 
 	// Short description
-	ok, reason = d.EvaluateTaskEligibility(&models.Task{Title: "Valid Title", Description: "short"}, "")
+	ok, reason = d.EvaluateTaskEligibility(&models.Task{Title: "Valid Title", Description: "short"})
 	if ok || reason == "" {
 		t.Fatalf("expected ineligible for short description, got %v (%s)", ok, reason)
 	}
@@ -53,7 +53,7 @@ func TestEvaluateTaskEligibility(t *testing.T) {
 		Title:       "Valid Title",
 		Description: "Detailed technical description for autonomous implementation.",
 		Labels:      []string{"feature", "blocked"},
-	}, "")
+	})
 	if ok || reason == "" {
 		t.Fatalf("expected ineligible for blocked label, got %v (%s)", ok, reason)
 	}
@@ -63,7 +63,7 @@ func TestEvaluateTaskEligibility(t *testing.T) {
 		Title:       "Implement User Profile Screen",
 		Description: "Build the user profile screen according to design specifications and integrate REST endpoints.",
 		Labels:      []string{"frontend"},
-	}, "")
+	})
 	if !ok || reason != "" {
 		t.Fatalf("expected eligible task, got %v (%s)", ok, reason)
 	}

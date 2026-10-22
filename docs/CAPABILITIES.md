@@ -139,11 +139,11 @@ Projects can activate an autonomous backlog orchestrator agent to supervise the 
 - **Per-Project Configuration**:
   - `orchestratorEnabled`: Enables on-demand or scheduled orchestration for the project.
   - `orchestratorMaxConcurrent`: Caps the maximum number of concurrent task sessions (1 to 10).
-  - `orchestratorPrompt`: Optional instructions guiding ticket eligibility assessment.
+  - `orchestratorPrompt`: Optional instructions the autonomous agent must assess before making changes or advancing the ticket. A ticket that fails these guidelines is left at its current stage, and the chain stops with the agent's explanation.
 - **Eligibility Assessment**:
-  The orchestrator scans candidate backlog items (`#new` / unstarted), filtering out tickets carrying active executions or blocker labels (`blocked`, `needs-info`, `hold`, `manual`). It assesses whether technical context is sufficient to run autonomously without human intervention.
+  The server scans tickets before `#implemented`, filtering out tickets with active executions, missing descriptions, or blocker labels (`blocked`, `needs-info`, `hold`, `manual`). Each launched agent must assess technical readiness and the project guidelines before doing any work; these instructions remain attached to every chain step.
 - **Autonomous Chaining up to PR**:
-  For each eligible ticket up to available concurrency slots, the orchestrator launches an autonomous full chain run (`clarify` $\rightarrow$ `specify` $\rightarrow$ `code`), stopping at `#implemented` where a draft pull request is published for human review and merge.
+  Admission reserves a slot transactionally, including across server instances, and counts existing manual sessions as occupied slots. Runs use the requesting user's workstation and retain that identity throughout the chain. For each candidate up to available concurrency slots, the orchestrator launches an autonomous full chain run (`clarify` $\rightarrow$ `specify` $\rightarrow$ `code`), stopping at `#implemented` regardless of the project's ordinary chain stop setting. Pull request creation follows the project's configured creation stage; review and merge remain human decisions.
 - **Execution Interfaces**:
   - Triggered via HTTP `POST /api/projects/{id}/orchestrate` (returns structured `OrchestrationResult` report).
   - Invoked through MCP tool `orchestrate_project`.

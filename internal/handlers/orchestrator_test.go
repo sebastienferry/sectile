@@ -3,11 +3,13 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"tasks/internal/agentprotocol"
 	"tasks/internal/db"
@@ -107,5 +109,51 @@ func TestProjectOrchestrateEndpoint(t *testing.T) {
 	}
 	if res.MaxConcurrent != 2 {
 		t.Fatalf("expected max concurrent 2, got %d", res.MaxConcurrent)
+	}
+}
+
+func TestProjectOrchestrateDispatchesAsSignedInUser(t *testing.T) {
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	h := NewHandler(database)
+	userID, cookie := account(t, database, "orchestrator@example.com")
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Signed-in orchestration", IssueTracker: "local", OrchestratorEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "Validate requests", Description: "Reject invalid requests with a clear error response."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatched := make(chan agentprotocol.Operation, 1)
+	database.SetAgentSelection(func(user, projectID, device string) (string, error) {
+		if user != userID || projectID != project.ID {
+			return "", fmt.Errorf("wrong caller route: %q / %q", user, projectID)
+		}
+		return "user-workstation", nil
+	})
+	database.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		if op.Action == "execute_skill" {
+			dispatched <- op
+		}
+		return nil, nil
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/"+project.ID+"/orchestrate", strings.NewReader(`{}`))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.HandleProjectDetail(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("orchestrate returned %d: %s", rec.Code, rec.Body.String())
+	}
+	select {
+	case op := <-dispatched:
+		if op.UserID != userID || op.TaskID != task.ID || op.DeviceID != "user-workstation" {
+			t.Fatalf("unexpected dispatch: %+v", op)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("signed-in user's workstation never received a launch")
 	}
 }

@@ -222,3 +222,9 @@
 - **Cause**: every failing call was chained (`cd <worktree> && glab …`, `git fetch origin 2>&1 | tail -3; echo …`, `timeout 30 git fetch`). Claude Code lets a call out only when each joined command is listed, so these ran sandboxed: Go's TLS verifier cannot reach `com.apple.trustd.agent`, and SSH cannot authenticate.
 - **Fix**: `sandboxNotice` (`internal/agent/agent_claude_sandbox.go`) appends the resolved excluded commands and the "call each alone" rule to task and macro run prompts. Do not widen `allowedDomains` for this symptom: the domain was never the problem.
 - **Workstation-side complement**: `sandbox.enableWeakerNetworkIsolation: true` in `~/.claude/settings.json` lets Go tools verify TLS inside the sandbox. Sectile's `ClaudeSandbox` does not carry that key.
+
+
+### 19. Backlog Admission and Chain Identity (2026-10-22, #859)
+- A task-level unique run index does not enforce a project concurrency cap: simultaneous requests can launch different tasks. Count capacity and insert the queued launch in the same transaction, locking the project row on PostgreSQL; SQLite uses an immediate transaction. Queue work only after commit.
+- Queued execution needs `SkillJob.ActingUser`, not just an actor argument at the entry point. Empty users route as `default`. Chain hand-back must carry the recorded run owner, selected device, prompt and stop stage into every following step.
+- The server filters missing context and blocker labels deterministically. Natural-language orchestrator guidelines travel as a mandatory agent preflight prompt; a refusal without a stage transition stops the chain. Orchestration always stops at `implemented`, independently of the ordinary project chain stop setting.

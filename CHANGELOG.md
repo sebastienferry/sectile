@@ -15,7 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
-- Projects can enable the Backlog Orchestrator Agent to autonomously evaluate backlog tickets and launch parallel task sessions up to a project-level concurrency limit, driving eligible work up to the Pull Request stage.
+- Projects can enable the Backlog Orchestrator Agent to launch autonomous task chains on the requesting user's workstation, assess project eligibility guidelines before changes, and stop at implemented for human review. Concurrent requests share the project's execution limit. (#859)
 - The sprint timeline view can be filtered by Epic from a dedicated searchable dropdown in the toolbar, with matching sprint tracks, backlog counts, and one-click clear.
 
 ### Changed

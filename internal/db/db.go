@@ -43,6 +43,8 @@ type SkillJob struct {
 	// request that started it is gone. Empty means nobody asked, which is what
 	// a timer does, and resolves to the server credential.
 	ActingUser string
+	// DeviceID keeps a chained launch on the workstation that accepted it.
+	DeviceID string
 	// Mode is the execution mode already resolved by ResolveSkillMode. The
 	// agent applies it; it never re-reads project settings to decide, so a
 	// stale agent configuration cannot open a window inside a full chain run.
@@ -4672,17 +4674,17 @@ func (d *DB) processSkillJob(job SkillJob) {
 	}
 	if err == nil && task != nil {
 		var run *models.TaskActivity
-		device := ""
+		device := job.DeviceID
 		// The run works for the project its launch chose (#741).
 		runProject := job.ProjectID
 		if runProject == "" {
 			runProject = task.ProjectID
 		}
-		if location, ok := d.AgentOwner(job.ActingUser, runProject); ok {
+		if location, ok := d.AgentOwner(job.ActingUser, runProject); ok && device == "" {
 			device = location.DeviceID
 		}
 		if d.agentSelection != nil {
-			device, err = d.agentSelection(job.ActingUser, runProject, "")
+			device, err = d.agentSelection(job.ActingUser, runProject, device)
 		}
 		provider, model := d.ResolveTaskEngine(runProject, job.ActingUser, device, job.SkillID, job.Model)
 		if err == nil {
@@ -5803,6 +5805,23 @@ func (d *DB) enqueueSkillOnTask(
 	modelOverride string,
 	chainStopStage ...string,
 ) (*models.Task, *models.TaskActivity, error) {
+	options := queuedSkillOptions{}
+	if len(chainStopStage) > 0 {
+		options.ChainStop = chainStopStage[0]
+	}
+	return d.enqueueSkillWithOptions(taskID, projectID, skillID, prompt, autoChain, modeOverride, modelOverride, options)
+}
+
+// queuedSkillOptions carries the identity and admission policy of an autonomous
+// launch. A zero value preserves the ordinary skill launch behavior.
+type queuedSkillOptions struct {
+	UserID        string
+	DeviceID      string
+	ChainStop     string
+	MaxConcurrent int
+}
+
+func (d *DB) enqueueSkillWithOptions(taskID, projectID, skillID, prompt string, autoChain bool, modeOverride, modelOverride string, options queuedSkillOptions) (*models.Task, *models.TaskActivity, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
@@ -5860,6 +5879,8 @@ func (d *DB) enqueueSkillOnTask(
 		},
 		Prompt:    prompt,
 		CreatedAt: now,
+		UserID:    options.UserID,
+		DeviceID:  options.DeviceID,
 	}
 
 	// Every active run makes the task busy, a concurrent one included: a
@@ -5873,7 +5894,11 @@ func (d *DB) enqueueSkillOnTask(
 		return nil, nil, &TaskBusyError{TaskKey: task.Key, Active: active, Batch: batch}
 	}
 	d.mu.Lock()
-	err = d.addTaskActivityDirect(act)
+	if options.MaxConcurrent > 0 {
+		err = d.admitOrchestratedActivity(act, options.MaxConcurrent)
+	} else {
+		err = d.addTaskActivityDirect(act)
+	}
 	d.mu.Unlock()
 	if err != nil {
 		return nil, nil, d.taskBusy(task, err)
@@ -5883,12 +5908,14 @@ func (d *DB) enqueueSkillOnTask(
 	stopStage := ""
 	if autoChain {
 		stopStage = DefaultFullChainStopStage
-		if len(chainStopStage) > 0 && chainStopStage[0] != "" {
-			stopStage = chainStopStage[0]
+		if options.ChainStop != "" {
+			stopStage = options.ChainStop
 		}
 	}
 	d.enqueueJob(SkillJob{
 		ActivityID:     activityID,
+		ActingUser:     options.UserID,
+		DeviceID:       options.DeviceID,
 		TaskID:         task.ID,
 		ProjectID:      runProject,
 		SkillID:        targetSkill.ID,
