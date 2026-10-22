@@ -405,6 +405,15 @@ const fr = {
     team: 'Équipe',
     person: 'Personne',
     reset: 'Réinitialiser',
+    clearAll: 'Tout effacer',
+    clearAllTitle: 'Retirer tous les filtres actifs',
+    activeFilterTitle: "Filtre actif : {label}. Cliquer pour l'enlever.",
+    activeFilters: 'Filtres actifs',
+    clearSearch: 'Effacer la recherche',
+    priority: 'Priorité',
+    labels: 'Labels',
+    projects: 'Projets',
+    skill: 'Skill',
   },
 }
 
@@ -809,6 +818,15 @@ const en: ShellStrings = {
     team: 'Team',
     person: 'Person',
     reset: 'Reset',
+    clearAll: 'Clear all',
+    clearAllTitle: 'Remove every active filter',
+    activeFilterTitle: 'Active filter: {label}. Click to remove it.',
+    activeFilters: 'Active filters',
+    clearSearch: 'Clear search',
+    priority: 'Priority',
+    labels: 'Labels',
+    projects: 'Projects',
+    skill: 'Skill',
   },
 }
 

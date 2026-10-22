@@ -132,15 +132,22 @@ try {
   // Waits until `count` answers held back were delivered to the app.
   const released = count => page.waitForFunction(count => fake.released >= count, count);
   const titles = async () => (await page.getByText(/^(Alpha|Beta) /).allTextContents()).sort();
-  const sprintInput = () => page.getByPlaceholder('Tous sprints');
-  const teamInput = () => page.getByPlaceholder('Toutes équipes');
+  // The value filters live behind the toolbar's "Filters" button (#866): open
+  // it before reaching one, unless it is already open.
+  const filtersButton = () => page.getByTitle('Filtrer par statut, type, macro, sprint, équipe ou personne');
+  const inPanel = async locator => {
+    if ((await filtersButton().getAttribute('aria-expanded')) !== 'true') await filtersButton().click();
+    return locator;
+  };
+  const sprintInput = () => inPanel(page.getByPlaceholder('Tous sprints'));
+  const teamInput = () => inPanel(page.getByPlaceholder('Toutes équipes'));
   // Lookup options are buttons in a portal, named by their label and count.
   const pick = async (input, label) => {
     await input.click();
     await input.fill(label);
     await page.getByRole('button', { name: new RegExp('^' + label) }).last().click();
   };
-  const personInput = () => page.locator('input[placeholder="Toutes personnes"], input[placeholder="Toute l\'équipe"]');
+  const personInput = () => inPanel(page.locator('input[placeholder="Toutes personnes"], input[placeholder="Toute l\'équipe"]'));
 
   // ---------- US1-1: the unfiltered first answer arrives last ----------
   await open('a', { a: { sprint: 'S12' } }, [['/api/tasks', "q => q.get('projectId') === 'a' && !q.get('sprint')", 800]]);
@@ -148,14 +155,14 @@ try {
   await released(1);
   assert.ok((await taskQueries()).some(q => !new URLSearchParams(q).get('sprint')), 'the fixture did send an unfiltered first request');
   assert.deepEqual(await titles(), ['Alpha sprint twelve'], 'the late unfiltered answer does not replace the filtered board');
-  assert.equal(await sprintInput().inputValue(), 'S12');
+  assert.equal(await (await sprintInput()).inputValue(), 'S12');
 
   // ---------- US1-2: a filter change wins over an older answer held back ----------
   await open('a', {}, [['/api/tasks', "q => q.get('projectId') === 'a' && q.get('team') === 'Ops' && !q.get('assignee')", 'manual']]);
   await page.getByText('Alpha sprint twelve').waitFor();
-  await pick(teamInput(), 'Ops');
+  await pick(await teamInput(), 'Ops');
   await page.waitForFunction(() => fake.held.length === 1);
-  await pick(personInput(), 'Non assigné');
+  await pick(await personInput(), 'Non assigné');
   // The team and person board is on screen before the team-only answer lands.
   await page.getByText('Alpha sprint thirteen').waitFor({ state: 'detached' });
   await page.evaluate(() => fake.release());
@@ -172,15 +179,15 @@ try {
   await alpha.click();
   await page.getByText('Alpha sprint twelve').waitFor();
   await released(1);
-  assert.equal(await sprintInput().inputValue(), 'S12', 'the sprint is kept on screen');
-  assert.equal(await teamInput().inputValue(), 'Core', 'the team is kept on screen');
-  assert.equal(await personInput().inputValue(), 'Alice', 'the person is kept on screen');
+  assert.equal(await (await sprintInput()).inputValue(), 'S12', 'the sprint is kept on screen');
+  assert.equal(await (await teamInput()).inputValue(), 'Core', 'the team is kept on screen');
+  assert.equal(await (await personInput()).inputValue(), 'Alice', 'the person is kept on screen');
   assert.deepEqual(await stored('a'), { sprint: 'S12', team: 'Core', assignee: 'Alice' }, 'nothing was stored as cleared');
   assert.deepEqual(await titles(), ['Alpha sprint twelve']);
   await page.reload();
   await page.getByText('Alpha sprint twelve').waitFor();
-  assert.equal(await sprintInput().inputValue(), 'S12', 'the sprint survives a reload');
-  assert.equal(await teamInput().inputValue(), 'Core', 'the team survives a reload');
+  assert.equal(await (await sprintInput()).inputValue(), 'S12', 'the sprint survives a reload');
+  assert.equal(await (await teamInput()).inputValue(), 'Core', 'the team survives a reload');
 
   // ---------- US2-4, US2-5: a value gone from its own project is dropped ----------
   await open('a', { a: { sprint: 'S11', team: 'Gone', assignee: '__unassigned__' } });
@@ -189,7 +196,7 @@ try {
     const filters = JSON.parse(localStorage.getItem('sectile_filters_a') || '{}');
     return filters.sprint === null && filters.team === null;
   });
-  assert.equal(await sprintInput().inputValue(), '', 'a closed sprint is dropped');
+  assert.equal(await (await sprintInput()).inputValue(), '', 'a closed sprint is dropped');
   assert.equal((await stored('a')).assignee, '__unassigned__', 'unassigned is never dropped');
   assert.deepEqual(await titles(), ['Alpha nobody']);
 

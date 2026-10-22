@@ -71,13 +71,18 @@ try {
  await page.getByText('2026-Q3-06 PE',{exact:true}).click()
  await page.waitForFunction(()=>ctx.sprintFilter==='2026-Q3-06 PE')
  assert.equal(await page.getByText('Personne',{exact:true}).count(),1,'picking a sprint keeps the panel open')
- await page.getByRole('button',{name:/In Progress/}).click()
+ await page.getByRole('menuitemcheckbox',{name:/In Progress/}).click()
  await page.waitForFunction(()=>ctx.trackerStatusFilters.join()==='In Progress')
  assert.equal((await filters.innerText()).replace(/\s+/g,' '),'Filtres 2','the button counts the two narrowing dimensions')
  if(process.env.SCREENSHOT_DIR)await page.screenshot({path:process.env.SCREENSHOT_DIR+'/panel-open.png'})
 
+ // Each narrowing value shows as a chip next to the toolbar (#866).
+ const chips=page.getByRole('group',{name:'Filtres actifs'})
+ assert.deepEqual((await chips.getByRole('button').allInnerTexts()).map(s=>s.trim()),['2026-Q3-06 PE','In Progress','Tout effacer'],'one chip per active value, then clear all')
+
  await page.getByRole('button',{name:'Réinitialiser'}).click()
  await page.waitForFunction(()=>ctx.sprintFilter===null&&ctx.trackerStatusFilters.length===0)
+ await chips.waitFor({state:'detached'})
  await page.keyboard.press('Escape')
  await page.getByText('Personne',{exact:true}).waitFor({state:'detached'})
  await filters.click()
@@ -85,10 +90,18 @@ try {
  await page.mouse.click(5,650)
  await page.getByText('Personne',{exact:true}).waitFor({state:'detached'})
 
+ // A chip clears its own filter; "Clear all" clears the rest of the row.
+ await page.evaluate(()=>{ctx.setSprintFilter('2026-Q3-06 PE');ctx.setTrackerStatusFilters(['In Progress','Done'])})
+ await chips.getByRole('button',{name:'Done'}).click()
+ await page.waitForFunction(()=>ctx.trackerStatusFilters.join()==='In Progress'&&ctx.sprintFilter==='2026-Q3-06 PE')
+ await chips.getByRole('button',{name:'Tout effacer'}).click()
+ await page.waitForFunction(()=>ctx.sprintFilter===null&&ctx.trackerStatusFilters.length===0)
+ await chips.waitFor({state:'detached'})
+
  await page.setViewportSize({width:1600,height:700})
  if(process.env.SCREENSHOT_DIR)await toolbar.screenshot({path:process.env.SCREENSHOT_DIR+'/toolbar-1600.png'})
  assert.deepEqual(errors,[])
- console.log('PASS: one-line toolbar, filter panel keeps open on lookup picks, counts dimensions, resets, closes on Escape and outside press')
+ console.log('PASS: one-line toolbar, filter panel keeps open on lookup picks, counts dimensions, resets, closes on Escape and outside press, chips clear one filter or all')
 } finally {
  await browser?.close()
  await server.close()
