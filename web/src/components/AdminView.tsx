@@ -7,7 +7,7 @@ import { fill, RUN_STATUSES, windowMinutes } from '../lib/adminStats'
 import { formatTime } from '../lib/i18n'
 import { UsersPanel } from './UsersPanel'
 import { ServerTrackerCredentialsPanel } from './ServerTrackerCredentialsPanel'
-import { JiraOAuthAppPanel } from './JiraOAuthAppPanel'
+import { OAuthAppPanel } from './OAuthAppPanel'
 import { TrackersPanel } from './admin/TrackersPanel'
 
 interface StatCardProps {
@@ -120,7 +120,9 @@ export const AdminView: React.FC = () => {
 
         <TrackersPanel />
         <ServerTrackerCredentialsPanel />
-        <JiraOAuthAppPanel />
+        <OAuthAppPanel tracker="jira" />
+        <OAuthAppPanel tracker="github" />
+        <OAuthAppPanel tracker="gitlab" />
       </div>
     </div>
   )

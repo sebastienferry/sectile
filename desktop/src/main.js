@@ -1,9 +1,9 @@
 import { createOrchestration } from './orchestration.mjs'
 import { orchestrationSettings } from './orchestration-settings.mjs'
-import {engineSetup,setupStartup} from './engine-setup.mjs'
 import { renderDesktopUpdates } from './desktop-updates.mjs'
 import { batchMembers, moveBatchMember, suggestedBatchWorktreeName, buildBatchPickupPrompt } from './batch-pickup.mjs'
 import { skillCommandMapping } from './skill-command-mapping.mjs'
+import { skillModelMapping } from './skill-model-mapping.mjs'
 import { installSettingsSearch } from './settings-search.mjs'
 import { prLabel, pullRequestMenuEntries, pullRequestPresentation, renderPullRequestIndicator, repositoryPullRequests } from './pullRequests.mjs'
 import { installTooltips } from './tooltips.js'
@@ -43,7 +43,7 @@ import { EDITORS, editorChoice, editorLabel } from './editors.mjs'
 import { chosenFolder, folderRoleLabel, menuFolders } from './folder-menu.mjs'
 import { PROVIDERS, DEFAULT_PROVIDER, projectFields, ownEntries, compact, parseModelList, sourceHint, describe, ipcMessage, agentUnreachable, validSkillCommand, workstationPayload } from './execution-fields.mjs'
 import { runEngine } from './run-engine.mjs'
-import { nextEngine, taskEngine, launchEngineChange, engineMark, engineTooltip, moveEngine, removalImpact, removalMessage } from './engines.mjs'
+import { nextEngine, taskEngine, launchEngineChange, engineMark, engineTooltip } from './engines.mjs'
 import { pollAction, startEnabled } from './agent-poll.mjs'
 import { runFolderOutcome, offersRunFolder } from './run-folders.mjs'
 import { offerFor, initializedNotice } from './git-init.mjs'
@@ -68,10 +68,10 @@ const DEFAULT_PARALLELISM=5
 document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div></header>
 <section id="setup" hidden><div class="setup-toolbar"><button id="setup-logs" type="button" title="View local-agent diagnostics">Agent logs</button></div><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p id="setup-intro">In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
-<form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label>
-<div id="pair-again"><button id="browser-sign-in" type="button">Sign in with your browser</button><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label></div>
-<p class="start-reason" role="alert" hidden></p><button type="submit">Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="sidebar-scroll"><section id="orchestration" aria-label="Orchestration"></section><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="worktree-folders" class="icon-button worktree-folders" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worktree-folders-menu" aria-label="Folders of this execution" title="Folders of this execution" hidden><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span><div id="worktree-folders-menu" class="folder-menu" role="menu" aria-label="Folders of this execution" hidden></div></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="selected-pr-more" class="icon-button selected-pr-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="selected-pr-menu" aria-label="Pull requests of this task" title="Pull requests of this task" hidden><span class="pr-count"></span><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div id="selected-pr-menu" class="folder-menu pr-menu" role="menu" aria-label="Pull requests of this task" hidden></div><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="edit-task" class="icon-button" type="button" aria-label="Edit task" title="Edit task" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Launch" title="Launch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop conversation" title="Stop conversation" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section><section id="task-page-pane" hidden></section></main>
+<form id="start"><div class="connect-field"><label for="server-input">Sectile server</label><div id="server-row" class="connect-row"><input id="server-input" name="server" type="url" value="http://localhost:8090" required><button id="browser-sign-in" type="button">Sign in with your browser</button></div></div>
+<div id="pair-again" class="connect-field"><label for="code-input">Pairing code</label><div id="code-row" class="connect-row"><input id="code-input" name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"><button type="submit">Connect</button></div></div>
+<p class="start-reason" role="alert" hidden></p></form></section>
+<main id="workspace" hidden><aside><div class="sidebar-scroll"><section id="orchestration" aria-label="Orchestration"></section><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="worktree-folders" class="icon-button worktree-folders" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worktree-folders-menu" aria-label="Folders of this execution" title="Folders of this execution" hidden><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span><div id="worktree-folders-menu" class="folder-menu" role="menu" aria-label="Folders of this execution" hidden></div></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="selected-pr-more" class="icon-button selected-pr-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="selected-pr-menu" aria-label="Pull requests of this task" title="Pull requests of this task" hidden><span class="pr-count"></span><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div id="selected-pr-menu" class="folder-menu pr-menu" role="menu" aria-label="Pull requests of this task" hidden></div><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="edit-task" class="icon-button" type="button" aria-label="Edit task" title="Edit task" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Launch" title="Launch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop conversation" title="Stop conversation" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="diff-review-banner" class="diff-review-banner" hidden><button type="button" class="diff-review-summary" aria-label="Review changed files" title="Review changed files"><span class="diff-review-files"></span><span class="diff-review-add"></span><span class="diff-review-del"></span><svg class="diff-review-chevron" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button><button type="button" class="diff-review-btn"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/></svg><span>Review</span></button></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section><section id="task-page-pane" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
 const sidebarFooter=document.querySelector('.sidebar-footer')
 const headerControls=document.createElement('div')
@@ -101,7 +101,7 @@ const darkScheme=window.matchMedia('(prefers-color-scheme: dark)')
 const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:TERMINAL_FONT,scrollback:20000,...terminalOptions(darkScheme.matches)})
 darkScheme.addEventListener('change',event=>{terminal.options=terminalOptions(event.matches)})
 const fit=new FitAddon();terminal.loadAddon(fit)
-let nextStepData=null,nextStepGeneration=0,nextStepUpdated=0
+let nextStepData=null,nextStepGeneration=0,nextStepUpdated=0,lastDiffChecked=0
 const submittingSteps=new Map()
 const submittedSteps=new Map()
 const nextStepErrors=new Map()
@@ -236,7 +236,7 @@ addFolderButton.onclick=async()=>{
  }catch(err){if(addFolderRun===id)addFolderStatus.textContent=ipcMessage(err)}
  finally{addFolderButton.disabled=false}
 }
-const changes=createGitDiff({api,container:document.querySelector('#changes'),terminal:document.querySelector('#terminal'),panel:document.querySelector('#execution-content'),divider:document.querySelector('#execution-divider'),consoleButton:document.querySelector('#view-console'),changesButton:document.querySelector('#view-changes'),onConsole:focus=>{resize();if(focus&&opened&&!conversation.active)terminal.focus()}})
+const changes=createGitDiff({api,container:document.querySelector('#changes'),terminal:document.querySelector('#terminal'),panel:document.querySelector('#execution-content'),divider:document.querySelector('#execution-divider'),consoleButton:document.querySelector('#view-console'),changesButton:document.querySelector('#view-changes'),banner:document.querySelector('#diff-review-banner'),onConsole:focus=>{resize();if(focus&&opened&&!conversation.active)terminal.focus()}})
 api.onOutput(data=>terminal.write(new Uint8Array(data)))
 terminal.onData(data=>{if(changes.consoleVisible&&!ticketsOpen)api.input(data)})
 function resize(){if(opened&&changes.consoleVisible&&!ticketsOpen&&!conversation.active){fit.fit();api.resize(terminal.cols,terminal.rows)}}
@@ -308,15 +308,29 @@ const connectForm=document.querySelector('#start')
 let startPending=false,agentActionPending=false,autoStartTried=false,credential={state:'missing',server:''},pairingReason='',startReason='',renderSettingsAgent=()=>{},claudeChecked=false
 // Every start control obeys one rule: clickable whenever no agent runs and nothing is in progress (#716).
 function updateStartControl(){
+ const inSettings=Boolean(connectForm.closest('#settings-panel-Connection'))
  const button=connectForm.querySelector('button[type=submit]'),stored=credential.state==='present'&&!pairingReason
  button.disabled=!startEnabled({agentConnected,restarting,pending:agentActionPending,starting:startPending})
  // Signing in through the browser starts the agent too, so it follows the same rule as the start button (#717).
  connectForm.querySelector('#browser-sign-in').disabled=button.disabled
- button.textContent=startPending?'Starting…':stored?'Start local agent':'Connect'
+ button.textContent=startPending?'Starting…':stored&&!inSettings?'Start local agent':'Connect'
  renderStartForm(stored);renderSettingsAgent()
 }
 function renderStartForm(stored){
- const pair=connectForm.querySelector('#pair-again');pair.hidden=stored&&!connectForm.closest('#settings-panel-Connection')
+ const inSettings=Boolean(connectForm.closest('#settings-panel-Connection'))
+ const pair=connectForm.querySelector('#pair-again')
+ pair.hidden=stored&&!inSettings
+ const browserBtn=connectForm.querySelector('#browser-sign-in')
+ const submitBtn=connectForm.querySelector('button[type=submit]')
+ const serverRow=connectForm.querySelector('#server-row')
+ const codeRow=connectForm.querySelector('#code-row')
+ if(stored&&!inSettings){
+  browserBtn.hidden=true
+  serverRow?.append(submitBtn)
+ }else{
+  browserBtn.hidden=false
+  codeRow?.append(submitBtn)
+ }
  document.querySelector('#setup-intro').textContent=stored?'This workstation is paired. Start the local agent to run tasks and reconnect your AI engines.':'Sign in with your browser, or, in the Sectile web interface, under your profile, choose Pair a workstation and paste the code here. A code is single use and expires within ten minutes.'
  // A refusal stays said while a sign-in after it waits or fails: the two are shown together, the refusal first (#717).
  setStartReason([pairingReason,startReason].filter(Boolean).join(' '))
@@ -339,9 +353,7 @@ function agentUnavailable(){
  openEditorAvailable=false;projectTerminalAvailable=false;renderOpenEditor()
  api.detach().catch(()=>{})
 }
-const checkEngineSetup=setupStartup(api,()=>openSettings('Profile').then(()=>document.querySelector('[data-open-engine-setup]')?.click()))
 function ready(){
- checkEngineSetup()
  agentConnected=true
  document.querySelector('#agent-offline').hidden=true
  if(!projectsLoaded){projectsLoaded=true;loadProjects().catch(()=>{projectsLoaded=false});loadEditorSetting();api.syncConsoleView().catch(()=>{});api.syncConversationMode().catch(()=>{})}
@@ -882,16 +894,19 @@ function render(options){
   const group=document.createElement('section');group.className='project-group'
 
   const projectRow=document.createElement('div');projectRow.className='project-row'
-  const heading=document.createElement('button');heading.className='project-heading';heading.textContent=(collapsedProjects.has(project.id)?'▸ ':'▾ ')+project.name;heading.setAttribute('aria-expanded',String(!collapsedProjects.has(project.id)))
-  heading.setAttribute('aria-label',heading.textContent)
-  const name=document.createElement('span');name.className='project-name';name.textContent=heading.textContent
+  const isCollapsed=collapsedProjects.has(project.id)
+  const heading=document.createElement('button');heading.className='project-heading';heading.setAttribute('aria-expanded',String(!isCollapsed))
+  heading.setAttribute('aria-label',project.name)
+  const chevron=document.createElement('span');chevron.className='project-chevron';chevron.setAttribute('aria-hidden','true')
+  chevron.innerHTML='<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>'
+  const name=document.createElement('span');name.className='project-name';name.textContent=project.name
   const capacity=document.createElement('span');capacity.className='project-capacity'
   const running=runs.filter(run=>run.projectId===project.id&&['running','preparing'].includes(run.status)).length
   const maximum=Number.isInteger(project.executionLimit)&&project.executionLimit>0?project.executionLimit:'?'
   capacity.textContent='('+running+'/'+maximum+')'
   capacity.title=running+' running / '+(maximum==='?'?'maximum unavailable':maximum+' maximum')+' · Includes preparing and stopping executions'
   capacity.setAttribute('aria-label',capacity.title)
-  heading.replaceChildren(name,capacity)
+  heading.replaceChildren(chevron,name,capacity)
   heading.onclick=()=>{selectedProject=project.id;if(collapsedProjects.has(project.id))collapsedProjects.delete(project.id);else collapsedProjects.add(project.id);localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects]));render()}
   const waitingCount=runs.filter(run=>run.projectId===project.id&&run.status==='queued'&&!run.cancelRequested).length
   const {more,menu,openAt}=projectMenu(project,waitingCount)
@@ -1076,6 +1091,7 @@ async function refresh(){
   else if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current,true,{deferrable:true})
   if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible,true,{deferrable:true})}
   if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
+  if(selected&&!changes.active&&(changed||Date.now()-lastDiffChecked>10000)){lastDiffChecked=Date.now();changes.check()}
   if(changed)loadCustomSkillSignal()
   refreshVisibleSkillResults()
  }catch{agentUnavailable()}
@@ -1494,231 +1510,121 @@ function providerOptions(select,extra){
  // A provider stored outside the list stays selectable instead of being lost.
  for(const id of extra||[])if(id&&!known.includes(id)){const opt=document.createElement('option');opt.value=id;opt.textContent=id;select.append(opt);known.push(id)}
 }
-const CLI_PRESETS=[
- {label:'AGY',provider:'agy',cmd:'agy --dangerously-skip-permissions --model {model} "{prompt}"',auto:'agy --dangerously-skip-permissions --model {model} -p "{prompt}"'},
- {label:'Claude',provider:'claude',cmd:"claude --model {model} '{prompt}'",auto:"claude -p --permission-mode bypassPermissions --model {model} '{prompt}'"},
- {label:'Codex',provider:'codex',cmd:"codex --model {model} '{prompt}'",auto:"codex exec --model {model} '{prompt}'"},
- {label:'Clear to defaults',provider:'agy',cmd:'',auto:''}
-]
-const KNOWN_COMMANDS=['',"/path/to/custom-cli {mode:-p|-i} '{prompt}'","claude --model {model} '{prompt}'",'agy --dangerously-skip-permissions --model {model} "{prompt}"',"codex --model {model} '{prompt}'"]
-const PLACEHOLDER_HELP='Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}, {addDirs} (the other folders of the task, as --add-dir options for Claude).'
-const INVALID_MODEL='Invalid model: must only contain letters, digits, and allowed punctuation (. _ - : @ /)'
-
-// A list of key/value rows (skill → model, skill → command) with its own add
-// and remove controls. `fixed` lists keys shown whether set or not.
-function entryList({keyLabel,valueLabel,addLabel,fixed,placeholder,onChange,validate}){
- const box=document.createElement('div');box.className='entry-list'
- const rows=document.createElement('div');rows.className='entry-rows'
- const add=document.createElement('button');add.type='button';add.textContent=addLabel;add.hidden=!!fixed
- box.append(rows,add)
- const entries=[]
- function addRow(key,value,locked){
-  const row=document.createElement('div');row.className='entry-row'
-  const keyInput=document.createElement('input');keyInput.type='text';keyInput.value=key||'';keyInput.setAttribute('aria-label',keyLabel);keyInput.readOnly=!!locked
-  const valueInput=document.createElement('input');valueInput.type='text';valueInput.value=value||''
-  valueInput.setAttribute('aria-label',valueLabel+(key?' '+key:''))
-  valueInput.placeholder=placeholder?.(key)||''
-  row.append(keyInput,valueInput)
-  if(!locked){
-   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove';remove.setAttribute('aria-label','Remove '+valueLabel.toLowerCase()+(key?' '+key:''))
-   remove.onclick=()=>{row.remove();entries.splice(entries.indexOf(entry),1);onChange?.()}
-   row.append(remove)
-  }
-  const entry={keyInput,valueInput}
-  const changed=()=>{
-   const bad=validate&&!validate(valueInput.value)
-   if(bad)valueInput.setAttribute('aria-invalid','true');else valueInput.removeAttribute('aria-invalid')
-   onChange?.()
-  }
-  valueInput.oninput=changed;keyInput.oninput=changed
-  entries.push(entry);rows.append(row)
-  return entry
- }
- add.onclick=()=>{addRow('','',false).keyInput.focus();onChange?.()}
- return {box,
-  set(map){
-   rows.replaceChildren();entries.length=0
-   const values=map||{}
-   for(const key of fixed||[])addRow(key,values[key]||'',true)
-   for(const [key,value] of Object.entries(values))if(!(fixed||[]).includes(key))addRow(key,value,false)
-  },
-  get(){const out={};for(const {keyInput,valueInput} of entries){const k=keyInput.value.trim(),v=valueInput.value.trim();if(k&&v)out[k]=v}return out},
-  invalid(){return entries.some(({valueInput})=>validate&&!validate(valueInput.value))},
-  refreshPlaceholders(){for(const {keyInput,valueInput} of entries)valueInput.placeholder=placeholder?.(keyInput.value.trim())||''}
- }
-}
-
 // Whether the running agent keeps an engine catalogue and a per-task engine
 // (#510). An older agent answers neither, so the desktop hides what needs them.
 async function taskEnginesAvailable(){
  try{return !!(await api.status()).capabilities?.includes('task-engines')}catch{return false}
 }
 
-// The engine catalogue (#510): each AI CLI profile of the workstation, named,
-// one of them the workstation default engine. The agent owns it; every change
-// is saved through it at once, so the list always shows what is stored.
+const SUPPORTED_ENGINES=[
+ {provider:'claude',name:'Claude',description:'Anthropic Claude Code CLI'},
+ {provider:'codex',name:'Codex',description:'OpenAI Codex CLI'},
+ {provider:'agy',name:'AntiGravity',description:'Google AntiGravity CLI'},
+]
+
+// The AI engines list: presents the supported engines (Claude, Codex, AntiGravity),
+// indicates their workstation installation status, and allows choosing the default engine.
 function enginesSection(){
  const section=document.createElement('section');section.className='engines-section'
  const heading=document.createElement('h3');heading.textContent='Engines'
  const intro=document.createElement('p');intro.className='hint'
- intro.textContent='A project runs the workstation default engine unless it picks another one; a task can be switched to any engine from the ticket list.'
+ intro.textContent='A project runs the workstation default engine unless it picks another one. Only installed engines can be selected as default.'
  const unavailable=document.createElement('p');unavailable.className='hint';unavailable.hidden=true
  const list=document.createElement('ul');list.className='engine-list';list.setAttribute('aria-label','Engines')
- const add=document.createElement('button');add.type='button';add.textContent='Add an engine'
  const notice=document.createElement('p');notice.setAttribute('role','status');notice.className='engines-notice'
- const editorBox=document.createElement('div');editorBox.className='engine-editor';editorBox.setAttribute('role','group');editorBox.setAttribute('aria-label','Engine editor');editorBox.hidden=true
- section.append(heading,intro,unavailable,list,add,editorBox,notice)
- let view=null,confirming=null
+ section.append(heading,intro,unavailable,list,notice)
+ let view=null,pending=false
  const say=(text,tone='')=>{notice.textContent=text;notice.dataset.tone=tone}
 
- // The editor: name, provider, model, per-skill models and both templates.
- const nameInput=document.createElement('input');nameInput.type='text';nameInput.className='model-input';nameInput.setAttribute('aria-label','Engine name');nameInput.maxLength=64
- const nameRow=settingRow('Name',null,nameInput)
- const providerSelect=document.createElement('select');providerSelect.className='provider-select';providerSelect.setAttribute('aria-label','AI Provider')
- providerOptions(providerSelect)
- const providerRow=settingRow('AI Provider',null,providerSelect)
- const modelInput=document.createElement('input');modelInput.type='text';modelInput.className='model-input';modelInput.setAttribute('aria-label','AI Model')
- modelInput.placeholder='Empty: use provider default model'
- const modelRow=settingRow('AI Model',null,modelInput)
- const skillModels=entryList({keyLabel:'Skill',valueLabel:'Model for skill',addLabel:'Add a skill model',validate:validateModel,onChange:()=>renderEditor()})
- const skillModelsRow=settingRow('Per-skill models',{stacked:true},skillModels.box)
- const command=document.createElement('textarea');command.className='cli-command';command.setAttribute('aria-label','Interactive CLI command')
- command.placeholder='Provider default command'
- const autonomousCommand=document.createElement('textarea');autonomousCommand.className='cli-command';autonomousCommand.setAttribute('aria-label','Autonomous CLI command')
- autonomousCommand.placeholder='Empty: the interactive command serves headless launches too'
- const previewBox=document.createElement('dl');previewBox.className='command-preview'
- const help=document.createElement('details');help.className='placeholder-help'
- const helpSummary=document.createElement('summary');helpSummary.textContent='Placeholders'
- const helpText=document.createElement('p');helpText.textContent=PLACEHOLDER_HELP
- help.append(helpSummary,helpText)
- const presetsBar=document.createElement('div');presetsBar.className='cli-presets-bar'
- for(const preset of CLI_PRESETS){
-  const button=document.createElement('button');button.type='button';button.textContent=preset.label
-  button.onclick=()=>{providerSelect.value=preset.provider;command.value=preset.cmd;autonomousCommand.value=preset.auto;renderEditor()}
-  presetsBar.append(button)
- }
- const commandRow=settingRow('Interactive CLI command',{stacked:true},command,help,presetsBar)
- const autonomousRow=settingRow('Autonomous CLI command (headless)',{stacked:true},autonomousCommand,previewBox)
- const saveEngine=document.createElement('button');saveEngine.type='button';saveEngine.className='dialog-action primary';saveEngine.textContent='Save engine'
- const cancelEngine=document.createElement('button');cancelEngine.type='button';cancelEngine.textContent='Cancel'
- const editorActions=document.createElement('div');editorActions.className='deployment-actions';editorActions.append(saveEngine,cancelEngine)
- editorBox.append(nameRow.section,providerRow.section,modelRow.section,skillModelsRow.section,commandRow.section,autonomousRow.section,editorActions)
- let editing=null
- function renderEditor(){
-  if(!validateModel(modelInput.value)){modelRow.hint.textContent=INVALID_MODEL;modelInput.setAttribute('aria-invalid','true')}
-  else{modelInput.removeAttribute('aria-invalid');modelRow.hint.textContent=modelInput.value.trim()?'':'Provider default model'}
-  skillModelsRow.hint.textContent=skillModels.invalid()?INVALID_MODEL:'A model per skill beats the AI model above.'
-  commandRow.hint.textContent='Both empty runs the provider default for each mode.'
-  autonomousRow.hint.textContent='Command template used for autonomous runs. Empty falls back to interactive command.'
-  previewBox.replaceChildren()
-  for(const line of previewLines(providerSelect.value,command.value,modelInput.value,autonomousCommand.value)){
-   const term=document.createElement('dt');term.textContent=line.label
-   const detail=document.createElement('dd');detail.textContent=line.text
-   if(!line.ok)detail.className='command-preview-error'
-   previewBox.append(term,detail)
-  }
- }
- providerSelect.onchange=()=>{
-  // A command written for another provider does not follow the switch; a
-  // preset or an empty one does.
-  if(KNOWN_COMMANDS.includes(command.value.trim())){
-   command.value=providerSelect.value==='custom'?"/path/to/custom-cli {mode:-p|-i} '{prompt}'":''
-   autonomousCommand.value=''
-  }
-  renderEditor()
- }
- for(const input of [modelInput,command,autonomousCommand])input.addEventListener('input',renderEditor)
- function openEditor(engine){
-  editing=engine||{id:'',name:'',provider:DEFAULT_PROVIDER}
-  confirming=null
-  providerOptions(providerSelect,[editing.provider])
-  nameInput.value=editing.name||'';providerSelect.value=editing.provider||DEFAULT_PROVIDER
-  modelInput.value=editing.model||'';skillModels.set(editing.skillModels||{})
-  command.value=editing.command||'';autonomousCommand.value=editing.commandAutonomous||''
-  editorBox.hidden=false;add.hidden=true;say('');renderEditor();renderList();nameInput.focus()
- }
- function closeEditor(){editing=null;editorBox.hidden=true;add.hidden=false;renderList()}
- cancelEngine.onclick=closeEditor
-
- // Each save sends the whole catalogue built from the stored one, so the
- // actions wait for the previous answer: a second click would undo the first.
- let pending=false
- async function save(catalogue,defaultId,done){
+ async function save(catalogue,defaultId){
   if(pending)return
-  pending=true;saveEngine.disabled=true;say('Saving…');renderList()
+  pending=true;say('Saving…');renderList()
   try{
    view=await api.saveEngines({catalogue,default:defaultId})
-   done?.();say(done?'Engine saved':'Engines saved')
+   say('Default engine saved')
   }catch(err){
    if(agentUnreachable(err))say('The local agent is stopped. Start it to edit engines.','error')
    else say('Not saved: '+ipcMessage(err),'error')
-  }finally{pending=false;saveEngine.disabled=false;renderList()}
+  }finally{pending=false;renderList()}
  }
- saveEngine.onclick=()=>{
-  const name=nameInput.value.trim()
-  if(!name){say('An engine needs a name','error');return}
-  if(!validateModel(modelInput.value)||skillModels.invalid()){say(INVALID_MODEL,'error');return}
-  if(providerSelect.value==='custom'&&!command.value.includes('{prompt}')){say('Custom provider requires a command template containing {prompt}','error');return}
-  const edited={...editing,name,provider:providerSelect.value,model:modelInput.value.trim(),skillModels:compact(skillModels.get()),command:command.value.trim(),commandAutonomous:autonomousCommand.value.trim()}
-  const catalogue=editing.id?view.catalogue.map(engine=>engine.id===editing.id?edited:engine):[...view.catalogue,edited]
-  save(catalogue,view.default,closeEditor)
- }
- add.onclick=()=>openEditor(null)
 
  function button(text,label,onclick,disabled){
   const b=document.createElement('button');b.type='button';b.textContent=text;b.setAttribute('aria-label',label);b.title=label
   b.disabled=!!disabled;b.onclick=onclick;return b
  }
+
  function renderList(){
   list.replaceChildren()
   if(!view)return
-  const count=view.catalogue.length
-  view.catalogue.forEach((engine,index)=>{
-   const isDefault=engine.id===view.default
-   const item=document.createElement('li');item.className='engine-item';item.dataset.engineId=engine.id
-   const mark=document.createElement('span');mark.className='engine-mark';mark.setAttribute('aria-hidden','true');mark.textContent=engineMark(engine.provider)
+  for(const def of SUPPORTED_ENGINES){
+   const existing=view.catalogue?.find(e=>e.provider===def.provider)
+   const isDefault=existing?existing.id===view.default:(view.default===def.provider)
+   const isInstalled=view.installed?view.installed[def.provider]!==false:true
+   const item=document.createElement('li');item.className='engine-item'
+   if(!isInstalled)item.classList.add('not-installed')
+   if(existing)item.dataset.engineId=existing.id
+   item.dataset.provider=def.provider
+
+   const displayName=existing?.name||def.name
+   const mark=document.createElement('span');mark.className='engine-mark';mark.setAttribute('aria-hidden','true')
+   mark.textContent=engineMark(def.provider)
+
    const text=document.createElement('span');text.className='engine-text'
-   const title=document.createElement('strong');title.textContent=engine.name
-   const detail=document.createElement('small');detail.textContent=engine.provider+' · '+(engine.model||'provider default')
+   const title=document.createElement('strong');title.textContent=displayName
+   const detail=document.createElement('small')
+   if(!isInstalled){
+    detail.className='engine-not-installed-note'
+    detail.textContent='Engine is not installed on this workstation'
+   }else{
+    detail.className='engine-installed-note'
+    detail.textContent=def.description
+   }
    text.append(title,detail)
    item.append(mark,text)
-   if(isDefault){const badge=document.createElement('span');badge.className='engine-default';badge.textContent='Default';item.append(badge)}
+
+   if(isDefault){
+    const badge=document.createElement('span');badge.className='engine-default';badge.textContent='Default'
+    item.append(badge)
+   }
+
    const actions=document.createElement('span');actions.className='engine-actions'
-   const busy=!!editing||pending
-   actions.append(
-    button('Edit','Edit '+engine.name,()=>openEditor(engine),busy),
-    button('↑','Move '+engine.name+' up',()=>save(moveEngine(view.catalogue,engine.id,-1),view.default),busy||index===0),
-    button('↓','Move '+engine.name+' down',()=>save(moveEngine(view.catalogue,engine.id,1),view.default),busy||index===count-1),
-   )
-   if(!isDefault)actions.append(button('Make default','Make '+engine.name+' the default engine',()=>save(view.catalogue,engine.id),busy))
-   // The default engine and the last one cannot go: mark another one first.
-   actions.append(button('Remove','Remove '+engine.name,()=>{confirming=engine.id;renderList()},busy||isDefault||count===1))
+   if(isInstalled&&!isDefault){
+    actions.append(button('Make default','Make '+displayName+' the default engine',()=>{
+     let catalogue=[...(view.catalogue||[])]
+     let defaultId=def.provider
+     if(existing){
+      defaultId=existing.id
+     }else{
+      catalogue.push({id:'',name:def.name,provider:def.provider})
+     }
+     save(catalogue,defaultId)
+    },pending))
+   }
    item.append(actions)
    list.append(item)
-   if(confirming===engine.id){
-    const confirm=document.createElement('li');confirm.className='engine-confirm'
-    const names=Object.fromEntries((projects||[]).map(project=>[project.id,project.name]))
-    const message=document.createElement('span');message.textContent=removalMessage(engine.name,removalImpact(view,engine.id,names))
-    confirm.append(message,
-     button('Confirm removal','Confirm the removal of '+engine.name,()=>{confirming=null;save(view.catalogue.filter(e=>e.id!==engine.id),view.default)},pending),
-     button('Cancel','Keep '+engine.name,()=>{confirming=null;renderList()}))
-    list.append(confirm)
-   }
-  })
+  }
  }
+
  async function load(){
-  editing=null;confirming=null;editorBox.hidden=true
   if(!await taskEnginesAvailable()){
-   view=null;list.replaceChildren();add.hidden=true
+   view=null;list.replaceChildren()
    unavailable.textContent='Update and restart the local agent to manage engines.';unavailable.hidden=false
    return
   }
-  unavailable.hidden=true;add.hidden=false
+  unavailable.hidden=true
   try{view=await api.engines()}
   catch(err){view=null;say('Unable to read engines: '+ipcMessage(err),'error')}
   renderList()
  }
- return {section,load,defaultProvider:()=>view?.catalogue.find(engine=>engine.id===view.default)?.provider||''}
+
+ return {
+  section,
+  load,
+  defaultProvider:()=>{
+   const defEngine=view?.catalogue?.find(engine=>engine.id===view.default)
+   return defEngine?.provider||view?.default||''
+  }
+ }
 }
 
 // The "Execution defaults" panel: the workstation level of every execution
@@ -1743,8 +1649,7 @@ function executionDefaultsPanel(panel,modelPanels){
  const modelHosts={}
  for(const [id,target] of Object.entries(modelPanels)){
   const host=document.createElement('div');host.className='provider-model-lists';host.dataset.provider=id
-  const title=document.createElement('h3');title.textContent=({agy:'Antigravity',claude:'Claude',codex:'Codex'})[id]
-  target.append(title,host);modelHosts[id]=host
+  target.append(host);modelHosts[id]=host
  }
 
  const terminal=terminalPicker(()=>{changed();render()})
@@ -1772,52 +1677,11 @@ function executionDefaultsPanel(panel,modelPanels){
  const parallelRow=settingRow('Parallel executions',{resetLabel:'Reset parallel executions to default',onReset:()=>{parallelism=0;render()}},parallelInput,parallelReadout)
 
  let setupProviders=null
- const globalCommands=skillCommandMapping({validate:validSkillCommand,onChange:changed})
- const commandsRow=settingRow('Skill command names',{stacked:true,resetLabel:'Reset skill command names to the standard ones',onReset:()=>{globalCommands.set({});changed()}},globalCommands.box)
- commandsRow.hint.textContent='Commands used for all projects on this workstation. Empty entries run the standard command.'
- // Which skill a dispatch runs (#267): a project's edited skill, or the one
- // installed on this workstation, from the direct copy or the Claude plugin.
- let customSkillsWin=null
- const customGroup=document.createElement('div');customGroup.className='segmented'
- customGroup.setAttribute('role','group');customGroup.setAttribute('aria-label','Custom project skills win')
- const customButtons=['Yes','No'].map(value=>{
-  const button=document.createElement('button');button.type='button';button.textContent=value
-  button.onclick=()=>{customSkillsWin=value==='Yes';changed();render()}
-  customGroup.append(button);return button
- })
- const customRow=settingRow('Custom project skills win',{resetLabel:'Reset custom project skills win to default',onReset:()=>{customSkillsWin=null;changed();render()}},customGroup)
- const customHelp=document.createElement('p');customHelp.className='setting-help'
- customHelp.textContent='A skill a project edited in Sectile runs instead of the one installed on this workstation.'
- const customUsedList=document.createElement('ul')
- const customUsedTitle=document.createElement('strong');customUsedTitle.textContent='Custom skills used'
- const customUsed=document.createElement('div');customUsed.className='custom-skills-notice';customUsed.setAttribute('role','note');customUsed.hidden=true
- customUsed.append(customUsedTitle,customUsedList)
- customRow.section.querySelector('.setting-text').append(customHelp,customUsed)
- let installedSkillSource=''
- const sourceSelect=document.createElement('select');sourceSelect.setAttribute('aria-label','Installed skills source')
- for(const [value,label] of [['direct','Direct copy'],['plugin','Claude plugin']]){
-  const option=document.createElement('option');option.value=value;option.textContent=label;sourceSelect.append(option)
- }
- sourceSelect.onchange=()=>{installedSkillSource=sourceSelect.value;changed();render()}
- const sourceRow=settingRow('Installed skills source',{resetLabel:'Reset installed skills source to default',onReset:()=>{installedSkillSource='';changed();render()}},sourceSelect)
- const sourceHelp=document.createElement('p');sourceHelp.className='setting-help'
- sourceHelp.textContent='Tried first when a skill is not custom; the other one is the fallback. The Claude plugin serves Claude only.'
- sourceRow.section.querySelector('.setting-text').append(sourceHelp)
- function renderCustomSkillsUsed(list){
-  customUsedList.replaceChildren()
-  for(const use of list){
-   const item=document.createElement('li')
-   const when=use.lastRun?new Date(use.lastRun).toLocaleString():''
-   item.textContent=(use.projectName||use.projectId)+' · '+use.directory+(when?' · '+when:'')
-   customUsedList.append(item)
-  }
-  customUsed.hidden=!list.length
- }
  const notice=document.createElement('p');notice.setAttribute('role','status');notice.className='workstation-notice'
  const save=document.createElement('button');save.type='button';save.className='dialog-action primary';save.textContent='Save execution defaults'
  const actions=document.createElement('div');actions.className='deployment-actions';actions.style.marginTop='16px'
  actions.append(save,notice)
- body.append(terminalRow.section,editorRow.section,worktreeRow.section,parallelRow.section,commandsRow.section,customRow.section,sourceRow.section,actions)
+ body.append(terminalRow.section,editorRow.section,worktreeRow.section,parallelRow.section,actions)
 
  function hint(row,set,defaultText,setText){row.hint.textContent=set?(setText||'Workstation default'):'Default · '+defaultText}
  function render(){
@@ -1834,19 +1698,10 @@ function executionDefaultsPanel(panel,modelPanels){
   parallelInput.value=String(limit)
   parallelReadout.textContent=limit+(limit===1?' execution':' executions')
   hint(parallelRow,parallelism!==0,DEFAULT_PARALLELISM+' executions')
-  const customWins=customSkillsWin??true
-  customButtons.forEach((button,i)=>button.setAttribute('aria-pressed',String(customWins===(i===0))))
-  hint(customRow,customSkillsWin!==null,'Yes')
-  sourceSelect.value=installedSkillSource||'direct'
-  hint(sourceRow,!!installedSkillSource,'Direct copy')
  }
 
  function fill(){
   const defaults=view.defaults||{}
-  globalCommands.set(defaults.skillCommands||{},view.skillCommands||[])
-  const globalAvailable=view.globalConfiguration===true
-  for(const input of commandsRow.section.querySelectorAll('input,button,select'))input.disabled=!globalAvailable
-  commandsRow.hint.textContent=globalAvailable?'Commands used for all projects on this workstation. Empty entries run the standard command.':'Update and restart the local agent to edit global skill command names.'
   // An agent that predates #510 names its provider directly.
   const provider=view.effective?.defaultEngine?.provider||view.effective?.aiProvider||DEFAULT_PROVIDER
   providerOptions(providerSelect,[provider])
@@ -1856,9 +1711,6 @@ function executionDefaultsPanel(panel,modelPanels){
   useWorktrees=typeof defaults.useWorktrees==='boolean'?defaults.useWorktrees:null
   parallelism=Number(defaults.parallelism)||0
   setupProviders=Array.isArray(defaults.setupProviders)?[...defaults.setupProviders]:null
-  customSkillsWin=typeof defaults.customSkillsWin==='boolean'?defaults.customSkillsWin:null
-  installedSkillSource=defaults.installedSkillSource||''
-  renderCustomSkillsUsed(Array.isArray(view.customSkillsUsed)?view.customSkillsUsed:[])
   renderCustomSkillSignal(view.customSkillsUsed)
   for(const host of Object.values(modelHosts))host.replaceChildren()
   for(const key of Object.keys(listInputs))delete listInputs[key]
@@ -1895,11 +1747,10 @@ function executionDefaultsPanel(panel,modelPanels){
  }
  function state(){
   return {
-   terminal:terminal.get(),editorCommand:editor.get(),useWorktrees,parallelism,setupProviders,customSkillsWin,installedSkillSource,...(view.globalConfiguration?{skillCommands:compact(globalCommands.get())}:{})
+   terminal:terminal.get(),editorCommand:editor.get(),useWorktrees,parallelism,setupProviders
   }
  }
  save.onclick=async()=>{
-  if(globalCommands.invalid()){notice.textContent='A skill command name is a single word, optionally led by / and by a plugin name such as sectile:.';notice.dataset.tone='error';return}
   save.disabled=true;notice.textContent='Saving…';notice.dataset.tone=''
   try{
    const current=state(),saved=JSON.stringify(current)
@@ -1934,27 +1785,233 @@ function executionDefaultsPanel(panel,modelPanels){
  return {providerSelect,load}
 }
 
+function skillsPanel(panel){
+ const unavailable=document.createElement('p');unavailable.className='execution-unavailable';unavailable.setAttribute('role','status');unavailable.hidden=true
+ const body=document.createElement('div');body.className='workstation-skills';body.hidden=true
+ let view=null,enginesView=null,selectedEngineId=''
+ const changed=()=>{notice.textContent='';notice.dataset.tone=''}
+
+ let customSkillsWin=null
+ const customGroup=document.createElement('div');customGroup.className='segmented'
+ customGroup.setAttribute('role','group');customGroup.setAttribute('aria-label','Custom project skills win')
+ const customButtons=['Yes','No'].map(value=>{
+  const button=document.createElement('button');button.type='button';button.textContent=value
+  button.onclick=()=>{customSkillsWin=value==='Yes';changed();render()}
+  customGroup.append(button);return button
+ })
+ const customRow=settingRow('Custom project skills win',{resetLabel:'Reset custom project skills win to default',onReset:()=>{customSkillsWin=null;changed();render()}},customGroup)
+ const customHelp=document.createElement('p');customHelp.className='setting-help'
+ customHelp.textContent='A skill a project edited in Sectile runs instead of the one installed on this workstation.'
+ const customUsedList=document.createElement('ul')
+ const customUsedTitle=document.createElement('strong');customUsedTitle.textContent='Custom skills used'
+ const customUsed=document.createElement('div');customUsed.className='custom-skills-notice';customUsed.setAttribute('role','note');customUsed.hidden=true
+ customUsed.append(customUsedTitle,customUsedList)
+ customRow.section.querySelector('.setting-text').append(customHelp,customUsed)
+
+ const globalCommands=skillCommandMapping({validate:validSkillCommand,onChange:changed})
+ const commandsRow=settingRow('Skill command names',{stacked:true,resetLabel:'Reset skill command names to the standard ones',onReset:()=>{globalCommands.set({});changed()}},globalCommands.box)
+ commandsRow.hint.textContent='Commands used for all projects on this workstation. Empty entries run the standard command.'
+
+ const getCurrentEngine=()=>(enginesView?.catalogue||[]).find(e=>e.id===selectedEngineId)
+
+ function syncSelectedEngineSkillModels(){
+  const engine=getCurrentEngine()
+  if(engine){
+   const models=skillModels.get()
+   engine.skillModels=Object.keys(models).length?models:undefined
+   const baseModel=skillModels.getEngineModel()
+   engine.model=baseModel||undefined
+  }
+ }
+
+ function resetCurrentEngineSkillModels(){
+  const engine=getCurrentEngine()
+  if(engine){
+   engine.skillModels=undefined
+   renderSkillModels()
+  }
+ }
+
+ const engineSelectContainer=document.createElement('div')
+ engineSelectContainer.className='skill-model-engine-selector'
+ const engineSelectLabel=document.createElement('label')
+ engineSelectLabel.textContent='AI engine:'
+ const engineSelect=document.createElement('select')
+ engineSelect.setAttribute('aria-label','AI engine for skill models')
+ engineSelect.onchange=()=>{
+  syncSelectedEngineSkillModels()
+  selectedEngineId=engineSelect.value
+  renderSkillModels()
+ }
+ engineSelectContainer.append(engineSelectLabel,engineSelect)
+
+ const skillModels=skillModelMapping({validate:validateModel,onChange:()=>{changed();syncSelectedEngineSkillModels()}})
+ const skillModelsContainer=document.createElement('div')
+ skillModelsContainer.append(engineSelectContainer,skillModels.box)
+
+ const modelsRow=settingRow('Skill models',{stacked:true,resetLabel:'Reset skill models to engine default',onReset:()=>{resetCurrentEngineSkillModels();changed()}},skillModelsContainer)
+ modelsRow.hint.textContent='AI models used for each workflow step. Empty entries inherit the engine model.'
+
+ function renderSkillModels(){
+  const engine=getCurrentEngine()
+  if(!engine){
+   skillModelsContainer.hidden=true
+   return
+  }
+  skillModelsContainer.hidden=false
+  const provider=engine.provider||''
+  const suggested=enginesView?.providerModels?.[provider]||view?.providerModels?.[provider]||[]
+  skillModels.set(engine.skillModels||{},view?.skillCommands||[],{
+   engineModel:engine.model||'',
+   suggestedModels:suggested,
+   disabled:!agentConnected
+  })
+  const hasOverrides=!!(engine.skillModels&&Object.keys(engine.skillModels).length)
+  hint(modelsRow,hasOverrides,'Inherit engine default','Custom skill models configured')
+ }
+
+ function renderCustomSkillsUsed(list){
+  customUsedList.replaceChildren()
+  for(const use of list){
+   const item=document.createElement('li')
+   const when=use.lastRun?new Date(use.lastRun).toLocaleString():''
+   item.textContent=(use.projectName||use.projectId)+' · '+use.directory+(when?' · '+when:'')
+   customUsedList.append(item)
+  }
+  customUsed.hidden=!list.length
+ }
+
+ const notice=document.createElement('p');notice.setAttribute('role','status');notice.className='workstation-notice'
+ const save=document.createElement('button');save.type='button';save.className='dialog-action primary';save.textContent='Save skills'
+ const actions=document.createElement('div');actions.className='deployment-actions';actions.style.marginTop='16px'
+ actions.append(save,notice)
+ body.append(customRow.section,commandsRow.section,modelsRow.section,actions)
+
+ function hint(row,set,defaultText,setText){row.hint.textContent=set?(setText||'Workstation default'):'Default · '+defaultText}
+ function render(){
+  const customWins=customSkillsWin??true
+  customButtons.forEach((button,i)=>button.setAttribute('aria-pressed',String(customWins===(i===0))))
+  hint(customRow,customSkillsWin!==null,'Yes')
+ }
+
+ function fill(){
+  const defaults=view.defaults||{}
+  globalCommands.set(defaults.skillCommands||{},view.skillCommands||[])
+  const globalAvailable=view.globalConfiguration===true
+  for(const input of commandsRow.section.querySelectorAll('input,button,select'))input.disabled=!globalAvailable
+  commandsRow.hint.textContent=globalAvailable?'Commands used for all projects on this workstation. Empty entries run the standard command.':'Update and restart the local agent to edit global skill command names.'
+  customSkillsWin=typeof defaults.customSkillsWin==='boolean'?defaults.customSkillsWin:null
+  renderCustomSkillsUsed(Array.isArray(view.customSkillsUsed)?view.customSkillsUsed:[])
+  renderCustomSkillSignal(view.customSkillsUsed)
+
+  const catalogue=enginesView?.catalogue||[]
+  engineSelect.replaceChildren()
+  if(catalogue.length){
+   for(const item of catalogue){
+    const option=document.createElement('option')
+    option.value=item.id
+    const isDefault=item.id===enginesView.default
+    option.textContent=item.name+(isDefault?' (Default)':'')
+    engineSelect.append(option)
+   }
+   if(!catalogue.some(item=>item.id===selectedEngineId)){
+    selectedEngineId=enginesView.default||catalogue[0]?.id||''
+   }
+   engineSelect.value=selectedEngineId
+   modelsRow.section.hidden=false
+   renderSkillModels()
+  }else{
+   modelsRow.section.hidden=true
+  }
+
+  render()
+ }
+
+ save.onclick=async()=>{
+  if(globalCommands.invalid()){notice.textContent='A skill command name is a single word, optionally led by / and by a plugin name such as sectile:.';notice.dataset.tone='error';return}
+  if(skillModels.invalid()){notice.textContent='Invalid AI model identifier. Use letters, digits and . _ - : @ /';notice.dataset.tone='error';return}
+  syncSelectedEngineSkillModels()
+  save.disabled=true;notice.textContent='Saving…';notice.dataset.tone=''
+  try{
+   const current={
+    ...view?.defaults,
+    customSkillsWin,
+    ...(view?.globalConfiguration?{skillCommands:compact(globalCommands.get())}:{})
+   }
+   const saved=JSON.stringify({customSkillsWin,commands:globalCommands.get(),engines:enginesView?.catalogue})
+   await api.saveWorkstationSettings(workstationPayload(current,view?.defaults))
+   if(enginesView?.catalogue&&enginesView.catalogue.length){
+    await api.saveEngines({catalogue:enginesView.catalogue,default:enginesView.default})
+   }
+   try{
+    const [freshWs,freshEngines]=await Promise.all([
+     api.workstationSettings(),
+     api.engines().catch(()=>null)
+    ])
+    view=freshWs
+    enginesView=freshEngines
+    if(body.isConnected&&JSON.stringify({customSkillsWin,commands:globalCommands.get(),engines:enginesView?.catalogue})===saved)fill()
+   }catch{}
+   notice.textContent='Skills saved'
+  }catch(err){notice.textContent='Not saved: '+ipcMessage(err);notice.dataset.tone='error'}
+  finally{save.disabled=false}
+ }
+
+ const STOPPED_NOTICE='Skills settings are unavailable while the local agent is stopped. Start the agent to edit them.'
+ function showUnavailable(text){unavailable.textContent=text;unavailable.hidden=false;body.hidden=true}
+ async function load(){
+  if(!agentConnected){showUnavailable(STOPPED_NOTICE);return}
+  unavailable.hidden=true
+  try{
+   const [freshWs,freshEngines]=await Promise.all([
+    api.workstationSettings(),
+    api.engines().catch(()=>null)
+   ])
+   view=freshWs
+   enginesView=freshEngines
+  }catch(err){
+   if(!body.isConnected)return
+   const text=ipcMessage(err)
+   showUnavailable(agentUnreachable(err)?STOPPED_NOTICE:/404|not found/i.test(text)?'Update and restart the local agent to edit skills settings here.':'Unable to read skills settings: '+text)
+   return
+  }
+  if(!body.isConnected)return
+  body.hidden=false;fill()
+ }
+ panel.append(unavailable,body)
+ return {load}
+}
+
 // The workstation's own settings, gathered where the project panel already puts
 // a project's: one dialog, a category per surface. The header carried three
 // unrelated controls for these; the sidebar now carries one.
+// The AI engine provider categories grouped under "AI engines".
+const AI_ENGINE_CATEGORIES=[
+ {id:'Engines',label:'AI engines',shortLabel:'Overview',icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
+ {id:'Sandbox',label:'Claude settings',shortLabel:'Claude',mark:'claude'},
+ {id:'Codex',label:'Codex settings',shortLabel:'Codex',icon:'<path fill="currentColor" stroke="none" fill-rule="evenodd" d="'+OPENAI_MARK_PATH+'"/>'},
+ {id:'Antigravity',label:'Antigravity settings',shortLabel:'Antigravity',icon:'<path fill="currentColor" stroke="none" fill-rule="evenodd" d="'+ANTIGRAVITY_MARK_PATH+'"/>'}
+]
+
 const SETTINGS_CATEGORIES=[
  {id:'Profile',label:'General',icon:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'},
+ {id:'Appearance',label:'Appearance',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor"/>'},
  {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
  {id:'AgentCli',label:'Execution defaults',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
  {id:'Engines',label:'AI engines',icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
- {id:'Sandbox',label:'Claude settings',mark:'claude'},
- {id:'Codex',label:'Codex settings',icon:'<path fill="currentColor" stroke="none" fill-rule="evenodd" d="'+OPENAI_MARK_PATH+'"/>'},
- {id:'Antigravity',label:'Antigravity settings',icon:'<path fill="currentColor" stroke="none" fill-rule="evenodd" d="'+ANTIGRAVITY_MARK_PATH+'"/>'},
+ {id:'Skills',label:'Skills',icon:'<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3Z"/>'},
  {id:'Deployment',label:'Deployment',icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
  {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'},
  {id:'Changelog',label:'Changelog',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'}
 ]
+const ALL_WORKSTATION_CATEGORIES=[
+ ...SETTINGS_CATEGORIES,
+ ...AI_ENGINE_CATEGORIES.filter(c=>!SETTINGS_CATEGORIES.some(s=>s.id===c.id))
+]
 const PROJECT_SETTINGS_CATEGORIES=[
  {id:'Remove',label:'General',saves:true,icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>'},
  {id:'General',label:'Folders',saves:true,icon:'<path d="M4 7a2 2 0 0 1 2-2h3l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>'},
- {id:'Execution',label:'Execution',saves:true,icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.4"/><circle cx="15" cy="17" r="2.4"/>'},
- {id:'Orchestration',label:'Orchestration',saves:false,icon:'<circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5M5 17v-5h14v5"/>'},
- {id:'Sandbox',label:'Claude settings',saves:true,mark:'claude'}
+ {id:'Orchestration',label:'Orchestration',saves:false,icon:'<circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5M5 17v-5h14v5"/>'}
 ]
 function configurationNavigation(tabs,projectId){
  if(projectId)expandedConfigurationProject=projectId
@@ -2000,7 +2057,11 @@ function configurationNavigation(tabs,projectId){
 // carry them.
 function workstationSandboxPanel(panel){
  const unavailable=document.createElement('p');unavailable.className='execution-unavailable';unavailable.setAttribute('role','status');unavailable.hidden=true
- const body=document.createElement('div');body.className='workstation-sandbox';body.hidden=true
+ const body=document.createElement('div');body.className='workstation-sandbox settings-section sandbox-section';body.hidden=true
+ const sectionHeader=document.createElement('div');sectionHeader.className='settings-section-header'
+ const sectionTitle=document.createElement('h3');sectionTitle.className='settings-section-title';sectionTitle.textContent='Sandbox'
+ const sectionSubtitle=document.createElement('p');sectionSubtitle.className='settings-section-subtitle';sectionSubtitle.textContent='OS-level security boundaries, network access, and tool permissions for Claude Code.'
+ sectionHeader.append(sectionTitle,sectionSubtitle)
  const notice=document.createElement('p');notice.setAttribute('role','status');notice.className='workstation-notice'
  const save=document.createElement('button');save.type='button';save.className='dialog-action primary';save.textContent='Save Claude settings'
  const actions=document.createElement('div');actions.className='deployment-actions';actions.style.marginTop='16px'
@@ -2017,7 +2078,21 @@ function workstationSandboxPanel(panel){
    .map(project=>({id:project.id,name:project.name+(hiddenProject(project.id)?' (hidden)':'')}))
   sandbox=sandboxSettings({settingRow,stored:view.claudeSandbox,platformSandbox:view.platformSandbox!==false,workstation:true})
   whitelist=whitelistEditor({settingRow,projects:added,selected:view.projects||[]})
-  body.replaceChildren(whitelist.section,...sandbox.sections,actions)
+  body.replaceChildren(
+   sectionHeader,
+   sandbox.stateRow.section,
+   whitelist.section,
+   sandbox.policyRow.section,
+   sandbox.presetsRow.section,
+   sandbox.foldersRow.section,
+   sandbox.domainsRow.section,
+   sandbox.excludedRow.section,
+   sandbox.writesRow.section,
+   sandbox.allowRow.section,
+   sandbox.denyRow.section,
+   sandbox.previewRow.section,
+   actions
+  )
   body.hidden=false
  }
  save.onclick=async()=>{
@@ -2139,7 +2214,6 @@ function deploymentPanel(panel,mcpSection){
 }
 async function openSettings(initial='Profile',project){
  if(taskPage&&!await confirmLeave())return
- if(initial==='Appearance')initial='Profile'
  showConfiguration('Configuration')
  const generation=configurationGeneration
  const layout=document.createElement('div');layout.className='settings-layout workstation-settings'
@@ -2161,6 +2235,31 @@ async function openSettings(initial='Profile',project){
   tab.onclick=()=>selectCategory(category.id)
   tabs.append(tab);content.append(panel)
  }
+ for(const cat of AI_ENGINE_CATEGORIES){
+  const subtabId = cat.id==='Engines'?'settings-subtab-Engines':'settings-tab-'+cat.id
+  if(panels[cat.id]){
+   panels[cat.id].setAttribute('aria-label',cat.label)
+   continue
+  }
+  const panel=document.createElement('section');panel.id='settings-panel-'+cat.id
+  panel.setAttribute('role','tabpanel');panel.setAttribute('aria-label',cat.label);panel.setAttribute('aria-labelledby',subtabId)
+  panels[cat.id]=panel
+  content.append(panel)
+ }
+ const engineSubnav=document.createElement('nav');engineSubnav.className='settings-subnav';engineSubnav.setAttribute('role','tablist');engineSubnav.setAttribute('aria-label','AI engines')
+ const subtabs={}
+ for(const cat of AI_ENGINE_CATEGORIES){
+  const subtab=document.createElement('button');subtab.type='button';subtab.className='settings-subtab';subtab.setAttribute('role','tab');subtab.dataset.subtab=cat.id
+  subtab.id=cat.id==='Engines'?'settings-subtab-Engines':'settings-tab-'+cat.id
+  subtab.setAttribute('aria-controls','settings-panel-'+cat.id)
+  subtab.setAttribute('aria-label',cat.label)
+  subtab.append(settingsCategoryIcon(document,cat))
+  const text=document.createElement('span');text.className='settings-subtab-label';text.textContent=cat.shortLabel||cat.label;subtab.append(text)
+  subtab.onclick=()=>selectCategory(cat.id)
+  engineSubnav.append(subtab);subtabs[cat.id]=subtab
+ }
+ pageTitle.after(engineSubnav)
+
  if(project){
   const projectLabel=document.createElement('h2');projectLabel.className='settings-group-label';projectLabel.textContent=project.name
   tabs.append(projectLabel)
@@ -2173,9 +2272,18 @@ async function openSettings(initial='Profile',project){
   }
  }
  function selectCategory(name){
-  pageTitle.textContent=SETTINGS_CATEGORIES.find(category=>category.id===name).label
+  const isEngine=AI_ENGINE_CATEGORIES.some(c=>c.id===name)
+  const effectiveCategory=isEngine?'Engines':name
+  const found=ALL_WORKSTATION_CATEGORIES.find(category=>category.id===name)
+  pageTitle.textContent=isEngine?'AI engines':found?.label||''
   for(const [key,value] of Object.entries(panels))value.hidden=key!==name
-  for(const item of tabs.children)item.setAttribute('aria-selected',String(item.dataset.category===name))
+  for(const item of tabs.children)item.setAttribute('aria-selected',String(item.dataset.category===effectiveCategory))
+  engineSubnav.hidden=!isEngine
+  if(isEngine){
+   for(const [id,btn] of Object.entries(subtabs)){
+    btn.setAttribute('aria-selected',String(id===name))
+   }
+  }
   if(name==='Logs')loadLog()
  }
 
@@ -2183,42 +2291,71 @@ async function openSettings(initial='Profile',project){
  // writes, so the profile states what this workstation knows about its account
  // and sends the rest to the web interface, which owns the profile itself.
  const account=readOnlyRow('Sectile server','The server this workstation is paired with.')
- const device=readOnlyRow('Workstation','The identifier this machine was paired under.')
- const openWeb=document.createElement('button');openWeb.type='button';openWeb.textContent='Open the web interface'
- openWeb.onclick=()=>api.openBoard().catch(error)
- const web=settingRow('Profile and API keys',null,openWeb)
- web.hint.textContent='Display name, password and API keys live in the web interface.'
- panels.Profile.append(account.section,device.section,web.section)
- const assistant=engineSetup(api,projects,category=>openSettings(category))
- const setupButton=document.createElement('button');setupButton.type='button';setupButton.textContent='Configurer un moteur IA';setupButton.dataset.openEngineSetup=''
- setupButton.onclick=()=>assistant.open()
- panels.Profile.append(settingRow('Assistant de configuration IA',null,setupButton).section,assistant.section)
+ const nameInput=document.createElement('input');nameInput.type='text';nameInput.className='model-input workstation-name-input';nameInput.maxLength=80;nameInput.placeholder='e.g. MacBook Pro, Office Desktop'
+ const nameSaveBtn=document.createElement('button');nameSaveBtn.type='button';nameSaveBtn.className='workstation-name-save';nameSaveBtn.textContent='Save'
+ const nameCheck=document.createElement('span');nameCheck.className='workstation-name-check';nameCheck.title='Workstation name synchronized'
+ nameCheck.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>'
+ nameCheck.hidden=true
+ const nameError=document.createElement('p');nameError.className='setting-notice';nameError.setAttribute('role','status');nameError.dataset.tone='error'
+ const nameRow=settingRow('Workstation name',null,nameInput,nameSaveBtn,nameCheck)
+ nameRow.hint.textContent='Custom name shown in the web interface and activity history.'
+ nameRow.hint.after(nameError)
+ let currentLabel=''
+ const saveWorkstationName=async()=>{
+  const val=nameInput.value.trim()
+  if(!val){nameInput.value=currentLabel;return}
+  nameError.textContent=''
+  nameSaveBtn.disabled=true;nameSaveBtn.textContent='Saving…'
+  try{
+   const updated=await api.saveSettings({label:val})
+   currentLabel=updated.label||val
+   nameInput.value=currentLabel
+   nameCheck.hidden=false
+  }catch(err){
+   nameCheck.hidden=true
+   nameError.textContent='Not saved: '+ipcMessage(err)
+  }finally{
+   nameSaveBtn.disabled=false;nameSaveBtn.textContent='Save'
+  }
+ }
+ nameSaveBtn.onclick=saveWorkstationName
+ nameInput.oninput=()=>{
+  nameError.textContent=''
+  nameCheck.hidden=(nameInput.value.trim()!==currentLabel)
+ }
+ nameInput.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();saveWorkstationName()}}
+ const device=readOnlyRow('Workstation ID','The identifier this machine was paired under.')
+ panels.Profile.append(account.section,nameRow.section,device.section)
 
  // Appearance: a workstation preference, applied as soon as it is pressed.
  // The main process stores it and switches the whole window; the buttons only
  // mirror what it answers.
- const appearanceGroup=document.createElement('div');appearanceGroup.className='segmented'
+ const appearanceGroup=document.createElement('div');appearanceGroup.className='segmented theme-toggle'
  appearanceGroup.setAttribute('role','group');appearanceGroup.setAttribute('aria-label','Appearance')
  const markAppearance=value=>{for(const button of appearanceGroup.children)button.setAttribute('aria-pressed',String(button.dataset.value===value))}
  for(const choice of APPEARANCE_CHOICES){
-  const button=document.createElement('button');button.type='button';button.textContent=choice.label;button.dataset.value=choice.value
+  const button=document.createElement('button');button.type='button';button.dataset.value=choice.value
+  button.setAttribute('aria-label',choice.label);button.title=choice.label
+  button.innerHTML=choice.icon
   button.onclick=()=>api.setAppearance(choice.value).then(markAppearance).catch(error)
   appearanceGroup.append(button)
  }
  const appearance=settingRow('Theme',null,appearanceGroup)
  appearance.hint.textContent='System follows the appearance of this computer. The web interface keeps its own theme.'
- panels.Profile.append(appearance.section)
- const viewGroup=document.createElement('div');viewGroup.className='segmented'
+ panels.Appearance.append(appearance.section)
+ const viewGroup=document.createElement('div');viewGroup.className='segmented theme-toggle'
  viewGroup.setAttribute('role','group');viewGroup.setAttribute('aria-label','AI consoles')
  const markView=value=>{for(const button of viewGroup.children)button.setAttribute('aria-pressed',String(button.dataset.value===value))}
  for(const choice of CONSOLE_VIEW_CHOICES){
-  const button=document.createElement('button');button.type='button';button.textContent=choice.label;button.dataset.value=choice.value
+  const button=document.createElement('button');button.type='button';button.dataset.value=choice.value
+  button.setAttribute('aria-label',choice.label);button.title=choice.label
+  button.innerHTML=choice.icon
   button.onclick=()=>api.setConsoleView(choice.value).then(value=>{consoleView=value;markView(value);showConversationMode();render()}).catch(error)
   viewGroup.append(button)
  }
  const view=settingRow('AI consoles',null,viewGroup)
  view.hint.textContent='Conversation opens Claude, Codex and Antigravity interactive launches in a structured view (experimental). Other engines keep the terminal.'
- panels.Profile.append(view.section)
+ panels.Appearance.append(view.section)
  // Claude settings holds the initial conversation permission mode. It applies
  // only in the conversation view, and only to
  // an agent that applies it, so it is disabled otherwise and says why.
@@ -2231,7 +2368,7 @@ async function openSettings(initial='Profile',project){
  const showConversationMode=()=>{
   modeSelect.disabled=!conversationModeSupported||consoleView!=='conversation'
   conversationMode.hint.textContent=!conversationModeSupported?'Update and restart the local agent to choose the mode new conversations start in.'
-   :consoleView!=='conversation'?'Applies to Claude conversations: choose Conversation in General to use it.'
+   :consoleView!=='conversation'?'Applies to Claude conversations: choose Conversation in Appearance to use it.'
    :'What Claude may do without asking in the first message of every new conversation, including the skills and prompts you launch in it. The composer changes it from the next message.'
  }
  modeSelect.onchange=()=>api.setConversationMode(modeSelect.value).then(value=>{modeSelect.value=value}).catch(error)
@@ -2251,10 +2388,13 @@ async function openSettings(initial='Profile',project){
  const engines=enginesSection()
  engines.section.querySelector('h3').remove()
  panels.Engines.append(engines.section)
- const offeredModels=document.createElement('section')
- const modelsTitle=document.createElement('h2');modelsTitle.textContent='Models offered'
- offeredModels.append(modelsTitle);panels.Engines.append(offeredModels)
- const execution=executionDefaultsPanel(panels.AgentCli,{agy:offeredModels,claude:offeredModels,codex:offeredModels})
+ const execution=executionDefaultsPanel(panels.AgentCli,{
+  agy: panels.Antigravity,
+  claude: panels.Sandbox,
+  codex: panels.Codex,
+ })
+ const skills=skillsPanel(panels.Skills)
+ skills.load().catch(()=>{})
  engines.load().catch(()=>{})
  const codexReviewer=document.createElement('select');codexReviewer.setAttribute('aria-label','Approval reviewer')
  for(const [value,label] of [['user','Ask me'],['auto_review','Approve on my behalf']]){const option=document.createElement('option');option.value=value;option.textContent=label;codexReviewer.append(option)}
@@ -2321,6 +2461,7 @@ async function openSettings(initial='Profile',project){
  const pairingNote=document.createElement('p');pairingNote.setAttribute('role','status')
  pairing.control.append(pairingNote)
  panels.Connection.append(agentState.section,link.section,pairing.section)
+ updateStartControl()
 
  fillChangelogPanel(panels.Changelog)
 
@@ -2349,9 +2490,9 @@ async function openSettings(initial='Profile',project){
  }
  reload.onclick=loadLog
 
- selectCategory(SETTINGS_CATEGORIES.some(category=>category.id===initial)?initial:'Profile')
+ selectCategory(ALL_WORKSTATION_CATEGORIES.some(category=>category.id===initial)?initial:'Profile')
  configurationNavigation(tabs)
- configurationPage.searchCleanup=installSettingsSearch({tabs,content,panels,categories:SETTINGS_CATEGORIES,selectCategory})
+ configurationPage.searchCleanup=installSettingsSearch({tabs,content,panels,categories:ALL_WORKSTATION_CATEGORIES,selectCategory})
  // The connection facts come from two sources the agent answers separately, and
  // a stopped agent still has a paired server to report: the stored settings fill
  // the panel first, the live status refines it when the agent answers.
@@ -2360,6 +2501,9 @@ async function openSettings(initial='Profile',project){
   try{stored=await api.settings()}catch{}
   if(!configurationActive()||generation!==configurationGeneration||!account.value.isConnected)return
   account.value.textContent=stored.server||'Not paired'
+  currentLabel=stored.label||''
+  nameInput.value=currentLabel
+  nameCheck.hidden=!stored.label
   device.value.textContent=stored.deviceId||'Not paired'
   renderAgentActions()
   link.control.dataset.state='off'
@@ -2373,6 +2517,7 @@ async function openSettings(initial='Profile',project){
   // connection panel reloads them, so the panel follows the agent's state.
   if(execution.providerSelect.isConnected)execution.load().catch(()=>{}).finally(()=>{if(execution.providerSelect.isConnected)mcpPanel.load()})
   if(panels.Sandbox.isConnected)workstationSandbox.load().catch(()=>{})
+  if(panels.Skills.isConnected)skills.load().catch(()=>{})
   if(!agentConnected)return
   try{
    const status=await api.status()
@@ -2424,16 +2569,14 @@ async function loadProjects(){
  }
  render()
 }
-// A control that looks the same either way says nothing: the chevron points where the next click
-// sends the panel, and the label names that click rather than the state it leaves behind.
+// The sidebar toggle button: a panel-left icon indicating the project sidebar.
 function renderSidebarToggle(hidden){
  const button=document.querySelector('#toggle-sidebar'),mac=isMacPlatform(navigator)
- const chevron=hidden?'m13 9 3 3-3 3':'m16 9-3 3 3 3'
  button.setAttribute('aria-expanded',String(!hidden))
  button.setAttribute('aria-label',hidden?'Show projects':'Hide projects')
  button.setAttribute('aria-keyshortcuts',sidebarShortcutAria(mac))
  button.title=(hidden?'Show projects':'Hide projects')+' ('+sidebarShortcutLabel(mac)+')'
- button.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="'+chevron+'"/></svg>'
+ button.innerHTML='<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>'
 }
 function toggleSidebar(){
  const hidden=document.querySelector('#workspace').classList.toggle('sidebar-hidden')
@@ -2769,7 +2912,7 @@ async function openProject(id,initial='Remove'){
   // not list, at a checkout the session names or in a clone the agent makes in
   // the clones folder. Off by default.
   const anyRepository=document.createElement('input');anyRepository.type='checkbox';anyRepository.id='any-repository';anyRepository.checked=!!info.anyRepository
-  const anyRepositoryLabel=document.createElement('label');anyRepositoryLabel.htmlFor=anyRepository.id
+  const anyRepositoryLabel=document.createElement('label');anyRepositoryLabel.htmlFor=anyRepository.id;anyRepositoryLabel.className='spec-same-repository'
   anyRepositoryLabel.append(anyRepository,document.createTextNode(' Let tasks change any repository'))
   const clonesPath=document.createElement('input');clonesPath.value=info.clonesPath||'';clonesPath.setAttribute('aria-label','Clones folder')
   clonesPath.placeholder=info.clonesDefault||'Folder the agent clones repositories into'
@@ -2779,11 +2922,13 @@ async function openProject(id,initial='Remove'){
   const anyRepositoryRow=settingRow('Any repository',{stacked:true},anyRepositoryLabel,clonesPicker)
   const renderAnyRepository=()=>{
    clonesPicker.hidden=!anyRepository.checked
+   foldersRow.section.hidden=anyRepository.checked
    anyRepositoryRow.hint.textContent=anyRepository.checked
     ?'A repository no folder here holds is used at the checkout the session finds, or cloned into '+(clonesPath.value.trim()||info.clonesDefault||'the clones folder')+'. Either is remembered on this workstation.'
     :'Tasks change only the repositories listed above and the attached folders.'
   }
   anyRepository.onchange=renderAnyRepository;clonesPath.oninput=renderAnyRepository;renderAnyRepository()
+  foldersRow.hint.textContent='Folders explicitly attached to this project on this workstation.'
   // Every execution field reads {value, inherited, source} from the agent: set
   // for the project, or inherited from the workstation defaults, else the
   // provider default. The server never supplies one (#305).
@@ -2806,7 +2951,6 @@ async function openProject(id,initial='Remove'){
   const inherits=name=>fields[name].source!=='project'
 
   let useWorktrees=fields.useWorktrees.value??true,inheritWorktrees=inherits('useWorktrees')
-  let parallelism=Number(fields.parallelism.value)||DEFAULT_PARALLELISM,inheritParallelism=inherits('parallelism')
   const controls={}
   const worktreeGroup=document.createElement('div');worktreeGroup.className='segmented'
   worktreeGroup.setAttribute('role','group');worktreeGroup.setAttribute('aria-label','Worktrees')
@@ -2832,17 +2976,6 @@ async function openProject(id,initial='Remove'){
   controls.specArtifacts.buttons=specArtifactsButtons
   const specArtifactsWarning=document.createElement('p');specArtifactsWarning.className='setting-warning'
   controls.specArtifacts.hint.after(specArtifactsWarning)
-  // A magnitude between 1 and a ceiling, which a segmented control cannot show
-  // without overflowing the row once the ceiling grows. The readout states the
-  // value, so the slider needs no printed scale beneath it.
-  const parallelInput=document.createElement('input');parallelInput.type='range'
-  parallelInput.min='1';parallelInput.max=String(MAX_PARALLELISM);parallelInput.step='1'
-  parallelInput.className='slider-input';parallelInput.setAttribute('aria-label','Parallel executions')
-  parallelInput.oninput=()=>{parallelism=Number(parallelInput.value);inheritParallelism=false;update()}
-  const parallelReadout=document.createElement('span');parallelReadout.className='slider-value'
-  const resetParallelism=()=>{parallelism=Number(fields.parallelism.inherited)||parallelism;inheritParallelism=true;update()}
-  controls.parallel=settingRow('Parallel executions',{resetLabel:'Reset parallel executions to workstation default',onReset:resetParallelism},parallelInput,parallelReadout)
-  controls.parallel.input=parallelInput;controls.parallel.readout=parallelReadout
   function update(){
    controls.worktrees.buttons.forEach((button,i)=>button.setAttribute('aria-pressed',String(useWorktrees===(i===0))))
    controls.worktrees.hint.textContent=hintFor('useWorktrees',inheritWorktrees)
@@ -2851,11 +2984,6 @@ async function openProject(id,initial='Remove'){
    const tracked=info.specArtifactsTracked||0
    specArtifactsWarning.textContent=specArtifacts==='drop'&&tracked>0?'This repository already tracks '+tracked+' specification '+(tracked===1?'file':'files')+'. They stay in its history; only the next tasks\' specifications are dropped.':''
    specArtifactsWarning.hidden=!specArtifactsWarning.textContent
-   const effective=useWorktrees?parallelism:1
-   controls.parallel.input.disabled=!useWorktrees
-   controls.parallel.input.value=String(effective)
-   controls.parallel.readout.textContent=effective+(effective===1?' execution':' executions')
-   controls.parallel.hint.textContent=useWorktrees?hintFor('parallelism',inheritParallelism)+' · Extra executions queue locally.':'Without worktrees, executions are limited to one.'
   }
   update()
 
@@ -2864,46 +2992,6 @@ async function openProject(id,initial='Remove'){
   let setupProviders=Array.isArray(fields.setupProviders.value)?[...fields.setupProviders.value]:[],inheritSetupProviders=inherits('setupProviders')
   const resetSetup=()=>{setupProviders=[...(fields.setupProviders.inherited||[])];inheritSetupProviders=true}
 
-  // The project default engine (#510): an engine of the workstation catalogue,
-  // or the workstation default engine. Engines themselves are edited in
-  // Settings; an agent without a catalogue shows no selector.
-  const selectedProvider=info.aiProvider||DEFAULT_PROVIDER
-  let engineView=null
-  if(await taskEnginesAvailable()){try{engineView=await api.engines()}catch{}}
-  let defaultEngine=fields.defaultEngine.source==='project'?fields.defaultEngine.value||'':'',inheritDefaultEngine=inherits('defaultEngine')
-  const engineSelect=document.createElement('select');engineSelect.className='provider-select';engineSelect.setAttribute('aria-label','Default engine')
-  const engineRow=settingRow('Default engine',{resetLabel:'Reset default engine to the workstation default'},engineSelect)
-  engineRow.section.hidden=!engineView
-  const engineById=engineId=>engineView?.catalogue.find(engine=>engine.id===engineId)
-  function fillEngines(){
-   engineSelect.replaceChildren()
-   const workstation=engineById(engineView?.default)
-   const inherit=document.createElement('option');inherit.value='';inherit.textContent='Inherit the workstation default ('+(workstation?.name||'none')+')'
-   engineSelect.append(inherit)
-   for(const engine of engineView?.catalogue||[]){const option=document.createElement('option');option.value=engine.id;option.textContent=engine.name;engineSelect.append(option)}
-   engineSelect.value=inheritDefaultEngine||!engineById(defaultEngine)?'':defaultEngine
-  }
-  function updateEngine(){
-   const engine=engineById(inheritDefaultEngine?engineView?.default:defaultEngine)
-   const detail=engine?' · '+engine.provider+' · '+(engine.model||'provider default'):''
-   engineRow.hint.textContent=(inheritDefaultEngine?'Inherited from workstation':'Set for this project')+detail
-  }
-  const resetEngine=()=>{defaultEngine='';inheritDefaultEngine=true;engineSelect.value='';updateEngine()}
-  engineRow.reset.onclick=resetEngine
-  engineSelect.onchange=()=>{defaultEngine=engineSelect.value;inheritDefaultEngine=!defaultEngine;updateEngine()}
-  fillEngines();updateEngine()
-
-  let inheritTerminal=inherits('terminal')
-  const terminal=terminalPicker(()=>{inheritTerminal=false;updateTerminal()})
-  terminal.set(fields.terminal.value||'')
-  const terminalRow=settingRow('Terminal emulator',{resetLabel:'Reset terminal emulator to workstation default'},terminal.select,terminal.custom)
-  const terminalReset=terminalRow.reset,terminalHint=terminalRow.hint
-  function updateTerminal(){
-    terminalHint.textContent=hintFor('terminal',inheritTerminal,'Auto-detect')
-  }
-  const resetTerminal=()=>{terminal.set(fields.terminal.inherited||'');inheritTerminal=true;updateTerminal()}
-  terminalReset.onclick=resetTerminal
-  updateTerminal()
   // After a save, the agent's answer is the reference: sources and inherited
   // values are read again, and inherited fields take the value they inherit
   // now. A refresh keeps the dialog's own edits: only the fields still
@@ -2913,30 +3001,144 @@ async function openProject(id,initial='Remove'){
    if(!keepEdits){
     inheritSpecArtifacts=!fresh.specArtifactsOverride
     specArtifacts=fresh.specArtifacts==='drop'?'drop':'keep'
-    inheritWorktrees=inherits('useWorktrees');inheritParallelism=inherits('parallelism');inheritSetupProviders=inherits('setupProviders')
-    inheritDefaultEngine=inherits('defaultEngine');defaultEngine=inheritDefaultEngine?'':fields.defaultEngine.value||''
-    inheritTerminal=inherits('terminal')
+    inheritWorktrees=inherits('useWorktrees');inheritSetupProviders=inherits('setupProviders')
    }
    if(inheritWorktrees)resetWorktrees()
-   if(inheritParallelism)resetParallelism()
    if(inheritSetupProviders)resetSetup()
-   if(inheritTerminal)resetTerminal()
-   fillEngines()
-   update();updateEngine();updateTerminal()
+   update()
   }
 
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  panels.General.append(repository.section,macroSpec.row.section,issueSpec.row.section,repositoriesRow.section,foldersRow.section,anyRepositoryRow.section)
-  panels.Execution.append(controls.worktrees.section,controls.specArtifacts.section,controls.parallel.section,terminalRow.section)
-  // What the project's Claude Code sessions are allowed (#700). An agent that
-  // predates it sends no values, and the save sends none back.
-  // The workstation values it inherits come with it (#730); an agent that
-  // predates them sends none, and the project then shows only its own.
-  const sandbox=sandboxSettings({settingRow,stored:info.claudeSandbox,platformSandbox:info.platformSandbox!==false,settingsPath:info.claudeSettingsPath,project:info,
-   inherited:info.claudeSandboxGlobal||null,covered:info.claudeSandboxCovered!==false,
-   onPromote:'claudeSandboxCovered' in info?rule=>api.promoteSandboxRule(id,rule):null})
-  panels.Sandbox.append(...sandbox.sections)
-  panels.Remove.append(engineRow.section)
+  panels.General.append(repository.section,macroSpec.row.section,issueSpec.row.section,repositoriesRow.section,anyRepositoryRow.section,foldersRow.section)
+
+  const gitRemoteInput=document.createElement('input');gitRemoteInput.type='text';gitRemoteInput.value=config.gitRemoteUrl||''
+  gitRemoteInput.placeholder='https://github.com/owner/repository.git';gitRemoteInput.setAttribute('aria-label','Git remote URL')
+  const gitRemoteRow=settingRow('Git remote URL',{stacked:true},gitRemoteInput)
+  gitRemoteRow.hint.remove()
+
+  const specFrameworkSelect=document.createElement('select');specFrameworkSelect.setAttribute('aria-label','SDD framework')
+  const frameworkOptions=[
+   {id:'',label:'Not configured'},
+   {id:'speckit',label:'Spec Kit (speckit)'},
+   {id:'openspec',label:'OpenSpec (openspec)'}
+  ]
+  for(const opt of frameworkOptions){
+   const option=document.createElement('option');option.value=opt.id;option.textContent=opt.label
+   specFrameworkSelect.append(option)
+  }
+  specFrameworkSelect.value=config.specFramework||''
+
+  const setupBtn=document.createElement('button');setupBtn.type='button';setupBtn.textContent='Setup'
+  setupBtn.setAttribute('aria-label','Setup project locally')
+  const statusBadge=document.createElement('span');statusBadge.className='sdd-status-badge';statusBadge.setAttribute('role','status')
+  const setupControl=document.createElement('div');setupControl.className='sdd-control-group'
+  setupControl.append(specFrameworkSelect,setupBtn,statusBadge)
+
+  const specFrameworkRow=settingRow('SDD framework',{},setupControl)
+  specFrameworkRow.hint.textContent='Specification-Driven Development framework used by skills for this project.'
+
+  const confirmBox=document.createElement('div');confirmBox.className='sdd-confirm-box';confirmBox.hidden=true;confirmBox.setAttribute('role','alert')
+  const setupStatus=document.createElement('span');setupStatus.className='setup-status';setupStatus.setAttribute('role','status')
+  specFrameworkRow.section.append(confirmBox,setupStatus)
+
+  function updateFrameworkStatus(){
+   confirmBox.hidden=true
+   const chosen=specFrameworkSelect.value
+   if(!chosen){
+    setupBtn.disabled=true
+    statusBadge.hidden=true
+    statusBadge.textContent=''
+    statusBadge.className='sdd-status-badge'
+    return
+   }
+   setupBtn.disabled=false
+   const targetPath=path.value.trim()||info.path||''
+   const installed=!!info.specFrameworkStatuses?.[chosen]?.initialized
+   statusBadge.hidden=false
+   if(installed){
+    statusBadge.className='sdd-status-badge installed'
+    statusBadge.textContent='Installed'
+    statusBadge.title=chosen+' is already installed in '+(targetPath||'the local repository')
+   }else{
+    statusBadge.className='sdd-status-badge not-installed'
+    statusBadge.textContent='Not installed'
+    statusBadge.title=chosen+' is not yet installed in '+(targetPath||'the local repository')
+   }
+  }
+  specFrameworkSelect.onchange=updateFrameworkStatus
+
+  async function performSetup(chosenFramework,frameworkLabel){
+   setupBtn.disabled=true;setupStatus.textContent='Setting up project locally…'
+   try{
+    if(chosenFramework!==(config.specFramework||'')){
+     if(api.updateProject){
+      await api.updateProject(id,{specFramework:chosenFramework})
+      config.specFramework=chosenFramework
+     }
+    }
+    const result=await api.deployProject(id,'framework')
+    if(!info.specFrameworkStatuses)info.specFrameworkStatuses={}
+    info.specFrameworkStatuses[chosenFramework]={...(info.specFrameworkStatuses[chosenFramework]||{}),initialized:true}
+    updateFrameworkStatus()
+    setupStatus.textContent=result?.message||frameworkLabel+' installed in local repository.'
+   }catch(err){
+    setupStatus.textContent='Setup failed: '+ipcMessage(err)
+   }finally{
+    setupBtn.disabled=false
+   }
+  }
+
+  setupBtn.onclick=()=>{
+   setupStatus.textContent=''
+   if(!info.configured&&!path.value.trim()){
+    setupStatus.textContent='Configure the local repository in Folders first.'
+    return
+   }
+   const chosenFramework=specFrameworkSelect.value
+   if(!chosenFramework){
+    setupStatus.textContent='Select an SDD framework above first.'
+    return
+   }
+   const targetPath=path.value.trim()||info.path||'the local repository'
+   const frameworkLabel=chosenFramework==='openspec'?'OpenSpec':'Spec Kit'
+   const installed=!!info.specFrameworkStatuses?.[chosenFramework]?.initialized
+
+   confirmBox.hidden=false
+   confirmBox.replaceChildren()
+   const msg=document.createElement('p')
+   const actions=document.createElement('div');actions.className='sdd-confirm-actions'
+   const cancelBtn=document.createElement('button');cancelBtn.type='button';cancelBtn.textContent='Cancel'
+   cancelBtn.onclick=()=>{confirmBox.hidden=true}
+
+   if(installed){
+    confirmBox.className='sdd-confirm-box warning'
+    msg.textContent='⚠️ '+frameworkLabel+' is already installed in '+targetPath+'. Re-running setup will re-scaffold files and may overwrite existing configuration. Do you want to proceed?'
+    const proceedBtn=document.createElement('button');proceedBtn.type='button';proceedBtn.className='warning-action';proceedBtn.textContent='Proceed with setup'
+    proceedBtn.onclick=()=>{confirmBox.hidden=true;performSetup(chosenFramework,frameworkLabel)}
+    actions.append(proceedBtn,cancelBtn)
+   }else{
+    confirmBox.className='sdd-confirm-box info'
+    msg.textContent='Install and scaffold '+frameworkLabel+' ('+chosenFramework+') in '+targetPath+'?'
+    const proceedBtn=document.createElement('button');proceedBtn.type='button';proceedBtn.className='primary-action';proceedBtn.textContent='Confirm & Install'
+    proceedBtn.onclick=()=>{confirmBox.hidden=true;performSetup(chosenFramework,frameworkLabel)}
+    actions.append(proceedBtn,cancelBtn)
+   }
+   confirmBox.append(msg,actions)
+  }
+
+  updateFrameworkStatus()
+
+  const serverSection=document.createElement('div')
+  serverSection.append(gitRemoteRow.section,specFrameworkRow.section)
+  panels.Remove.append(serverSection,controls.worktrees.section,controls.specArtifacts.section)
+
+  function renderServer(){
+   gitRemoteInput.value=config.gitRemoteUrl||''
+   specFrameworkSelect.value=config.specFramework||''
+   updateFrameworkStatus()
+  }
+  renderServer()
+
   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop';remove.className='remove-project'
   remove.onclick=()=>requestRemoveProject(id,config.projectName)
   const removalNote=document.createElement('p');removalNote.textContent='Remove this project from this workstation. The project remains on the Sectile server.'
@@ -2954,13 +3156,21 @@ async function openProject(id,initial='Remove'){
    event.preventDefault()
    save.disabled=true
    try{
+    const newRemote=gitRemoteInput.value.trim()
+    const newFramework=specFrameworkSelect.value
+    if((newRemote!==(config.gitRemoteUrl||'')||newFramework!==(config.specFramework||''))&&api.updateProject){
+     try{
+      await api.updateProject(id,{gitRemoteUrl:newRemote,specFramework:newFramework})
+      config.gitRemoteUrl=newRemote
+      config.specFramework=newFramework
+     }catch(err){
+      notice.textContent='Server project update error: '+ipcMessage(err)
+     }
+    }
     await api.mapProject({projectId:id,path:path.value,specPath:macroSpec.input.value.trim(),issueSpecPath:issueSpec.input.value.trim(),
      anyRepository:anyRepository.checked,clonesPath:clonesPath.value.trim(),
-     useWorktrees,inheritWorktrees,specArtifacts,inheritSpecArtifacts,parallelism,inheritParallelism,
-     ...(engineView?{defaultEngine,inheritDefaultEngine}:{}),
-     terminal:terminal.get(),inheritTerminal,
-     setupProviders:[...setupProviders],inheritSetupProviders,
-     ...(info.claudeSandbox?{claudeSandbox:sandbox.payload(),claudeSandboxBase:sandbox.base()}:{})})
+     useWorktrees,inheritWorktrees,specArtifacts,inheritSpecArtifacts,
+     setupProviders:[...setupProviders],inheritSetupProviders})
     // Each repository folder is checked against its origin by the agent, so
     // a wrong folder is refused by name rather than saved. The settings above
     // are saved by then, which the notice says rather than hiding it.
@@ -2975,19 +3185,10 @@ async function openProject(id,initial='Remove'){
     notice.textContent=refused.length?'Local configuration saved, except the folder of '+refused.join('; '):'Local configuration saved'
     // The agent normalised the folder and detected its kind: show what it
     // stored, not what was typed.
-    try{const fresh=await api.project(id);for(const spec of specRows){info[spec.field]=fresh[spec.field]||'';spec.input.value=info[spec.field]};renderSpecs(fresh);applyFields(fresh);if(fresh.claudeSandbox)sandbox.set(fresh.claudeSandbox,fresh.claudeSandboxGlobal||null,fresh.claudeSandboxCovered!==false)}catch(err){error(err)}
+    try{const fresh=await api.project(id);for(const spec of specRows){info[spec.field]=fresh[spec.field]||'';spec.input.value=info[spec.field]};renderSpecs(fresh);applyFields(fresh)}catch(err){error(err)}
     await loadProjects()
    }catch(err){notice.textContent=err.message}finally{save.disabled=false}
   }
-  const metadata=document.createElement('div');panels.Remove.prepend(metadata)
-  function renderServer(){
-   metadata.replaceChildren()
-   for(const [label,value] of [['Git remote',config.gitRemoteUrl||'Not configured'],['SDD framework',config.specFramework||'Not configured']]){
-    const row=readOnlyRow(label,'Managed on the Sectile server')
-    row.value.textContent=value;metadata.append(row.section)
-   }
-  }
-  renderServer()
   const reload=document.createElement('button');reload.type='button';reload.textContent='Refresh from server';reload.className='dialog-action refresh-project'
   dialogFooter.append(reload);syncDialogFooter()
   reload.onclick=async()=>{
@@ -3916,7 +4117,7 @@ sidebarHandle.onpointermove=event=>{if(sidebarHandle.hasPointerCapture(event.poi
 sidebarHandle.onpointerup=event=>{sidebarHandle.releasePointerCapture(event.pointerId);document.body.classList.remove('resizing-sidebar')}
 sidebarHandle.onlostpointercapture=()=>document.body.classList.remove('resizing-sidebar')
 sidebarHandle.onkeydown=event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();sidebarWidth(document.querySelector('aside').getBoundingClientRect().width+(event.key==='ArrowRight'?20:-20))}}
-document.querySelector('#toggle-sidebar').innerHTML='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16m7-12-4 4 4 4"/></svg>'
+document.querySelector('#toggle-sidebar').innerHTML='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>'
 
 // The palette searches, in one list, the desktop's actions, the projects and
 // the executions: a few keys reach anything the sidebar shows. Actions are a

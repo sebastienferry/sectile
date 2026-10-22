@@ -47,7 +47,7 @@ async function boardApp(t,{capabilities=['stage-move'],board,tasks:initialTasks}
  t.after(async()=>{await app.close();await new Promise(resolve=>server.close(resolve))})
  await app.evaluate(({shell})=>{globalThis.opened=[];shell.openExternal=async url=>{globalThis.opened.push(url)}})
  const page=await app.firstWindow();page.setDefaultTimeout(7000)
- await page.getByRole('button',{name:'▾ Project A',exact:true}).waitFor()
+ await page.getByRole('button',{name:'Project A',exact:true}).waitFor()
  const projectActions=name=>page.getByRole('button',{name:'Actions for Project '+name,exact:true})
  const openBoard=async(name='A')=>{
   await projectActions(name).click()
@@ -112,7 +112,7 @@ test('the palette asks which project when none is selected',async t=>{
  await page.getByRole('combobox',{name:'Search commands'}).fill('board')
  await page.locator('.palette-option',{hasText:'Project board'}).click()
  await page.getByText('Choose the project whose board you want to see.',{exact:true}).waitFor()
- await page.getByRole('button',{name:'Project B',exact:true}).click()
+  await page.locator('#dialog-body').getByRole('button',{name:'Project B',exact:true}).click()
  await expect(page.getByRole('heading',{name:'Board · Project B',exact:true})).toBeVisible()
  await expect(page.getByText('This project has no tasks.',{exact:true})).toBeVisible()
  await expect(page.locator('.board-column')).toHaveCount(5)

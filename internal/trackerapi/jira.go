@@ -43,26 +43,20 @@ func NewJiraAdapter(client *Client) *JiraAdapter {
 	}
 }
 
-// forProject is the client carrying the credentials of one call: the tracker's,
-// or the acting user's own when the context names one and they stored a token.
-// A Jira write is attributed to the account its token belongs to, which is why
-// this is resolved per call rather than once per tracker.
+// forProject is the client of one read: the acting user's own credential when
+// the context names one and they stored it, the tracker's server credential
+// otherwise, as on GitHub and GitLab (ADR 0059). A read attributes nothing, so
+// a person who stored nothing still sees the tracker; a credential they sealed
+// and did not unlock refuses the read rather than answer under another
+// account. Writes go through forWrite, which has no such fallback.
 func (j *JiraAdapter) forProject(ctx context.Context, t *models.Tracker) (*Client, error) {
 	// Half the write side takes a key and nothing else, so those calls pass no
 	// tracker and read it from the context instead. Resolving with no tracker
 	// at all ignored its own site: the sync reached one instance and every
 	// sprint move, team write and assignment reached another.
-	user := tracker.ActingUser(ctx)
-	client, personal, err := j.client.ForActingUser(user, "jira", trackerIDOf(trackerOf(ctx, t)))
+	client, _, err := j.client.ForActingUser(tracker.ActingUser(ctx), "jira", trackerIDOf(trackerOf(ctx, t)))
 	if err != nil {
 		return nil, err
-	}
-	// Jira attributes a write to the account behind the token. So an operation
-	// somebody asked for either carries their own token or does not happen:
-	// writing under the server account would put a name on it that nobody
-	// chose. Unattended work names nobody and keeps the server credential.
-	if user != "" && !personal {
-		return nil, &MissingPersonalCredentialError{Tracker: "jira"}
 	}
 	return client, nil
 }

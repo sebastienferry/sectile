@@ -28,7 +28,7 @@ test('the command palette opens the Add project dialog of the sidebar',async()=>
   const added=page.getByRole('button',{name:'Project A · Already added',exact:true})
   const available=page.getByRole('button',{name:'Project B',exact:true})
   const close=()=>page.getByRole('button',{name:'Close',exact:true}).click()
-  await page.getByRole('button',{name:'▾ Project A',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Project A',exact:true}).waitFor()
 
   // The action is listed after Tasks list and filtered like the others.
   await page.keyboard.press('Control+k')

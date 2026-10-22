@@ -6,13 +6,14 @@ Sectile brings tracker tickets, coding agents, local worktrees, and pull request
 
 1. [Connect to the web interface](#connect-to-the-web-interface)
 2. [Set up a personal Jira token](#set-up-a-personal-jira-token)
-3. [Use an existing project](#use-an-existing-project)
-4. [Add a new project](#add-a-new-project)
-5. [Pair and set up your workstation](#pair-and-set-up-your-workstation)
-6. [Configure the project in Desktop](#configure-the-project-in-desktop)
-7. [Use a prompt in Claude Code](#use-a-prompt-in-claude-code)
-8. [Run the full workflow autonomously](#run-the-full-workflow-autonomously)
-9. [Follow work in Desktop](#follow-work-in-desktop)
+3. [Connect GitHub and GitLab](#connect-github-and-gitlab)
+4. [Use an existing project](#use-an-existing-project)
+5. [Add a new project](#add-a-new-project)
+6. [Pair and set up your workstation](#pair-and-set-up-your-workstation)
+7. [Configure the project in Desktop](#configure-the-project-in-desktop)
+8. [Use a prompt in Claude Code](#use-a-prompt-in-claude-code)
+9. [Run the full workflow autonomously](#run-the-full-workflow-autonomously)
+10. [Follow work in Desktop](#follow-work-in-desktop)
 
 ## Connect to the web interface
 
@@ -56,6 +57,56 @@ A sealed and locked personal token cannot authorize your task writes. A Jira con
 
 Clearing the configuration brings back the API token form; existing connections stay stored but can no longer renew.
 
+## Connect GitHub and GitLab
+
+A GitHub or GitLab project also needs your own access for actions attributed to you, set in the same **Profile → Tracker credentials** (*Profil → Identifiants Trackers*) area. When your administrator configured the connection, you connect your account with one consent screen instead of creating and pasting a personal token.
+
+Your own access, whether a connection or a token and on every tracker, Jira included, signs everything you do: through the web, the desktop app or an agent working for you during a skill run, whether you create, edit, comment, move a card, change a stage, edit a macro or a sprint. What Sectile reads for you uses your access too, and the deployment's server credential when you have none. Only the background synchronisation uses the server credential on its own (ADR 0059).
+
+### Connect GitHub
+
+When the GitHub connection is configured and one of the deployment's trackers is on github.com, the **GitHub** entry offers **Connect GitHub** (*Connecter GitHub*):
+
+1. Select **Connect GitHub**. Your browser goes to GitHub's authorisation screen, which lists what Sectile asks to do: access to your repositories (`repo`) and read access to your projects (`read:project`).
+2. Authorise the app. You land back on **Profile → Tracker credentials**, which shows **Connected to GitHub as** (*Connecté à GitHub en tant que*) your GitHub login.
+
+The connection does not expire: a change you made keeps going out under your account if it is still queued after you leave, with no passphrase to unlock. Connecting replaces a GitHub token you had stored.
+
+If your organisation restricts OAuth app access and has not approved Sectile, its private repositories stay invisible to your connection: ask an organisation owner to approve the app. If you revoke Sectile in your GitHub settings, the next write is refused, the entry says the connection was lost and offers **Reconnect GitHub** (*Reconnecter GitHub*). **Disconnect** (*Déconnecter*) forgets the connection in Sectile and also revokes it on GitHub.
+
+### Connect GitLab
+
+When the GitLab connection is configured and one of the deployment's trackers is on gitlab.com, the **GitLab** entry offers **Connect GitLab** (*Connecter GitLab*):
+
+1. Select **Connect GitLab**. Your browser goes to gitlab.com's authorisation screen, which asks for the `api` scope.
+2. Authorise the application. You land back on **Profile → Tracker credentials**, which shows **Connected to GitLab as** (*Connecté à GitLab en tant que*) your GitLab username.
+
+Sectile renews the connection in the background, so a change you made keeps going out under your account if it is still queued after you leave. Connecting replaces a GitLab token you had stored. If you revoke the application on gitlab.com, the next renewal fails and the entry says the connection was lost and offers **Reconnect GitLab** (*Reconnecter GitLab*); your GitLab writes are refused until you reconnect. **Disconnect** forgets the connection in Sectile and also revokes it on gitlab.com.
+
+### Use a token instead
+
+The connections cover github.com and gitlab.com only. For GitHub Enterprise or a self-hosted GitLab instance, or whenever you prefer a token, select **Use a token instead** (*Utiliser un jeton à la place*), then enter the site URL and a personal access token, select **Verify** (*Vérifier*) and **Save** (*Enregistrer*). Saving a token replaces the connection and revokes it on the forge. Since Sectile keeps one credential per forge, connecting GitLab also replaces the token a self-hosted GitLab tracker needs: its writes are then refused with a hint to use a token for that site, until you switch back.
+
+### Configure the GitHub and GitLab connections (administrators)
+
+The examples below use `https://sectile.internal.eqtv.dev` as the server's public URL; use your own.
+
+**GitHub.**
+
+1. Under the GitHub organisation that owns the repositories, open **Settings → Developer settings → OAuth Apps** and register a new **OAuth App** (not a GitHub App). Set its authorization callback URL to `https://sectile.internal.eqtv.dev/auth/github/callback`. Sectile asks for the scopes `repo` and `read:project` at consent time; an OAuth App declares none in advance.
+2. Generate a client secret.
+3. Each organisation that enforces OAuth app access restrictions must approve the app under **Organisation settings → Third-party access**, or its private repositories stay invisible to every connection.
+4. In Sectile, open **Administration → GitHub connection (OAuth App)** and save the client ID, the secret and the same callback URL, or set `SECTILE_GITHUB_OAUTH_CLIENT_ID`, `SECTILE_GITHUB_OAUTH_CLIENT_SECRET` and `SECTILE_GITHUB_OAUTH_REDIRECT_URL` on the server.
+
+**GitLab.**
+
+1. On gitlab.com, under a group's **Settings → Applications** (or **Preferences → Applications** for one owned by a user), add a confidential application with the redirect URI `https://sectile.internal.eqtv.dev/auth/gitlab/callback` and the scope `api` only.
+2. In Sectile, open **Administration → GitLab connection (gitlab.com OAuth)** and save the application ID, the secret and the same callback URL, or set `SECTILE_GITLAB_OAUTH_CLIENT_ID`, `SECTILE_GITLAB_OAUTH_CLIENT_SECRET` and `SECTILE_GITLAB_OAUTH_REDIRECT_URL` on the server.
+
+A configuration saved on the page wins over the environment, and the secret is never shown again. **Connect** is offered only while the app is configured and at least one tracker uses github.com or gitlab.com. Clearing a configuration brings back the token form; existing GitLab connections stay stored but can no longer renew.
+
+**The server credentials.** The credentials saved in **Administration → Server tracker credentials** serve the background synchronisation, and the reads made for somebody who has no access of their own. Every action a person performs uses that person's own access.
+
 ## Use an existing project
 
 1. Select the project from the sidebar's project picker. Use its board, backlog, search, or saved views to find a ticket.
@@ -98,8 +149,8 @@ Once the workstation is paired, Desktop starts the local agent with the saved ke
 ## Configure the project in Desktop
 
 1. Select **Add project** from Desktop's project sidebar, or use the project configuration view for one already shown. Choose the local Git checkout with **Choose folder…**.
-2. Open the project's **General** category to inspect its Git remote, SDD framework, and default coding engine. In **Folders**, map local repositories and, when needed, a Macro or an Issue specifications folder (where macro skills and issue skills keep their specifications) or attached folders. These paths stay on your workstation. Every execution of the project is given these folders, ticket discussions and Antigravity, Claude or Codex conversations included. A folder can also be attached without leaving a conversation, a running ticket discussion or a running **Project prompt** console, also once moved to the native terminal, from its **Add folder…** action: Claude Code sees it at once in a discussion or a console, and from the next message in a conversation. Turn on **Any repository** to let the project's tickets change a repository it does not list: the agent uses the checkout the session names, or clones the repository into the **Clones folder** (by default next to the local repository), and remembers it on this workstation. With this option on and the specifications kept away from the code repository (dropped, or in an Issue specifications folder of their own), a ticket gets no worktree in the code repository until it needs one, so a change made only in another repository needs no pull request in the code repository. In a ticket's details, **Repository** › **Other repository…** pins it to a repository typed by hand.
-3. In **Execution**, choose whether tasks use worktrees, how many executions can run, and the terminal behavior. Use workstation **Execution defaults** for settings shared by projects; project overrides can inherit those defaults.
+2. Open the project's **General** category to configure its Git remote, SDD framework, local setup, worktree preferences, and specification retention. In **Folders**, map local repositories and, when needed, a Macro or an Issue specifications folder (where macro skills and issue skills keep their specifications) or attached folders. These paths stay on your workstation. Every execution of the project is given these folders, ticket discussions and Antigravity, Claude or Codex conversations included. A folder can also be attached without leaving a conversation, a running ticket discussion or a running **Project prompt** console, also once moved to the native terminal, from its **Add folder…** action: Claude Code sees it at once in a discussion or a console, and from the next message in a conversation. Turn on **Any repository** to let the project's tickets change a repository it does not list: the agent uses the checkout the session names, or clones the repository into the **Clones folder** (by default next to the local repository), and remembers it on this workstation. With this option on and the specifications kept away from the code repository (dropped, or in an Issue specifications folder of their own), a ticket gets no worktree in the code repository until it needs one, so a change made only in another repository needs no pull request in the code repository. In a ticket's details, **Repository** › **Other repository…** pins it to a repository typed by hand.
+3. Use workstation **Execution defaults** for settings shared by projects (parallel executions, terminal emulator, default engine); project overrides in General can inherit those defaults.
 4. Select **Save local configuration**. In **Settings → Deployment**, install the project's skills and initialize its chosen SDD framework when those tools are not yet present. In **AI engines**, choose or configure the CLI you intend to run. The CLI must also be installed and signed in on the workstation.
 
 The [Desktop guide](../desktop/README.md#user-configuration-and-commands) covers the full set of controls. The browser owns shared project and tracker settings; Desktop owns this workstation's paths, engine commands, and execution preferences.
@@ -166,11 +217,11 @@ Select an execution to see its console, status, and recorded skill result. **Cha
 
 See the [Desktop guide](../desktop/README.md#use) for installation, settings, console behavior, and recovery details.
 
-Codex conversations use **Settings → Codex settings → Approval reviewer** to
+Codex conversations use **Settings → AI engines → Codex → Approval reviewer** to
 choose **Ask me** or **Approve on my behalf**, applying from the next message
 with the sandbox still active. Claude’s and Antigravity’s initial **Conversation
-permission mode** are configured in **Settings → Claude settings** and
-**Settings → Antigravity settings**.
+permission mode** are configured in **Settings → AI engines** under their respective tabs
+(**Claude** and **Antigravity**).
 
 Desktop **General** settings combine user profile information and appearance.
 Use **Search settings** to find fields across the loaded settings categories.
@@ -189,4 +240,4 @@ Use **Open board** on a project, or **Project board** in the command palette, to
 
 ### Provider model lists
 
-Configure the models offered at launch under **Settings → AI engines → Models offered**, grouped by Antigravity, Claude and Codex. Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.
+Configure the models offered at launch under each provider's sub-tab (**Settings → AI engines → Claude**, **Settings → AI engines → Codex**, and **Settings → AI engines → Antigravity**). Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.

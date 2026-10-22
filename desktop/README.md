@@ -14,7 +14,7 @@ Capacity is project-wide, including runs on other workstations; the agent rows a
 
 ## Experimental conversations
 
-Turn it on with **Settings → General → AI consoles → Conversation**.
+Turn it on with **Settings → Appearance → AI consoles → Conversation**.
 A **Project prompt** with Antigravity, Claude or Codex then opens in this view instead of a terminal.
 A task's interactive launches open there too, a skill such as clarify starting
 on its own command and **Discussion (no skill)** waiting for your first message,
@@ -60,7 +60,7 @@ Settings), the permission mode (**Ask before edits**, **Accept edits**, the
 default, **Auto mode** or **Plan mode**, as Claude Code's mode switch) and the effort; each
 applies from the next message.
 The mode a new Claude conversation starts in is set in
-**Settings → Claude settings → Conversation permission mode** (Accept edits unless
+**Settings → AI engines → Claude → Conversation permission mode** (Accept edits unless
 you change it). It applies to the first message of every new conversation: the
 command of a skill or a project prompt launched in the conversation view, which
 runs before you could pick anything.
@@ -116,7 +116,7 @@ app-server requests receive an explicit error and a transcript notice.
 
 Antigravity (`agy`) must already be installed and signed in. Each message runs
 `agy --input-format stream-json --output-format stream-json -p=` and resumes the
-session with `--conversation=<uuid>`. **Settings → Antigravity settings →
+session with `--conversation=<uuid>`. **Settings → AI engines → Antigravity →
 Conversation permission mode** sets the initial mode for new conversations, and
 the composer offers **Accept edits** (the default), **Ask / follow rules**,
 **Auto-approve all tools** and **Plan mode**, along with the Antigravity models
@@ -308,7 +308,7 @@ opens Configuration at General, even from an input or terminal. Pressing
 the shortcut within Configuration preserves the category and unsaved edits.
 
 The gear at the bottom of the project sidebar
-opens **Settings**, the workstation-wide panel: **General** (profile and appearance, opened first), **Agent connection**, **Execution defaults**, **AI engines**, **Deployment**,
+opens **Settings**, the workstation-wide panel: **General** (profile and server pairing, opened first), **Appearance** (theme and console view), **Agent connection**, **Execution defaults**, **AI engines**, **Skills**, **Deployment**,
 **Agent logs** and **Changelog** (installed versions and release notes, pinned
 to the bottom of the sidebar). The larger settings dialog adapts to the window. Stop and restart sit in that same footer, and
 the connection state leads it: a green dot reading **Connected**, an orange one
@@ -554,15 +554,17 @@ on the project's local repository, in the terminal set for the project.
 sidebar without touching its configuration or its executions; the project stays
 in Settings, marked hidden, where **General → Show in sidebar** brings it back,
 as does choosing it again in **Add project**. Settings list only the projects
-added to this workstation. Local worktree preferences are stored per project in
-`~/.config/sectile/settings.json`. The remote URL, the project's repositories,
-SDD selection and skill content remain server-owned and read-only. Explicit deployment buttons install
+added to this workstation. Local worktree preferences and repository scopes are stored per project in
+`~/.config/sectile/settings.json`. The Git remote URL and SDD framework selection can be edited directly
+in Project Settings (General), which syncs changes to the server, and a **Setup project locally** button
+scaffolds the SDD framework in the local repository. Execution limits and terminal emulators are configured
+workstation-wide, while projects control worktrees and specification retention. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 **Settings → General** states what this workstation knows about the
 account: the paired server and the workstation identifier. Display name,
 password and API keys stay server-owned;
 **Open the web interface** goes there.
-**Settings → General** chooses the desktop's theme: **System** (the
+**Settings → Appearance** chooses the desktop's theme: **System** (the
 default) follows the computer's light or dark appearance, **Dark** and
 **Light** force one. The choice applies at once to the whole window, the
 console included, and is kept as `appearance` in the workstation
@@ -608,10 +610,15 @@ once. Existing provider, model and command settings became engines on the
 first start of the upgraded agent, which kept a copy of the previous file
 beside it.
 
-**Settings → Execution defaults** edits the workstation level,
-including **Skill command names**, which apply to all projects. The command mapping
-shows each workflow step, its standard command and an optional custom command.
-Leaving a custom command empty uses the standard one. Initialization
+**Settings → Skills** edits the workstation level,
+including **Skill command names** and **Skill models**, which configure custom commands
+and AI model overrides per workflow step (Clarify, Specify, Implement, Adjust, etc.) across
+the workstation's AI engines. The skill models table allows selecting the target engine,
+displays the engine's default fallback model, and provides suggestions from the provider's
+offered models while accepting custom model names. Leaving a skill model empty inherits the engine's
+default model. The command mapping
+shows each workflow step and its command, where an empty field runs the standard command
+shown as a placeholder. Initialization
 without an explicit provider uses the **Default AI engine** from **AI engines**;
 Deployment explicitly selects an engine for global setup.
 Existing project command names remain active until workstation command settings
@@ -751,7 +758,7 @@ arguments with, for example, `make start ARGS="--url http://localhost:8090"`; pr
 authentication through `TOKEN`.
 
 Workstation settings open from the gear at the bottom of the project sidebar and
-use the same side navigation: **General**, **Agent connection**, **Execution defaults**, **AI engines**, **Deployment**, **Agent logs** and
+use the same side navigation: **General**, **Appearance**, **Agent connection**, **Execution defaults**, **AI engines**, **Skills**, **Deployment**, **Agent logs** and
 **Changelog**, with **General** first. **Agent connection** reports the local
 agent with Start, Stop, and Restart controls, the server link (green when connected, orange otherwise), and the connect form itself: the same form the
 connection screen shows, borrowed while the category is open and returned when
@@ -768,13 +775,11 @@ until the agent is stopped, and the panel says so.
 Project names in the configuration sidebar toggle collapsible sections. Only
 one project section is expanded at a time; global settings remain visible.
 Project configuration lists its categories in a side navigation, one panel at a
-time: **General** (Git remote, SDD framework, default engine, removal from the desktop),
-**Folders** (local repositories and specification folders), **Execution**
-(worktrees, parallel executions, terminal emulator),
-with the project's default engine picked from the workstation catalogue or
-inherited from its default. **General** opens
-first. Use **Choose folder…** to select a repository through the native directory
-dialog. Worktrees use Yes/No buttons; parallel executions use a 1 to 10 slider, 5 when nothing is set.
+time: **General** (Git remote, SDD framework, local setup, worktrees, specification
+retention, and removal from the desktop) and **Folders** (local repositories, specification
+folders, any repository, and attached folders).
+**General** opens first. Use **Choose folder…** to select a repository through the native
+directory dialog. Worktrees use Yes/No buttons; specifications retention uses Keep/Drop buttons.
 Each setting is one row: its name with the inherited value in small type on the
 left, its control on the right. Reset icons restore inheritance from the
 workstation defaults. The placeholder
@@ -1072,21 +1077,21 @@ Apply the toolchain presets for required cache paths and network domains, then s
 
 ### Conversation approval settings
 
-**Settings → Codex settings → Approval reviewer** selects **Ask me** (the default) or
+**Settings → AI engines → Codex → Approval reviewer** selects **Ask me** (the default) or
 **Approve on my behalf**. The agent stores this workstation setting and applies it
 to native Codex threads and the next message of existing conversations. Automatic
 review can approve or deny eligible requests and does not disable the sandbox.
 The user’s native Codex configuration is left untouched.
 
-Claude’s initial **Conversation permission mode** is in **Settings → Claude settings**.
+Claude’s initial **Conversation permission mode** is in **Settings → AI engines → Claude**.
 
 ### Finding settings
 
-**General** combines user profile information and appearance preferences.
+**General** states workstation and account details; **Appearance** configures the theme and console presentation.
 **Search settings** finds matching fields and descriptions across loaded workstation
 or project categories; clearing the search returns to the selected category.
 Settings use the available width and resize with the application window.
 
 ### Provider model lists
 
-Configure the models offered at launch under **Settings → AI engines → Models offered**, grouped by Antigravity, Claude and Codex. Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.
+Configure the models offered at launch under each provider's sub-tab (**Settings → AI engines → Claude**, **Settings → AI engines → Codex**, and **Settings → AI engines → Antigravity**). Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.

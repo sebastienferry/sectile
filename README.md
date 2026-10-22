@@ -21,8 +21,10 @@ It consists of three complementary components:
 ## What it does
 
 - Synchronizes work across **GitHub, GitLab, Jira, and local tasks** with
-  read/write split (server credentials for background sync; sealed personal
-  credentials for user-authored comments, labels, and status transitions).
+  credential split: every action you take, from the web, the desktop app or an
+  agent working for you, uses your own access (a sealed token, or a Jira,
+  GitHub or GitLab OAuth connection); server credentials serve the background
+  sync.
 - Guides tasks through a six-column SDD lifecycle:
   **New → Clarified → Specified → Implemented → Reviewed → Finished**
   (`clarify-issue`, `specify-issue`, `implement-issue`, `create-pr` /
@@ -212,8 +214,9 @@ default).
 Projects, trackers, and credentials can be configured directly from the web
 interface (**Project Settings** and **Administration**). Administrators can
 store sealed server-side tracker credentials for background synchronization,
-while users seal their own personal tokens in **Profile → Tracker Credentials**
-so comments, labels, and pull requests are published under their own identity.
+while users connect their accounts, or seal their own personal tokens, in
+**Profile → Tracker Credentials** so everything they do is published under
+their own identity.
 
 For headless or local development, copy the sample environment file and set only
 the values you need:

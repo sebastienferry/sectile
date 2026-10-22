@@ -220,3 +220,17 @@ func legacyResolver(resolve func(userID, tracker string) (string, string, string
 		return PersonalCredential{SiteURL: site, Email: email, Token: token}, err
 	}
 }
+
+// Unattended work with no server credential is refused with a typed error,
+// before anything leaves, so the activity can say an administrator has to set
+// it.
+func TestAMissingServerCredentialIsTyped(t *testing.T) {
+	c := &Client{GithubURL: "http://127.0.0.1:1"}
+	_, err := c.ForWrite(tracker.WithUnattended(context.Background()), "github", "p1")
+	if MissingServerCredentialTracker(err) != "github" || !strings.Contains(err.Error(), "Administration") {
+		t.Fatalf("an unattended write without a server credential: %v", err)
+	}
+	if MissingCredentialTracker(err) != "" || MissingServerCredentialTracker(errors.New("other")) != "" {
+		t.Fatal("the two refusals are told apart by type")
+	}
+}

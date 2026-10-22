@@ -2,7 +2,9 @@
 
 Status: Accepted (#654). Amended while implementing on the sites a grant
 covers, the callback URL, the scopes and the serialisation of the refresh; the
-sections below state the decision as built.
+sections below state the decision as built. A grant signs every action its owner performs and
+serves their reads first
+([ADR 0059](0059-every-action-a-user-performs-uses-their-own-tracker-credential.md)).
 
 Amends: [ADR 0014](0014-personal-tracker-credentials-are-sealed.md), its
 rejected alternative "OAuth 2.0 three-legged authorisation with Atlassian",

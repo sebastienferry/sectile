@@ -23,6 +23,8 @@ import (
 //	POST   /api/me/tracker-credentials/lock      forget the derived key
 //	DELETE /api/me/tracker-credentials/orphaned  discard a leftover, admin only
 //	POST   /api/me/tracker-credentials/jira/connect  start a Jira consent (#654)
+//	POST   /api/me/tracker-credentials/github/connect  start a GitHub consent (#804)
+//	POST   /api/me/tracker-credentials/gitlab/connect  start a GitLab consent (#804)
 //
 // The GET also reports the credentials stored under an identity no account
 // resolves, because that is the answer to "my tracker says to configure an
@@ -162,6 +164,12 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 	case action == "jira/connect" && r.Method == http.MethodPost:
 		h.connectJira(w, r, userID)
 
+	case action == "github/connect" && r.Method == http.MethodPost:
+		h.connectForge("github")(w, r, userID)
+
+	case action == "gitlab/connect" && r.Method == http.MethodPost:
+		h.connectForge("gitlab")(w, r, userID)
+
 	case action == "lock" && r.Method == http.MethodPost:
 		var req struct {
 			Tracker string `json:"tracker"`
@@ -206,6 +214,10 @@ func (h *Handler) listUserCredentials(w http.ResponseWriter, r *http.Request, us
 		sites = []string{}
 	}
 	body["jiraOAuth"] = map[string]any{"configured": h.db.JiraOAuthConfigured(), "sites": sites}
+	// Whether people can connect GitHub or GitLab through its consent screen,
+	// which is of use only with a tracker on the public instance (#804).
+	body["githubOAuth"] = map[string]any{"configured": h.forgeOAuthOffered("github")}
+	body["gitlabOAuth"] = map[string]any{"configured": h.forgeOAuthOffered("gitlab")}
 
 	// Everyone signed in is told a leftover exists and for which tracker: it is
 	// why their own access looks absent while the tracker behaves as if one was

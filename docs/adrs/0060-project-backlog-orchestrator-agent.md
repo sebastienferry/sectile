@@ -1,4 +1,4 @@
-# ADR 0058: Project Backlog Orchestrator Agent
+# ADR 0060: Project Backlog Orchestrator Agent
 
 - Status: Proposed
 - Date: 2026-10-22
@@ -12,7 +12,7 @@ However, triggering these workflows has required manual human intervention: eith
 ## Decision
 
 - **Per-Project Orchestrator Configuration**:
-  Add three project settings in the `projects` table:
+  Add three project settings in the `projects` table with migration 56, after main's forge OAuth migration 55:
   - `orchestrator_enabled` (boolean, default false): Controls whether the orchestrator agent is activated for the project.
   - `orchestrator_max_concurrent` (integer, default 1): Sets the maximum number of parallel task execution sessions running concurrently for the project.
   - `orchestrator_prompt` (text, default empty): Optional project-specific instructions and guidelines for backlog evaluation and eligibility decisions.

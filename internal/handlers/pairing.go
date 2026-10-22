@@ -206,6 +206,7 @@ func (h *Handler) HandleAgentPair(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"token":    token,
 		"deviceId": credential.ID,
+		"label":    credential.Label,
 		"userId":   credential.UserID,
 	})
 }
@@ -267,12 +268,26 @@ func (h *Handler) HandleDeviceCredentials(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusBadRequest, "Invalid API key request")
 			return
 		}
-		expires, err := h.db.RenewDeviceCredential(userID, id, payload.ttl())
-		if err != nil {
-			writeError(w, http.StatusNotFound, err.Error())
-			return
+		if strings.TrimSpace(payload.Label) != "" {
+			if err := h.db.UpdateDeviceCredentialLabel(userID, id, payload.Label); err != nil {
+				if strings.Contains(err.Error(), "not found") {
+					writeError(w, http.StatusNotFound, err.Error())
+				} else {
+					writeError(w, http.StatusBadRequest, err.Error())
+				}
+				return
+			}
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{"renewed": id, "expiresAt": expires})
+		var expires *time.Time
+		if payload.TTLDays != nil || strings.TrimSpace(payload.Label) == "" {
+			var err error
+			expires, err = h.db.RenewDeviceCredential(userID, id, payload.ttl())
+			if err != nil {
+				writeError(w, http.StatusNotFound, err.Error())
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"renewed": id, "expiresAt": expires, "label": payload.Label})
 	case http.MethodGet:
 		credentials, err := h.db.ListDeviceCredentials(userID)
 		if err != nil {

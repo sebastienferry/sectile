@@ -341,6 +341,15 @@ func writeTrackerError(w http.ResponseWriter, status int, err error) {
 			"code":    TrackerCredentialMissingCode,
 			"tracker": trackerapi.MissingCredentialTracker(err),
 		})
+	case trackerapi.MissingServerCredentialTracker(err) != "":
+		// The deployment has no server credential for unattended work (ADR
+		// 0059): nothing the caller can add, an administrator has to set it,
+		// so the server is the one not ready.
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error":   err.Error(),
+			"code":    trackerapi.ServerCredentialMissingCode,
+			"tracker": trackerapi.MissingServerCredentialTracker(err),
+		})
 	case errors.Is(err, trackerapi.ErrNoActingUser):
 		// Over REST, a write that names nobody comes from a key tied to no
 		// user: say so, rather than name an internal invariant.
@@ -2101,7 +2110,12 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 		// actually took is worth knowing: it separates a slow instance from a
 		// slow screen, which look identical from a chair.
 		started := time.Now()
-		account, err := h.db.CheckTrackerCredentials(h.actingContext(r), trackerName, req.SiteURL, req.Email, req.Token)
+		check := h.db.CheckTrackerCredentials
+		if checkOnly {
+			// The check button belongs to the personal form only (ADR 0059).
+			check = h.db.CheckPersonalTrackerCredentials
+		}
+		account, err := check(h.actingContext(r), trackerName, req.SiteURL, req.Email, req.Token)
 		log.Printf("[TrackerSetup] vérification %s en %s", trackerName, time.Since(started).Round(time.Millisecond))
 		if err != nil {
 			// Nothing is persisted on a failed check: the user configuration

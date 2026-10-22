@@ -1,9 +1,11 @@
 package db
 
 import (
+	"errors"
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"tasks/internal/models"
 )
@@ -131,6 +133,8 @@ func undoTrackerMigration(d *DB) {
 		"ALTER TABLE task_activities DROP COLUMN run_project_id",
 		"ALTER TABLE task_activities DROP COLUMN tracker_id",
 		"ALTER TABLE macros DROP COLUMN tracker_id",
+		// Migration 55 (#804), replayed with the rest after a rewind to 49.
+		"ALTER TABLE jira_oauth_flows DROP COLUMN tracker",
 	} {
 		_, _ = d.conn.Exec(statement)
 	}
@@ -639,4 +643,98 @@ func TestMigrationFortyNineRunsTwiceWithoutError(t *testing.T) {
 	}
 	defer d.Close()
 	assertTrackerSchema(t, d)
+}
+
+// Migration 55 (#804): a consent pending across the upgrade reads as Jira's,
+// and a state started for GitLab is never consumed by the Jira callback.
+func TestMigration55TagsOAuthFlowsWithTheirTracker(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "flows.db")
+	d, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("creating the database: %v", err)
+	}
+	for _, stmt := range []string{
+		"ALTER TABLE projects DROP COLUMN orchestrator_prompt",
+		"ALTER TABLE projects DROP COLUMN orchestrator_max_concurrent",
+		"ALTER TABLE projects DROP COLUMN orchestrator_enabled",
+		"ALTER TABLE jira_oauth_flows DROP COLUMN tracker",
+		"DELETE FROM schema_migrations WHERE version >= 55",
+	} {
+		if _, err := d.conn.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	now := time.Now().UTC()
+	if _, err := d.conn.Exec(`INSERT INTO jira_oauth_flows (state_hash, user_id, session_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`,
+		hashSecret("pending-state"), "usr_ada", hashSecret("session-usr_ada"), now, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+
+	reopened, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("upgrading: %v", err)
+	}
+	defer reopened.Close()
+	var tracker string
+	if err := reopened.conn.QueryRow("SELECT tracker FROM jira_oauth_flows WHERE state_hash = ?", hashSecret("pending-state")).Scan(&tracker); err != nil || tracker != "jira" {
+		t.Fatalf("a pending consent must read as Jira's: %q %v", tracker, err)
+	}
+	if err := reopened.ConsumeJiraOAuthFlow("pending-state", "usr_ada", "session-usr_ada"); err != nil {
+		t.Fatalf("the pending Jira consent must still complete: %v", err)
+	}
+
+	state, err := reopened.StartOAuthFlow("gitlab", "usr_ada", "session-usr_ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reopened.ConsumeOAuthFlow("jira", state, "usr_ada", "session-usr_ada"); !errors.Is(err, ErrJiraOAuthFlow) {
+		t.Fatalf("a GitLab state consumed as Jira's: %v", err)
+	}
+	if err := reopened.ConsumeOAuthFlow("gitlab", state, "usr_ada", "session-usr_ada"); err != nil {
+		t.Fatalf("the GitLab callback must consume its own state: %v", err)
+	}
+	if got := appliedVersions(t, reopened); !slices.Contains(got, 55) {
+		t.Errorf("applied versions = %v", got)
+	}
+}
+
+// A database written by main already carries forge OAuth migration 55.
+// Orchestration must upgrade it independently without changing that schema.
+func TestMigration56AddsOrchestrationAfterForgeOAuth(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "orchestration.db")
+	d, err := NewDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		"ALTER TABLE projects DROP COLUMN orchestrator_prompt",
+		"ALTER TABLE projects DROP COLUMN orchestrator_max_concurrent",
+		"ALTER TABLE projects DROP COLUMN orchestrator_enabled",
+		"DELETE FROM schema_migrations WHERE version >= 56",
+	} {
+		if _, err := d.conn.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d.Close()
+	upgraded, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("upgrading main's schema: %v", err)
+	}
+	defer upgraded.Close()
+	project, err := upgraded.GetProjectByID("default")
+	if err != nil || project == nil {
+		t.Fatalf("project: %+v %v", project, err)
+	}
+	if project.OrchestratorEnabled || project.OrchestratorMaxConcurrent != 1 || project.OrchestratorPrompt != "" {
+		t.Fatalf("unexpected orchestration defaults: %+v", project)
+	}
+	var trackerColumn int
+	if err := upgraded.conn.QueryRow("SELECT COUNT(*) FROM pragma_table_info('jira_oauth_flows') WHERE name = 'tracker'").Scan(&trackerColumn); err != nil || trackerColumn != 1 {
+		t.Fatalf("forge OAuth schema lost: %d %v", trackerColumn, err)
+	}
+	if !slices.Contains(appliedVersions(t, upgraded), 56) {
+		t.Fatal("orchestration migration was not recorded")
+	}
 }

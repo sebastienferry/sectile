@@ -39,7 +39,7 @@ test('the custom-instructions form and the Launch dialog carry a one-off executi
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
-  const heading=page.getByRole('button',{name:'▾ Project A',exact:true})
+  const heading=page.getByRole('button',{name:'Project A',exact:true})
   await heading.waitFor()
   await heading.hover()
   await page.getByRole('button',{name:'Actions for Project A',exact:true}).click();await page.getByRole('menuitem',{name:'Open tasks',exact:true}).click()

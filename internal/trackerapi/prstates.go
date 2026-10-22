@@ -181,7 +181,7 @@ func (c *Client) githubPullRequestStates(ctx context.Context, refs []pullRequest
 			states[ref.URL] = state
 		}
 	}
-	return err
+	return c.githubGrantRefused(err)
 }
 
 func (c *Client) gitlabPullRequestStates(ctx context.Context, refs []pullRequestReference, states map[string]string) error {

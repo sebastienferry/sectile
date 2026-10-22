@@ -116,6 +116,12 @@ type Client struct {
 	// actingUser is set on a client resolved for somebody's request, so a
 	// missing credential is reported as theirs to add rather than the server's.
 	actingUser string
+	// oauthGrant marks a GitHub or GitLab token that came from the person's
+	// OAuth grant rather than a pasted token (#804): a 401 on it says to
+	// reconnect, and on GitHub calls onUnauthorized, which marks the grant
+	// disconnected.
+	oauthGrant     bool
+	onUnauthorized func()
 	// unreadable marks the providers whose stored server credential could not
 	// be decrypted; see Credentials.
 	unreadable struct{ github, gitlab, jira bool }
@@ -124,9 +130,17 @@ type Client struct {
 // PersonalCredential is one person's own credential for one tracker: an API
 // token with its site and e-mail, or, for Jira, the gateway address and the
 // access token of an OAuth grant. All empty means they stored none.
+//
+// A GitHub or GitLab grant (#804) travels as Token with OAuth set: both
+// clients already send their token as a Bearer. OnUnauthorized, when set, is
+// called once the forge refuses that token, so the store can mark the grant
+// disconnected. Bearer is not reused for them, since it selects Jira's
+// gateway.
 type PersonalCredential struct {
 	SiteURL, Email, Token string
 	APIBase, Bearer       string
+	OAuth                 bool
+	OnUnauthorized        func()
 }
 
 // ForActingUser is For, with the acting user's own credentials substituted
@@ -139,9 +153,17 @@ func (c *Client) ForActingUser(userID, tracker, trackerID string) (*Client, bool
 		return resolved, false, nil
 	}
 	name := strings.ToLower(strings.TrimSpace(tracker))
+	// Every provider is told the site the call is for: a forge grant only
+	// serves github.com or gitlab.com, so a self-hosted tracker must be
+	// recognised as one.
 	site := ""
-	if name == "jira" {
+	switch name {
+	case "jira":
 		site = resolved.JiraURL
+	case "github":
+		site = defaulted(resolved.GithubURL, DefaultGithubURL)
+	case "gitlab":
+		site = defaulted(resolved.GitlabURL, DefaultGitlabURL)
 	}
 	credential, err := resolved.ResolveUser(userID, tracker, site)
 	if err != nil {
@@ -176,8 +198,10 @@ func (c *Client) ForActingUser(userID, tracker, trackerID string) (*Client, bool
 		}
 	case "github":
 		personal.GithubToken = token
+		personal.oauthGrant, personal.onUnauthorized = credential.OAuth, credential.OnUnauthorized
 	case "gitlab":
 		personal.GitlabToken = token
+		personal.oauthGrant, personal.onUnauthorized = credential.OAuth, credential.OnUnauthorized
 	default:
 		return resolved, false, nil
 	}
@@ -192,11 +216,13 @@ type MissingPersonalCredentialError struct {
 	// Tracker is the provider, as the registry names it: "jira", "github" or
 	// "gitlab".
 	Tracker string
-	// Reason is empty when the person stored nothing. A Jira grant they did
-	// store may still be unusable: it covers no site of the project
-	// (ReasonSiteNotGranted, Site naming it), or Atlassian refused to refresh
-	// it (ReasonDisconnected). Either way the write is refused the same,
-	// under the same code, and reconnecting is the way out.
+	// Reason is empty when the person stored nothing. A grant they did store
+	// may still be unusable: it covers no site of the project
+	// (ReasonSiteNotGranted, Site naming it), or the provider refused to
+	// refresh it (ReasonDisconnected). Either way the write is refused the
+	// same, under the same code, and reconnecting is the way out. A GitHub or
+	// GitLab grant only serves github.com or gitlab.com (#804): another site
+	// takes a pasted token instead.
 	Reason string
 	Site   string
 }
@@ -210,6 +236,13 @@ const (
 func (e *MissingPersonalCredentialError) Error() string {
 	switch e.Reason {
 	case ReasonSiteNotGranted:
+		if e.Tracker != "jira" {
+			return fmt.Sprintf(
+				"the %s connection of this user only covers %s, not %s: add a personal token for that site in Profile → Tracker credentials (\"Use a token instead\"), or the work would be attributed to the server account",
+				providerName(e.Tracker),
+				forgeConnectionHost(e.Tracker),
+				e.Site)
+		}
 		return fmt.Sprintf("no personal %s grant covers %s for this user: reconnect %s in Profile → Tracker credentials and pick that site on the Atlassian consent screen, or the work would be attributed to the server account", providerName(e.Tracker), e.Site, providerName(e.Tracker))
 	case ReasonDisconnected:
 		return fmt.Sprintf("the %s connection of this user was revoked or has expired: reconnect %s in Profile → Tracker credentials, or the work would be attributed to the server account", providerName(e.Tracker), providerName(e.Tracker))
@@ -241,6 +274,14 @@ const CredentialMissingCode = "tracker_credential_missing"
 // credential.
 var ErrNoActingUser = errors.New("tracker write with no acting user and not marked unattended")
 
+// forgeConnectionHost is the only instance a forge's OAuth connection serves.
+func forgeConnectionHost(tracker string) string {
+	if strings.ToLower(strings.TrimSpace(tracker)) == "gitlab" {
+		return "gitlab.com"
+	}
+	return "github.com"
+}
+
 // providerName is how a message spells a provider.
 func providerName(tracker string) string {
 	switch strings.ToLower(strings.TrimSpace(tracker)) {
@@ -262,7 +303,7 @@ func (c *Client) ForWrite(ctx context.Context, trackerName, trackerID string) (*
 	user := tracker.ActingUser(ctx)
 	if user == "" {
 		if tracker.Unattended(ctx) {
-			return c.For(trackerID), nil
+			return c.serverWriter(trackerName, trackerID)
 		}
 		return nil, ErrNoActingUser
 	}
@@ -274,6 +315,32 @@ func (c *Client) ForWrite(ctx context.Context, trackerName, trackerID string) (*
 		return nil, &MissingPersonalCredentialError{Tracker: strings.ToLower(strings.TrimSpace(trackerName))}
 	}
 	return client, nil
+}
+
+// serverWriter is the server client of an unattended write, refused up front
+// when the deployment has no server credential for the provider: some writes
+// swallow a failed call and keep the change locally, and they must still learn
+// that an administrator has to set the credential.
+func (c *Client) serverWriter(trackerName, trackerID string) (*Client, error) {
+	resolved := c.For(trackerID)
+	if resolved == nil {
+		return nil, &MissingServerCredentialError{Tracker: strings.ToLower(strings.TrimSpace(trackerName))}
+	}
+	var set bool
+	switch strings.ToLower(strings.TrimSpace(trackerName)) {
+	case "github":
+		set = resolved.GithubToken != ""
+	case "gitlab":
+		set = resolved.GitlabToken != ""
+	case "jira":
+		set = resolved.JiraToken != "" && resolved.JiraEmail != ""
+	default:
+		set = true
+	}
+	if !set {
+		return nil, resolved.missingCredential(providerName(trackerName))
+	}
+	return resolved, nil
 }
 
 func NewClient() *Client {
@@ -397,13 +464,47 @@ func (c *Client) missingCredential(tracker string) error {
 	if c != nil {
 		unreadable := map[string]bool{"github": c.unreadable.github, "gitlab": c.unreadable.gitlab, "jira": c.unreadable.jira}
 		if unreadable[name] {
-			return fmt.Errorf("the stored %s server credential cannot be decrypted with the server key: save it again in Administration", tracker)
+			return &MissingServerCredentialError{Tracker: name, Unreadable: true}
 		}
 		if c.actingUser != "" {
 			return fmt.Errorf("no %s credential: add yours in Profile → Tracker credentials", tracker)
 		}
 	}
-	return fmt.Errorf("no %s server credential: set %s or save one in Administration", tracker, serverCredentialVariables(name))
+	return &MissingServerCredentialError{Tracker: name}
+}
+
+// MissingServerCredentialError refuses a call that needs the server credential
+// of a provider when the deployment has none it can use: the synchronisation,
+// unattended work, or a read made for somebody who has no credential of their
+// own. It is raised before any request leaves.
+type MissingServerCredentialError struct {
+	// Tracker is the provider, as the registry names it.
+	Tracker string
+	// Unreadable says a credential is stored but the server key does not open
+	// it, rather than none being set at all.
+	Unreadable bool
+}
+
+func (e *MissingServerCredentialError) Error() string {
+	if e.Unreadable {
+		return fmt.Sprintf("the stored %s server credential cannot be decrypted with the server key: save it again in Administration", providerName(e.Tracker))
+	}
+	return fmt.Sprintf("no %s server credential: set %s or save one in Administration", providerName(e.Tracker), serverCredentialVariables(e.Tracker))
+}
+
+// ServerCredentialMissingCode marks a call refused for want of the server
+// credential, so a client can tell it from a missing personal one
+// (CredentialMissingCode): only an administrator can fix it.
+const ServerCredentialMissingCode = "tracker_server_credential_missing"
+
+// MissingServerCredentialTracker returns the provider a call was refused for
+// when err is a refusal for want of the server credential, and "" otherwise.
+func MissingServerCredentialTracker(err error) string {
+	var missing *MissingServerCredentialError
+	if errors.As(err, &missing) {
+		return missing.Tracker
+	}
+	return ""
 }
 
 // serverCredentialVariables names the environment variables of one provider's
@@ -472,12 +573,27 @@ func (c *Client) github(ctx context.Context, method, path string, payload, resul
 	}
 	raw, _, err := c.request(ctx, method, c.GithubURL+"/"+strings.TrimLeft(path, "/"), "Bearer "+c.GithubToken, payload)
 	if err != nil {
-		return err
+		return c.githubGrantRefused(err)
 	}
 	if result != nil {
 		return json.Unmarshal(raw, result)
 	}
 	return nil
+}
+
+// githubGrantRefused handles a 401 on a token that came from the person's
+// GitHub OAuth grant (#804). A GitHub OAuth App token never expires, so a 401
+// means the person revoked the app: the grant is marked disconnected through
+// onUnauthorized, and the person is told to reconnect rather than to check a
+// token they never pasted. Any other error, or a pasted token, is unchanged.
+func (c *Client) githubGrantRefused(err error) error {
+	if !c.oauthGrant || !isUnauthorized(err) {
+		return err
+	}
+	if c.onUnauthorized != nil {
+		c.onUnauthorized()
+	}
+	return fmt.Errorf("%w : GitHub a refusé l'accès accordé par votre connexion GitHub. Reconnectez GitHub dans Profil → Identifiants du tracker", err)
 }
 
 func (c *Client) githubPages(ctx context.Context, path string) ([]json.RawMessage, error) {
@@ -502,7 +618,7 @@ func (c *Client) githubPages(ctx context.Context, path string) ([]json.RawMessag
 		seen[next] = true
 		raw, h, err := c.request(ctx, http.MethodGet, next, "Bearer "+c.GithubToken, nil)
 		if err != nil {
-			return nil, err
+			return nil, c.githubGrantRefused(err)
 		}
 		var page []json.RawMessage
 		if err = json.Unmarshal(raw, &page); err != nil {
@@ -598,7 +714,7 @@ func (c *Client) GithubGraphQL(query string) ([]byte, error) {
 	endpoint := c.githubGraphQLEndpoint()
 	var data json.RawMessage
 	if err := c.graphql(context.Background(), endpoint, "Bearer "+c.GithubToken, query, nil, &data); err != nil {
-		return nil, err
+		return nil, c.githubGrantRefused(err)
 	}
 	return json.Marshal(map[string]any{"data": data})
 }

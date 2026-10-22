@@ -1,6 +1,7 @@
 package trackerapi
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -795,15 +796,19 @@ func TestTheActingUsersOwnTokenIsWhatReachesJira(t *testing.T) {
 	if _, err := adapter.SyncIssues(ctx, tracker.SyncRequest{Tracker: project}); err != nil {
 		t.Fatal(err)
 	}
-	// Somebody acting, with no token of their own: refused rather than written
-	// under the server account, which would put a name on it nobody chose.
-	if _, err := adapter.SyncIssues(tracker.WithActingUser(unattended(), "someone-else"), tracker.SyncRequest{Tracker: project}); err == nil || !strings.Contains(err.Error(), "personal Jira token") {
-		t.Fatalf("a named user without a token must be refused: %v", err)
+	// Somebody acting, with no token of their own: a read attributes nothing,
+	// so it falls back to the server credential (ADR 0059). A write would be
+	// refused instead (forWrite).
+	if _, err := adapter.SyncIssues(tracker.WithActingUser(unattended(), "someone-else"), tracker.SyncRequest{Tracker: project}); err != nil {
+		t.Fatalf("a named user without a token reads with the server credential: %v", err)
+	}
+	if err := adapter.AddComment(tracker.WithActingUser(context.Background(), "someone-else"), tracker.AddCommentRequest{Tracker: project, Key: "PE-1", Body: "hi"}); err == nil || !strings.Contains(err.Error(), "personal Jira token") {
+		t.Fatalf("a named user without a token must not write: %v", err)
 	}
 
 	service := "Basic " + base64.StdEncoding.EncodeToString([]byte("service@example.com:service-token"))
 	personal := "Basic " + base64.StdEncoding.EncodeToString([]byte("ada@example.com:ada-token"))
-	if len(seen) != 2 || seen[0] != service || seen[1] != personal {
+	if len(seen) != 3 || seen[0] != service || seen[1] != personal || seen[2] != service {
 		t.Fatalf("wrong credential used: %v", seen)
 	}
 

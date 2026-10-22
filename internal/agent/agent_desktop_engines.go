@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"tasks/internal/agentconfig"
+	"tasks/internal/runner"
 )
 
 // taskEnginesCapability is what /desktop/status announces once the agent keeps
@@ -26,6 +27,7 @@ type enginesView struct {
 	// can say what it affects.
 	Projects   map[string]string `json:"projects"`
 	TaskCounts map[string]int    `json:"taskCounts"`
+	Installed  map[string]bool   `json:"installed"`
 }
 
 // engineProviders are the providers the desktop offers for an engine.
@@ -36,6 +38,11 @@ func enginesViewOf(settings agentconfig.Settings) enginesView {
 		Catalogue: append([]agentconfig.Engine{}, settings.Engines.Catalogue...), Default: settings.DefaultEngine().ID,
 		Providers: append([]string{}, engineProviders...), ProviderModels: map[string][]string{},
 		Projects: map[string]string{}, TaskCounts: map[string]int{},
+		Installed: map[string]bool{},
+	}
+	for _, provider := range []string{"claude", "codex", "agy"} {
+		_, err := runner.FindCliTool(provider)
+		view.Installed[provider] = (err == nil)
 	}
 	for _, provider := range engineProviders {
 		view.ProviderModels[provider] = agentconfig.ProviderModels(settings.Defaults, provider)
@@ -75,7 +82,8 @@ func (d *agentDaemon) desktopEngines(w http.ResponseWriter, r *http.Request) {
 		}
 		kept := false
 		for _, engine := range input.Catalogue {
-			kept = kept || (input.Default != "" && strings.TrimSpace(engine.ID) == input.Default)
+			id := strings.TrimSpace(engine.ID)
+			kept = kept || (input.Default != "" && (id == input.Default || (id == "" && (engine.Provider == input.Default || engine.Name == input.Default))))
 		}
 		if !kept && len(input.Catalogue) > 0 {
 			http.Error(w, "Mark another engine as the default before removing the default engine", http.StatusConflict)
