@@ -25,7 +25,13 @@ func checkWorkstationSnapshot(t *testing.T, d *DB) {
 	if label := d.WorkstationLabel("foreign", device.ID); label != device.ID {
 		t.Fatal("foreign label disclosed")
 	}
-	task, err := d.CreateTask(models.CreateTaskRequest{Title: "Snapshot", ProjectID: "default"})
+	// A project of its own: the PostgreSQL store starts truncated, without the
+	// default project SQLite seeds.
+	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Snapshot project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := d.CreateTask(models.CreateTaskRequest{Title: "Snapshot", ProjectID: project.ID})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"tasks/internal/models"
 )
 
 // Two instances on one PostgreSQL database: an event one publishes reaches the
@@ -55,6 +57,18 @@ func TestPostgresBusRelaysEventsAndCancellations(t *testing.T) {
 		t.Errorf("relayed message = %+v", got)
 	}
 
+	// CancelActivity only stops an activity still active in the database.
+	project, err := first.CreateProject(models.CreateProjectRequest{Name: "Bus project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := first.CreateTask(models.CreateTaskRequest{Title: "Bus", ProjectID: project.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.AddTaskActivity(models.TaskActivity{ID: "runs-on-second", TaskID: task.ID, SkillID: "agent_launch", Status: "running", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
 	stopped := make(chan struct{})
 	second.cancelMu.Lock()
 	second.cancelMap["runs-on-second"] = func() { close(stopped) }
