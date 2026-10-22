@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -89,4 +90,56 @@ func TestACommentFromASkillRunUsesTheServerCredential(t *testing.T) {
 	tool("finish_run", map[string]any{"taskKey": task.ID, "runId": runID, "status": "completed", "note": "done"})
 	tool("add_comment", comment)
 	expectLast(t, personal, "once the run is finished, a comment is the person's again")
+}
+
+// An edit a skill run makes through update_task travels through the queued
+// field sync: the run's marker must survive the queue, so the issue is updated
+// with the server credential, while the same edit made interactively carries
+// the person's own (ADR 0058).
+func TestAnUpdateFromASkillRunUsesTheServerCredential(t *testing.T) {
+	site := newFakeJira(t)
+	database, project := jiraDatabase(t, site)
+	task, err := database.CreateTaskAs(sectiletracker.WithUnattended(context.Background()), models.CreateTaskRequest{ProjectID: project.ID, Title: "Follow-up", RequireRemoteCreation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureUser("usr_ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetUserTrackerCredential("usr_ada", "jira", site.server.URL, "ada@example.com", "ada-token", ""); err != nil {
+		t.Fatal(err)
+	}
+	caller := Caller{UserID: "usr_ada", Name: "Ada"}
+	const path = "/rest/api/3/issue/PE-42"
+	for _, round := range []struct {
+		runID, title, want string
+	}{
+		{"", "Edited by Ada", basic("ada@example.com", "ada-token")},
+		{"run-launched", "Edited by a run", basic("server@example.com", "server-secret")},
+	} {
+		before := len(site.authenticatedAs(http.MethodPut, path))
+		if _, err := callAsInRun(t, database, &caller, round.runID, "update_task", map[string]any{"taskKey": task.ID, "title": round.title}); err != nil {
+			t.Fatal(err)
+		}
+		// The field sync is queued: wait for its write to reach Jira.
+		deadline := time.Now().Add(10 * time.Second)
+		for len(site.authenticatedAs(http.MethodPut, path)) == before && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		// And for the sync to go quiet, so a late write is not counted in the
+		// next round.
+		for seen := -1; seen != len(site.authenticatedAs(http.MethodPut, path)) && time.Now().Before(deadline); {
+			seen = len(site.authenticatedAs(http.MethodPut, path))
+			time.Sleep(100 * time.Millisecond)
+		}
+		got := site.authenticatedAs(http.MethodPut, path)[before:]
+		if len(got) == 0 {
+			t.Fatalf("%q: the edit did not reach Jira", round.runID)
+		}
+		for _, auth := range got {
+			if auth != round.want {
+				t.Fatalf("%q: got %v, want %s", round.runID, got, round.want)
+			}
+		}
+	}
 }

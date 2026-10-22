@@ -142,10 +142,6 @@ var writeCalls = map[string]bool{
 	"SetEpicAxisField": true, "UpsertMarkedComment": true, "Transition": true,
 }
 
-// queueWorkers run a queued operation, whose route trackerOpRoutes declares,
-// or wrap a write they are handed: they are not sites of their own.
-var queueWorkers = map[string]bool{}
-
 // Every tracker write made outside the queue is listed in directWriteRoutes,
 // so a new one cannot appear without somebody deciding whose credential it
 // uses.
@@ -171,7 +167,9 @@ func TestEveryTrackerWriteSiteHasARoute(t *testing.T) {
 				case *ast.Ident:
 					called = fun.Name
 				}
-				if writeCalls[called] && !strings.HasPrefix(name, "run") && !queueWorkers[name] {
+				// A run* function executes a queued operation, whose route
+				// trackerOpRoutes declares: it is not a site of its own.
+				if writeCalls[called] && !strings.HasPrefix(name, "run") {
 					found[name] = true
 				}
 				return true

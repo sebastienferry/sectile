@@ -149,9 +149,8 @@ type PersonalCredential struct {
 // behind the token uses it to refuse rather than write under the server's name.
 //
 // A personal credential signs only the ticket actions its owner performs
-// themself (ADR 0058), so only two callers remain: ForWrite, for such an
-// action, and the check of one's own credential on the profile. A read goes
-// through ForRead.
+// themself (ADR 0058), so ForWrite is its only caller, for such an action. A
+// read goes through ForRead.
 func (c *Client) ForActingUser(userID, tracker, trackerID string) (*Client, bool, error) {
 	resolved := c.For(trackerID)
 	if resolved == nil || resolved.ResolveUser == nil || strings.TrimSpace(userID) == "" {
