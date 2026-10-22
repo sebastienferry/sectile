@@ -16,13 +16,17 @@ func TestFailedTrackerWriteNamesTheMissingCredential(t *testing.T) {
 	f := newIsolationFixture(t)
 	task := f.remoteTask(t, "Missing token")
 
-	_, act, err := f.d.TransitionTaskStageBy("usr_grace", task.ID, "clarified", "", "", "")
+	// A board move is a ticket action the person performs, so it needs their
+	// own credential (ADR 0058).
+	act, err := f.d.EnqueueTrackerOp(f.grace, TrackerOp{
+		Kind: TrackerOpTransition, ProjectID: f.project.ID, TaskID: task.ID, TaskKey: task.Key, TargetStatus: "closed",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	done := f.finished(t, act.ID)
 	if done.Status != string(models.ActivityStatusFailed) || done.CredentialMissing != "github" {
-		t.Fatalf("a stage refused for want of a GitHub token must name GitHub: %+v", done)
+		t.Fatalf("a board move refused for want of a GitHub token must name GitHub: %+v", done)
 	}
 	listed, err := f.d.GetActivities(f.project.ID, "", "", task.ID, "", 0)
 	if err != nil {
@@ -41,19 +45,9 @@ func TestFailedTrackerWriteNamesTheMissingCredential(t *testing.T) {
 		t.Fatalf("activity %s missing from the list", act.ID)
 	}
 
-	// A board move goes through the transition operation.
-	moved, err := f.d.EnqueueTrackerOp(f.grace, TrackerOp{
-		Kind: TrackerOpTransition, ProjectID: f.project.ID, TaskID: task.ID, TaskKey: task.Key, TargetStatus: "closed",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if done := f.finished(t, moved.ID); done.Status != string(models.ActivityStatusFailed) || done.CredentialMissing != "github" {
-		t.Fatalf("a board move refused for want of a GitHub token must fail and name GitHub: %+v", done)
-	}
-
-	// The same stage recorded by a person with a token completes and names nothing.
-	_, act, err = f.d.TransitionTaskStageBy("usr_ada", task.ID, "specified", "", "", "")
+	// A stage transition is Sectile's own write: it goes out with the server
+	// credential, so a person without a token of their own records it too.
+	_, act, err = f.d.TransitionTaskStageBy("usr_grace", task.ID, "specified", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

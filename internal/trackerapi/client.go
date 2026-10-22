@@ -260,18 +260,20 @@ func providerName(tracker string) string {
 }
 
 // ForWrite resolves the client for a tracker write. A write Sectile makes by
-// itself (tracker.WithServiceCredential) gets the server credential whoever it
+// itself (tracker.WithServiceCredential) gets the server credential, whoever it
 // names (ADR 0058). Otherwise a named user gets their personal credential or an
-// error, never the server's; an unattended context gets the server credential;
-// a context naming neither is refused. Reads go through ForRead.
+// error, never the server's; an unattended context gets the server credential.
+// A context naming neither a person nor the unattended marker is refused even
+// when marked for the server credential: losing the author on the way is a
+// failure, never a fallback (#482). Reads go through ForRead.
 func (c *Client) ForWrite(ctx context.Context, trackerName, trackerID string) (*Client, error) {
-	if tracker.ServiceCredential(ctx) {
-		return c.For(trackerID), nil
-	}
 	user := tracker.ActingUser(ctx)
+	if tracker.ServiceCredential(ctx) && (user != "" || tracker.Unattended(ctx)) {
+		return c.serverWriter(trackerName, trackerID)
+	}
 	if user == "" {
 		if tracker.Unattended(ctx) {
-			return c.For(trackerID), nil
+			return c.serverWriter(trackerName, trackerID)
 		}
 		return nil, ErrNoActingUser
 	}
@@ -283,6 +285,32 @@ func (c *Client) ForWrite(ctx context.Context, trackerName, trackerID string) (*
 		return nil, &MissingPersonalCredentialError{Tracker: strings.ToLower(strings.TrimSpace(trackerName))}
 	}
 	return client, nil
+}
+
+// serverWriter is the server client of a write, refused up front when the
+// deployment has no server credential for the provider: some writes swallow a
+// failed call and keep the change locally, and they must still learn that an
+// administrator has to set the credential.
+func (c *Client) serverWriter(trackerName, trackerID string) (*Client, error) {
+	resolved := c.For(trackerID)
+	if resolved == nil {
+		return nil, &MissingServerCredentialError{Tracker: strings.ToLower(strings.TrimSpace(trackerName))}
+	}
+	var set bool
+	switch name := strings.ToLower(strings.TrimSpace(trackerName)); name {
+	case "github":
+		set = resolved.GithubToken != ""
+	case "gitlab":
+		set = resolved.GitlabToken != ""
+	case "jira":
+		set = resolved.JiraToken != "" && resolved.JiraEmail != ""
+	default:
+		set = true
+	}
+	if !set {
+		return nil, resolved.missingCredential(providerName(trackerName))
+	}
+	return resolved, nil
 }
 
 // ForRead resolves the client for a tracker read: always the server

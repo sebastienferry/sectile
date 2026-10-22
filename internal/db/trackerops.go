@@ -124,8 +124,12 @@ type TrackerOp struct {
 	SprintID   string
 	SprintName string
 	// UserID is who asked for the operation, recorded on its activity, and
-	// whose credential the write goes out with.
+	// whose credential a direct ticket action goes out with.
 	UserID string
+	// ServiceCredential says the write goes out with the server credential
+	// although it names a person: the kind is one Sectile makes by itself, or
+	// it was queued from a skill run (trackerOpRoutes, ADR 0058).
+	ServiceCredential bool
 	// Unattended says the operation was queued by work nobody asked for, the
 	// only kind allowed to write with the server credential. It is taken from
 	// the enqueuing context, never guessed from an empty UserID: an operation
@@ -139,6 +143,7 @@ type TrackerOp struct {
 func (d *DB) EnqueueTrackerOp(ctx context.Context, op TrackerOp) (*models.TaskActivity, error) {
 	op.UserID = actingUserFor(ctx, op.UserID)
 	op.Unattended = op.UserID == "" && (op.Unattended || tracker.Unattended(ctx))
+	op.ServiceCredential = op.ServiceCredential || tracker.ServiceCredential(ctx)
 	act, job, err := buildTrackerOpJob(op)
 	if err != nil {
 		return nil, err
@@ -161,6 +166,7 @@ func (d *DB) EnqueueTrackerOp(ctx context.Context, op TrackerOp) (*models.TaskAc
 func (d *DB) enqueueTrackerOpUnsafe(ctx context.Context, op TrackerOp) (*models.TaskActivity, error) {
 	op.UserID = actingUserFor(ctx, op.UserID)
 	op.Unattended = op.UserID == "" && (op.Unattended || tracker.Unattended(ctx))
+	op.ServiceCredential = op.ServiceCredential || tracker.ServiceCredential(ctx)
 	act, job, err := buildTrackerOpJob(op)
 	if err != nil {
 		return nil, err
@@ -188,9 +194,52 @@ func (d *DB) pushTrackerOpJob(job SkillJob) {
 	d.enqueueJob(job)
 }
 
+// credentialRoute is the credential a kind of tracker operation goes out with.
+type credentialRoute int
+
+const (
+	// routeDirect is a ticket action a person performs: their own credential,
+	// unless the operation was queued from a skill run.
+	routeDirect credentialRoute = iota + 1
+	// routeService is a write Sectile makes by itself: the server credential,
+	// whoever asked.
+	routeService
+)
+
+// trackerOpRoutes is the credential of every kind of tracker operation, in one
+// place (ADR 0058). A personal credential signs only the ticket actions its
+// owner performs: assigning, re-parenting, moving, labelling, a board column
+// drop, a team or a sprint. A stage transition and every macro or epic mirror
+// are Sectile's own writes. A kind missing here is refused when queued.
+var trackerOpRoutes = map[TrackerOpKind]credentialRoute{
+	TrackerOpAssign:        routeDirect,
+	TrackerOpSetParent:     routeDirect,
+	TrackerOpMoveToEpic:    routeDirect,
+	TrackerOpTaskLabels:    routeDirect,
+	TrackerOpTransition:    routeDirect,
+	TrackerOpSetTeam:       routeDirect,
+	TrackerOpSetSprint:     routeDirect,
+	TrackerOpStage:         routeService,
+	TrackerOpEpicHorizon:   routeService,
+	TrackerOpEpicLabels:    routeService,
+	TrackerOpPushHorizons:  routeService,
+	TrackerOpEpicPriority:  routeService,
+	TrackerOpEpicQuarter:   routeService,
+	TrackerOpEpicReadiness: routeService,
+	TrackerOpEpicTodos:     routeService,
+	TrackerOpEpicFraming:   routeService,
+}
+
 func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {
 	if strings.TrimSpace(string(op.Kind)) == "" {
 		return nil, SkillJob{}, fmt.Errorf("opération tracker inconnue")
+	}
+	route, known := trackerOpRoutes[op.Kind]
+	if !known {
+		return nil, SkillJob{}, fmt.Errorf("opération tracker sans identifiant déclaré : %s", op.Kind)
+	}
+	if route == routeService {
+		op.ServiceCredential = true
 	}
 
 	activityID := uuid.New().String()
@@ -393,6 +442,12 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 	if op.Unattended {
 		ctx = tracker.WithUnattended(ctx)
 	}
+	// A stage transition, a macro mirror or an operation queued from a skill
+	// run goes out with the server credential, still recorded as that person's
+	// (ADR 0058).
+	if op.ServiceCredential {
+		ctx = tracker.WithServiceCredential(ctx)
+	}
 	// And the tracker it concerns: a tracker may override its site, and a
 	// write resolved without it goes to the instance of another tracker (#741).
 	ctx = tracker.WithTracker(ctx, d.trackerOfOp(op))
@@ -592,7 +647,9 @@ func (d *DB) runMoveToEpicOp(ctx context.Context, op TrackerOp, steps *[]string)
 		if strings.TrimSpace(op.NewEpicTitle) == "" {
 			return "", fmt.Errorf("épic cible ou intitulé du nouvel épic obligatoire")
 		}
-		created, err := d.CreateEpic(ctx, op.ProjectID, op.NewEpicTitle, "", op.Fields)
+		// The epic is a macro: creating it is Sectile's own write, while the
+		// moves below stay the person's ticket edits (ADR 0058).
+		created, err := d.CreateEpic(tracker.WithServiceCredential(ctx), op.ProjectID, op.NewEpicTitle, "", op.Fields)
 		if err != nil {
 			return "", err
 		}

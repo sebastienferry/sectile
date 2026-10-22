@@ -7,6 +7,7 @@ import (
 
 	"tasks/internal/models"
 	"tasks/internal/tracker"
+	"tasks/internal/trackerapi"
 )
 
 func TestMacroMetadataQueuedWritesRespectRoadmapAndActor(t *testing.T) {
@@ -104,26 +105,35 @@ func TestMacroMetadataValidatesBeforeWriting(t *testing.T) {
 	}
 }
 
-func TestMacroMetadataUsesTheActingPerson(t *testing.T) {
+// A macro's metadata is Sectile's own write (ADR 0058): its milestone goes
+// out with the server credential, whoever edits it, token or not.
+func TestMacroMetadataIsWrittenWithTheServerCredential(t *testing.T) {
 	fixture := newIsolationFixture(t)
-	title := "Updated"
-	before := fixture.github.count()
-	saved, _, err := fixture.d.UpdateMacroMetadata(fixture.ada, fixture.project.ID, "M-3", MacroMetadata{Title: &title})
-	if err != nil || saved.Title != title {
-		t.Fatalf("metadata: %+v %v", saved, err)
-	}
-	wrote := false
-	for _, request := range fixture.github.since(before) {
-		if len(request) >= 6 && request[:6] == "PATCH " {
-			signedOnlyBy(t, []string{request}, "ada-token")
-			wrote = true
+	for _, who := range []context.Context{fixture.ada, fixture.grace} {
+		title := "Updated by " + tracker.ActingUser(who)
+		before := fixture.github.count()
+		saved, _, err := fixture.d.UpdateMacroMetadata(who, fixture.project.ID, "M-3", MacroMetadata{Title: &title})
+		if err != nil || saved.Title != title {
+			t.Fatalf("metadata: %+v %v", saved, err)
+		}
+		wrote := false
+		for _, request := range fixture.github.since(before) {
+			if len(request) >= 6 && request[:6] == "PATCH " {
+				signedOnlyBy(t, []string{request}, "server-token")
+				wrote = true
+			}
+		}
+		if !wrote {
+			t.Fatal("metadata did not reach the tracker")
 		}
 	}
-	if !wrote {
-		t.Fatal("metadata did not reach the tracker")
-	}
-	saved, _, err = fixture.d.UpdateMacroMetadata(fixture.grace, fixture.project.ID, "M-3", MacroMetadata{Title: &title})
-	if err == nil || saved == nil || saved.Title != title {
+
+	// Without a server credential the edit is kept locally and the refusal
+	// says so: no personal token stands in.
+	fixture.dropServerCredential(t)
+	title := "Kept locally"
+	saved, _, err := fixture.d.UpdateMacroMetadata(fixture.ada, fixture.project.ID, "M-3", MacroMetadata{Title: &title})
+	if trackerapi.MissingServerCredentialTracker(err) != "github" || saved == nil || saved.Title != title {
 		t.Fatalf("lost partial success: %+v %v", saved, err)
 	}
 }

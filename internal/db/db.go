@@ -43,6 +43,10 @@ type SkillJob struct {
 	// request that started it is gone. Empty means nobody asked, which is what
 	// a timer does, and resolves to the server credential.
 	ActingUser string
+	// ServiceCredential says the job's tracker writes go out with the server
+	// credential although it names a person: it was queued from a skill run
+	// (ADR 0058).
+	ServiceCredential bool
 	// Mode is the execution mode already resolved by ResolveSkillMode. The
 	// agent applies it; it never re-reads project settings to decide, so a
 	// stale agent configuration cannot open a window inside a full chain run.
@@ -3359,7 +3363,7 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 
 	// Enqueue async CLI tracker sync in task activities queue whenever task is modified
 	if req.Status != nil || req.Labels != nil || req.Title != nil || req.Description != nil || req.Priority != nil || req.TrackerStatus != nil {
-		d.enqueueTrackerUpdateAsUnsafe(actor.ID, existing, req.Status, existing.Labels, removedLabels, TrackerFieldChanges{
+		d.enqueueTrackerUpdateAsUnsafe(actor, existing, req.Status, existing.Labels, removedLabels, TrackerFieldChanges{
 			Title:       req.Title != nil,
 			Description: req.Description != nil,
 			Priority:    req.Priority != nil,
@@ -3377,7 +3381,7 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 				}
 			}
 		}
-		if _, opErr := d.enqueueTrackerOpUnsafe(tracker.WithActingUser(context.Background(), actor.ID), TrackerOp{
+		if _, opErr := d.enqueueTrackerOpUnsafe(actor.trackerContext(context.Background()), TrackerOp{
 			Kind:       TrackerOpSetSprint,
 			ProjectID:  existing.ProjectID,
 			TaskID:     existing.ID,
@@ -3398,7 +3402,7 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		if req.AssigneeAccountID != nil {
 			accountID = strings.TrimSpace(*req.AssigneeAccountID)
 		}
-		if _, opErr := d.enqueueTrackerOpUnsafe(tracker.WithActingUser(context.Background(), actor.ID), TrackerOp{
+		if _, opErr := d.enqueueTrackerOpUnsafe(actor.trackerContext(context.Background()), TrackerOp{
 			Kind:         TrackerOpAssign,
 			ProjectID:    existing.ProjectID,
 			TaskID:       existing.ID,
@@ -3609,7 +3613,7 @@ func (d *DB) MoveTaskBy(actor Actor, id string, newStatus models.Status, newPosi
 
 	// Enqueue async CLI tracker sync in task activities queue
 	// Déplacement d'étape : seuls le statut et les labels bougent.
-	d.enqueueTrackerUpdateAsUnsafe(actor.ID, existing, &newStatus, existing.Labels, removedLabels, TrackerFieldChanges{})
+	d.enqueueTrackerUpdateAsUnsafe(actor, existing, &newStatus, existing.Labels, removedLabels, TrackerFieldChanges{})
 
 	return existing, nil
 }
@@ -5167,7 +5171,7 @@ type TrackerFieldChanges struct {
 // ended.
 // There is no variant without an actor: every such write is somebody's, and one
 // that names nobody is refused by the tracker client (#482).
-func (d *DB) enqueueTrackerUpdateAsUnsafe(actorID string, task *models.Task, status *models.Status, labels []string, removedLabels []string, changed TrackerFieldChanges) {
+func (d *DB) enqueueTrackerUpdateAsUnsafe(actor Actor, task *models.Task, status *models.Status, labels []string, removedLabels []string, changed TrackerFieldChanges) {
 	if task == nil {
 		return
 	}
@@ -5246,22 +5250,23 @@ func (d *DB) enqueueTrackerUpdateAsUnsafe(actorID string, task *models.Task, sta
 		Steps:     initialSteps,
 		Prompt:    "",
 		CreatedAt: now,
-		UserID:    strings.TrimSpace(actorID),
+		UserID:    strings.TrimSpace(actor.ID),
 	}
 
 	_ = d.addTaskActivityDirect(act)
 
 	job := SkillJob{
-		ActivityID:      activityID,
-		TaskID:          task.ID,
-		SkillID:         "tracker_update",
-		ActingUser:      actorID,
-		Prompt:          stStr,
-		RemovedLabels:   removedLabels,
-		TrackerStatus:   strings.TrimSpace(task.TrackerStatus),
-		SyncTitle:       changed.Title,
-		SyncDescription: changed.Description,
-		SyncPriority:    changed.Priority,
+		ActivityID:        activityID,
+		TaskID:            task.ID,
+		SkillID:           "tracker_update",
+		ActingUser:        actor.ID,
+		ServiceCredential: actor.ServiceCredential,
+		Prompt:            stStr,
+		RemovedLabels:     removedLabels,
+		TrackerStatus:     strings.TrimSpace(task.TrackerStatus),
+		SyncTitle:         changed.Title,
+		SyncDescription:   changed.Description,
+		SyncPriority:      changed.Priority,
 	}
 
 	d.enqueueJob(job)
@@ -5271,6 +5276,9 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 	// Whoever asked travels with the job: their credential is what the tracker
 	// attributes the write to.
 	ctx = tracker.WithActingUser(ctx, job.ActingUser)
+	if job.ServiceCredential {
+		ctx = tracker.WithServiceCredential(ctx)
+	}
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(job.TaskID)
 	d.mu.RUnlock()
@@ -6570,7 +6578,7 @@ func (d *DB) ConvertTaskToRemote(ctx context.Context, taskID string, target stri
 	}
 
 	// Creation is confirmed; synchronize its state through the observable queue.
-	d.enqueueTrackerUpdateAsUnsafe(tracker.ActingUser(ctx), task, &task.Status, task.Labels, nil, TrackerFieldChanges{})
+	d.enqueueTrackerUpdateAsUnsafe(Actor{ID: tracker.ActingUser(ctx), ServiceCredential: tracker.ServiceCredential(ctx)}, task, &task.Status, task.Labels, nil, TrackerFieldChanges{})
 
 	outputMsg := fmt.Sprintf("Tâche locale convertie vers %s.\nClé distante : %s", strings.ToUpper(target), task.Key)
 	if extURL != nil {

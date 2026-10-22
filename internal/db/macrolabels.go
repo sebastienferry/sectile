@@ -150,6 +150,9 @@ func (d *DB) ValidateMacroLabelEdit(projectID string, key string, add []string, 
 // It performs the tracker call itself, so it is only ever run from a queued
 // activity (TrackerOpEpicLabels), as the horizon push is.
 func (d *DB) PushMacroLabels(ctx context.Context, projectID string, macroKey string, add []string, remove []string) (string, error) {
+	// The macro and its mirrors are Sectile's own writes: they go out with the
+	// server credential, whoever asked (ADR 0058).
+	ctx = tracker.WithServiceCredential(ctx)
 	ts, proj, err := d.macroTracker(projectID, macroKey, axisLabels)
 	if err != nil {
 		return "", err
