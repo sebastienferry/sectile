@@ -39,7 +39,7 @@ export const FilterPanel: React.FC<{
         onClick={() => setIsOpen(open => !open)}
         title={title}
         aria-expanded={isOpen}
-        aria-haspopup="true"
+        aria-haspopup="dialog"
         className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-semibold border cursor-pointer transition-colors"
         style={{
           color: active ? 'var(--accent-color)' : 'var(--text-secondary)',

@@ -28,7 +28,7 @@ export const MultiPicker: React.FC<{
   mono?: boolean
   footer?: React.ReactNode
 }> = ({ title, options, isSelected, onToggle, clearLabel, canClear, onClear, mono, footer }) => (
-  <div className="border-t border-[var(--border-color)] pt-2" role="group" aria-label={title}>
+  <div className="border-t border-[var(--border-color)] pt-2">
     <div className="flex items-center justify-between px-1.5 pb-1">
       <span className="text-[9.5px] uppercase tracking-wider font-bold text-[var(--text-muted)]">{title}</span>
       {canClear && (
@@ -41,7 +41,7 @@ export const MultiPicker: React.FC<{
         </button>
       )}
     </div>
-    <div className="max-h-[180px] overflow-auto">
+    <div className="max-h-[180px] overflow-auto" role="menu" aria-label={title}>
       {options.map(option => {
         const isActive = isSelected(option.value)
         return (

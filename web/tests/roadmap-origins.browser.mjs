@@ -81,7 +81,7 @@ try {
     }
     return seen.sort();
   });
-  const entries = () => page.getByRole('group', { name: 'Projets' }).getByRole('menuitemcheckbox').evaluateAll(items =>
+  const entries = () => page.getByRole('menu', { name: 'Projets' }).getByRole('menuitemcheckbox').evaluateAll(items =>
     items.map(i => [...i.querySelectorAll('span')].map(s => s.textContent.trim()).filter(Boolean).join(' '))
   );
 

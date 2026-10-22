@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Changed
+
+- **One way to filter, in every view.** Board, List, Roadmap, Triage, Sprint timeline, Team and Activities now filter with the same controls: on/off toggles and the search in the toolbar, every value filter (sprint, macro, team, person, status, type, epic priority, projects, labels, skill) as the same searchable picker in a **Filters** panel whose button counts what is set, and a row of chips naming each active filter, one click to remove it, **Clear all** to remove them all. The same filter reads the same everywhere; what each filter narrows, and whether it follows you from view to view, is unchanged. (#866)
+
 ## [0.7.1] - 2026-10-22
 
 ### Added
@@ -24,7 +28,6 @@ test fixtures or internal plumbing.
 
 ### Changed
 
-- **One way to filter, in every view.** Board, List, Roadmap, Triage, Sprint timeline, Team and Activities now filter with the same controls: on/off toggles and the search in the toolbar, every value filter (sprint, macro, team, person, status, type, epic priority, projects, labels, skill) as the same searchable picker in a **Filters** panel whose button counts what is set, and a row of chips naming each active filter, one click to remove it, **Clear all** to remove them all. The same filter reads the same everywhere; what each filter narrows, and whether it follows you from view to view, is unchanged. (#866)
 - In the macro view, a macro's key opens the macro on its tracker in a new tab, and the side panel no longer has a separate link button.
 - Task details give the description and comments the remaining dialog height, display rendered Markdown by default, and switch to editing mode on click with a Done button.
 - Form inputs, selects, and text editing surfaces across the web interface use a lighter, unified background and border palette.
