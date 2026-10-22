@@ -157,3 +157,53 @@ func TestProjectOrchestrateDispatchesAsSignedInUser(t *testing.T) {
 		t.Fatal("signed-in user's workstation never received a launch")
 	}
 }
+
+func TestDesktopBacklogEvaluationUsesPairedUserAndDevice(t *testing.T) {
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	h := NewHandler(database)
+	userID, _ := account(t, database, "desktop-orchestrator@example.com")
+	key, device, err := database.CreateAPIKey(userID, "Desktop", db.DefaultAPIKeyTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Desktop backlog", IssueTracker: "local", OrchestratorEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "Validate requests", Description: "Reject invalid requests with clear errors."}); err != nil {
+		t.Fatal(err)
+	}
+	dispatched := make(chan agentprotocol.Operation, 1)
+	database.SetAgentSelection(func(user, projectID, deviceID string) (string, error) {
+		if user != userID || deviceID != device.ID {
+			return "", fmt.Errorf("wrong route %s/%s", user, deviceID)
+		}
+		return deviceID, nil
+	})
+	database.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		if op.Action == "execute_skill" {
+			dispatched <- op
+		}
+		return nil, nil
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/projects/"+project.ID+"/orchestrate", strings.NewReader(`{}`))
+	request.Header.Set("Authorization", "Bearer "+key)
+	request.Header.Set(agentprotocol.DeviceIDHeader, "forged-device")
+	response := httptest.NewRecorder()
+	h.RequireSession(http.HandlerFunc(h.HandleProjectDetail)).ServeHTTP(response, request)
+	if response.Code != 200 {
+		t.Fatalf("evaluate returned %d: %s", response.Code, response.Body.String())
+	}
+	select {
+	case op := <-dispatched:
+		if op.UserID != userID || op.DeviceID != device.ID {
+			t.Fatalf("wrong dispatch: %+v", op)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("paired workstation received no launch")
+	}
+}

@@ -4,7 +4,11 @@ Local task execution consoles, with an experimental Antigravity, Claude Code and
 
 ## Orchestration
 
-The **ORCHESTRATION** section sits above **PROJECTS** in the sidebar. It lists enabled project orchestrators and active task agents on this workstation, including manual task sessions that consume project capacity. Each agent shows its engine, task, current workflow stage, and running, queued, or waiting-for-you state. Select **Open console** to attach to that execution using the existing console view.
+The **ORCHESTRATION** section sits above **PROJECTS** in the sidebar. It lists projects configured on this workstation, enabled orchestrators, and active task agents, including manual task sessions that consume project capacity. Each agent shows its engine, task, current workflow stage, and running, queued, or waiting-for-you state. Select **Open console** to attach to that execution using the existing console view.
+
+Choose **Set up** on a project to enable orchestration, choose a concurrency limit from 1 to 10, and enter eligibility guidelines. **Save settings** persists these project-wide values on the server. **Evaluate backlog** fills available slots using the saved settings and this workstation's paired identity. It is disabled while changes are unsaved, orchestration is disabled, or a request is pending. The report shows launched and skipped counts, capacity usage, and skipped-ticket reasons. Evaluation is on demand; enabling orchestration does not schedule a background loop. Disabling it prevents new evaluations and leaves existing runs alone.
+
+These controls require the updated server and local agent. An older agent displays an update/restart message; an older server reports that orchestration setup is unsupported. Configuration stays in the server project, rather than in local execution settings.
 
 Capacity is project-wide, including runs on other workstations; the agent rows are local to this workstation. The server's usage and limit refresh every 15 seconds. If capacity cannot be refreshed, the section labels the figures as last known and stops presenting a live progress meter. Older agents without capacity metadata show **Capacity unavailable**. Stopping the local agent disables console controls until it reconnects.
 

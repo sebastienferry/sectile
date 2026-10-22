@@ -124,7 +124,7 @@ const taskTitles=new Map()
 // The workflow stage of each listed task, read with its title; absent when unknown.
 const taskStages=new Map()
 let orchestrationReadAt=0,orchestrationLoading=false,orchestrationStale=false
-const orchestration=createOrchestration({container:document.querySelector('#orchestration'),onConsole:run=>select(run,false,{console:true})})
+const orchestration=createOrchestration({container:document.querySelector('#orchestration'),onConsole:run=>select(run,false,{console:true}),api,onChanged:()=>{orchestrationReadAt=0;refreshOrchestration();refresh()}})
 // The board data of a project (/desktop/project's board field), kept from the
 // last tickets list or board that read it, so the sidebar's grouping by stage
 // places a task where they do (#806).

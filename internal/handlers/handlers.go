@@ -1506,7 +1506,13 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&req)
 		}
 		actor := h.webPrincipal(r).Actor()
-		result, err := h.db.EvaluateAndOrchestrateBacklog(r.Context(), id, actor, req)
+		ctx := r.Context()
+		// A paired desktop evaluates on its own workstation, even if its user has
+		// several connected devices. The credential is the authority, not a header.
+		if credential, authErr := h.resolveAgentCredential(bearerToken(r)); authErr == nil && credential.Device != nil {
+			ctx = agentprotocol.WithDeviceID(ctx, credential.Device.ID)
+		}
+		result, err := h.db.EvaluateAndOrchestrateBacklog(ctx, id, actor, req)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return

@@ -33,7 +33,8 @@ It consists of three complementary components:
   guidelines before changes, share a project concurrency limit, and stop at
   **Implemented** for human review.
   Desktop shows live task agents, project capacity, workflow stages, waiting
-  states, and console access in **ORCHESTRATION**, above **PROJECTS**.
+  states, and console access in **ORCHESTRATION**, above **PROJECTS**, with
+  per-project setup and an **Evaluate backlog** action.
 - Frames and slices multi-ticket initiatives with **Macros** (`refine-macro` and
   `realign-macro`).
 - Scaffolds **Spec Kit** and **OpenSpec** directly inside project repositories.

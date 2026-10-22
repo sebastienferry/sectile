@@ -41,7 +41,7 @@ However, triggering these workflows has required manual human intervention: eith
   Human engineers retain the review and merge gate (`#reviewed` $\rightarrow$ `#finished`).
 
 - **Desktop Visibility**:
-  The sidebar's ORCHESTRATION section precedes PROJECTS. Optional project-discovery fields carry authoritative project-wide capacity to the agent and desktop; local live runs supply agent names, stages, waiting states and console access. Capacity refreshes every 15 seconds, with stale and older-server states labeled explicitly.
+  The sidebar's ORCHESTRATION section precedes PROJECTS. Optional project-discovery fields carry authoritative project-wide capacity to the agent and desktop; local live runs supply agent names, stages, waiting states and console access. Capacity refreshes every 15 seconds, with stale and older-server states labeled explicitly. Per-project setup reads and saves the server-owned orchestration settings through a narrow paired-user bridge. Evaluate backlog uses those saved settings and the credential-bound workstation; unsaved changes, disabled orchestration, and pending requests block the action. The UI reports launches, skips and reasons without offering a force override.
 
 - **Structured Reporting**:
   The orchestrator invocation returns an `OrchestrationResult` summarizing:

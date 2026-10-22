@@ -453,6 +453,9 @@ Authenticated `GET /api/v1/agent/projects` returns
 `{"schemaVersion":1,"projects":[{"id":"server-primary-key","name":"Project","gitRemoteUrl":"..."}]}`.
 Discovery records may also carry `orchestratorEnabled`, `orchestratorMaxConcurrent`, and `orchestratorActiveRuns`. The count covers active task sessions across the project, including other workstations. It is present for enabled orchestrators; absence means capacity is unknown, while an explicit zero means no active runs. These optional fields do not change the schema version. The agent forwards them through authenticated `GET /desktop/projects` for the desktop orchestration section.
 
+The local agent advertises `orchestration-controls` when authenticated `GET`/`PUT /desktop/orchestration?projectId=…` can read/save the three project orchestration settings and `POST` can evaluate the backlog. The bridge uses the paired credential against the existing project HTTP APIs. It accepts no actor, force, or capacity override. The server derives the evaluation workstation from the paired credential; a caller-supplied device header cannot replace it. Missing settings on an older server produce HTTP 501 rather than a successful-looking default.
+
+
 Discovery excludes server filesystem paths and credentials.
 
 `sectile-agent` defaults to `--project all`. Use `--list-projects` to

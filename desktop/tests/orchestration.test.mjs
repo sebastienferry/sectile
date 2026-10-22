@@ -11,3 +11,9 @@ test('orchestration includes enabled idle projects and live manual agents, exclu
  assert.deepEqual(groups[0].agents.map(run=>run.id),['working','waiting','queued'])
  assert.deepEqual(groups[1].agents,[])
 })
+
+
+test('configured projects can be set up before their first agent or enablement',()=>{
+ const projects=[{id:'mapped',name:'Mapped',path:'/work/repo'},{id:'unmapped',name:'Unmapped'}]
+ assert.deepEqual(orchestrationGroups(projects,[]).map(group=>group.project.id),['mapped'])
+})
