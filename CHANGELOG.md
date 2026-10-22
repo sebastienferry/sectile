@@ -13,6 +13,8 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-22
+
 ### Added
 
 - The sprint timeline view can be filtered by Epic from a dedicated searchable dropdown in the toolbar, with matching sprint tracks, backlog counts, and one-click clear.
@@ -879,7 +881,8 @@ release mechanism that will keep the following entries short.
   A run canceled because its client disconnected can still be finished by the
   agent that owns it, so the chain carries on. (#315)
 
-[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/sebastienferry/sectile/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/sebastienferry/sectile/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/sebastienferry/sectile/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sebastienferry/sectile/compare/v0.4.5...v0.5.0
