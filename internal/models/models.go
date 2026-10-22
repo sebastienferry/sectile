@@ -538,35 +538,35 @@ type CreateProjectRequest struct {
 	RoadmapProjects   []string `json:"roadmapProjects,omitempty"`
 	RoadmapAxisWrites bool     `json:"roadmapAxisWrites,omitempty"`
 	// EpicAxisPrefixes names the label prefixes of the epic axes (#635).
-	EpicAxisPrefixes    EpicAxisPrefixes `json:"epicAxisPrefixes"`
-	Name                string           `json:"name"`
-	Slug                string           `json:"slug,omitempty"`
-	Description         string           `json:"description,omitempty"`
-	Icon                string           `json:"icon,omitempty"`
-	Color               string           `json:"color,omitempty"`
-	Repositories        []string         `json:"repositories,omitempty"`
-	PRCreationStage     string           `json:"prCreationStage,omitempty"`
-	SpecArtifacts       string           `json:"specArtifacts,omitempty"`
-	BranchNameFormat    string           `json:"branchNameFormat,omitempty"`
-	DefaultSkillMode    string           `json:"defaultSkillMode,omitempty"`
-	FullChainStopStage  string           `json:"fullChainStopStage,omitempty"`
-	PushStageCommits    bool             `json:"pushStageCommits,omitempty"`
-	OrchestratorEnabled bool             `json:"orchestratorEnabled,omitempty"`
-	OrchestratorMaxConcurrent int        `json:"orchestratorMaxConcurrent,omitempty"`
-	OrchestratorPrompt  string           `json:"orchestratorPrompt,omitempty"`
-	BoardID             string           `json:"boardId,omitempty"`
-	GitRemoteUrl        string           `json:"gitRemoteUrl,omitempty"`
-	GithubRepo          string           `json:"githubRepo,omitempty"`
-	GithubApiUrl        string           `json:"githubApiUrl,omitempty"`
-	GitlabUrl           string           `json:"gitlabUrl,omitempty"`
-	GitlabProject       string           `json:"gitlabProject,omitempty"`
-	JiraProject         string           `json:"jiraProject,omitempty"`
-	IssueTracker        string           `json:"issueTracker,omitempty"`
-	TrackerUrl          string           `json:"trackerUrl,omitempty"`
-	IsDefault           bool             `json:"isDefault,omitempty"`
-	SpecFramework       string           `json:"specFramework,omitempty"`
-	AutoSyncEnabled     *bool            `json:"autoSyncEnabled,omitempty"`
-	AutoSyncIntervalMin *int             `json:"autoSyncIntervalMin,omitempty"`
+	EpicAxisPrefixes          EpicAxisPrefixes `json:"epicAxisPrefixes"`
+	Name                      string           `json:"name"`
+	Slug                      string           `json:"slug,omitempty"`
+	Description               string           `json:"description,omitempty"`
+	Icon                      string           `json:"icon,omitempty"`
+	Color                     string           `json:"color,omitempty"`
+	Repositories              []string         `json:"repositories,omitempty"`
+	PRCreationStage           string           `json:"prCreationStage,omitempty"`
+	SpecArtifacts             string           `json:"specArtifacts,omitempty"`
+	BranchNameFormat          string           `json:"branchNameFormat,omitempty"`
+	DefaultSkillMode          string           `json:"defaultSkillMode,omitempty"`
+	FullChainStopStage        string           `json:"fullChainStopStage,omitempty"`
+	PushStageCommits          bool             `json:"pushStageCommits,omitempty"`
+	OrchestratorEnabled       bool             `json:"orchestratorEnabled,omitempty"`
+	OrchestratorMaxConcurrent int              `json:"orchestratorMaxConcurrent,omitempty"`
+	OrchestratorPrompt        string           `json:"orchestratorPrompt,omitempty"`
+	BoardID                   string           `json:"boardId,omitempty"`
+	GitRemoteUrl              string           `json:"gitRemoteUrl,omitempty"`
+	GithubRepo                string           `json:"githubRepo,omitempty"`
+	GithubApiUrl              string           `json:"githubApiUrl,omitempty"`
+	GitlabUrl                 string           `json:"gitlabUrl,omitempty"`
+	GitlabProject             string           `json:"gitlabProject,omitempty"`
+	JiraProject               string           `json:"jiraProject,omitempty"`
+	IssueTracker              string           `json:"issueTracker,omitempty"`
+	TrackerUrl                string           `json:"trackerUrl,omitempty"`
+	IsDefault                 bool             `json:"isDefault,omitempty"`
+	SpecFramework             string           `json:"specFramework,omitempty"`
+	AutoSyncEnabled           *bool            `json:"autoSyncEnabled,omitempty"`
+	AutoSyncIntervalMin       *int             `json:"autoSyncIntervalMin,omitempty"`
 	// Trackers are the trackers the project selects its tickets from, by id or
 	// identity, in order (#741). Empty selects the single tracker the fields
 	// above name, which the API requires to be recorded already.
@@ -585,45 +585,45 @@ type CreateProjectRequest struct {
 }
 
 type UpdateProjectRequest struct {
-	Name                *string              `json:"name,omitempty"`
-	Slug                *string              `json:"slug,omitempty"`
-	Description         *string              `json:"description,omitempty"`
-	Icon                *string              `json:"icon,omitempty"`
-	Color               *string              `json:"color,omitempty"`
-	Repositories        *[]string            `json:"repositories,omitempty"`
-	RoadmapProjects     *[]string            `json:"roadmapProjects,omitempty"`
-	RoadmapAxisWrites   *bool                `json:"roadmapAxisWrites,omitempty"`
-	EpicAxisPrefixes    *EpicAxisPrefixes    `json:"epicAxisPrefixes,omitempty"`
-	PriorityMapping     *PriorityMapping     `json:"priorityMapping,omitempty"`
-	EpicAxisFields      *EpicAxisFields      `json:"epicAxisFields,omitempty"`
-	PRCreationStage     *string              `json:"prCreationStage,omitempty"`
-	SpecArtifacts       *string              `json:"specArtifacts,omitempty"`
-	BranchNameFormat    *string              `json:"branchNameFormat,omitempty"`
-	DefaultSkillMode    *string              `json:"defaultSkillMode,omitempty"`
-	FullChainStopStage  *string              `json:"fullChainStopStage,omitempty"`
-	PushStageCommits    *bool                `json:"pushStageCommits,omitempty"`
-	OrchestratorEnabled *bool                `json:"orchestratorEnabled,omitempty"`
-	OrchestratorMaxConcurrent *int           `json:"orchestratorMaxConcurrent,omitempty"`
-	OrchestratorPrompt  *string              `json:"orchestratorPrompt,omitempty"`
-	BoardID             *string              `json:"boardId,omitempty"`
-	TrackerColumns      *[]TrackerColumn     `json:"trackerColumns,omitempty"`
-	Sprints             *[]TrackerSprint     `json:"sprints,omitempty"`
-	IssueTypes          *[]string            `json:"issueTypes,omitempty"`
-	EnabledViews        *[]string            `json:"enabledViews,omitempty"`
-	EpicColors          *bool                `json:"epicColors,omitempty"`
-	StageColumns        *map[string][]string `json:"stageColumns,omitempty"`
-	GitRemoteUrl        *string              `json:"gitRemoteUrl,omitempty"`
-	GithubRepo          *string              `json:"githubRepo,omitempty"`
-	GithubApiUrl        *string              `json:"githubApiUrl,omitempty"`
-	GitlabUrl           *string              `json:"gitlabUrl,omitempty"`
-	GitlabProject       *string              `json:"gitlabProject,omitempty"`
-	JiraProject         *string              `json:"jiraProject,omitempty"`
-	IssueTracker        *string              `json:"issueTracker,omitempty"`
-	TrackerUrl          *string              `json:"trackerUrl,omitempty"`
-	IsDefault           *bool                `json:"isDefault,omitempty"`
-	SpecFramework       *string              `json:"specFramework,omitempty"`
-	AutoSyncEnabled     *bool                `json:"autoSyncEnabled,omitempty"`
-	AutoSyncIntervalMin *int                 `json:"autoSyncIntervalMin,omitempty"`
+	Name                      *string              `json:"name,omitempty"`
+	Slug                      *string              `json:"slug,omitempty"`
+	Description               *string              `json:"description,omitempty"`
+	Icon                      *string              `json:"icon,omitempty"`
+	Color                     *string              `json:"color,omitempty"`
+	Repositories              *[]string            `json:"repositories,omitempty"`
+	RoadmapProjects           *[]string            `json:"roadmapProjects,omitempty"`
+	RoadmapAxisWrites         *bool                `json:"roadmapAxisWrites,omitempty"`
+	EpicAxisPrefixes          *EpicAxisPrefixes    `json:"epicAxisPrefixes,omitempty"`
+	PriorityMapping           *PriorityMapping     `json:"priorityMapping,omitempty"`
+	EpicAxisFields            *EpicAxisFields      `json:"epicAxisFields,omitempty"`
+	PRCreationStage           *string              `json:"prCreationStage,omitempty"`
+	SpecArtifacts             *string              `json:"specArtifacts,omitempty"`
+	BranchNameFormat          *string              `json:"branchNameFormat,omitempty"`
+	DefaultSkillMode          *string              `json:"defaultSkillMode,omitempty"`
+	FullChainStopStage        *string              `json:"fullChainStopStage,omitempty"`
+	PushStageCommits          *bool                `json:"pushStageCommits,omitempty"`
+	OrchestratorEnabled       *bool                `json:"orchestratorEnabled,omitempty"`
+	OrchestratorMaxConcurrent *int                 `json:"orchestratorMaxConcurrent,omitempty"`
+	OrchestratorPrompt        *string              `json:"orchestratorPrompt,omitempty"`
+	BoardID                   *string              `json:"boardId,omitempty"`
+	TrackerColumns            *[]TrackerColumn     `json:"trackerColumns,omitempty"`
+	Sprints                   *[]TrackerSprint     `json:"sprints,omitempty"`
+	IssueTypes                *[]string            `json:"issueTypes,omitempty"`
+	EnabledViews              *[]string            `json:"enabledViews,omitempty"`
+	EpicColors                *bool                `json:"epicColors,omitempty"`
+	StageColumns              *map[string][]string `json:"stageColumns,omitempty"`
+	GitRemoteUrl              *string              `json:"gitRemoteUrl,omitempty"`
+	GithubRepo                *string              `json:"githubRepo,omitempty"`
+	GithubApiUrl              *string              `json:"githubApiUrl,omitempty"`
+	GitlabUrl                 *string              `json:"gitlabUrl,omitempty"`
+	GitlabProject             *string              `json:"gitlabProject,omitempty"`
+	JiraProject               *string              `json:"jiraProject,omitempty"`
+	IssueTracker              *string              `json:"issueTracker,omitempty"`
+	TrackerUrl                *string              `json:"trackerUrl,omitempty"`
+	IsDefault                 *bool                `json:"isDefault,omitempty"`
+	SpecFramework             *string              `json:"specFramework,omitempty"`
+	AutoSyncEnabled           *bool                `json:"autoSyncEnabled,omitempty"`
+	AutoSyncIntervalMin       *int                 `json:"autoSyncIntervalMin,omitempty"`
 	// Trackers, Label and DefaultTrackerID: see CreateProjectRequest (#741).
 	Trackers         *[]ProjectTracker `json:"trackers,omitempty"`
 	Label            *string           `json:"label,omitempty"`
@@ -669,7 +669,12 @@ func NormalizeOrchestratorMaxConcurrent(n int) int {
 type OrchestrateProjectRequest struct {
 	Force         bool `json:"force,omitempty"`
 	MaxConcurrent *int `json:"maxConcurrent,omitempty"`
+	// Guidelines snapshots the local Markdown file for this invocation only.
+	// Nil keeps the server's project guidelines for web and MCP callers.
+	Guidelines *string `json:"guidelines,omitempty"`
 }
+
+const OrchestratorGuidelinesMaxBytes = 32 * 1024
 
 type OrchestratedTaskInfo struct {
 	ID         string `json:"id"`

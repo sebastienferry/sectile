@@ -247,3 +247,30 @@ func TestAgentProjectDiscoveryReportsOrchestrationCapacity(t *testing.T) {
 	}
 	t.Fatal("orchestrated project missing from discovery")
 }
+
+func TestOrchestratorLocalGuidelinesSnapshotDoesNotOverwriteProject(t *testing.T) {
+	d, project := orchestratorTestDB(t)
+	original := "Web project policy"
+	if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{OrchestratorPrompt: &original}); err != nil {
+		t.Fatal(err)
+	}
+	orchestratorTask(t, d, project.ID)
+	dispatched := orchestratorDispatches(d)
+	local := "Local AGENTS.md policy"
+	result, err := d.EvaluateAndOrchestrateBacklog(context.Background(), project.ID, Actor{ID: "alice"}, models.OrchestrateProjectRequest{Guidelines: &local})
+	if err != nil || len(result.Launched) != 1 {
+		t.Fatalf("evaluate: %+v %v", result, err)
+	}
+	op := awaitOrchestratorDispatch(t, d, dispatched)
+	if !strings.Contains(op.Prompt, local) || strings.Contains(op.Prompt, original) {
+		t.Fatalf("wrong guideline snapshot: %s", op.Prompt)
+	}
+	stored, err := d.GetProjectByID(project.ID)
+	if err != nil || stored.OrchestratorPrompt != original {
+		t.Fatal("local snapshot changed shared policy")
+	}
+	oversized := strings.Repeat("x", models.OrchestratorGuidelinesMaxBytes+1)
+	if _, err := d.EvaluateAndOrchestrateBacklog(context.Background(), project.ID, Actor{ID: "alice"}, models.OrchestrateProjectRequest{Guidelines: &oversized}); err == nil {
+		t.Fatal("accepted oversized guidelines")
+	}
+}

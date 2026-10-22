@@ -96,6 +96,9 @@ func (d *DB) EvaluateTaskEligibility(task *models.Task) (bool, string) {
 // evaluates their eligibility for autonomous development, and initiates chain runs
 // up to the configured maximum concurrent sessions.
 func (d *DB) EvaluateAndOrchestrateBacklog(ctx context.Context, projectID string, actor Actor, req models.OrchestrateProjectRequest) (*models.OrchestrationResult, error) {
+	if req.Guidelines != nil && len(*req.Guidelines) > models.OrchestratorGuidelinesMaxBytes {
+		return nil, fmt.Errorf("orchestration guidelines exceed 32 KiB")
+	}
 	project, err := d.GetProjectByID(projectID)
 	if err != nil || project == nil {
 		return nil, fmt.Errorf("project not found: %s", projectID)
@@ -143,7 +146,11 @@ func (d *DB) EvaluateAndOrchestrateBacklog(ctx context.Context, projectID string
 	}
 
 	stopStage := models.FullChainStopImplemented
-	prompt := orchestratorLaunchPrompt(project.OrchestratorPrompt)
+	guidelines := project.OrchestratorPrompt
+	if req.Guidelines != nil {
+		guidelines = *req.Guidelines
+	}
+	prompt := orchestratorLaunchPrompt(guidelines)
 
 	for _, task := range tasks {
 		if err := ctx.Err(); err != nil {

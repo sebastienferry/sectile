@@ -453,7 +453,7 @@ Authenticated `GET /api/v1/agent/projects` returns
 `{"schemaVersion":1,"projects":[{"id":"server-primary-key","name":"Project","gitRemoteUrl":"..."}]}`.
 Discovery records may also carry `orchestratorEnabled`, `orchestratorMaxConcurrent`, and `orchestratorActiveRuns`. The count covers active task sessions across the project, including other workstations. It is present for enabled orchestrators; absence means capacity is unknown, while an explicit zero means no active runs. These optional fields do not change the schema version. The agent forwards them through authenticated `GET /desktop/projects` for the desktop orchestration section.
 
-The local agent advertises `orchestration-controls` when authenticated `GET`/`PUT /desktop/orchestration?projectId=…` can read/save the three project orchestration settings and `POST` can evaluate the backlog. The bridge uses the paired credential against the existing project HTTP APIs. It accepts no actor, force, or capacity override. The server derives the evaluation workstation from the paired credential; a caller-supplied device header cannot replace it. Missing settings on an older server produce HTTP 501 rather than a successful-looking default.
+The local agent advertises `orchestration-controls` when authenticated `GET`/`PUT /desktop/orchestration?projectId=…` can read/save project enablement and concurrency plus the workstation-local `orchestrationFile` path, and `POST` can evaluate the backlog. `GET` returns the current file contents as `guidelines` and a `guidelinesError` when it cannot be read; an empty path uses `AGENTS.md`. Paths must be relative `.md` files inside the mapped checkout. Enabling and evaluation reject missing, empty, non-UTF-8, escaping or oversized (32 KiB) files. Evaluation reads the file again and forwards its text as the optional `guidelines` snapshot on `POST /api/projects/{id}/orchestrate`, preserving the shared server policy. Each launched chain retains that snapshot. The bridge uses the paired credential against the existing project HTTP APIs. It accepts no actor, force, or capacity override. The server derives the evaluation workstation from the paired credential; a caller-supplied device header cannot replace it. Missing settings on an older server produce HTTP 501 rather than a successful-looking default.
 
 
 Discovery excludes server filesystem paths and credentials.
@@ -1696,3 +1696,5 @@ servers cannot safely share the new presence contract during a rolling upgrade.
 The optional agent fields remain additive version-1 fields; older clients
 continue to work for single-workstation users. No graphical picker, new cluster
 architecture, or persisted run-device column is introduced.
+
+For a separate local desktop profile, `SECTILE_DESKTOP_DATA_DIR` selects the same `settings.json` for the agent and companion. Workstation settings layout 5 records the project-local orchestration file path and prevents older writers from dropping it.

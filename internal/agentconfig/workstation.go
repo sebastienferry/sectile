@@ -13,8 +13,9 @@ import (
 // predates #305: its flat keys and per-project maps are folded on read and
 // rewritten in this layout on the next save. Layout 3 (#510) moves the engine
 // settings into the engine catalogue, and layout 4 (#730) the project Sandbox
-// values into the workstation ones.
-const SettingsLayout = 4
+// values into the workstation ones. Layout 5 (#859) keeps the project-local
+// orchestration guidelines path, which older writers must not discard.
+const SettingsLayout = 5
 
 // DefaultProvider is the provider a workstation runs when neither its defaults
 // nor the project section name one.
@@ -124,6 +125,9 @@ func (d Defaults) InstalledSkillSourceOrDefault() string {
 
 // ProjectSettings is one project's section, keyed by the project's primary key.
 type ProjectSettings struct {
+	// OrchestrationFile is a Markdown path relative to the local checkout.
+	// Empty uses AGENTS.md. The path stays on this workstation.
+	OrchestrationFile string `json:"orchestrationFile,omitempty"`
 	// Path is the project's checkout on this workstation.
 	Path string `json:"path,omitempty"`
 	// MacroSpecPath is the project's Macro specifications folder, a Git
@@ -194,7 +198,7 @@ func (e Execution) isZero() bool {
 func (p ProjectSettings) IsZero() bool {
 	return strings.TrimSpace(p.Path) == "" && strings.TrimSpace(p.MacroSpecPath) == "" && strings.TrimSpace(p.IssueSpecPath) == "" && p.Execution.isZero() && len(p.SkillCommands) == 0 &&
 		strings.TrimSpace(p.SpecArtifacts) == "" && len(p.Folders) == 0 && p.ClaudeSandbox.IsZero() &&
-		p.AnyRepository == nil && strings.TrimSpace(p.ClonesPath) == ""
+		p.AnyRepository == nil && strings.TrimSpace(p.ClonesPath) == "" && strings.TrimSpace(p.OrchestrationFile) == ""
 }
 
 // Project returns the project's section, empty when it has none.

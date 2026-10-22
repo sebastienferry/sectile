@@ -1,4 +1,5 @@
 import { createOrchestration } from './orchestration.mjs'
+import { orchestrationSettings } from './orchestration-settings.mjs'
 import {engineSetup,setupStartup} from './engine-setup.mjs'
 import { renderDesktopUpdates } from './desktop-updates.mjs'
 import { batchMembers, moveBatchMember, suggestedBatchWorktreeName, buildBatchPickupPrompt } from './batch-pickup.mjs'
@@ -1952,6 +1953,7 @@ const PROJECT_SETTINGS_CATEGORIES=[
  {id:'Remove',label:'General',saves:true,icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>'},
  {id:'General',label:'Folders',saves:true,icon:'<path d="M4 7a2 2 0 0 1 2-2h3l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>'},
  {id:'Execution',label:'Execution',saves:true,icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.4"/><circle cx="15" cy="17" r="2.4"/>'},
+ {id:'Orchestration',label:'Orchestration',saves:false,icon:'<circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v5M5 17v-5h14v5"/>'},
  {id:'Sandbox',label:'Claude settings',saves:true,mark:'claude'}
 ]
 function configurationNavigation(tabs,projectId){
@@ -2606,7 +2608,9 @@ async function openProject(id,initial='Remove'){
   const save=document.createElement('button');save.textContent='Save local configuration';save.className='dialog-action primary'
   save.setAttribute('form',form.id)
   dialogFooter.prepend(save);syncDialogFooter()
+  let orchestrationView
   function selectCategory(name){
+   if(name==='Orchestration'&&!orchestrationView)orchestrationView=orchestrationSettings({container:panels.Orchestration,project:{id,name:config.projectName},api,onChanged:()=>{orchestrationReadAt=0;refreshOrchestration();refresh()}})
    pageTitle.textContent=PROJECT_SETTINGS_CATEGORIES.find(category=>category.id===name).label
    const stores=PROJECT_SETTINGS_CATEGORIES.find(category=>category.id===name).saves
    for(const [key,value] of Object.entries(panels))value.hidden=key!==name

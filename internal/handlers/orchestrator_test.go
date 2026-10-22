@@ -207,3 +207,33 @@ func TestDesktopBacklogEvaluationUsesPairedUserAndDevice(t *testing.T) {
 		t.Fatal("paired workstation received no launch")
 	}
 }
+
+func TestProjectOrchestrateValidatesGuidelineSnapshotPayload(t *testing.T) {
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Guideline payload", IssueTracker: "local", OrchestratorEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(database)
+	for _, test := range []struct {
+		body   string
+		status int
+		detail string
+	}{
+		{`{"guidelines":`, http.StatusBadRequest, "Invalid orchestration request"},
+		{`{"guidelines":"` + strings.Repeat("x", models.OrchestratorGuidelinesMaxBytes+1) + `"}`, http.StatusBadRequest, "exceed 32 KiB"},
+		// JSON escaping can make the request larger than the Markdown text.
+		{`{"guidelines":"` + strings.Repeat(`\"`, models.OrchestratorGuidelinesMaxBytes) + `"}`, http.StatusOK, ""},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/projects/"+project.ID+"/orchestrate", strings.NewReader(test.body))
+		rec := httptest.NewRecorder()
+		h.HandleProjectDetail(rec, req)
+		if rec.Code != test.status || !strings.Contains(rec.Body.String(), test.detail) {
+			t.Fatalf("guideline request: %d %s", rec.Code, rec.Body.String())
+		}
+	}
+}

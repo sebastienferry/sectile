@@ -7,7 +7,7 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 test('orchestration shows live agents, authoritative capacity, workflow stages and console navigation',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-orchestration-'))
  let online=true,capacity=3,discoveryAvailable=true,metadata=true,controlsAvailable=true,saveFailure=false,evaluateFailure=false
- let settings={orchestratorEnabled:false,orchestratorMaxConcurrent:1,orchestratorPrompt:''},evaluations=0,saves=0
+ let settings={orchestratorEnabled:false,orchestratorMaxConcurrent:1,orchestrationFile:'AGENTS.md',guidelines:'# Local guidelines'},evaluations=0,saves=0
  const attachments=[]
  let runs=[{id:'run-a',taskId:'task-a',taskKey:'DEMO-1',projectId:'demo',skill:'clarify',engineName:'Implementation agent',provider:'claude',model:'sonnet',status:'running',headless:true,trace:true,createdAt:'2026-10-22T09:00:00Z'},
  {id:'run-b',taskId:'task-b',taskKey:'DEMO-2',projectId:'demo',skill:'specify',provider:'codex',status:'running',waitingSince:'2026-10-22T09:01:00Z',headless:true,trace:true,createdAt:'2026-10-22T09:00:00Z'},
@@ -21,12 +21,12 @@ test('orchestration shows live agents, authoritative capacity, workflow stages a
   if(req.url.startsWith('/desktop/orchestration?')){
    if(req.method==='GET'){res.end(JSON.stringify(settings));return}
    if(req.method==='PUT'){
-    let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{saves++;if(saveFailure){res.writeHead(503).end(JSON.stringify({error:'Saving is temporarily unavailable'}));return}settings=JSON.parse(raw);res.end(JSON.stringify(settings))});return
+    let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{saves++;if(saveFailure){res.writeHead(503).end(JSON.stringify({error:'Saving is temporarily unavailable'}));return}settings={...settings,...JSON.parse(raw)};res.end(JSON.stringify(settings))});return
    }
    evaluations++;if(evaluateFailure){res.writeHead(503).end(JSON.stringify({error:'Evaluation is temporarily unavailable'}));return}
    setTimeout(()=>res.end(JSON.stringify({projectId:'idle',activeRunsAfter:1,maxConcurrent:settings.orchestratorMaxConcurrent,launched:[{key:'IDLE-1'}],skipped:[{key:'IDLE-2',reason:'task carries blocker label blocked'}]})),500);return
   }
-  if(req.url.startsWith('/desktop/project?')){res.end(JSON.stringify({parallelism:4}));return}
+  if(req.url.startsWith('/desktop/project?')){res.end(JSON.stringify({server:{projectName:'Idle',skills:[]},path:'/tmp/idle',configured:true,parallelism:4,aiProvider:'claude'}));return}
   if(req.url==='/desktop/runs'){res.end(JSON.stringify(runs));return}
   if(req.url.startsWith('/desktop/tasks?')){res.end(JSON.stringify([{id:'task-a',title:'Validate requests',labels:['#new']},{id:'task-b',title:'Define schema',labels:['#clarified']},{id:'task-c',title:'Implement API',labels:['#specified']}]));return}
   res.writeHead(404).end()
@@ -50,41 +50,50 @@ test('orchestration shows live agents, authoritative capacity, workflow stages a
   await expect(demo.locator('[data-run-id="run-a"]')).toContainText('Implementation agent')
   await expect(demo.locator('[data-run-id="run-b"]')).toContainText('Waiting for you')
   await expect(demo.locator('[data-run-id="run-c"]')).toContainText('Queued')
-  await expect(page.getByRole('region',{name:'Orchestration for Idle'})).toContainText('No active agents on this workstation')
   const idle=page.getByRole('region',{name:'Orchestration for Idle',exact:true})
-  await idle.getByRole('button',{name:'Set up orchestration for Idle'}).click()
-  const form=idle.getByRole('form',{name:'Orchestration settings for Idle'})
+  await expect(idle).toHaveCount(0)
+  await expect(section.getByRole('button',{name:/Set up/})).toHaveCount(0)
+  await page.getByRole('button',{name:'Actions for Idle',exact:true}).click()
+  await page.getByRole('menuitem',{name:'Project settings…',exact:true}).click()
+  await page.locator('#project-tab-Orchestration').click()
+  const form=page.getByRole('form',{name:'Orchestration settings for Idle'})
+  await expect(form).toBeVisible()
+  await expect(page.getByRole('button',{name:'Save local configuration',exact:true})).toBeHidden()
+  await expect(form.getByLabel('Guidelines file')).toHaveValue('AGENTS.md')
+  await expect(form.getByLabel('Guidelines preview')).toHaveText('# Local guidelines')
   await expect(form.getByRole('button',{name:'Evaluate backlog'})).toBeDisabled()
   await form.getByLabel('Enable orchestration').check()
   await form.getByLabel('Concurrency limit').fill('3')
-  await form.getByLabel('Eligibility guidelines').fill('Only small fixes with tests')
-  // Polling must not replace a draft, move the caret, or enable launch before save.
+  await form.getByLabel('Guidelines file').fill('docs/orchestration.md')
   await expect(form.getByRole('button',{name:'Evaluate backlog'})).toBeDisabled()
-  await expect(form.getByLabel('Eligibility guidelines')).toHaveValue('Only small fixes with tests')
   saveFailure=true
-  await form.getByRole('button',{name:'Save settings'}).click()
+  await form.getByRole('button',{name:'Save orchestration settings'}).click()
   await expect(form.getByRole('alert')).toContainText('Saving is temporarily unavailable')
-  await expect(form.getByLabel('Eligibility guidelines')).toHaveValue('Only small fixes with tests')
+  await expect(form.getByLabel('Guidelines file')).toHaveValue('docs/orchestration.md')
   saveFailure=false
-  await form.getByRole('button',{name:'Save settings'}).click()
+  await form.getByRole('button',{name:'Save orchestration settings'}).click()
   await expect(form.getByRole('button',{name:'Evaluate backlog'})).toBeEnabled()
-  assert.deepEqual(settings,{orchestratorEnabled:true,orchestratorMaxConcurrent:3,orchestratorPrompt:'Only small fixes with tests'})
+  assert.equal(settings.orchestratorEnabled,true)
+  assert.equal(settings.orchestratorMaxConcurrent,3)
+  assert.equal(settings.orchestrationFile,'docs/orchestration.md')
   assert.equal(saves,2)
-  await page.screenshot({path:path.join(root,'orchestration-setup.png')})
+  settings.guidelines='# Updated file contents'
+  await form.getByRole('button',{name:'Reload file'}).click()
+  await expect(form.getByLabel('Guidelines preview')).toHaveText('# Updated file contents')
+  await page.screenshot({path:path.join(root,'orchestration-settings.png')})
   evaluateFailure=true
   await form.getByRole('button',{name:'Evaluate backlog'}).click()
   await expect(form.getByRole('alert')).toContainText('Evaluation is temporarily unavailable')
   evaluateFailure=false
   await form.getByRole('button',{name:'Evaluate backlog'}).click()
   await expect(form.getByRole('button',{name:'Evaluate backlog'})).toBeDisabled()
-  await expect(idle.getByRole('status')).toContainText('1 launched · 1 skipped · 1 / 3 slots used')
-  await expect(idle.getByRole('status')).toContainText('IDLE-2: task carries blocker label blocked')
+  await expect(form.getByRole('status')).toContainText('1 launched · 1 skipped · 1 / 3 slots used')
+  await expect(form.getByRole('status')).toContainText('IDLE-2: task carries blocker label blocked')
   assert.equal(evaluations,2)
-  await idle.getByRole('button',{name:'Set up orchestration for Idle'}).click()
-  await idle.getByRole('button',{name:'Set up orchestration for Idle'}).click()
-  await expect(form.getByLabel('Concurrency limit')).toHaveValue('3')
-  await expect(form.getByLabel('Eligibility guidelines')).toHaveValue('Only small fixes with tests')
-  await idle.getByRole('button',{name:'Set up orchestration for Idle'}).click()
+  await page.locator('.configuration-page').getByRole('button',{name:'Back',exact:true}).click()
+  await expect(idle).toBeVisible()
+  await expect(idle.getByRole('button',{name:'Evaluate backlog'})).toBeEnabled()
+  await expect(idle.getByRole('checkbox')).toHaveCount(0)
   await demo.locator('[data-run-id="run-b"]').click()
   await expect(page.locator('#execution-history')).toHaveValue('run-b')
   await expect(page.locator('#title')).toContainText('DEMO-2')
@@ -113,8 +122,13 @@ test('orchestration shows live agents, authoritative capacity, workflow stages a
   await expect(demo.locator('.orchestration-capacity')).toHaveText('Capacity unavailable')
   await expect(demo.locator('[data-run-id="run-b"]')).toBeEnabled()
   controlsAvailable=false
-  await demo.getByRole('button',{name:'Set up orchestration for Demo'}).click()
-  await expect(demo.getByRole('alert')).toContainText('Update and restart the local agent')
+  await idle.getByRole('button',{name:'Evaluate backlog'}).click()
+  await expect(idle.getByRole('alert')).toContainText('Update and restart the local agent')
+  settings.orchestratorEnabled=false;runs=[]
+  await page.evaluate(()=>{const now=Date.now;Date.now=()=>now()+16000})
+  await expect(section).toBeHidden()
+  runs=[{id:'manual',taskId:'task-a',taskKey:'DEMO-1',projectId:'demo',status:'running',skill:'clarify'}]
+  await expect(section).toBeVisible()
   online=false
   await page.evaluate(()=>document.querySelector('#settings').click())
   await expect(page.locator('#orchestration .orchestration-scope')).toHaveText('Local agent offline')

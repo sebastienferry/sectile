@@ -367,3 +367,25 @@ func TestConversationModeSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("an absent conversation mode was written: %s", raw)
 	}
 }
+
+func TestDesktopProfileKeepsProjectOrchestrationFileIsolated(t *testing.T) {
+	testhome.Temp(t)
+	defaultPath, _ := SettingsPath()
+	dir := t.TempDir()
+	t.Setenv("SECTILE_DESKTOP_DATA_DIR", dir)
+	settings := Settings{}
+	settings.SetProject("p", ProjectSettings{OrchestrationFile: "docs/orchestration.md"})
+	if err := WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := ReadSettings(t.TempDir())
+	if err != nil || stored.Project("p").OrchestrationFile != "docs/orchestration.md" {
+		t.Fatalf("local file lost: %+v, %v", stored, err)
+	}
+	if _, err := os.Stat(defaultPath); !os.IsNotExist(err) {
+		t.Fatalf("default profile was written: %v", err)
+	}
+	if got, _ := SettingsPath(); got != filepath.Join(dir, "settings.json") {
+		t.Fatal(got)
+	}
+}

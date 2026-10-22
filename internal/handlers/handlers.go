@@ -1503,7 +1503,10 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	if len(parts) >= 2 && parts[1] == "orchestrate" && r.Method == http.MethodPost {
 		var req models.OrchestrateProjectRequest
 		if r.Body != nil {
-			_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&req)
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256*1024)).Decode(&req); err != nil && err != io.EOF {
+				writeError(w, http.StatusBadRequest, "Invalid orchestration request")
+				return
+			}
 		}
 		actor := h.webPrincipal(r).Actor()
 		ctx := r.Context()

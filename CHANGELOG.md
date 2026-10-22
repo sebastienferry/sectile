@@ -16,7 +16,7 @@ test fixtures or internal plumbing.
 ### Added
 
 - Projects can enable the Backlog Orchestrator Agent to launch autonomous task chains on the requesting user's workstation, assess project eligibility guidelines before changes, and stop at implemented for human review. Concurrent requests share the project's execution limit. (#859)
-- Desktop has an ORCHESTRATION section above PROJECTS with per-project enablement, concurrency and guideline settings, an Evaluate backlog action and launch reports, plus live task agents, capacity usage, workflow stages, waiting states, and console access. (#859)
+- Desktop project settings configure orchestration enablement, concurrency and a local Markdown guidelines file (AGENTS.md by default). ORCHESTRATION appears above PROJECTS only for enabled projects or active task agents, with backlog evaluation, launch reports, capacity, stages, waiting states and console access. (#859)
 - The sprint timeline view can be filtered by Epic from a dedicated searchable dropdown in the toolbar, with matching sprint tracks, backlog counts, and one-click clear.
 
 ### Changed

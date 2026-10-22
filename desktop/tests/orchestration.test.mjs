@@ -13,7 +13,7 @@ test('orchestration includes enabled idle projects and live manual agents, exclu
 })
 
 
-test('configured projects can be set up before their first agent or enablement',()=>{
+test('mapped projects stay out of orchestration until enabled or running an agent',()=>{
  const projects=[{id:'mapped',name:'Mapped',path:'/work/repo'},{id:'unmapped',name:'Unmapped'}]
- assert.deepEqual(orchestrationGroups(projects,[]).map(group=>group.project.id),['mapped'])
+ assert.deepEqual(orchestrationGroups(projects,[]),[])
 })

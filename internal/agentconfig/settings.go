@@ -13,6 +13,9 @@ import (
 
 // SettingsPath is shared by the standalone agent and its optional companion.
 func SettingsPath() (string, error) {
+	if dir := os.Getenv("SECTILE_DESKTOP_DATA_DIR"); dir != "" {
+		return filepath.Join(dir, "settings.json"), nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

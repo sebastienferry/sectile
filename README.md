@@ -33,8 +33,11 @@ It consists of three complementary components:
   guidelines before changes, share a project concurrency limit, and stop at
   **Implemented** for human review.
   Desktop shows live task agents, project capacity, workflow stages, waiting
-  states, and console access in **ORCHESTRATION**, above **PROJECTS**, with
-  per-project setup and an **Evaluate backlog** action.
+  states, console access and **Evaluate backlog** in **ORCHESTRATION**, above
+  **PROJECTS**, only while a project is enabled or task agents are active.
+  Configure it in **Settings → project → Orchestration**: enablement, concurrency
+  and a local guidelines file (`AGENTS.md` by default, or another project-local
+  `.md` file). Each evaluation reads the file again before launching.
 - Frames and slices multi-ticket initiatives with **Macros** (`refine-macro` and
   `realign-macro`).
 - Scaffolds **Spec Kit** and **OpenSpec** directly inside project repositories.
