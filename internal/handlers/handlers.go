@@ -2076,7 +2076,12 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 		// actually took is worth knowing: it separates a slow instance from a
 		// slow screen, which look identical from a chair.
 		started := time.Now()
-		account, err := h.db.CheckTrackerCredentials(h.actingContext(r), trackerName, req.SiteURL, req.Email, req.Token)
+		check := h.db.CheckTrackerCredentials
+		if checkOnly {
+			// The check button belongs to the personal form only (ADR 0058).
+			check = h.db.CheckPersonalTrackerCredentials
+		}
+		account, err := check(h.actingContext(r), trackerName, req.SiteURL, req.Email, req.Token)
 		log.Printf("[TrackerSetup] vérification %s en %s", trackerName, time.Since(started).Round(time.Millisecond))
 		if err != nil {
 			// Nothing is persisted on a failed check: the user configuration
