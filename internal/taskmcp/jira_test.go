@@ -52,6 +52,9 @@ func newFakeJira(t *testing.T) *fakeJira {
 			fmt.Fprint(w, `{"id":"10042","key":"PE-42"}`)
 		case r.Method == http.MethodGet && r.URL.Path == "/rest/api/3/issue/PE-42":
 			fmt.Fprint(w, `{"key":"PE-42","fields":{"summary":"Follow-up","status":{"name":"To Do","statusCategory":{"key":"new"}},"issuetype":{"name":"Task"},"labels":["CustomerCase"]}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/rest/api/3/issue/PE-42/comment":
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprint(w, `{"id":"2"}`)
 		case r.Method == http.MethodGet && r.URL.Path == "/rest/api/3/issue/PE-42/comment":
 			fmt.Fprint(w, `{"startAt":0,"maxResults":100,"total":1,"comments":[{"id":"1","author":{"displayName":"Ada"},"body":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"Looks good"}]}]},"created":"2026-09-25T10:00:00.000+0000"}]}`)
 		case r.Method == http.MethodGet && r.URL.Path == "/rest/api/3/field":

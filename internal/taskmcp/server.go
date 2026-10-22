@@ -297,6 +297,35 @@ func requireCaller(caller Caller) error {
 	return nil
 }
 
+// inSkillRun reports whether a tool call belongs to a skill run: its request
+// names a run (a console Sectile launched), or its session started a run and
+// has not finished it. A ticket action made there is the run's, not the
+// person's: it goes out with the server credential (ADR 0058).
+func inSkillRun(sessions *SessionRegistry, req *mcp.CallToolRequest) bool {
+	if req == nil {
+		return false
+	}
+	if req.Extra != nil && strings.TrimSpace(req.Extra.Header.Get(agentprotocol.RunIDHeader)) != "" {
+		return true
+	}
+	return len(sessions.AdoptedRuns(sessionID(req.Session))) > 0
+}
+
+// writeContext is the context of a write tool: the caller as its author, and
+// the server credential when the call belongs to a skill run.
+func writeContext(ctx context.Context, sessions *SessionRegistry, req *mcp.CallToolRequest, caller Caller) context.Context {
+	ctx = tracker.WithActingUser(ctx, caller.UserID)
+	if inSkillRun(sessions, req) {
+		ctx = tracker.WithServiceCredential(ctx)
+	}
+	return ctx
+}
+
+// writeActor is writeContext for the store's calls that take an actor.
+func writeActor(sessions *SessionRegistry, req *mcp.CallToolRequest, caller Caller) db.Actor {
+	return db.Actor{ID: caller.UserID, Name: caller.Name, ServiceCredential: inSkillRun(sessions, req)}
+}
+
 // CallerResolver maps the headers of an MCP request to its caller. It returns
 // false when the request names nobody, as over a transport without headers.
 type CallerResolver func(header http.Header) (Caller, bool)
@@ -488,7 +517,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			if err != nil {
 				return nil, nil, err
 			}
-			comments, err := database.PostTaskCommentBy(db.Actor{ID: caller.UserID, Name: caller.Name}, ref, in.Body)
+			comments, err := database.PostTaskCommentBy(writeActor(sessions, req, caller), ref, in.Body)
 			return nil, map[string]any{"comments": comments}, err
 		})
 	mcp.AddTool(s, &mcp.Tool{
@@ -725,8 +754,9 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			trackerID = trk.ID
 		}
 		// The issue is created as the caller, exactly as from the web: under
-		// their own tracker credential, never the server's.
-		task, err := database.CreateTaskAs(tracker.WithActingUser(ctx, caller.UserID), models.CreateTaskRequest{
+		// their own tracker credential, or the server's when a skill run files
+		// it (ADR 0058).
+		task, err := database.CreateTaskAs(writeContext(ctx, sessions, req, caller), models.CreateTaskRequest{
 			// Remote creation is required, not preferred: a ticket an agent files
 			// has to exist where a human will see it.
 			RequireRemoteCreation: true,
@@ -818,8 +848,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			labels = &sanitized
 		}
 
-		actor := db.Actor{ID: caller.UserID, Name: caller.Name}
-		task, err := database.UpdateTaskBy(actor, existing.ID, models.UpdateTaskRequest{
+		task, err := database.UpdateTaskBy(writeActor(sessions, req, caller), existing.ID, models.UpdateTaskRequest{
 			Title:       title,
 			Description: desc,
 			Priority:    prio,
