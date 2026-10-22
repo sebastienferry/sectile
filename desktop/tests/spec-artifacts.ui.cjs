@@ -34,7 +34,6 @@ test('project settings override whether specification artefacts are dropped',asy
   const openSettings=async()=>{
    await page.getByRole('button',{name:'Actions for Example project',exact:true}).click()
    await page.getByRole('menuitem',{name:'Project settings…',exact:true}).click()
-   await page.getByRole('tab',{name:'Execution',exact:true}).click()
   }
   const row=()=>page.locator('.setting-row').filter({has:page.getByRole('group',{name:'Specifications',exact:true})})
   const save=async()=>{
@@ -66,10 +65,10 @@ test('project settings override whether specification artefacts are dropped',asy
   await expect(configuration.getByRole('button',{name:'Refresh from server',exact:true})).toHaveCount(1)
   await exampleToggle.click()
   await expect(otherToggle).toHaveAttribute('aria-expanded','false')
-  await configuration.getByRole('tab',{name:'Execution',exact:true}).click()
+  await configuration.getByRole('tab',{name:'General',exact:true}).nth(1).click()
   await expect(configuration.getByRole('heading',{name:'Configuration',exact:true})).toHaveCount(0)
   const title=configuration.locator('.configuration-panel-title')
-  await expect(title).toHaveText('Execution')
+  await expect(title).toHaveText('General')
   const titleBounds=await title.boundingBox()
   const refresh=configuration.getByRole('button',{name:'Refresh from server',exact:true})
   await expect(refresh).toHaveCount(1)
@@ -92,8 +91,8 @@ test('project settings override whether specification artefacts are dropped',asy
   await expect(configuration.locator('.settings-group-label')).toHaveText(['General','Example project','Other project'])
   await configuration.getByRole('tab',{name:'Agent logs',exact:true}).click()
   await expect(configuration.getByRole('heading',{name:'Agent logs',exact:true})).toHaveCount(1)
-  await configuration.getByRole('tab',{name:'Execution',exact:true}).click()
-  await expect(configuration.getByRole('tab',{name:'Execution',exact:true})).toHaveAttribute('aria-selected','true')
+  await configuration.getByRole('tab',{name:'General',exact:true}).nth(1).click()
+  await expect(configuration.getByRole('tab',{name:'General',exact:true}).nth(1)).toHaveAttribute('aria-selected','true')
   await expect(refresh).toHaveCount(1)
   const keep=page.getByRole('button',{name:'Keep',exact:true}),drop=page.getByRole('button',{name:'Drop',exact:true})
   await expect(keep).toHaveAttribute('aria-pressed','true')

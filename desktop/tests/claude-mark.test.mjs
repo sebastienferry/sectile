@@ -29,7 +29,7 @@ test('the Claude mark is decorative and follows the text colour', () => {
 // their stroked outline. The shield they drew before is gone.
 test('a settings category naming the Claude mark draws it, the others their outline', () => {
  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
- assert.equal(main.match(/\{id:'Sandbox',label:'Claude settings',[^}]*mark:'claude'\}/g).length, 2)
+ assert.equal(main.match(/\{id:'Sandbox',label:'Claude settings',[^}]*mark:'claude'\}/g).length, 1)
  assert.doesNotMatch(main, /M12 3 5 6v5c0 4\.4/)
  assert.doesNotMatch(main, /tab\.innerHTML='<svg/)
  const document = {

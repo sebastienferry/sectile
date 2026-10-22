@@ -17,12 +17,17 @@ test fixtures or internal plumbing.
 
 - The sprint timeline view can be filtered by Epic from a dedicated searchable dropdown in the toolbar, with matching sprint tracks, backlog counts, and one-click clear.
 - **Connect GitHub and GitLab from your profile.** Profile → Tracker credentials offers **Connect GitHub** and **Connect GitLab** once an admin has registered the app in Administration: one consent screen, and everything you do on github.com and gitlab.com is signed by your own account, with no token to create, paste or unseal. Disconnecting also revokes the access on the forge; GitHub Enterprise and self-hosted GitLab keep the personal token, still available behind **Use a token instead**. (#855)
+- Desktop allows customizing the workstation label in Settings → General with an inline save button and confirmation.
+- Desktop projects sidebar can be collapsed completely with a header toggle button.
 
 ### Changed
 
 - In the macro view, a macro's key opens the macro on its tracker in a new tab, and the side panel no longer has a separate link button.
 - Task details give the description and comments the remaining dialog height, display rendered Markdown by default, and switch to editing mode on click with a Done button.
 - Form inputs, selects, and text editing surfaces across the web interface use a lighter, unified background and border palette.
+- Desktop connection settings and setup view arrange the server URL, pairing code, and connect action on a single line.
+- Desktop appearance settings display provider icons next to AI console selection options.
+- Desktop removes the initial AI engine setup assistant in favor of direct configuration in Settings.
 
 ### Fixed
 

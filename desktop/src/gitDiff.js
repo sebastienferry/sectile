@@ -6,19 +6,52 @@ const isMarkdown=file=>file.kind==='text'&&/\.(md|markdown)$/i.test(file.path)
 
 // Results belong only to the selected execution, its selected folder (#784)
 // and the latest explicit request.
-export function createGitDiff({api,container,terminal,panel,divider,consoleButton,changesButton,onConsole}){
+export function createGitDiff({api,container,terminal,panel,divider,consoleButton,changesButton,onConsole,banner=null}){
  let runID=null,folder=null,generation=0,active=false,consoleVisible=true,result=null,selection=null
  // A Markdown file opens rendered; the raw diff is chosen per execution and
  // forgotten when another execution is selected.
  let rendered=true
  container.innerHTML='<div class="changes-toolbar"><button type="button" class="diff-refresh icon-button" aria-label="Refresh changes" title="Refresh changes"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2 5"/></svg></button><button type="button" class="diff-render-toggle" role="switch" aria-checked="false" hidden><span class="diff-switch-track" aria-hidden="true"></span><span>Rendered</span></button><span class="diff-status" role="status" aria-live="polite"></span></div><p class="diff-error" role="alert" hidden></p><p class="diff-summary"></p><select class="diff-files" aria-label="Changed file" hidden></select><div class="diff-body"><div class="diff-detail"><p class="diff-file-info"></p><p class="diff-render-note" hidden></p><pre class="diff-patch" tabindex="0" aria-label="Selected file diff"></pre><div class="diff-rendered" tabindex="0" aria-label="Rendered Markdown" hidden></div></div></div>'
  const find=s=>container.querySelector(s)
+ const bannerSummary=banner?.querySelector('.diff-review-summary')
+ const bannerBtn=banner?.querySelector('.diff-review-btn')
+ const bannerFiles=banner?.querySelector('.diff-review-files')
+ const bannerAdd=banner?.querySelector('.diff-review-add')
+ const bannerDel=banner?.querySelector('.diff-review-del')
+ function updateBanner(data){
+  if(!banner)return
+  if(!data||data.isClean||!data.filesChanged){
+   banner.hidden=true
+   return
+  }
+  const count=data.filesChanged
+  if(bannerFiles)bannerFiles.textContent=`${count} file${count>1?'s':''} changed`
+  if(bannerAdd)bannerAdd.textContent=`+${data.additions||0}`
+  if(bannerDel)bannerDel.textContent=`−${data.deletions||0}`
+  if(bannerBtn)bannerBtn.setAttribute('aria-pressed',String(active))
+  banner.hidden=false
+ }
+ async function checkStats(id,chosen){
+  if(!id||!api.gitDiff)return
+  const request=generation
+  try{
+   const data=chosen?await api.gitDiff(id,chosen):await api.gitDiff(id)
+   if(request!==generation||id!==runID||(chosen||null)!==(folder||null))return
+   if(data&&data.runId===id){
+    updateBanner(data)
+   }
+  }catch(_){
+   if(request===generation&&id===runID){
+    if(banner)banner.hidden=true
+   }
+  }
+ }
  function clearDocument(){
   const toggle=find('.diff-render-toggle'),note=find('.diff-render-note'),view=find('.diff-rendered')
   toggle.hidden=true;toggle.disabled=false;toggle.setAttribute('aria-checked','false')
   note.hidden=true;note.textContent='';view.hidden=true;view.replaceChildren();find('.diff-patch').hidden=false
  }
- function clear(){result=null;find('.diff-summary').textContent='';find('.diff-files').replaceChildren();find('.diff-files').hidden=true;find('.diff-patch').replaceChildren();find('.diff-file-info').textContent='';clearDocument()}
+ function clear(){result=null;find('.diff-summary').textContent='';find('.diff-files').replaceChildren();find('.diff-files').hidden=true;find('.diff-patch').replaceChildren();find('.diff-file-info').textContent='';clearDocument();if(banner)banner.hidden=true}
  // An image of a document is looked up among the paths the agent read for it
  // (#683); a target the agent did not list keeps its alt text.
  function documentImage(file,item){
@@ -49,6 +82,7 @@ export function createGitDiff({api,container,terminal,panel,divider,consoleButto
   for(const line of (file.patch||'').split('\n')){const node=document.createElement('span');node.className=line.startsWith('+')?'diff-add':line.startsWith('-')?'diff-delete':line.startsWith('@@')?'diff-hunk':'diff-line';node.textContent=line+'\n';patch.append(node)}
  }
  function render(){
+  updateBanner(result)
   const summary=find('.diff-summary')
   summary.replaceChildren()
   if(result.isClean)summary.textContent='No changes compared with baseline'
@@ -91,11 +125,13 @@ export function createGitDiff({api,container,terminal,panel,divider,consoleButto
   if(chosen===folder)return
   folder=chosen;generation++;selection=null;clear();find('.diff-error').hidden=true;find('.diff-status').textContent='';container.setAttribute('aria-busy','false')
   if(active&&runID)refresh()
+  else if(runID)checkStats(runID,folder)
  }
  function renderViews(focusConsole=false){
   terminal.hidden=!consoleVisible;container.hidden=!active;divider.hidden=!(consoleVisible&&active)
   panel.classList.toggle('split',consoleVisible&&active)
   consoleButton.setAttribute('aria-pressed',String(consoleVisible));changesButton.setAttribute('aria-pressed',String(active))
+  if(bannerBtn)bannerBtn.setAttribute('aria-pressed',String(active))
   if(consoleVisible)requestAnimationFrame(()=>onConsole(focusConsole))
  }
  function setSplit(percent){
@@ -111,6 +147,8 @@ export function createGitDiff({api,container,terminal,panel,divider,consoleButto
   if(active)refresh()
  }
  consoleButton.onclick=toggleConsole;changesButton.onclick=toggleChanges;find('.diff-refresh').onclick=refresh
+ if(bannerSummary)bannerSummary.onclick=toggleChanges
+ if(bannerBtn)bannerBtn.onclick=toggleChanges
  find('.diff-files').onchange=event=>{selection=event.target.value;showFile()}
  find('.diff-render-toggle').onclick=()=>{rendered=!rendered;showFile()}
  divider.onpointerdown=event=>{divider.setPointerCapture(event.pointerId);document.body.classList.add('resizing-execution')}
@@ -121,7 +159,13 @@ export function createGitDiff({api,container,terminal,panel,divider,consoleButto
  return {
   get active(){return active},
   get consoleVisible(){return consoleVisible},
-  select(id,chosen=null){if(id===runID){setFolder(chosen);return}runID=id;folder=chosen||null;generation++;selection=null;rendered=true;clear();find('.diff-error').hidden=true;find('.diff-status').textContent='';consoleButton.disabled=!id;changesButton.disabled=!id;if(active){if(id)refresh();else{active=false;consoleVisible=true;renderViews()}}},
+  select(id,chosen=null){
+   if(id===runID){setFolder(chosen);return}
+   runID=id;folder=chosen||null;generation++;selection=null;rendered=true;clear();find('.diff-error').hidden=true;find('.diff-status').textContent='';consoleButton.disabled=!id;changesButton.disabled=!id;
+   if(active){if(id)refresh();else{active=false;consoleVisible=true;renderViews()}}
+   else if(id)checkStats(id,folder)
+  },
+  check(){if(runID&&!active)checkStats(runID,folder)},
   disconnect(){generation++;clear();container.setAttribute('aria-busy','false');find('.diff-status').textContent='Changes unavailable. Reconnect and refresh.';if(active){find('.diff-error').textContent='Local agent disconnected. Reconnect and refresh.';find('.diff-error').hidden=false}}
  }
 }

@@ -9,8 +9,8 @@ const luminance=hex=>{const [r,g,b]=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)
 const contrast=(a,b)=>{const [x,y]=[luminance(a),luminance(b)].sort((p,q)=>q-p);return (x+0.05)/(y+0.05)}
 const ANSI=['black','red','green','yellow','blue','magenta','cyan','white','brightBlack','brightRed','brightGreen','brightYellow','brightBlue','brightMagenta','brightCyan','brightWhite']
 
-test('the settings offer System, Dark and Light, System first',()=>{
- assert.deepEqual(APPEARANCE_CHOICES.map(choice=>choice.value),['system','dark','light'])
+test('the settings offer System, Light and Dark, System first',()=>{
+ assert.deepEqual(APPEARANCE_CHOICES.map(choice=>choice.value),['system','light','dark'])
 })
 
 test('each terminal theme carries a complete palette',()=>{

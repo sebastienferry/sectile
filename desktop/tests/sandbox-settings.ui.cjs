@@ -51,7 +51,6 @@ async function withDesktop(project,run,workstation=WORKSTATION,{others=[],discon
   const open=async()=>{
    await page.getByRole('button',{name:'Actions for Example project',exact:true}).click()
    await page.getByRole('menuitem',{name:'Project settings…',exact:true}).click()
-   await page.locator('#project-tab-Sandbox').click()
   }
   const close=async()=>{
    await page.locator('.configuration-page').getByRole('button',{name:'Back',exact:true}).click()
@@ -65,6 +64,7 @@ async function withDesktop(project,run,workstation=WORKSTATION,{others=[],discon
   }
   const openWorkstation=async()=>{
    await page.locator('#settings').click()
+   await page.getByRole('tab',{name:'AI engines',exact:true}).click()
    await page.locator('#settings-tab-Sandbox').click()
   }
   await run({page,open,close,save,saved,openWorkstation,workstationSaves,promotions})
@@ -78,82 +78,6 @@ const EMPTY={enabled:null,allowedDomains:[],excludedCommands:[],allowWrite:[],al
 const WORKSTATION={claudeSandbox:EMPTY,projects:[],platformSandbox:true}
 const PROJECT={server:{projectName:'Example project',skills:[]},path:'/tmp/sandbox-worktree',configured:true,aiProvider:'claude',
  claudeSandbox:{enabled:null,allowedDomains:[],excludedCommands:[],allowWrite:[],allow:[],deny:[]},platformSandbox:true,claudeSettingsPath:'/home/me/.config/sectile/claude/project-a.json'}
-
-test('the Claude settings category edits, saves and reads back the project values',async()=>{
- await withDesktop(PROJECT,async({page,open,close,save,saved})=>{
-  await open()
-  const state=page.getByRole('group',{name:'Claude Code sandbox',exact:true})
-  const stateRow=page.locator('.setting-row').filter({has:state})
-  await expect(state.getByRole('button',{name:'Inherited',exact:true})).toHaveAttribute('aria-pressed','true')
-  await expect(stateRow.locator('.setting-text p').first()).toHaveText('Inherited · Claude Code’s own settings decide')
-  await expect(page.getByRole('list',{name:'Allowed network domains',exact:true})).toHaveText('None')
-  const preview=page.locator('#project-panel-Sandbox .command-preview')
-  await expect(preview).not.toContainText('--settings')
-
-  const addTo=async(list,value)=>{
-   await page.getByRole('textbox',{name:'New entry for '+list,exact:true}).fill(value)
-   await page.getByRole('button',{name:'Add to '+list,exact:true}).click()
-  }
-  await state.getByRole('button',{name:'On',exact:true}).click()
-  await addTo('Allowed network domains','registry.npmjs.org')
-  await addTo('Extra writable paths','~/.cache/go-build')
-  // The commands outside the sandbox (#764) follow the domains, as typed.
-  const rows=page.locator('#project-panel-Sandbox .setting-row')
-  const titles=await rows.locator('.setting-name strong').allTextContents()
-  assert.ok(titles.indexOf('Commands outside the sandbox')===titles.indexOf('Allowed network domains')+1,titles.join(' | '))
-  await addTo('Commands outside the sandbox','glab *')
-  await addTo('Allow rules','Bash(make test:*)')
-  // Enter adds the entry rather than submitting the settings.
-  await page.getByRole('textbox',{name:'New entry for Deny rules',exact:true}).fill('Bash(git push:*)')
-  await page.getByRole('textbox',{name:'New entry for Deny rules',exact:true}).press('Enter')
-  assert.equal(saved.length,0)
-
-  // A duplicate is not added, an empty entry is refused with a message.
-  await addTo('Allowed network domains',' registry.npmjs.org ')
-  const domains=page.getByRole('list',{name:'Allowed network domains',exact:true})
-  await expect(domains.locator('li')).toHaveCount(1)
-  await expect(page.locator('.setting-row').filter({has:domains}).locator('.sandbox-status')).toHaveText('registry.npmjs.org is already in the list.')
-  await addTo('Allow rules','   ')
-  const allowRow=page.locator('.setting-row').filter({has:page.getByRole('list',{name:'Allow rules',exact:true})})
-  await expect(allowRow.locator('.sandbox-status')).toHaveText('Enter a value before adding it.')
-
-  // A rule in both lists is said to be denied.
-  await addTo('Allow rules','Bash(git push:*)')
-  await expect(page.locator('.sandbox-overlap')).toHaveText('In both lists: Bash(git push:*). The deny rule wins, as it does in Claude Code.')
-  await page.getByRole('button',{name:'Remove Bash(git push:*) from Allow rules',exact:true}).click()
-  await expect(page.locator('.sandbox-overlap')).toBeHidden()
-
-  await expect(preview).toContainText("--settings='/home/me/.config/sectile/claude/project-a.json'")
-  const body=await save()
-  assert.deepEqual(body.claudeSandbox,{enabled:true,allowedDomains:['registry.npmjs.org'],excludedCommands:['glab *'],allowWrite:['~/.cache/go-build'],allow:['Bash(make test:*)'],deny:['Bash(git push:*)']})
-  // The base is what the dialog read, so the agent keeps a rule added meanwhile.
-  assert.deepEqual(body.claudeSandboxBase,EMPTY)
-
-  // Reopened, the category shows what was saved; a removed entry is gone
-  // from the next save.
-  await close();await open()
-  await expect(page.getByRole('group',{name:'Claude Code sandbox',exact:true}).getByRole('button',{name:'On',exact:true})).toHaveAttribute('aria-pressed','true')
-  await expect(page.getByRole('list',{name:'Extra writable paths',exact:true})).toContainText('~/.cache/go-build')
-  await page.getByRole('button',{name:'Remove registry.npmjs.org from Allowed network domains',exact:true}).click()
-  const second=await save()
-  assert.deepEqual(second.claudeSandbox.allowedDomains,[])
-  assert.deepEqual(second.claudeSandboxBase.allowedDomains,['registry.npmjs.org'])
- })
-})
-
-test('on Windows the sandbox part is disabled and the rules stay editable',async()=>{
- await withDesktop({...PROJECT,platformSandbox:false},async({page,open})=>{
-  await open()
-  const state=page.getByRole('group',{name:'Claude Code sandbox',exact:true})
-  await expect(state.getByRole('button',{name:'On',exact:true})).toBeDisabled()
-  await expect(page.locator('.setting-row').filter({has:state}).locator('.setting-text p').first()).toHaveText('Claude Code’s sandbox does not run on Windows: only the permission rules below apply.')
-  await expect(page.getByRole('textbox',{name:'New entry for Allowed network domains',exact:true})).toBeDisabled()
-  await expect(page.getByRole('textbox',{name:'New entry for Commands outside the sandbox',exact:true})).toBeDisabled()
-  await expect(page.getByRole('textbox',{name:'New entry for Extra writable paths',exact:true})).toBeDisabled()
-  await expect(page.getByRole('textbox',{name:'New entry for Allow rules',exact:true})).toBeEnabled()
-  await expect(page.getByRole('textbox',{name:'New entry for Deny rules',exact:true})).toBeEnabled()
- })
-})
 
 // The workstation Sandbox category (#730): its values and the projects they
 // cover, saved through their own endpoint.
@@ -230,44 +154,6 @@ test('the workstation whitelist keeps a disconnected project and a project hidde
   assert.deepEqual([...workstationSaves[0].projects].sort(),['project-a','project-b','project-c'])
  },{...WORKSTATION,projects:['project-b','project-c']},{others,disconnected:['project-b']})
 })
-
-test('a covered project shows what it inherits and moves a rule up',async()=>{
- const covered={...PROJECT,claudeSandbox:{...EMPTY,allow:['Bash(npm test:*)']},claudeSandboxCovered:true,
-  claudeSandboxGlobal:{...EMPTY,enabled:true,allow:['Read'],deny:['Bash(git push:*)']}}
- await withDesktop(covered,async({page,open,save,promotions})=>{
-  await open()
-  const panel=page.locator('#project-panel-Sandbox')
-  await expect(panel.locator('.sandbox-coverage')).toContainText('apply to this project')
-  const state=page.getByRole('group',{name:'Claude Code sandbox',exact:true})
-  await expect(panel.locator('.setting-row').filter({has:state}).locator('.setting-text p').first()).toHaveText('Inherited from the workstation Claude settings · On')
-  const allow=panel.getByRole('list',{name:'Allow rules',exact:true})
-  const inherited=allow.locator('.sandbox-entry-inherited')
-  await expect(inherited).toHaveCount(1)
-  await expect(inherited).toContainText('Read')
-  await expect(inherited.getByRole('button')).toHaveCount(0)
-  // A project with only inherited values still hands its launches the file.
-  await expect(panel.locator('.command-preview')).toContainText('--settings=')
-
-  await panel.getByRole('button',{name:'Move to global: Bash(npm test:*)',exact:true}).click()
-  await expect.poll(()=>promotions.length).toBe(1)
-  assert.deepEqual(promotions[0],{projectId:'project-a',rule:'Bash(npm test:*)'})
-  await expect(allow.locator('.sandbox-entry-inherited')).toHaveCount(2)
-  await expect(allow.locator('.sandbox-entry:not(.sandbox-entry-inherited)')).toHaveCount(0)
-  // The project save sends only the project's own values.
-  const body=await save()
-  assert.deepEqual(body.claudeSandbox.allow,[])
- })
-})
-
-test('a project left out of the whitelist says so and inherits nothing',async()=>{
- await withDesktop({...PROJECT,claudeSandboxCovered:false,claudeSandboxGlobal:null},async({page,open})=>{
-  await open()
-  const panel=page.locator('#project-panel-Sandbox')
-  await expect(panel.locator('.sandbox-coverage')).toContainText('do not apply to this project')
-  await expect(panel.locator('.sandbox-entry-inherited')).toHaveCount(0)
- })
-})
-
 
 // The presets of the workstation Claude settings (#745): applying one copies
 // its entries into the lists, which the save keeps like any other edit.
@@ -355,59 +241,24 @@ test('the outside-the-sandbox preset fills the commands outside the sandbox (#76
  })
 })
 
-test('a project’s Claude settings offer no presets',async()=>{
- await withDesktop(PROJECT,async({page,open})=>{
-  await open()
-  const panel=page.locator('#project-panel-Sandbox')
-  await expect(panel.getByRole('group',{name:'Claude Code sandbox',exact:true})).toBeVisible()
-  await expect(panel.locator('.claude-preset')).toHaveCount(0)
-  await expect(panel.getByRole('button',{name:'Apply recommended',exact:true})).toHaveCount(0)
- })
-})
-
-test('sandbox autonomy saves explicit policy and keeps existing rules and folders',async()=>{
- await withDesktop({...PROJECT,claudeSandbox:{...EMPTY,deny:['Bash(git push *)'],additionalDirectories:['/shared']}},async({page,open,save,close})=>{
-  await open()
-  await page.getByRole('button',{name:'Autonomy in sandbox',exact:true}).click()
-  await expect(page.getByRole('combobox',{name:'Sandboxed commands',exact:true})).toHaveValue('true')
-  await expect(page.getByRole('combobox',{name:'Unsandboxed retries',exact:true})).toHaveValue('false')
-  const saved=await save()
-  assert.equal(saved.claudeSandbox.enabled,true)
-  assert.equal(saved.claudeSandbox.autoAllowBashIfSandboxed,true)
-  assert.equal(saved.claudeSandbox.allowUnsandboxedCommands,false)
-  assert.deepEqual(saved.claudeSandbox.deny,['Bash(git push *)'])
-  assert.deepEqual(saved.claudeSandbox.additionalDirectories,['/shared'])
-  await close();await open()
-  await expect(page.getByRole('combobox',{name:'Unsandboxed retries',exact:true})).toHaveValue('false')
- })
-})
-
-// Every Claude settings tab draws the Claude mark in Claude's orange (#778),
-// idle or selected, in the project settings and the workstation settings.
-test('the Claude settings tabs draw the Claude mark in Claude’s orange',async()=>{
+// The Claude settings tab in workstation settings draws the Claude mark in Claude's orange (#778),
+// idle or selected. Project settings do not carry a Claude settings tab.
+test('the Claude settings tab draws the Claude mark in Claude’s orange',async()=>{
  await withDesktop(PROJECT,async({page,open,close,openWorkstation})=>{
   const orange='rgb(217, 119, 87)'
-  const marks=async()=>{
-   const tabs=page.getByRole('tab',{name:'Claude settings',exact:true})
-   const count=await tabs.count()
-   assert.ok(count>=1)
-   for(let index=0;index<count;index++){
-    const icon=tabs.nth(index).locator('svg')
-    await expect(icon).toHaveCount(1)
-    await expect(icon).toHaveClass('claude-mark')
-    await expect(icon).not.toHaveAttribute('stroke')
-    await expect(icon).toHaveCSS('color',orange)
-   }
-   return count
-  }
   await open()
-  await expect(page.locator('#project-tab-Sandbox')).toHaveAttribute('aria-selected','true')
-  // The General group's tab and the project's, the selected one included.
-  assert.ok(await marks()>=2)
+  await expect(page.locator('#project-tab-Sandbox')).toHaveCount(0)
+  await expect(page.getByRole('tab',{name:'Claude settings',exact:true})).toHaveCount(0)
   await close()
   await openWorkstation()
   await expect(page.locator('#settings-tab-Sandbox')).toHaveAttribute('aria-selected','true')
-  await marks()
+  const tabs=page.getByRole('tab',{name:'Claude settings',exact:true})
+  assert.equal(await tabs.count(),1)
+  const icon=tabs.first().locator('svg')
+  await expect(icon).toHaveCount(1)
+  await expect(icon).toHaveClass('claude-mark')
+  await expect(icon).not.toHaveAttribute('stroke')
+  await expect(icon).toHaveCSS('color',orange)
   // The other categories keep their outline, in the tab colour.
   await expect(page.locator('#settings-tab-Logs svg')).toHaveAttribute('stroke','currentColor')
   // The mark next to Conversation permission mode, in the same panel, takes the same orange.

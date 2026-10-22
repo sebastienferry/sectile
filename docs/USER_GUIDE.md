@@ -149,8 +149,8 @@ Once the workstation is paired, Desktop starts the local agent with the saved ke
 ## Configure the project in Desktop
 
 1. Select **Add project** from Desktop's project sidebar, or use the project configuration view for one already shown. Choose the local Git checkout with **Choose folder…**.
-2. Open the project's **General** category to inspect its Git remote, SDD framework, and default coding engine. In **Folders**, map local repositories and, when needed, a Macro or an Issue specifications folder (where macro skills and issue skills keep their specifications) or attached folders. These paths stay on your workstation. Every execution of the project is given these folders, ticket discussions and Antigravity, Claude or Codex conversations included. A folder can also be attached without leaving a conversation, a running ticket discussion or a running **Project prompt** console, also once moved to the native terminal, from its **Add folder…** action: Claude Code sees it at once in a discussion or a console, and from the next message in a conversation. Turn on **Any repository** to let the project's tickets change a repository it does not list: the agent uses the checkout the session names, or clones the repository into the **Clones folder** (by default next to the local repository), and remembers it on this workstation. With this option on and the specifications kept away from the code repository (dropped, or in an Issue specifications folder of their own), a ticket gets no worktree in the code repository until it needs one, so a change made only in another repository needs no pull request in the code repository. In a ticket's details, **Repository** › **Other repository…** pins it to a repository typed by hand.
-3. In **Execution**, choose whether tasks use worktrees, how many executions can run, and the terminal behavior. Use workstation **Execution defaults** for settings shared by projects; project overrides can inherit those defaults.
+2. Open the project's **General** category to configure its Git remote, SDD framework, local setup, worktree preferences, and specification retention. In **Folders**, map local repositories and, when needed, a Macro or an Issue specifications folder (where macro skills and issue skills keep their specifications) or attached folders. These paths stay on your workstation. Every execution of the project is given these folders, ticket discussions and Antigravity, Claude or Codex conversations included. A folder can also be attached without leaving a conversation, a running ticket discussion or a running **Project prompt** console, also once moved to the native terminal, from its **Add folder…** action: Claude Code sees it at once in a discussion or a console, and from the next message in a conversation. Turn on **Any repository** to let the project's tickets change a repository it does not list: the agent uses the checkout the session names, or clones the repository into the **Clones folder** (by default next to the local repository), and remembers it on this workstation. With this option on and the specifications kept away from the code repository (dropped, or in an Issue specifications folder of their own), a ticket gets no worktree in the code repository until it needs one, so a change made only in another repository needs no pull request in the code repository. In a ticket's details, **Repository** › **Other repository…** pins it to a repository typed by hand.
+3. Use workstation **Execution defaults** for settings shared by projects (parallel executions, terminal emulator, default engine); project overrides in General can inherit those defaults.
 4. Select **Save local configuration**. In **Settings → Deployment**, install the project's skills and initialize its chosen SDD framework when those tools are not yet present. In **AI engines**, choose or configure the CLI you intend to run. The CLI must also be installed and signed in on the workstation.
 
 The [Desktop guide](../desktop/README.md#user-configuration-and-commands) covers the full set of controls. The browser owns shared project and tracker settings; Desktop owns this workstation's paths, engine commands, and execution preferences.
@@ -217,11 +217,11 @@ Select an execution to see its console, status, and recorded skill result. **Cha
 
 See the [Desktop guide](../desktop/README.md#use) for installation, settings, console behavior, and recovery details.
 
-Codex conversations use **Settings → Codex settings → Approval reviewer** to
+Codex conversations use **Settings → AI engines → Codex → Approval reviewer** to
 choose **Ask me** or **Approve on my behalf**, applying from the next message
 with the sandbox still active. Claude’s and Antigravity’s initial **Conversation
-permission mode** are configured in **Settings → Claude settings** and
-**Settings → Antigravity settings**.
+permission mode** are configured in **Settings → AI engines** under their respective tabs
+(**Claude** and **Antigravity**).
 
 Desktop **General** settings combine user profile information and appearance.
 Use **Search settings** to find fields across the loaded settings categories.
@@ -240,4 +240,4 @@ Use **Open board** on a project, or **Project board** in the command palette, to
 
 ### Provider model lists
 
-Configure the models offered at launch under **Settings → AI engines → Models offered**, grouped by Antigravity, Claude and Codex. Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.
+Configure the models offered at launch under each provider's sub-tab (**Settings → AI engines → Claude**, **Settings → AI engines → Codex**, and **Settings → AI engines → Antigravity**). Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.

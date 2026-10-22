@@ -354,6 +354,27 @@ func (d *DB) RenewDeviceCredential(userID, id string, ttl time.Duration) (*time.
 	return expires, nil
 }
 
+// UpdateDeviceCredentialLabel changes the human-readable label of a device credential.
+func (d *DB) UpdateDeviceCredentialLabel(userID, id, label string) error {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return errors.New("workstation label cannot be empty")
+	}
+	result, err := d.conn.Exec(`UPDATE device_credentials SET label = ?
+		WHERE id = ? AND user_id = ? AND revoked_at IS NULL`, label, id, userID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return errors.New("unknown device credential")
+	}
+	return nil
+}
+
 // ListDeviceCredentials returns the user's paired workstations.
 func (d *DB) ListDeviceCredentials(userID string) ([]DeviceCredential, error) {
 	// last_seen is selected as the bare column: the driver reads a DATETIME back
