@@ -109,6 +109,9 @@ type desktopRun struct {
 	// without a folder map, and from an older agent.
 	Folders []runFolder `json:"folders,omitempty"`
 	Status  string      `json:"status"`
+	// AuthenticationRequired is inferred only from a failed provider trace. It
+	// carries a recovery hint without exposing raw console output in discovery.
+	AuthenticationRequired bool `json:"authenticationRequired,omitempty"`
 	// ExternalTerminal marks the terminal emulator currently attached to or running this session.
 	ExternalTerminal string `json:"externalTerminal,omitempty"`
 	// Headless marks a run that has no PTY on purpose. The desktop shows its
@@ -364,6 +367,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	d.queue.mu.Lock()
 	if r.URL.Path == "/desktop/runs" && r.Method == http.MethodGet {
 		runs := []desktopRun{}
+		traces := map[string]*runTrace{}
 		for key, run := range d.queue.runs {
 			entry := run.desktop
 			entry.ID = key
@@ -371,9 +375,13 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			entry.CancelRequested = run.canceled && (entry.Status == "queued" || entry.Status == "preparing" || entry.Status == "running")
 			if entry.Status != "" {
 				runs = append(runs, entry)
+				traces[key] = run.trace
 			}
 		}
 		d.queue.mu.Unlock()
+		for i := range runs {
+			runs[i].AuthenticationRequired = runNeedsAuthentication(runs[i], traces[runs[i].ID])
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(runs)
 		return

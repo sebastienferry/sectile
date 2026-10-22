@@ -50,3 +50,9 @@ However, triggering these workflows has required manual human intervention: eith
   - Tickets launched into autonomous sessions;
   - Tickets skipped or deferred with rationale;
   - Remaining concurrency slots.
+
+### Desktop agent overview
+
+The sidebar presents compact saved profiles and live manual task sessions. Selecting a profile opens an operational overview rather than its raw console. Runs are matched by the stable profile ID in the generated mandatory-guidelines snapshot, scoped to their project; a renamed profile retains its history. Earlier single-policy orchestration prompts without a named header map to the migrated `default` profile. The immediate evaluation report also links its returned activity IDs before dispatch metadata arrives. Unmatched live sessions remain visible separately. Setup remains in per-project Settings.
+
+The project counter reports occupied server reservations, including queued work and other workstations. The ordinary workstation execution limit remains available in Settings; its second sidebar counter is hidden while orchestration is enabled, avoiding two competing sidebar limits. Failed provider traces can expose an authentication-required boolean, without exposing raw diagnostics in discovery. Recovery opens the project terminal and tells the user which provider command to run; sign-in and retries remain explicit actions.

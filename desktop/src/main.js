@@ -122,10 +122,20 @@ function refusedActiveRun(message){
  }catch{return null}
 }
 const taskTitles=new Map()
+const taskKeys=new Map()
 // The workflow stage of each listed task, read with its title; absent when unknown.
 const taskStages=new Map()
 let orchestrationReadAt=0,orchestrationLoading=false,orchestrationStale=false
-const orchestration=createOrchestration({container:document.querySelector('#orchestration'),onConsole:run=>select(run,false,{console:true}),api,onChanged:()=>{orchestrationReadAt=0;refreshOrchestration();refresh()}})
+const orchestrationDetails=document.createElement('section')
+orchestrationDetails.id='orchestration-overview';orchestrationDetails.hidden=true;orchestrationDetails.setAttribute('aria-label','Agent overview')
+document.querySelector('#workspace').append(orchestrationDetails)
+const orchestration=createOrchestration({container:document.querySelector('#orchestration'),details:orchestrationDetails,
+ onConsole:run=>select(run,false,{console:true}),
+ onOpen:async()=>{if(!await confirmLeave())return false;closeTickets(false);document.querySelector('#workspace').classList.add('orchestration-open');return true},
+ onClose:()=>{document.querySelector('#workspace').classList.remove('orchestration-open');resize()},
+ onSettings:project=>openProject(project.id,'Orchestration'),api,
+ onChanged:()=>{orchestrationReadAt=0;refreshOrchestration();refresh()}})
+window.addEventListener('keydown',event=>{if(event.key==='Escape'&&!dialog.open&&!configurationActive()&&!orchestrationDetails.hidden){event.preventDefault();orchestration.close()}})
 // The board data of a project (/desktop/project's board field), kept from the
 // last tickets list or board that read it, so the sidebar's grouping by stage
 // places a task where they do (#806).
@@ -170,6 +180,8 @@ const sidebarBusy=()=>!!document.querySelector('#runs .local-task:hover')||!!doc
 const hiddenProject=id=>disconnectedProjects.has(id)
 const hiddenRun=run=>hiddenProject(run.projectId)||(taskState(run).archivedRuns||[]).includes(run.id)&&!activeRun(run)
 function saveLocalTasks(){localStorage.setItem('localTasks',JSON.stringify(localTasks))}
+// Keep readable keys from older agents, but never give a UUID the title column.
+const taskIdentity=run=>taskKeys.get(run.taskId)||(/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(run.taskKey||run.taskId||'')?'':run.taskKey||run.taskId)||''
 // The name a task row shows: the local name, else the tracker title, else the run label.
 const displayedName=run=>taskState(run).name||taskTitles.get(run.taskId)||runLabel(run)
 // The task row whose title is edited inline (#513): its task key, what was typed so
@@ -370,7 +382,7 @@ function select(run,background=false,options){
  // A run the user picks leaves the task page, once its edits are dealt with;
  // one that starts in the background stays under it.
  if(!background&&taskPage){confirmLeave().then(ok=>{if(ok)select(run,background,options)});return}
- if(!background)closeTickets(false)
+ if(!background){orchestration.close();closeTickets(false)}
  // A run recorded before #741 names no project: the board the user is on
  // stays the one its relaunch falls back to.
  if(run.projectId)selectedProject=run.projectId
@@ -840,9 +852,9 @@ function renderHeader(){
  renderFolders()
  let text='Select an execution'
  if(run){
-  const identity=run.taskKey||run.taskId
+  const identity=taskIdentity(run)
   const name=taskState(run).name?.trim()||taskTitles.get(run.taskId)?.trim()
-  text=freeConsole(run)?(taskState(run).name||runLabel(run)):[identity,...(name&&name!==identity?[name]:[]),run.skill].join(' · ')
+  text=freeConsole(run)?(taskState(run).name||runLabel(run)):[identity,...(name&&name!==identity?[name]:[]),run.skill].filter(Boolean).join(' · ')
  }
  const title=document.querySelector('#title')
  title.textContent=text;title.title=text
@@ -854,7 +866,7 @@ function renderHeader(){
  if(result){badge.className='skill-result '+result.kind;if(badge.textContent!==result.icon+' '+result.label)badge.textContent=result.icon+' '+result.label;badge.title='Skill: '+result.label;badge.setAttribute('aria-label',badge.title)}
 }
 function renderOrchestration(){
- orchestration.render({projects,runs:runs.filter(run=>!hiddenProject(run.projectId)),taskStages,taskTitles,selected,stale:orchestrationStale,offline:!agentConnected})
+ orchestration.render({projects,runs:runs.filter(run=>!hiddenProject(run.projectId)),taskStages,taskTitles,taskKeys,selected,stale:orchestrationStale,offline:!agentConnected})
 }
 async function refreshOrchestration(){
  if(orchestrationLoading||Date.now()-orchestrationReadAt<15000)return
@@ -904,6 +916,7 @@ function render(options){
   const running=runs.filter(run=>run.projectId===project.id&&['running','preparing'].includes(run.status)).length
   const maximum=Number.isInteger(project.executionLimit)&&project.executionLimit>0?project.executionLimit:'?'
   capacity.textContent='('+running+'/'+maximum+')'
+  capacity.hidden=!!project.orchestratorEnabled
   capacity.title=running+' running / '+(maximum==='?'?'maximum unavailable':maximum+' maximum')+' · Includes preparing and stopping executions'
   capacity.setAttribute('aria-label',capacity.title)
   heading.replaceChildren(chevron,name,capacity)
@@ -925,7 +938,7 @@ function render(options){
     const row=document.createElement('div');row.className='local-task '+(isSelected?'selected':'')
     const button=document.createElement('button');button.className='run '+(isSelected?'selected':'')
     const key=taskKey(run),title=document.createElement('strong')
-    const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in Sectile';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in Sectile');context.disabled=macroRun(run);context.onclick=()=>api.openTask(run.taskId).catch(error)
+    const context=document.createElement('button');context.textContent=taskIdentity(run)||'Task';context.className='task-number';context.title='Open task in Sectile';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in Sectile');context.disabled=macroRun(run);context.onclick=()=>api.openTask(run.taskId).catch(error)
     const stage=taskStages.get(run.taskId)
     if(stage){context.dataset.stage=stage;context.title+=' · Stage: '+stage}
     // The skill badge speaks for the task's newest skill (#586); the rest of the row for its leading run.
@@ -3344,6 +3357,7 @@ async function prepareBatch(view){
  name.focus()
 }
 async function openTickets(projectID,initialQuery=''){
+ orchestration.close()
  if(taskPage&&!await confirmLeave())return
  if(batchSelection.projectID!==projectID)batchSelection={projectID,ids:[]}
  selectedProject=projectID
@@ -3713,6 +3727,7 @@ async function submitNativeDiscussion(view,entry){
 // the same entry, the same actions menu and the same launch paths.
 const STAGE_NAMES={new:'New',clarified:'Clarified',specified:'Specified',implemented:'Implemented',reviewed:'Reviewed',finished:'Finished'}
 async function openBoard(projectID,initialQuery=''){
+ orchestration.close()
  if(taskPage&&!await confirmLeave())return
  if(batchSelection.projectID!==projectID)batchSelection={projectID,ids:[]}
  selectedProject=projectID
@@ -4038,6 +4053,8 @@ async function refreshPRs(executions){
     const tasks=await api.serverTasks(projectID,'')
     for(const run of executions.filter(run=>run.projectId===projectID)){
      const task=tasks.find(task=>task.id===run.taskId)
+     if(task?.key?.trim())taskKeys.set(run.taskId,task.key.trim())
+     else taskKeys.delete(run.taskId)
      if(task?.title?.trim())taskTitles.set(run.taskId,task.title.trim())
      else taskTitles.delete(run.taskId)
      const stage=task&&taskStage(task,projectBoards.get(projectID))
@@ -4280,6 +4297,7 @@ async function showTaskPage({mode,projectId='',taskId=''}){
  // Done goes back to the tickets list or the board the page was opened over.
  const back=taskPage?taskPageReturn:ticketsOpen&&ticketsView?{tickets:ticketsView.projectID,board:ticketsView.kind==='board'}:null
  if(!await confirmLeave())return
+ orchestration.close()
  if(dialog.open)dialog.close()
  closeConfiguration()
  try{await loadProjects()}catch(err){showDialog(mode==='create'?'New task':'Edit task');paragraph(err.message);return}
@@ -4363,6 +4381,8 @@ async function readNextStep(run){
  if(!projectId)throw Error(NO_RUN_PROJECT)
  const [tasks,project]=await Promise.all([api.serverTasks(projectId,run.taskKey||run.taskId),api.project(projectId)])
  const task=tasks.find(task=>task.id===run.taskId)
+ if(task?.key?.trim())taskKeys.set(run.taskId,task.key.trim())
+ else taskKeys.delete(run.taskId)
  if(!task)throw Error('Task workflow unavailable. Refresh to try again.')
  return {key:taskKey(run),task,project,step:nextTaskStep(task,project)}
 }

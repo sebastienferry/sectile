@@ -34,8 +34,9 @@ It consists of three complementary components:
   autonomous task chains run as the requesting user, assess project eligibility
   guidelines before changes, share a project concurrency limit, and stop at
   **Implemented** for human review.
-  Desktop shows live task agents, project capacity, workflow stages, waiting
-  states, console access and **Run agent** in **ORCHESTRATION**, above
+  Desktop shows compact agent rows in **ORCHESTRATION**, with an **Agent overview**
+  for task activity, workflow stages, waiting states, sign-in recovery, console
+  access and **Run agent**. Shared project capacity appears above
   **PROJECTS**, only while a project is enabled or task agents are active.
   Configure it in **Settings → project → Orchestration**: enablement, concurrency
   and multiple named agents, each with its own local guidelines file (`AGENTS.md`

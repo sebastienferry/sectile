@@ -813,6 +813,12 @@ not launched omit `startedAt`; completion preserves both timestamps. Desktop
 clients fall back to `createdAt` for legacy records without a valid start time.
 This display metadata does not change queue scheduling.
 
+A failed Claude or Codex run may carry `authenticationRequired: true` when its
+retained local trace contains a provider authentication diagnostic. The hint is
+recomputed for restored traces too; other failures and live/completed runs do
+not acquire it. Discovery does not include raw trace text. The desktop uses the
+hint for a sign-in recovery notice and continues to require an explicit retry.
+
 An entry may carry `folders`, the folders of the run when it has more than one
 (#762): an array of `{path, name, role, attached}`, the run's `directory` first
 as `primary`, then each folder of the folder map the run was launched with,
