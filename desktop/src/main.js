@@ -173,8 +173,8 @@ let disconnectedProjects=new Set(),projectStateVersion=0,refreshing=false
 // user's pointer: it is deferred until the interaction ends.
 let pendingRender=false
 const sidebarList=()=>document.querySelector('#runs')
-// Only the task rows are held: project headings and the queue view keep
-// refreshing normally.
+// Orchestration navigation is held too: removing a row above the tasks moves
+// the hovered task even when the task list itself has not been rebuilt.
 // An open project menu counts too: a render would rebuild the row and drop it.
 const sidebarBusy=()=>!!document.querySelector('#runs .local-task:hover')||!!document.activeElement?.closest?.('#runs .local-task')||!!document.querySelector('#runs .project-menu:not([hidden])')
 const hiddenProject=id=>disconnectedProjects.has(id)
@@ -484,15 +484,53 @@ async function refreshVisibleSkillResults(){
 }
 // Keeps the visible indicators live while the row sequence is held.
 function renderTaskRowStates(){
- for(const button of document.querySelectorAll('.local-task .run')){
-  const run=runs.find(item=>item.id===button.dataset.runId)
-  if(run)button.dataset.status=run.status
- }
- for(const element of document.querySelectorAll('.local-task .run-state')){
-  const run=runs.find(item=>item.id===element.dataset.runId)
-  if(run)renderRunState(element,run)
+ for(const row of document.querySelectorAll('#runs .local-task')){
+  const element=row.querySelector('.run-state'),previous=runs.find(item=>item.id===element?.dataset.runId)
+  if(!previous)continue
+  const executions=runs.filter(item=>taskKey(item)===taskKey(previous)&&!hiddenRun(item))
+  const {run,skillRun}=orderedTaskGroups([executions])[0]
+  if(!run)continue
+  const button=row.querySelector('.run')
+  const choose=()=>select(run)
+  const selectedTask=executions.some(item=>item.id===selected)
+  row.classList.toggle('selected',selectedTask)
+  if(button){button.dataset.runId=run.id;button.dataset.status=run.status;button.onclick=choose;button.classList.toggle('selected',selectedTask)}
+  element.dataset.runId=run.id;element.onclick=choose;renderRunState(element,run)
+  const skill=row.querySelector('.task-skill-status')
+  if(skill)skill.dataset.runId=skillRun.id
  }
  renderTaskSkillStatuses()
+}
+// Metadata can change without moving a task. Update the existing controls so
+// held rows keep their focus while titles, keys and pull requests stay live.
+function renderTaskMetadata(){
+ for(const row of document.querySelectorAll('#runs .local-task')){
+  const button=row.querySelector('.run'),run=runs.find(item=>item.id===button?.dataset.runId)
+  if(!run)continue
+  const executions=runs.filter(item=>taskKey(item)===taskKey(run)&&!hiddenRun(item))
+  const title=button.querySelector('strong')
+  if(title)title.textContent=displayedName(run)
+  button.title=displayedName(run)+' · '+runLabel(run)+' · '+runStateLabel(runStateOf(run))+' · '+executions.length+' execution(s)'
+  const pencil=row.querySelector('.task-rename-button'),archive=row.querySelector('.task-archive')
+  if(pencil){pencil.title='Rename '+displayedName(run);pencil.setAttribute('aria-label',pencil.title)}
+  if(archive){archive.title=archiveLabel(taskState(run).name||run.taskKey||run.taskId||runLabel(run),{active:executions.some(activeRun),ticket:archivesWorktree(run)});archive.setAttribute('aria-label',archive.title)}
+  const context=row.querySelector('.task-number')
+  if(context){
+   context.textContent=taskIdentity(run)||'Task'
+   const stage=taskStages.get(run.taskId)
+   if(stage)context.dataset.stage=stage
+   else delete context.dataset.stage
+   context.title='Open task in Sectile'+(stage?' · Stage: '+stage:'')
+  }
+  const [link,...others]=pullRequests.get(run.taskId)||[]
+  let pr=row.querySelector('.pr-indicator')
+  row.querySelector('.pr-others')?.remove()
+  if(!link){pr?.remove();continue}
+  if(!pr){pr=document.createElement('button');pr.className='pr-indicator';row.insertBefore(pr,row.querySelector('.task-archive'))}
+  renderPullRequestIndicator(pr,link,prLabel(link.url)+' for '+(run.taskKey||run.taskId))
+  pr.onclick=()=>api.openPR(link.url).catch(error)
+  if(others.length)pr.after(otherPullRequestsBadge(others))
+ }
 }
 function renderTaskSkillStatuses(){
  for(const badge of document.querySelectorAll('.task-skill-status')){
@@ -866,7 +904,9 @@ function renderHeader(){
  if(result){badge.className='skill-result '+result.kind;if(badge.textContent!==result.icon+' '+result.label)badge.textContent=result.icon+' '+result.label;badge.title='Skill: '+result.label;badge.setAttribute('aria-label',badge.title)}
 }
 function renderOrchestration(){
- orchestration.render({projects,runs:runs.filter(run=>!hiddenProject(run.projectId)),taskStages,taskTitles,taskKeys,selected,stale:orchestrationStale,offline:!agentConnected})
+ const holdNavigation=sidebarBusy()
+ if(holdNavigation)pendingRender=true
+ orchestration.render({projects,runs:runs.filter(run=>!hiddenProject(run.projectId)),taskStages,taskTitles,taskKeys,selected,stale:orchestrationStale,offline:!agentConnected,holdNavigation})
 }
 async function refreshOrchestration(){
  if(orchestrationLoading||Date.now()-orchestrationReadAt<15000)return
@@ -889,7 +929,12 @@ async function refreshOrchestration(){
 }
 function render(options){
  renderOrchestration()
- if(options?.deferrable&&sidebarBusy()){pendingRender=true;renderHeader();renderTaskRowStates();renderTicketRows();return}
+ if(options?.deferrable&&sidebarBusy()){
+  pendingRender=true
+  changes.select(selected,currentFolder()?.path)
+  renderHeader();renderTaskRowStates();renderTaskMetadata();renderExecutionControls()
+  return
+ }
  pendingRender=false
  changes.select(selected,currentFolder()?.path)
  renderHeader()
@@ -1013,6 +1058,9 @@ function render(options){
   else if(renaming.selection)renameField.setSelectionRange(...renaming.selection)
  }
  renderTaskSkillStatuses()
+ renderExecutionControls()
+}
+function renderExecutionControls(){
  document.querySelector('#clear-history').disabled=!runs.some(run=>['completed','failed','canceled'].includes(run.status))
  const current=runs.find(run=>run.id===selected)
  addFolderButton.hidden=!agentConnected||!!current?.conversation||!offersRunFolder(current,runFoldersAvailable,runFoldersTerminalsAvailable)
@@ -2309,7 +2357,7 @@ async function openSettings(initial='Profile',project){
  const nameCheck=document.createElement('span');nameCheck.className='workstation-name-check';nameCheck.title='Workstation name synchronized'
  nameCheck.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>'
  nameCheck.hidden=true
- const nameError=document.createElement('p');nameError.className='setting-notice';nameError.setAttribute('role','status');nameError.dataset.tone='error'
+ const nameError=document.createElement('p');nameError.className='setting-notice';nameError.setAttribute('role','status')
  const nameRow=settingRow('Workstation name',null,nameInput,nameSaveBtn,nameCheck)
  nameRow.hint.textContent='Custom name shown in the web interface and activity history.'
  nameRow.hint.after(nameError)
@@ -2318,6 +2366,7 @@ async function openSettings(initial='Profile',project){
   const val=nameInput.value.trim()
   if(!val){nameInput.value=currentLabel;return}
   nameError.textContent=''
+  delete nameError.dataset.tone
   nameSaveBtn.disabled=true;nameSaveBtn.textContent='Saving…'
   try{
    const updated=await api.saveSettings({label:val})
@@ -2327,6 +2376,7 @@ async function openSettings(initial='Profile',project){
   }catch(err){
    nameCheck.hidden=true
    nameError.textContent='Not saved: '+ipcMessage(err)
+   nameError.dataset.tone='error'
   }finally{
    nameSaveBtn.disabled=false;nameSaveBtn.textContent='Save'
   }
@@ -2334,6 +2384,7 @@ async function openSettings(initial='Profile',project){
  nameSaveBtn.onclick=saveWorkstationName
  nameInput.oninput=()=>{
   nameError.textContent=''
+  delete nameError.dataset.tone
   nameCheck.hidden=(nameInput.value.trim()!==currentLabel)
  }
  nameInput.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();saveWorkstationName()}}
@@ -4065,7 +4116,7 @@ async function refreshPRs(executions){
     }
    }catch{}
   }))
-  render()
+  render({deferrable:true})
  }finally{linksLoading=false}
 }
 

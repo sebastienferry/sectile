@@ -33,6 +33,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- Desktop keeps task rows in place while orchestration and task metadata refresh under the pointer or keyboard focus. (#859)
 - Verifying your own tracker access in your profile no longer reports the service account: a GitLab check used the server token, and a check with nothing stored answered with the service account on every tracker. (#855)
 
 ## [0.7.0] - 2026-10-15

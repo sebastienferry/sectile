@@ -174,6 +174,9 @@ export function createOrchestration({container,details,onConsole,onOpen=()=>true
   const groups=orchestrationGroups(projects,runs)
   const stamp=JSON.stringify([groups,runs,stale,offline,revision,[...taskStages],[...taskTitles],[...taskKeys]])
   if(stamp===previous)return
+  // The operational pane stays live while navigation above a hovered/focused
+  // task is held. Do not consume the stamp until navigation can catch up.
+  if(input.holdNavigation){overview(groups,runs);return}
   previous=stamp
   const scrollTop=container.scrollTop,focused=container.contains(document.activeElement)?document.activeElement?.dataset.selection:null
   container.hidden=!groups.length;container.replaceChildren()

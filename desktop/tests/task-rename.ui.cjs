@@ -106,14 +106,14 @@ test('a task row is renamed in place through its pencil',async()=>{
   await expect(row('console')).not.toHaveClass(/selected/)
   await expect(row('run-macro')).not.toHaveClass(/selected/)
 
-  // A sidebar rebuild keeps the open field, its focus and what was typed.
+  // A metadata refresh keeps the existing field, its focus and what was typed.
   await field.fill('Half typ')
   const before=taskRequests
   await page.evaluate(()=>{window.renameTestTime=Date.now()+16000;Date.now=()=>window.renameTestTime})
   await field.evaluate(el=>{el.dataset.previous='1'})
   await expect.poll(()=>taskRequests).toBeGreaterThan(before)
-  // The field is a new element: the rebuild did happen under it.
-  await expect(page.locator('.task-rename[data-previous]')).toHaveCount(0)
+  // Metadata no longer rebuilds a row while its input holds keyboard focus.
+  await expect(page.locator('.task-rename[data-previous]')).toHaveCount(1)
   await expect(field).toBeFocused()
   await expect(field).toHaveValue('Half typ')
   await page.keyboard.type('ed')
