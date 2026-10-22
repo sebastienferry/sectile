@@ -94,7 +94,7 @@ test('the task page creates and edits a task',async()=>{
   const description=page.getByRole('textbox',{name:'Description',exact:true})
   const statusLine=pane.locator('.task-page-status')
   const save=pane.locator('.task-page-save')
-  await page.getByRole('button',{name:'▾ Project A',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Project A',exact:true}).waitFor()
 
   // Cmd+N opens the creation page in the workspace; no dialog opens (AC1).
   await page.keyboard.press(mod+'+n')
@@ -369,7 +369,7 @@ test('closing the window with unsaved changes asks first',async()=>{
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
-  await page.getByRole('button',{name:'▾ Project A',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Project A',exact:true}).waitFor()
   // Electron turns the refused unload into will-prevent-unload; a listener
   // keeps Playwright from answering the page's dialog itself.
   page.on('dialog',()=>{})
@@ -412,7 +412,7 @@ test('issue type discovery preserves edits and ignores stale tracker and destroy
   const priority=page.getByRole('combobox',{name:'Priority',exact:true})
   const title=page.getByRole('textbox',{name:'Title',exact:true})
   const pane=page.locator('#task-page-pane'),save=pane.locator('.task-page-save')
-  await page.getByRole('button',{name:'▾ Project A',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Project A',exact:true}).waitFor()
   await page.keyboard.press(mod+'+n')
   await expect(types.locator('option')).toHaveText(['Default','Bug','Story'])
   await expect(types).toHaveValue('');await expect(priority).toHaveValue('medium')

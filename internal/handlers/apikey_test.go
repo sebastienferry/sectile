@@ -185,6 +185,20 @@ func TestProfileCreatesRenewsAndRevokesKeys(t *testing.T) {
 		t.Fatalf("renew unknown: %d", rr.Code)
 	}
 
+	// Renaming the workstation updates its label.
+	rr = call(http.MethodPut, "/api/devices?id="+created.Device.ID, `{"label":"Renamed Workstation"}`)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("rename label: %d %s", rr.Code, rr.Body.String())
+	}
+	rr = call(http.MethodGet, "/api/devices", "")
+	var listed struct {
+		Devices []db.DeviceCredential `json:"devices"`
+	}
+	_ = json.Unmarshal(rr.Body.Bytes(), &listed)
+	if len(listed.Devices) == 0 || listed.Devices[0].Label != "Renamed Workstation" {
+		t.Fatalf("device label not updated: %+v", listed.Devices)
+	}
+
 	// Revocation cuts the key.
 	if rr = call(http.MethodDelete, "/api/devices?id="+created.Device.ID, ""); rr.Code != http.StatusOK {
 		t.Fatalf("revoke: %d %s", rr.Code, rr.Body.String())

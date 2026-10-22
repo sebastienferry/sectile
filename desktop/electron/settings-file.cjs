@@ -9,7 +9,7 @@ const credentials = require('./credential-store.cjs')
 
 // DESKTOP_KEYS are what Desktop stores. Before #746 they lived in settings.json,
 // from which the first start of this version copies them once.
-const DESKTOP_KEYS = ['appearance', 'consoleView', 'repo', 'binary', 'server', 'deviceId', 'secret', 'apiKey', 'pairedAt']
+const DESKTOP_KEYS = ['appearance', 'consoleView', 'repo', 'binary', 'server', 'deviceId', 'label', 'secret', 'apiKey', 'pairedAt']
 
 // sameServer compares two server addresses as the agent stores them: trimmed, without a trailing slash.
 function sameServer(a, b) {
@@ -81,8 +81,8 @@ function effectiveCredential(desktop, shared, store) {
  const sameTarget = !own.server || !cli.server || sameServer(cli.server, own.server)
  const useShared = Boolean(cli.apiKey) && sameTarget && (!ownHasKey || pairedLater(cli.pairedAt, own.pairedAt))
  const record = useShared
-  ? {server: cli.server || own.server, deviceId: cli.deviceId || own.deviceId, apiKey: cli.apiKey, pairedAt: cli.pairedAt}
-  : {server: own.server, deviceId: own.deviceId, secret: own.secret, apiKey: own.apiKey, pairedAt: own.pairedAt}
+  ? {server: cli.server || own.server, deviceId: cli.deviceId || own.deviceId, label: own.label || cli.label, apiKey: cli.apiKey, pairedAt: cli.pairedAt}
+  : {server: own.server, deviceId: own.deviceId, label: own.label || cli.label, secret: own.secret, apiKey: own.apiKey, pairedAt: own.pairedAt}
  return {
   record,
   source: useShared ? 'shared' : 'desktop',

@@ -354,6 +354,7 @@ func main() {
 	// unauthenticated credential, and it is single use and short lived.
 	mux.HandleFunc("/api/pairing-codes", h.HandlePairingCode)
 	mux.HandleFunc("/api/devices", h.HandleDeviceCredentials)
+	mux.HandleFunc("/api/v1/devices", h.HandleDeviceCredentials)
 	mux.HandleFunc("/api/v1/agent/pair", h.HandleAgentPair)
 	mux.Handle("/api/v1/agent/identity", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentIdentity)))
 	mux.Handle("/api/v1/agent/config", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentConfig)))

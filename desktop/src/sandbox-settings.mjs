@@ -199,6 +199,7 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
  const stateRow=settingRow('Claude Code sandbox',null,stateGroup)
  // Policy fields stay inherited until the owner explicitly changes them.
  const policyBox=document.createElement('div')
+ policyBox.className='sandbox-policy-box'
  const autonomy=document.createElement('button');autonomy.type='button';autonomy.textContent='Autonomy in sandbox'
  autonomy.onclick=()=>{values={...values,state:'On',autoAllowBashIfSandboxed:true,allowUnsandboxedCommands:false};render()}
  const policyControls=['autoAllowBashIfSandboxed','allowUnsandboxedCommands'].map((key,index)=>{
@@ -252,7 +253,22 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
  recommended.append(recommendedText,recommendedButton)
  const presetItems=workstation?PRESETS.map(presetItem):[]
  presetsBox.append(recommended,...presetItems.map(item=>item.element))
- const presetsRow=workstation?settingRow('Presets',{stacked:true},presetsBox):null
+ const presetsDetails=document.createElement('details')
+ presetsDetails.className='sandbox-presets-details'
+ presetsDetails.open=true
+ const presetsSummary=document.createElement('summary')
+ presetsSummary.className='sandbox-presets-summary'
+ const summaryTitle=document.createElement('strong')
+ summaryTitle.textContent='Toolchain presets'
+ const summaryBadge=document.createElement('span')
+ summaryBadge.className='sandbox-presets-summary-count'
+ summaryBadge.textContent=PRESETS.length+' available'
+ const summaryHint=document.createElement('span')
+ summaryHint.className='sandbox-presets-summary-hint'
+ summaryHint.textContent='Ready-made rules for Go, Node, Python, Rust, Cloud…'
+ presetsSummary.append(summaryTitle,summaryBadge,summaryHint)
+ presetsDetails.append(presetsSummary,presetsBox)
+ const presetsRow=workstation?settingRow('Presets',{stacked:true},presetsDetails):null
  if(presetsRow)presetsRow.hint.textContent='Ready-made entries for the lists below, per toolchain. Applying one adds its missing entries, each removable like any other; save to keep them.'
  // presetItem is one preset on a single line: its name, what it allows and
  // what it denies at a glance, and its button. The description and the
@@ -358,7 +374,8 @@ export function sandboxSettings({settingRow,stored,platformSandbox,settingsPath,
  }
  set(stored)
  return {
-  sections:[...(workstation?[presetsRow.section]:[coverageRow.section]),stateRow.section,policyRow.section,foldersRow.section,domainsRow.section,excludedRow.section,writesRow.section,allowRow.section,denyRow.section,previewRow.section],
+  stateRow, policyRow, foldersRow, domainsRow, excludedRow, writesRow, allowRow, denyRow, previewRow, coverageRow, presetsRow,
+  sections:[...(workstation?[stateRow.section,policyRow.section,presetsRow.section]:[coverageRow.section,stateRow.section,policyRow.section]),foldersRow.section,domainsRow.section,excludedRow.section,writesRow.section,allowRow.section,denyRow.section,previewRow.section],
   payload:()=>sandboxPayload(values),
   base:()=>sandboxPayload(loaded),
   set,

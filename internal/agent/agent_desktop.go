@@ -854,13 +854,22 @@ func specFolderKind(ctx context.Context, folder string) string {
 
 // desktopProject exposes server metadata without allowing server configuration edits.
 func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost && r.Method != http.MethodPut {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
 	id := r.URL.Query().Get("id")
 	if id == "" {
 		http.Error(w, "Project required", 400)
+		return
+	}
+	if r.Method == http.MethodPut {
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 65536))
+		if err != nil {
+			http.Error(w, "Bad request", 400)
+			return
+		}
+		d.relayServer(w, r, http.MethodPut, "/api/projects/"+url.PathEscape(id), string(body))
 		return
 	}
 	config, err := d.fetchConfig(r.Context(), id, "")
@@ -926,6 +935,13 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"claudeSettingsPath": claudeSettingsPathOf(id),
 			"fields":             fields,
 			"skills":             skillNames(config),
+		}
+		if mappingErr == nil && root != "" {
+			rnr := runner.NewRunner()
+			payload["specFrameworkStatuses"] = map[string]any{
+				"speckit":  rnr.GetSpecFrameworkStatus("speckit", root),
+				"openspec": rnr.GetSpecFrameworkStatus("openspec", root),
+			}
 		}
 		// The board's display data (#806). A project the server cannot answer
 		// for leaves the field out, and the desktop board reads it as unmapped.

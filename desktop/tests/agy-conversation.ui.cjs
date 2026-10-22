@@ -67,6 +67,7 @@ test('Antigravity conversation offers models, efforts, permission modes, slash s
   assert.equal(messages[0].effort,'high')
   assert.equal(messages[0].message,'/clarify-issue #42')
   await page.locator('#settings').click()
+  await page.getByRole('tab',{name:'AI engines',exact:true}).click()
   await page.getByRole('tab',{name:'Antigravity settings',exact:true}).click()
   const agyPanel=page.locator('#settings-panel-Antigravity')
   const defaultPerm=agyPanel.getByLabel('Antigravity conversation permission mode',{exact:true})

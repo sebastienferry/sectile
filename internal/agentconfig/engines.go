@@ -142,6 +142,9 @@ func (s *Settings) ReplaceCatalogue(list []Engine, defaultID string) error {
 		engine.ID = strings.TrimSpace(engine.ID)
 		if engine.ID == "" {
 			engine.ID = newEngineID()
+			if defaultID == engine.Provider || defaultID == engine.Name {
+				defaultID = engine.ID
+			}
 		} else if _, known := s.Engine(engine.ID); !known {
 			// Identities are the agent's to give, so none is ever reused.
 			return fmt.Errorf("engine %q: unknown identifier %q", strings.TrimSpace(engine.Name), engine.ID)

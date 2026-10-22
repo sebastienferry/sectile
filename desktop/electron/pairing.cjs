@@ -29,7 +29,7 @@ async function exchangePairingCode(server, code, label = os.hostname(), fetcher 
  if (!body || typeof body.token !== 'string' || !body.token) {
   throw Error('The server returned no device credential.')
  }
- return {token: body.token, deviceId: body.deviceId, userId: body.userId}
+ return {token: body.token, deviceId: body.deviceId, label: body.label || label, userId: body.userId}
 }
 
 // pairingNeeded marks a refusal only a new pairing code can fix, so the start

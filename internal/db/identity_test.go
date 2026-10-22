@@ -105,7 +105,7 @@ func TestDeviceCredentialsAreNotStoredInPlaintext(t *testing.T) {
 	database := identityDB(t)
 	userID, _ := database.UpsertUser("okta|erin", "", "")
 	code, _, _ := database.CreatePairingCode(userID)
-	token, _, err := database.RedeemPairingCode(code, "laptop", "")
+	token, credential, err := database.RedeemPairingCode(code, "laptop", "")
 	if err != nil {
 		t.Fatalf("redeem: %v", err)
 	}
@@ -115,6 +115,13 @@ func TestDeviceCredentialsAreNotStoredInPlaintext(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatal("device credential is stored in plaintext")
+	}
+
+	if err := database.UpdateDeviceCredentialLabel(userID, credential.ID, "MacBook Pro"); err != nil {
+		t.Fatalf("update label: %v", err)
+	}
+	if label := database.WorkstationLabel(userID, credential.ID); label != "MacBook Pro" {
+		t.Fatalf("label = %q, want %q", label, "MacBook Pro")
 	}
 }
 

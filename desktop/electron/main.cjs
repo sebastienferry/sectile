@@ -97,6 +97,7 @@ async function checkAgentIdentity(){
 function saveCredential(server,credential){
  settingsStore.updateDesktop(saved=>{
   Object.assign(saved,{server,deviceId:credential.deviceId,pairedAt:new Date().toISOString()})
+  if(credential.label)saved.label=credential.label
   delete saved.binary
   storeKey(saved,credential.token)
  })
@@ -111,7 +112,7 @@ function storedDeviceId(server){
 ipcMain.handle('pair',async(_,{server,code,label})=>{
  const credential=await exchangePairingCode(server,code,label)
  saveCredential(server,credential)
- return {deviceId:credential.deviceId,token:credential.token}
+ return {deviceId:credential.deviceId,token:credential.token,label:credential.label}
 })
 // settings.json belongs to the agent: Desktop reads it and keeps what it
 // stores itself in desktop.json (#746).
@@ -160,7 +161,8 @@ function currentCredential(){
 // settingsView shows the pairing the agent is started on, whichever file holds it.
 function settingsView(){
  const current=currentCredential()
- return connectionView({...settingsStore.readDesktop(),server:current.record.server,deviceId:current.record.deviceId},current.token())
+ const desktop=settingsStore.readDesktop()
+ return connectionView({...desktop,server:current.record.server,deviceId:current.record.deviceId,label:desktop.label||current.record.label||os.hostname()},current.token())
 }
 ipcMain.handle('settings',()=>{
  try{return settingsView()}catch{return {}}
@@ -171,7 +173,34 @@ ipcMain.handle('credential-state',()=>{try{const current=currentCredential();ret
 // is dropped, since the agent is the only writer of the execution sections
 // (#305) and of settings.json (#746).
 ipcMain.handle('save-settings',async(_,updates)=>{
- settingsStore.updateDesktop(saved=>Object.assign(saved,connectionUpdates(updates)))
+ const kept=connectionUpdates(updates)
+ settingsStore.updateDesktop(saved=>Object.assign(saved,kept))
+ if(kept.label){
+  const current=currentCredential()
+  const token=current.token()
+  const server=current.record.server
+  const deviceId=current.record.deviceId
+  if(token&&server&&deviceId){
+   const target=new URL('/api/devices',server)
+   target.searchParams.set('id',deviceId)
+   let res
+   try{
+    res=await fetch(target,{
+     method:'PUT',
+     headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
+     body:JSON.stringify({label:kept.label}),
+     signal:AbortSignal.timeout(5000),
+    })
+   }catch(err){
+    throw Error('Could not reach the server: '+(err?.message||err))
+   }
+   if(!res.ok){
+    let msg=''
+    try{msg=(await res.json())?.error||''}catch{}
+    throw Error(msg||`Server error (${res.status})`)
+   }
+  }
+ }
  return settingsView()
 })
 // The appearance is applied here rather than in the renderer: themeSource
@@ -301,6 +330,7 @@ async function startAgent(settings){
  settingsStore.updateDesktop(saved=>{
   Object.assign(saved,{server:settings.server,repo})
   if(credential.deviceId)saved.deviceId=credential.deviceId
+  if(credential.label)saved.label=credential.label
   delete saved.binary
  })
  // The agent compares a key `sectile-agent pair` stores later with when this
@@ -600,6 +630,11 @@ ipcMain.handle('archive-workspace',async(_,{projectId,taskId}={})=>{
  return api('/desktop/tasks/archive-workspace?projectId='+encodeURIComponent(projectId),'POST',{taskId})
 })
 ipcMain.handle('project',(_,id)=>api('/desktop/project?id='+encodeURIComponent(id)))
+ipcMain.handle('update-project',(_,id,changes)=>{
+ const targetId=typeof id==='object'&&id!==null?id.projectId||id.id:id
+ const payload=typeof id==='object'&&id!==null&&id.changes?id.changes:changes
+ return api('/desktop/project?id='+encodeURIComponent(targetId),'PUT',payload&&typeof payload==='object'?payload:{})
+})
 ipcMain.handle('deploy-project',(_,id,action,provider)=>api('/desktop/project?id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action)+(provider?'&provider='+encodeURIComponent(provider):''),'POST'))
 ipcMain.handle('projects',()=>api('/desktop/projects'))
 ipcMain.handle('remove-project',async(_,id)=>{

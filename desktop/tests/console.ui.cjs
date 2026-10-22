@@ -109,43 +109,27 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(await page.getByRole('button',{name:'Example project · Already added',exact:true}).isDisabled(),true)
   await page.getByRole('button',{name:'Close',exact:true}).click()
   await page.getByRole('button',{name:'Actions for Example project',exact:true}).click();await page.getByRole('menuitem',{name:'Project settings…',exact:true}).click()
-  await page.getByText('Git remote',{exact:true}).waitFor()
+  await page.getByText('Git remote URL',{exact:true}).waitFor()
   await page.getByRole('tab',{name:'Folders',exact:true}).click()
   await application.evaluate(({dialog})=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:['/tmp/chosen-repository']})})
   await page.getByRole('button',{name:'Choose folder…',exact:true}).click()
   await page.waitForFunction(()=>document.querySelector('[aria-label="Local repository"]').value==='/tmp/chosen-repository')
-  // Each category shows its own panel, so worktrees and parallelism are reached
-  // from Execution and the default engine from General.
-  await page.getByRole('tab',{name:'Execution',exact:true}).click()
-  const parallel=page.getByRole('slider',{name:'Parallel executions',exact:true})
-  await page.getByRole('button',{name:'No',exact:true}).click()
-  assert.equal(await parallel.isDisabled(),true)
-  await page.getByRole('button',{name:'Reset worktrees to workstation default',exact:true}).click()
-  assert.equal(await parallel.isDisabled(),false)
-  // The ceiling is the workstation's, not a five-way segmented control.
-  assert.equal(await parallel.getAttribute('max'),'10')
-  await parallel.fill('3')
-  assert.equal(await parallel.inputValue(),'3')
-  // Parallelism inherits the workstation default, which a reset brings back.
-  assert.equal(await page.getByRole('button',{name:'Reset parallel executions to workstation default',exact:true}).count(),1)
+  // Worktrees and server/local settings are in General.
   await page.locator('#project-tab-Remove').click()
-  // The project picks a default engine from the workstation catalogue (#510);
-  // the engine itself, templates included, is edited in Settings.
-  const engine=page.getByRole('combobox',{name:'Default engine',exact:true})
-  assert.deepEqual(await engine.locator('option').allTextContents(),['Inherit the workstation default (Claude Opus)','Claude Opus','Codex'])
-  assert.equal(await engine.inputValue(),'')
-  assert.equal(await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).count(),0)
-  await engine.selectOption('e-codex')
-  await page.getByText('Set for this project · codex · provider default',{exact:true}).waitFor()
-  await page.getByRole('button',{name:'Reset default engine to the workstation default',exact:true}).click()
-  assert.equal(await engine.inputValue(),'')
+  const noButton=page.getByRole('button',{name:'No',exact:true})
+  await noButton.click()
+  assert.equal(await noButton.getAttribute('aria-pressed'),'true')
+  await page.getByRole('button',{name:'Reset worktrees to workstation default',exact:true}).click()
+  assert.equal(await noButton.getAttribute('aria-pressed'),'false')
+  // General tab features editable Git remote, SDD framework selector, and local setup button.
+  const remoteInput=page.getByRole('textbox',{name:'Git remote URL',exact:true})
+  assert.equal(await remoteInput.inputValue(),'https://example.test/repo.git')
+  const sddSelect=page.getByRole('combobox',{name:'SDD framework',exact:true})
+  assert.equal(await sddSelect.inputValue(),'openspec')
+  const setupBtn=page.getByRole('button',{name:'Setup project locally',exact:true})
+  assert.equal(await setupBtn.isVisible(),true)
   await page.getByRole('button',{name:'Refresh from server',exact:true}).click()
   await page.getByText('Server settings refreshed. Local overrides preserved.',{exact:true}).waitFor()
-
-
-  // The workstation parallelism selection survives a server refresh.
-  await page.getByRole('tab',{name:'Execution',exact:true}).click()
-  assert.equal(await parallel.inputValue(),'3')
   await page.getByRole('button',{name:'Back',exact:true}).click()
   // The control is named for the click it offers, so its name flips with the panel.
   await page.getByRole('button',{name:'Hide projects',exact:true}).click()

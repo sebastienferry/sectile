@@ -49,7 +49,7 @@ async function openTickets(server,root){
  const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  const app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
  const page=await app.firstWindow();page.setDefaultTimeout(7000)
- await page.getByRole('button',{name:'▾ Project A',exact:true}).waitFor()
+ await page.getByRole('button',{name:'Project A',exact:true}).waitFor()
  await page.getByRole('button',{name:'Actions for Project A',exact:true}).click()
  await page.getByRole('menuitem',{name:'Open tasks',exact:true}).click()
  await page.locator('.ticket-row').first().waitFor()
