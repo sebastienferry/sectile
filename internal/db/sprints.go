@@ -92,9 +92,6 @@ func sprintNameKey(name string) string {
 // refused is refused before the first write; a failure in the middle keeps and
 // mirrors the sprints already created, and says how many there were.
 func (d *DB) CreateProjectSprints(ctx context.Context, projectID, pattern string, count int, start time.Time, weeks int) ([]models.TrackerSprint, error) {
-	// A sprint is a planning object, not a ticket: Sectile writes it with the
-	// server credential, whoever asked (ADR 0058).
-	ctx = tracker.WithServiceCredential(ctx)
 	if count < 1 || count > maxSprintBatch {
 		return nil, fmt.Errorf("de 1 à %d sprints à la fois, pas %d", maxSprintBatch, count)
 	}
@@ -166,9 +163,6 @@ func (d *DB) CreateProjectSprints(ctx context.Context, projectID, pattern string
 // next sprint, a chosen one or the backlog, so that nothing is left behind in a
 // closed one.
 func (d *DB) UpdateProjectSprint(ctx context.Context, projectID, sprintID string, patch models.SprintPatch) (*models.TrackerSprint, error) {
-	// A sprint is a planning object, not a ticket: Sectile writes it with the
-	// server credential, whoever asked (ADR 0058).
-	ctx = tracker.WithServiceCredential(ctx)
 	proj, err := d.sprintProject(ctx, projectID)
 	if err != nil || proj == nil {
 		return nil, fmt.Errorf("projet non trouvé")
@@ -303,9 +297,6 @@ func (d *DB) moveOpenWork(ctx context.Context, proj *models.Project, ts tracker.
 
 // DeleteProjectSprint deletes a sprint on the tracker, then from the mirror.
 func (d *DB) DeleteProjectSprint(ctx context.Context, projectID, sprintID string) error {
-	// A sprint is a planning object, not a ticket: Sectile writes it with the
-	// server credential, whoever asked (ADR 0058).
-	ctx = tracker.WithServiceCredential(ctx)
 	proj, err := d.sprintProject(ctx, projectID)
 	if err != nil || proj == nil {
 		return fmt.Errorf("projet non trouvé")

@@ -177,10 +177,10 @@ func TestGithubWritesUseTheActingPersonsToken(t *testing.T) {
 // background pass read as the service account while its activity named the
 // owner, and a person's write went out under an account they did not choose.
 // A locked credential refuses every call, before anything reaches GitHub.
-func TestGithubWritesRefuseALockedPersonalTokenAndReadsUseTheServers(t *testing.T) {
-	var auths []string
+func TestGithubRefusesALockedPersonalToken(t *testing.T) {
+	requests := 0
 	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auths = append(auths, r.Header.Get("Authorization"))
+		requests++
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `[]`)
 	}))
@@ -198,9 +198,17 @@ func TestGithubWritesRefuseALockedPersonalTokenAndReadsUseTheServers(t *testing.
 	project := &models.Tracker{ID: "p1", Provider: "github", Scope: "acme/app"}
 	ctx := tracker.WithTracker(tracker.WithActingUser(context.Background(), "u-ada"), project)
 
-	writes := map[string]func() error{
+	calls := map[string]func() error{
+		"IssuePullRequests": func() error {
+			_, err := adapter.IssuePullRequests(ctx, tracker.IssuePullRequestsRequest{Tracker: project, Key: "#7"})
+			return err
+		},
 		"CreateIssue": func() error {
 			_, err := adapter.CreateIssue(ctx, tracker.CreateIssueRequest{Tracker: project, Title: "T"})
+			return err
+		},
+		"GetIssue": func() error {
+			_, err := adapter.GetIssue(ctx, tracker.GetIssueRequest{Tracker: project, Key: "#7"})
 			return err
 		},
 		"UpdateIssue": func() error {
@@ -209,54 +217,28 @@ func TestGithubWritesRefuseALockedPersonalTokenAndReadsUseTheServers(t *testing.
 		"DeleteIssue": func() error {
 			return adapter.DeleteIssue(ctx, tracker.DeleteIssueRequest{Tracker: project, Key: "#7"})
 		},
-		"AddComment": func() error {
-			return adapter.AddComment(ctx, tracker.AddCommentRequest{Tracker: project, Key: "#7", Body: "b"})
-		},
-		"UpdateLabels": func() error {
-			return adapter.UpdateLabels(ctx, "#7", []string{"a"}, nil)
-		},
-	}
-	for name, call := range writes {
-		if err := call(); !errors.Is(err, locked) {
-			t.Errorf("%s must refuse a locked credential, got %v", name, err)
-		}
-	}
-	if len(auths) != 0 {
-		t.Fatalf("a refused write must reach nothing, GitHub received %d request(s)", len(auths))
-	}
-
-	// A read never touches the personal credential (ADR 0058): the locked one
-	// is not even resolved, and the server token goes out.
-	reads := map[string]func() error{
-		"IssuePullRequests": func() error {
-			_, err := adapter.IssuePullRequests(ctx, tracker.IssuePullRequestsRequest{Tracker: project, Key: "#7"})
-			return err
-		},
-		"GetIssue": func() error {
-			_, err := adapter.GetIssue(ctx, tracker.GetIssueRequest{Tracker: project, Key: "#7"})
-			return err
-		},
 		"SyncIssues": func() error {
 			_, err := adapter.SyncIssues(ctx, tracker.SyncRequest{Tracker: project})
 			return err
+		},
+		"AddComment": func() error {
+			return adapter.AddComment(ctx, tracker.AddCommentRequest{Tracker: project, Key: "#7", Body: "b"})
 		},
 		"GetComments": func() error {
 			_, err := adapter.GetComments(ctx, tracker.GetCommentsRequest{Tracker: project, Key: "#7"})
 			return err
 		},
+		"UpdateLabels": func() error {
+			return adapter.UpdateLabels(ctx, "#7", []string{"a"}, nil)
+		},
 	}
-	for name, call := range reads {
-		if err := call(); errors.Is(err, locked) {
-			t.Errorf("%s must not resolve the personal credential, got %v", name, err)
+	for name, call := range calls {
+		if err := call(); !errors.Is(err, locked) {
+			t.Errorf("%s must refuse a locked credential, got %v", name, err)
 		}
 	}
-	if len(auths) == 0 {
-		t.Fatal("the reads must reach GitHub")
-	}
-	for _, auth := range auths {
-		if auth != "Bearer server-token" {
-			t.Fatalf("a read must carry the server token, got %q", auth)
-		}
+	if requests != 0 {
+		t.Fatalf("a refused call must reach nothing, GitHub received %d request(s)", requests)
 	}
 }
 

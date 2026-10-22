@@ -1,10 +1,9 @@
 # ADR 0029: The server tracker credential signs unattended work only
 
-Status: Accepted. Amended by
-[ADR 0058](0058-a-personal-tracker-credential-signs-only-direct-ticket-actions.md):
-a personal credential now signs only the ticket actions its owner performs;
-stage transitions, macro writes, skill runs and every read use the server
-credential.
+Status: Accepted. Restated by
+[ADR 0059](0059-every-action-a-user-performs-uses-their-own-tracker-credential.md),
+after ADR 0058 had narrowed it for a while: every action a user performs uses
+their own credential; a read falls back to the server credential.
 
 Amends: [ADR 0028](0028-tracker-sync-uses-a-server-credential-per-provider.md),
 its sentence "GitHub and GitLab fall back to the server credential" for writes

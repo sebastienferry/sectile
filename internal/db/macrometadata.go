@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"tasks/internal/models"
-	"tasks/internal/tracker"
 )
 
 type MacroMetadata struct {
@@ -43,9 +42,6 @@ func (edit MacroMetadata) validate() error {
 }
 
 func (d *DB) UpdateMacroMetadata(ctx context.Context, projectID, key string, edit MacroMetadata) (*models.MacroMeta, string, error) {
-	// The macro and its mirrors are Sectile's own writes: they go out with the
-	// server credential, whoever asked (ADR 0058).
-	ctx = tracker.WithServiceCredential(ctx)
 	if edit == (MacroMetadata{}) {
 		return nil, "", fmt.Errorf("aucune métadonnée de macro à modifier")
 	}

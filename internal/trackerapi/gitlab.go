@@ -53,12 +53,16 @@ func NewGitlabAdapter(client *Client) *GitlabAdapter {
 	}
 }
 
-// forProject is the client of one read, as on GitHub: the tracker's server
-// credential, whoever is looking (ADR 0058). The project path is the tracker's
-// scope (#741).
+// forProject is the client of one read, as on GitHub: the acting person's own
+// token where they stored one, the server credential otherwise, including for
+// the synchronisation, which names nobody (#464). A sealed token nobody
+// unlocked refuses the read. The project path is the tracker's scope (#741).
 func (g *GitlabAdapter) forProject(ctx context.Context, t *models.Tracker) (*Client, string, error) {
 	t = trackerOf(ctx, t)
-	client := g.client.ForRead(trackerIDOf(t))
+	client, _, err := g.client.ForActingUser(tracker.ActingUser(ctx), "gitlab", trackerIDOf(t))
+	if err != nil {
+		return nil, "", err
+	}
 	projectPath, err := client.gitlabProjectPath(gitlabScopeOf(t))
 	if err != nil {
 		return nil, "", err

@@ -113,7 +113,7 @@ func (d *DB) GetTrackerStatusesAs(ctx context.Context, trackerID string) ([]stri
 		return nil, err
 	}
 	if trk.Provider == "github" {
-		return githubRepoStatuses(d.trackers.ForRead(trk.ID), trk.Scope), nil
+		return githubRepoStatuses(d.trackerClientAs(tracker.ActingUser(ctx), "github", trk.ID), trk.Scope), nil
 	}
 	if !ts.Supports(tracker.CapBoard) {
 		return []string{}, nil
@@ -144,6 +144,17 @@ func (d *DB) trackerReaderOf(trk *models.Tracker) (tracker.TicketingSystem, *mod
 		return nil, trk, err
 	}
 	return ts, trk, nil
+}
+
+// trackerClientAs is trackerAs for a call addressed to a tracker rather than
+// to a project: the acting person's credential where they stored one, the
+// tracker's otherwise (#741). Reads only.
+func (d *DB) trackerClientAs(userID, trackerName, trackerID string) *trackerapi.Client {
+	client, _, err := d.trackers.ForActingUser(userID, trackerName, trackerID)
+	if err != nil || client == nil {
+		return d.trackers.For(trackerID)
+	}
+	return client
 }
 
 // githubRepoStatuses reads the ProjectsV2 single-select options of a GitHub

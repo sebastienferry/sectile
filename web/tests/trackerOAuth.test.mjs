@@ -133,7 +133,7 @@ test('the admin panel talks to its tracker and sends a secret only when one was 
 })
 
 test('the forge scopes shown to the admin are the ones the server asks for', () => {
-  assert.deepEqual(OAUTH_APP_SCOPES.github, ['repo'])
+  assert.deepEqual(OAUTH_APP_SCOPES.github, ['repo', 'read:project'])
   assert.deepEqual(OAUTH_APP_SCOPES.gitlab, ['api'])
   const server = readFileSync(new URL('../../internal/forgeoauth/oauth.go', import.meta.url), 'utf8')
   for (const [name, tracker] of [['GitHub', 'github'], ['GitLab', 'gitlab']]) {

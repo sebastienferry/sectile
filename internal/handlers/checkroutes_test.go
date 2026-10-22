@@ -31,7 +31,7 @@ func forgeAccounts(t *testing.T, field string) *httptest.Server {
 // The Administration check of a server credential names the service account,
 // even for an admin who stored a token of their own; the check of the personal
 // form names the caller's own account and never falls back to the service
-// account (ADR 0058).
+// account (ADR 0059).
 func TestEachCheckNamesTheAccountItBelongsTo(t *testing.T) {
 	github := forgeAccounts(t, "login")
 	gitlab := forgeAccounts(t, "username")
@@ -69,7 +69,7 @@ func TestEachCheckNamesTheAccountItBelongsTo(t *testing.T) {
 }
 
 // A write refused for want of the server credential says so with its own code:
-// the caller has nothing to add, an administrator has to set it (ADR 0058).
+// the caller has nothing to add, an administrator has to set it (ADR 0059).
 func TestAMissingServerCredentialAnswersItsOwnCode(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	writeTrackerError(recorder, http.StatusInternalServerError, &trackerapi.MissingServerCredentialError{Tracker: "gitlab"})

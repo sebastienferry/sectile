@@ -342,9 +342,9 @@ func writeTrackerError(w http.ResponseWriter, status int, err error) {
 			"tracker": trackerapi.MissingCredentialTracker(err),
 		})
 	case trackerapi.MissingServerCredentialTracker(err) != "":
-		// The deployment has no server credential for a write Sectile makes
-		// by itself (ADR 0058): nothing the caller can add, an administrator
-		// has to set it, so the server is the one not ready.
+		// The deployment has no server credential for unattended work (ADR
+		// 0059): nothing the caller can add, an administrator has to set it,
+		// so the server is the one not ready.
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error":   err.Error(),
 			"code":    trackerapi.ServerCredentialMissingCode,
@@ -2087,7 +2087,7 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
 		check := h.db.CheckTrackerCredentials
 		if checkOnly {
-			// The check button belongs to the personal form only (ADR 0058).
+			// The check button belongs to the personal form only (ADR 0059).
 			check = h.db.CheckPersonalTrackerCredentials
 		}
 		account, err := check(h.actingContext(r), trackerName, req.SiteURL, req.Email, req.Token)

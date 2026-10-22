@@ -21,10 +21,10 @@ It consists of three complementary components:
 ## What it does
 
 - Synchronizes work across **GitHub, GitLab, Jira, and local tasks** with
-  credential split: personal credentials (a sealed token, or a Jira, GitHub or
-  GitLab OAuth connection) sign only the tickets you create, edit and comment
-  on; server credentials sign every read, the background sync, stage reports,
-  macros and whatever an agent writes during a skill run.
+  credential split: every action you take, from the web, the desktop app or an
+  agent working for you, uses your own access (a sealed token, or a Jira,
+  GitHub or GitLab OAuth connection); server credentials serve the background
+  sync.
 - Guides tasks through a six-column SDD lifecycle:
   **New → Clarified → Specified → Implemented → Reviewed → Finished**
   (`clarify-issue`, `specify-issue`, `implement-issue`, `create-pr` /
@@ -152,8 +152,8 @@ reports which project repositories it has checked out locally; when launching a
 task or batch from the web UI, you can let Sectile route automatically (keeping
 workstation affinity) or target a specific eligible workstation.
 
-Keep the tracker server credentials on the server and your personal tracker
-access in your user profile—never in the agent configuration.
+Keep tracker read credentials on the server and personal write credentials
+sealed in your user profile—never in the agent configuration.
 
 ### Install Sectile in your coding CLI (Skills & MCP)
 
@@ -203,12 +203,10 @@ default).
 
 Projects, trackers, and credentials can be configured directly from the web
 interface (**Project Settings** and **Administration**). Administrators can
-store sealed server-side tracker credentials, which sign every read and every
-write Sectile makes by itself (sync, stage reports, macros, skill runs), and
-register the Jira, GitHub and GitLab OAuth apps. Users connect their accounts, or
-seal their own personal tokens, in **Profile → Tracker Credentials** so the
-tickets they create, edit and comment on are published under their own
-identity.
+store sealed server-side tracker credentials for background synchronization,
+while users connect their accounts, or seal their own personal tokens, in
+**Profile → Tracker Credentials** so everything they do is published under
+their own identity.
 
 For headless or local development, copy the sample environment file and set only
 the values you need:

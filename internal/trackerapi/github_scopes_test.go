@@ -38,10 +38,9 @@ var githubPathScopes = map[string][]string{
 var githubGraphQLScopes = map[string][]string{
 	"transferIssue(":                  {"repo"},
 	"closedByPullRequestsReferences(": {"repo"},
-	// The board status columns of GithubStatusQuery: a read, so it always
-	// goes out with the server credential and never through a grant (ADR
-	// 0058). The consent asks for nothing for it.
-	"projectsV2(":         nil,
+	// The board status columns of GithubStatusQuery; without the scope the
+	// read fails, and the board falls back to the open/closed state.
+	"projectsV2(":         {"read:project"},
 	"pullRequest(number:": {"repo"},
 }
 

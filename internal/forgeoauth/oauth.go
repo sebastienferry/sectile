@@ -65,17 +65,16 @@ type Provider struct {
 }
 
 // GitHub is an OAuth App on github.com. repo covers the issues, milestones
-// and comments of private repositories and the transferIssue mutation. GET
-// /user needs no scope to read the login. A grant only signs the ticket
-// actions its owner performs (ADR 0058): the ProjectsV2 board status is read
-// with the server credential, so the consent does not ask for read:project.
+// and comments of private repositories and the transferIssue mutation;
+// read:project covers the ProjectsV2 board status, which a person reads with
+// their own grant (ADR 0059). GET /user needs no scope to read the login.
 var GitHub = Provider{
 	Name:              "github",
 	AuthorizeEndpoint: "https://github.com/login/oauth/authorize",
 	TokenURL:          "https://github.com/login/oauth/access_token",
 	RevokeURL:         "https://api.github.com/applications/{client_id}/grant",
 	APIBase:           "https://api.github.com",
-	Scopes:            []string{"repo"},
+	Scopes:            []string{"repo", "read:project"},
 }
 
 // GitLab is an application on gitlab.com. api is the only scope that allows

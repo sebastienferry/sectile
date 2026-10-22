@@ -210,7 +210,7 @@ func TestCreateTaskFilesUnderTheCallersOwnJiraAccount(t *testing.T) {
 	}
 }
 
-func TestGetTaskReadsJiraCommentsWithTheServerCredential(t *testing.T) {
+func TestGetTaskReadsJiraCommentsAsTheCaller(t *testing.T) {
 	site := newFakeJira(t)
 	database, project := jiraDatabase(t, site)
 	// The ticket is seeded by unattended work: the test is about reading it.
@@ -220,27 +220,59 @@ func TestGetTaskReadsJiraCommentsWithTheServerCredential(t *testing.T) {
 	}
 	caller := Caller{UserID: "usr_ada", Name: "Ada"}
 
-	// A read never uses a personal credential (ADR 0058): a caller with no
-	// token of their own reads the discussion with the server's, and so does
-	// one who stored a token.
-	for _, round := range []string{"no personal token", "a personal token"} {
-		if round == "a personal token" {
-			if err := database.SetUserTrackerCredential("usr_ada", "jira", site.server.URL, "ada@example.com", "ada-token", ""); err != nil {
-				t.Fatal(err)
-			}
+	// A caller with no personal token reads the discussion with the server
+	// credential: a read attributes nothing (ADR 0059).
+	result, err := callAs(t, database, &caller, "get_task", map[string]any{"taskKey": task.ID})
+	if err != nil {
+		t.Fatalf("get_task failed: %v", err)
+	}
+	if comments, _ := result["comments"].([]any); len(comments) != 1 || result["commentsError"] != nil {
+		t.Fatalf("the Jira comments must be read with the server credential: %v", result)
+	}
+	if got := site.authenticatedAs(http.MethodGet, "/rest/api/3/issue/PE-42/comment"); len(got) != 1 || got[0] != basic("server@example.com", "server-secret") {
+		t.Fatalf("comments must fall back to the server credential for a caller without one: %v", got)
+	}
+
+	if err := database.SetUserTrackerCredential("usr_ada", "jira", site.server.URL, "ada@example.com", "ada-token", ""); err != nil {
+		t.Fatal(err)
+	}
+	result, err = callAs(t, database, &caller, "get_task", map[string]any{"taskKey": task.ID})
+	if err != nil {
+		t.Fatalf("get_task failed: %v", err)
+	}
+	comments, _ := result["comments"].([]any)
+	if len(comments) != 1 || result["commentsError"] != nil {
+		t.Fatalf("the Jira comments must be returned: %v", result)
+	}
+	if got := site.authenticatedAs(http.MethodGet, "/rest/api/3/issue/PE-42/comment"); len(got) != 2 || got[1] != basic("ada@example.com", "ada-token") {
+		t.Fatalf("comments must be read with the caller's token: %v", got)
+	}
+}
+
+// An agent working for a person during a skill run writes as that person,
+// exactly as the person would from an interactive session (ADR 0059): the
+// run header changes nothing about whose credential goes out.
+func TestACommentFromASkillRunIsThePersons(t *testing.T) {
+	site := newFakeJira(t)
+	database, project := jiraDatabase(t, site)
+	task, err := database.CreateTaskAs(sectiletracker.WithUnattended(context.Background()), models.CreateTaskRequest{ProjectID: project.ID, Title: "Follow-up", RequireRemoteCreation: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureUser("usr_ada"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetUserTrackerCredential("usr_ada", "jira", site.server.URL, "ada@example.com", "ada-token", ""); err != nil {
+		t.Fatal(err)
+	}
+	caller := Caller{UserID: "usr_ada", Name: "Ada"}
+	for _, runID := range []string{"", "run-launched"} {
+		if _, err := callAsInRun(t, database, &caller, runID, "add_comment", map[string]any{"taskKey": task.ID, "body": "Hello"}); err != nil {
+			t.Fatal(err)
 		}
-		before := len(site.authenticatedAs(http.MethodGet, "/rest/api/3/issue/PE-42/comment"))
-		result, err := callAs(t, database, &caller, "get_task", map[string]any{"taskKey": task.ID})
-		if err != nil {
-			t.Fatalf("%s: get_task failed: %v", round, err)
-		}
-		comments, _ := result["comments"].([]any)
-		if len(comments) != 1 || result["commentsError"] != nil {
-			t.Fatalf("%s: the Jira comments must be returned: %v", round, result)
-		}
-		got := site.authenticatedAs(http.MethodGet, "/rest/api/3/issue/PE-42/comment")[before:]
-		if len(got) != 1 || got[0] != basic("server@example.com", "server-secret") {
-			t.Fatalf("%s: comments must be read with the server credential: %v", round, got)
+		got := site.authenticatedAs(http.MethodPost, "/rest/api/3/issue/PE-42/comment")
+		if len(got) == 0 || got[len(got)-1] != basic("ada@example.com", "ada-token") {
+			t.Fatalf("run %q: the comment must carry the person's token: %v", runID, got)
 		}
 	}
 }

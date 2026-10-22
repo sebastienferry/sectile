@@ -63,9 +63,9 @@ func (g *gateway) seen() []string {
 	return append([]string{}, g.requests...)
 }
 
-// A person connected through a grant writes to Jira through Atlassian's
-// gateway for the project's site, with their access token, on the same paths.
-// Reads never use the grant (ADR 0058).
+// A person connected through a grant reaches Jira through Atlassian's gateway
+// for the project's site, with their access token, on the same paths; the
+// links people see keep the site.
 func TestAGrantGoesThroughTheGatewayAndKeepsTheSite(t *testing.T) {
 	g := newGateway(t)
 	const site = "https://acme.atlassian.net"
@@ -82,6 +82,13 @@ func TestAGrantGoesThroughTheGatewayAndKeepsTheSite(t *testing.T) {
 	project := jiraTracker()
 	ctx := tracker.WithActingUser(context.Background(), "ada")
 
+	task, err := adapter.GetIssue(ctx, tracker.GetIssueRequest{Tracker: project, Key: "PE-7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.ExternalURL == nil || !strings.HasPrefix(*task.ExternalURL, site+"/browse/PE-7") {
+		t.Errorf("the link must keep the site: %v", task.ExternalURL)
+	}
 	if err := adapter.AddComment(ctx, tracker.AddCommentRequest{Tracker: project, Key: "PE-7", Body: "Hello"}); err != nil {
 		t.Fatal(err)
 	}

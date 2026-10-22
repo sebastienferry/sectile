@@ -101,15 +101,13 @@ func TestMacroResourceTools(t *testing.T) {
 func TestMacroPartialSuccessSurvivesMCPTransport(t *testing.T) {
 	trackerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodGet {
-			t.Errorf("a refused write reached the tracker: %s", req.Method)
+			t.Errorf("refused caller wrote to tracker: %s", req.Method)
 		}
 		_, _ = w.Write([]byte("[]"))
 	}))
 	defer trackerServer.Close()
 	t.Setenv("SECTILE_GITHUB_API_URL", trackerServer.URL)
-	// A macro is written with the server credential (ADR 0058): a deployment
-	// without one keeps the macro locally and reports the refusal.
-	t.Setenv("SECTILE_GITHUB_TOKEN", "")
+	t.Setenv("SECTILE_GITHUB_TOKEN", "server-token")
 	database := macroDatabase(t)
 	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Remote", IssueTracker: "github", GithubRepo: "acme/app"})
 	if err != nil {
