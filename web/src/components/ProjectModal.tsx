@@ -1111,6 +1111,9 @@ export const ProjectModal: React.FC = () => {
                         placeholder={ps.execution.orchestratorPromptPlaceholder}
                         className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] resize-none"
                       />
+                      <p className="mt-1 text-[10px] text-[var(--text-muted)]">
+                        {ps.execution.orchestratorPromptHelp}
+                      </p>
                     </div>
                   </div>
                 )}

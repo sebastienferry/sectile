@@ -24,38 +24,60 @@ func (d *DB) ActiveRunsCountForProject(projectID string) (int, error) {
 }
 
 func activeRunsCountForProjectOn(q rowQuerier, project *models.Project) (int, error) {
+	// A run counts through activeRunPredicate, which the catalog test keeps in
+	// step with the skills. A launch still being handed to an agent is recorded
+	// as agent_launch meanwhile, and holds its slot too.
 	query := `
   SELECT COUNT(DISTINCT a.task_id)
   FROM task_activities a
   WHERE (a.run_project_id IN (?, ?) OR (COALESCE(a.run_project_id, '') = '' AND a.task_id IN (SELECT id FROM tasks WHERE project_id IN (?, ?))))
-    AND a.status IN ('queued', 'pending', 'running')
-    AND a.skill_id IN ('remote_run', 'agent_launch', 'clarify', 'specify', 'implement', 'adjust', 'handoff', 'create_pr', 'pickup', 'rewrite_story', 'refine_macro', 'pickup_issues', 'review', 'pick', 'realign_macro')`
+    AND ((` + activeRunPredicate() + `) OR (skill_id = 'agent_launch' AND status IN (` + sqlStringList(activeRunStatuses) + `)))`
 	var count int
 	err := q.QueryRow(query, project.ID, project.Slug, project.ID, project.Slug).Scan(&count)
 	return count, err
 }
 
-var errOrchestratorCapacity = errors.New("max concurrency limit reached")
+var (
+	errOrchestratorCapacity = errors.New("max concurrency limit reached")
+	// ErrOrchestratorProjectNotFound, ErrOrchestratorDisabled and
+	// ErrOrchestratorGuidelinesTooLarge let a caller answer with the right status.
+	ErrOrchestratorProjectNotFound    = errors.New("project not found")
+	ErrOrchestratorDisabled           = errors.New("orchestrator is disabled for this project")
+	ErrOrchestratorGuidelinesTooLarge = fmt.Errorf("orchestration guidelines exceed %d KiB", models.OrchestratorGuidelinesMaxBytes/1024)
+)
 
 // admitOrchestratedActivity checks capacity and inserts the queued reservation in
 // one transaction. The project row lock serializes PostgreSQL server instances;
-// SQLite takes its write lock at Begin. The caller holds d.mu, and only queues
-// the job after this transaction commits.
-func (d *DB) admitOrchestratedActivity(act models.TaskActivity, maxConcurrent int) error {
+// SQLite takes its write lock at Begin. The cap is read from that locked row,
+// never from the caller, so every orchestrator shares the project's own limit
+// and a settings change applies to the next admission. The caller holds d.mu,
+// and only queues the job after this transaction commits.
+func (d *DB) admitOrchestratedActivity(act models.TaskActivity) error {
 	return d.conn.WithTx(func(tx *sqlTx) error {
 		project := &models.Project{}
-		if err := tx.QueryRow("SELECT id, slug FROM projects WHERE id = ?"+d.dialect.ForUpdate(), act.RunProjectID).Scan(&project.ID, &project.Slug); err != nil {
+		var maxConcurrent int
+		if err := tx.QueryRow("SELECT id, slug, orchestrator_max_concurrent FROM projects WHERE id = ?"+d.dialect.ForUpdate(), act.RunProjectID).Scan(&project.ID, &project.Slug, &maxConcurrent); err != nil {
 			return err
 		}
 		count, err := activeRunsCountForProjectOn(tx, project)
 		if err != nil {
 			return err
 		}
-		if count >= maxConcurrent {
+		if count >= models.NormalizeOrchestratorMaxConcurrent(maxConcurrent) {
 			return errOrchestratorCapacity
 		}
 		return insertTaskActivity(tx, d.instanceID, act)
 	})
+}
+
+// orchestratorPromptPrefix opens every orchestrated prompt. The chain hand-back
+// reads it to tell an orchestrated chain, whose gate must reach every step, from
+// a manual one, whose launch prompt belongs to its first step only.
+const orchestratorPromptPrefix = "Backlog orchestration:"
+
+// isOrchestratedPrompt says whether a run was launched by the orchestrator.
+func isOrchestratedPrompt(prompt string) bool {
+	return strings.HasPrefix(prompt, orchestratorPromptPrefix)
 }
 
 // orchestratorLaunchPrompt makes the agent assess natural-language guidelines
@@ -63,7 +85,7 @@ func (d *DB) admitOrchestratedActivity(act models.TaskActivity, maxConcurrent in
 // whether a ticket satisfies arbitrary project instructions. Keeping this prompt
 // on every step also prevents a later step from dropping the restrictions.
 func orchestratorLaunchPrompt(guidelines string) string {
-	prompt := "Backlog orchestration: before making changes or advancing the workflow, assess whether this ticket has clear actionable scope, sufficient technical context, and no blocking dependencies or unresolved critical decisions. If it is not eligible, explain why and end the run without changing the ticket or advancing its stage. The chain must stop at implemented; review and merge require a human."
+	prompt := orchestratorPromptPrefix + " before making changes or advancing the workflow, assess whether this ticket has clear actionable scope, sufficient technical context, and no blocking dependencies or unresolved critical decisions. If it is not eligible, explain why and end the run without changing the ticket or advancing its stage. The chain must stop at implemented; review and merge require a human."
 	if guidelines = strings.TrimSpace(guidelines); guidelines != "" {
 		prompt += "\nProject eligibility guidelines (mandatory):\n" + guidelines + "\nIf this ticket does not satisfy these guidelines, explain the unmet criteria and end the run without making changes or advancing its stage."
 	}
@@ -97,24 +119,18 @@ func (d *DB) EvaluateTaskEligibility(task *models.Task) (bool, string) {
 // up to the configured maximum concurrent sessions.
 func (d *DB) EvaluateAndOrchestrateBacklog(ctx context.Context, projectID string, actor Actor, req models.OrchestrateProjectRequest) (*models.OrchestrationResult, error) {
 	if req.Guidelines != nil && len(*req.Guidelines) > models.OrchestratorGuidelinesMaxBytes {
-		return nil, fmt.Errorf("orchestration guidelines exceed 32 KiB")
+		return nil, ErrOrchestratorGuidelinesTooLarge
 	}
 	project, err := d.GetProjectByID(projectID)
 	if err != nil || project == nil {
-		return nil, fmt.Errorf("project not found: %s", projectID)
+		return nil, fmt.Errorf("%w: %s", ErrOrchestratorProjectNotFound, projectID)
 	}
 
-	if !project.OrchestratorEnabled && !req.Force {
-		return nil, fmt.Errorf("orchestrator is disabled for project %q (pass force to override)", project.Name)
+	if !project.OrchestratorEnabled {
+		return nil, fmt.Errorf("%w: %q", ErrOrchestratorDisabled, project.Name)
 	}
 
-	maxConcurrent := project.OrchestratorMaxConcurrent
-	if req.MaxConcurrent != nil && *req.MaxConcurrent > 0 {
-		maxConcurrent = models.NormalizeOrchestratorMaxConcurrent(*req.MaxConcurrent)
-	}
-	if maxConcurrent < 1 {
-		maxConcurrent = 1
-	}
+	maxConcurrent := models.NormalizeOrchestratorMaxConcurrent(project.OrchestratorMaxConcurrent)
 
 	activeBefore, err := d.ActiveRunsCountForProject(project.ID)
 	if err != nil {
@@ -202,7 +218,7 @@ func (d *DB) EvaluateAndOrchestrateBacklog(ctx context.Context, projectID string
 			continue
 		}
 		_, act, launchErr := d.enqueueSkillWithOptions(task.ID, project.ID, step.SkillID, prompt, true, models.SkillModeAutonomous, "", queuedSkillOptions{
-			UserID: actor.ID, DeviceID: agentprotocol.DeviceIDFromContext(ctx), ChainStop: stopStage, MaxConcurrent: maxConcurrent,
+			UserID: actor.ID, DeviceID: agentprotocol.DeviceIDFromContext(ctx), ChainStop: stopStage, Orchestrated: true,
 		})
 		if errors.Is(launchErr, errOrchestratorCapacity) {
 			availableSlots = 0

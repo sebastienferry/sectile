@@ -258,6 +258,7 @@ const fr = {
     orchestratorMaxConcurrentHelp: 'Limite le nombre de sessions de tâches parallèles (1 à 10).',
     orchestratorPromptLabel: 'Directives de l’orchestrateur (optionnel)',
     orchestratorPromptPlaceholder: 'Instructions pour guider l’évaluation de l’éligibilité des tickets...',
+    orchestratorPromptHelp: 'Un agent d’orchestration du desktop envoie son propre fichier Markdown local, qui remplace ces directives pour ses exécutions.',
   },
   skills: {
     frameworkLabel: 'Framework Spec-Driven Design (SDD) pour ce Projet',
@@ -590,6 +591,7 @@ const en: ProjectSettingsStrings = {
     orchestratorMaxConcurrentHelp: 'Limits the number of parallel task sessions (1 to 10).',
     orchestratorPromptLabel: 'Orchestrator guidelines (optional)',
     orchestratorPromptPlaceholder: 'Instructions to guide ticket eligibility assessment...',
+    orchestratorPromptHelp: 'A desktop orchestration agent sends its own local Markdown file, which replaces these guidelines for its runs.',
   },
   skills: {
     frameworkLabel: 'Spec-Driven Design (SDD) framework for this project',

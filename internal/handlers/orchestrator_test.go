@@ -84,24 +84,39 @@ func TestProjectOrchestrateEndpoint(t *testing.T) {
 
 	h := NewHandler(database)
 
-	// Calling without force while disabled should return 400
-	req := httptest.NewRequest(http.MethodPost, "/api/projects/"+project.ID+"/orchestrate", strings.NewReader(`{}`))
-	rec := httptest.NewRecorder()
-	h.HandleProjectDetail(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 when disabled, got %d: %s", rec.Code, rec.Body.String())
+	post := func(path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		h.HandleProjectDetail(rec, httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)))
+		return rec
+	}
+	path := "/api/projects/" + project.ID + "/orchestrate"
+
+	// A disabled orchestrator is a conflict with the project settings.
+	if rec := post(path, `{}`); rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 when disabled, got %d: %s", rec.Code, rec.Body.String())
+	}
+	// No caller can force enablement or raise the cap: both are refused, not ignored.
+	for _, body := range []string{`{"force":true}`, `{"maxConcurrent":10}`} {
+		if rec := post(path, body); rec.Code != http.StatusBadRequest {
+			t.Fatalf("override %s: expected 400, got %d: %s", body, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := post("/api/projects/missing/orchestrate", `{}`); rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for an unknown project, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// Calling with force should succeed
-	reqForce := httptest.NewRequest(http.MethodPost, "/api/projects/"+project.ID+"/orchestrate", strings.NewReader(`{"force":true}`))
-	recForce := httptest.NewRecorder()
-	h.HandleProjectDetail(recForce, reqForce)
-	if recForce.Code != http.StatusOK {
-		t.Fatalf("expected 200 with force=true, got %d: %s", recForce.Code, recForce.Body.String())
+	enabled := true
+	if _, err := database.UpdateProject(project.ID, models.UpdateProjectRequest{OrchestratorEnabled: &enabled}); err != nil {
+		t.Fatal(err)
+	}
+	rec := post(path, `{}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 once enabled, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	var res models.OrchestrationResult
-	if err := json.Unmarshal(recForce.Body.Bytes(), &res); err != nil {
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
 		t.Fatal(err)
 	}
 	if len(res.Launched) != 1 {

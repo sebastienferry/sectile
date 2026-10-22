@@ -666,9 +666,9 @@ func NormalizeOrchestratorMaxConcurrent(n int) int {
 	return n
 }
 
+// OrchestrateProjectRequest carries no enablement or capacity override: the
+// project settings are the only authority, so every caller shares one cap.
 type OrchestrateProjectRequest struct {
-	Force         bool `json:"force,omitempty"`
-	MaxConcurrent *int `json:"maxConcurrent,omitempty"`
 	// Guidelines snapshots the local Markdown file for this invocation only.
 	// Nil keeps the server's project guidelines for web and MCP callers.
 	Guidelines *string `json:"guidelines,omitempty"`

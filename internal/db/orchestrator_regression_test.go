@@ -298,3 +298,56 @@ func TestNamedAgentPoliciesShareTheProjectConcurrencyLimit(t *testing.T) {
 		t.Fatalf("second agent bypassed shared capacity: %+v %v", second, err)
 	}
 }
+
+func TestOrchestratorAdmissionReadsTheCurrentProjectCap(t *testing.T) {
+	d, project := orchestratorTestDB(t)
+	orchestratorTask(t, d, project.ID)
+	orchestratorTask(t, d, project.ID)
+	dispatched := orchestratorDispatches(d)
+	first, err := d.EvaluateAndOrchestrateBacklog(context.Background(), project.ID, Actor{ID: "alice"}, models.OrchestrateProjectRequest{})
+	if err != nil || len(first.Launched) != 2 {
+		t.Fatalf("cap of two: %+v %v", first, err)
+	}
+	awaitOrchestratorDispatch(t, d, dispatched)
+	awaitOrchestratorDispatch(t, d, dispatched)
+
+	// Lowering the cap applies at the next admission: a third ticket waits for
+	// the active runs to fall below the new limit.
+	limit := 1
+	if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{OrchestratorMaxConcurrent: &limit}); err != nil {
+		t.Fatal(err)
+	}
+	third := orchestratorTask(t, d, project.ID)
+	if _, _, err := d.enqueueSkillWithOptions(third.ID, project.ID, "clarify", orchestratorLaunchPrompt(""), true, models.SkillModeAutonomous, "", queuedSkillOptions{
+		UserID: "alice", ChainStop: models.FullChainStopImplemented, Orchestrated: true,
+	}); err == nil {
+		t.Fatal("admission ignored the lowered project cap")
+	}
+}
+
+func TestManualChainDoesNotRepeatItsLaunchPrompt(t *testing.T) {
+	d, project := orchestratorTestDB(t)
+	task := orchestratorTask(t, d, project.ID)
+	dispatched := orchestratorDispatches(d)
+	manual := "Focus the clarification on the error messages."
+	if _, _, err := d.enqueueSkillWithOptions(task.ID, project.ID, "clarify", manual, true, models.SkillModeAutonomous, "", queuedSkillOptions{UserID: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	op := awaitOrchestratorDispatch(t, d, dispatched)
+	if !strings.Contains(op.Prompt, manual) {
+		t.Fatalf("first step lost its launch prompt: %q", op.Prompt)
+	}
+	if _, err := d.conn.Exec("UPDATE tasks SET labels = ? WHERE id = ?", `["#clarified"]`, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.FinishRemoteRunAs(Actor{ID: "alice"}, false, task.ID, op.RunID, "completed", "Stage completed"); err != nil {
+		t.Fatal(err)
+	}
+	next := awaitOrchestratorDispatch(t, d, dispatched)
+	if next.SkillID != "specify" || strings.Contains(next.Prompt, manual) {
+		t.Fatalf("manual prompt leaked into the next step: %+v", next)
+	}
+	if next.UserID != "alice" {
+		t.Fatalf("chained step lost its caller: %+v", next)
+	}
+}

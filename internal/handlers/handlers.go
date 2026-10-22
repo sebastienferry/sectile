@@ -1512,7 +1512,11 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	if len(parts) >= 2 && parts[1] == "orchestrate" && r.Method == http.MethodPost {
 		var req models.OrchestrateProjectRequest
 		if r.Body != nil {
-			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256*1024)).Decode(&req); err != nil && err != io.EOF {
+			// An unknown field is refused rather than ignored: a caller sending a
+			// capacity or enablement override must learn that it has no effect.
+			decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256*1024))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&req); err != nil && err != io.EOF {
 				writeError(w, http.StatusBadRequest, "Invalid orchestration request")
 				return
 			}
@@ -1525,8 +1529,18 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			ctx = agentprotocol.WithDeviceID(ctx, credential.Device.ID)
 		}
 		result, err := h.db.EvaluateAndOrchestrateBacklog(ctx, id, actor, req)
-		if err != nil {
+		switch {
+		case errors.Is(err, db.ErrOrchestratorProjectNotFound):
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		case errors.Is(err, db.ErrOrchestratorDisabled):
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		case errors.Is(err, db.ErrOrchestratorGuidelinesTooLarge):
 			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, result)

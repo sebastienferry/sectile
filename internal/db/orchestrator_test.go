@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -142,7 +143,6 @@ func TestOrchestratorDisabledRefusal(t *testing.T) {
 	ctx := context.Background()
 	d, _ := orchestratorTestDB(t)
 
-	// Create project with orchestrator disabled
 	pDisabled, err := d.CreateProject(models.CreateProjectRequest{
 		Name:                "DisabledOrchestrator",
 		IssueTracker:        "local",
@@ -151,21 +151,30 @@ func TestOrchestratorDisabledRefusal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
+	orchestratorTask(t, d, pDisabled.ID)
 	actor := Actor{ID: "admin", Name: "Admin"}
 
-	// Calling without force should fail
-	_, err = d.EvaluateAndOrchestrateBacklog(ctx, pDisabled.ID, actor, models.OrchestrateProjectRequest{})
-	if err == nil {
-		t.Fatal("expected error when orchestrator is disabled and force is false")
+	// No caller can run a disabled orchestrator: enabling it is a project setting.
+	if _, err := d.EvaluateAndOrchestrateBacklog(ctx, pDisabled.ID, actor, models.OrchestrateProjectRequest{}); !errors.Is(err, ErrOrchestratorDisabled) {
+		t.Fatalf("expected ErrOrchestratorDisabled, got %v", err)
+	}
+	if count, err := d.ActiveRunsCountForProject(pDisabled.ID); err != nil || count != 0 {
+		t.Fatalf("a disabled orchestrator reserved slots: %d, %v", count, err)
 	}
 
-	// Calling with force should succeed
-	res, err := d.EvaluateAndOrchestrateBacklog(ctx, pDisabled.ID, actor, models.OrchestrateProjectRequest{Force: true})
-	if err != nil {
-		t.Fatalf("expected success with force=true, got %v", err)
+	enabled := true
+	if _, err := d.UpdateProject(pDisabled.ID, models.UpdateProjectRequest{OrchestratorEnabled: &enabled}); err != nil {
+		t.Fatal(err)
 	}
-	if res.ProjectID != pDisabled.ID {
-		t.Fatalf("expected project %s, got %s", pDisabled.ID, res.ProjectID)
+	res, err := d.EvaluateAndOrchestrateBacklog(ctx, pDisabled.ID, actor, models.OrchestrateProjectRequest{})
+	if err != nil || res.ProjectID != pDisabled.ID || len(res.Launched) != 1 {
+		t.Fatalf("enabled orchestrator: %+v, %v", res, err)
+	}
+}
+
+func TestOrchestratorUnknownProject(t *testing.T) {
+	d, _ := orchestratorTestDB(t)
+	if _, err := d.EvaluateAndOrchestrateBacklog(context.Background(), "missing", Actor{ID: "admin"}, models.OrchestrateProjectRequest{}); !errors.Is(err, ErrOrchestratorProjectNotFound) {
+		t.Fatalf("expected ErrOrchestratorProjectNotFound, got %v", err)
 	}
 }

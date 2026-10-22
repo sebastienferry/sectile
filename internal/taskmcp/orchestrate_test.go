@@ -99,3 +99,48 @@ func TestOrchestrateProjectMCPDispatchesAsCaller(t *testing.T) {
 		t.Fatal("MCP caller's workstation never received a launch")
 	}
 }
+
+func TestOrchestrateProjectMCPRefusesOverrides(t *testing.T) {
+	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "test.db"), db.NewDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	database.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		return nil, nil
+	})
+	disabled, err := database.CreateProject(models.CreateProjectRequest{Name: "Disabled MCP orchestration", IssueTracker: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CreateTask(models.CreateTaskRequest{ProjectID: disabled.ID, Title: "Validate requests", Description: "Reject invalid requests with a clear error response."}); err != nil {
+		t.Fatal(err)
+	}
+	// An agent cannot enable the orchestrator nor raise the project's cap.
+	for _, args := range []map[string]any{
+		{"projectId": disabled.ID},
+		{"projectId": disabled.ID, "force": true},
+		{"projectId": disabled.ID, "maxConcurrent": 10},
+	} {
+		if res, err := call(t, database, "orchestrate_project", args); err == nil {
+			t.Fatalf("orchestrate_project accepted %v: %+v", args, res)
+		}
+	}
+	if count, err := database.ActiveRunsCountForProject(disabled.ID); err != nil || count != 0 {
+		t.Fatalf("refused calls reserved slots: %d, %v", count, err)
+	}
+
+	capped, err := database.CreateProject(models.CreateProjectRequest{Name: "Capped MCP orchestration", IssueTracker: "local", OrchestratorEnabled: true, OrchestratorMaxConcurrent: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, title := range []string{"Validate requests", "Validate responses"} {
+		if _, err := database.CreateTask(models.CreateTaskRequest{ProjectID: capped.ID, Title: title, Description: "Reject invalid payloads with a clear error response."}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, _ = call(t, database, "orchestrate_project", map[string]any{"projectId": capped.ID, "maxConcurrent": 10})
+	if count, err := database.ActiveRunsCountForProject(capped.ID); err != nil || count > 1 {
+		t.Fatalf("a caller raised the project cap of 1: %d, %v", count, err)
+	}
+}

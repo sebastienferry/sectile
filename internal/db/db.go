@@ -5821,10 +5821,12 @@ func (d *DB) enqueueSkillOnTask(
 // queuedSkillOptions carries the identity and admission policy of an autonomous
 // launch. A zero value preserves the ordinary skill launch behavior.
 type queuedSkillOptions struct {
-	UserID        string
-	DeviceID      string
-	ChainStop     string
-	MaxConcurrent int
+	UserID    string
+	DeviceID  string
+	ChainStop string
+	// Orchestrated admits the launch against the project's orchestration cap,
+	// in the transaction that records it.
+	Orchestrated bool
 }
 
 func (d *DB) enqueueSkillWithOptions(taskID, projectID, skillID, prompt string, autoChain bool, modeOverride, modelOverride string, options queuedSkillOptions) (*models.Task, *models.TaskActivity, error) {
@@ -5900,8 +5902,8 @@ func (d *DB) enqueueSkillWithOptions(taskID, projectID, skillID, prompt string, 
 		return nil, nil, &TaskBusyError{TaskKey: task.Key, Active: active, Batch: batch}
 	}
 	d.mu.Lock()
-	if options.MaxConcurrent > 0 {
-		err = d.admitOrchestratedActivity(act, options.MaxConcurrent)
+	if options.Orchestrated {
+		err = d.admitOrchestratedActivity(act)
 	} else {
 		err = d.addTaskActivityDirect(act)
 	}

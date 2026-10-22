@@ -22,15 +22,18 @@ However, triggering these workflows has required manual human intervention: eith
   - HTTP endpoint: `POST /api/projects/{id}/orchestrate`
   - MCP tool: `orchestrate_project`
   The orchestrator does not run continuously in an unconstrained loop; it is invoked on demand (or via scheduled triggers) to assess the backlog and fill available execution slots.
+  Neither interface accepts an enablement or capacity override. A disabled project answers HTTP 409 and an MCP error; an unknown project answers 404; the HTTP endpoint refuses unknown fields such as `force` or `maxConcurrent` with 400 rather than ignoring them. The only accepted field is `guidelines`, the desktop's per-invocation snapshot.
 
 - **Concurrency & Capacity Guard**:
-  Before launching any new task session, the orchestrator locks the project row and checks active runs in the same transaction that inserts the queued launch. PostgreSQL row locks serialize admission across server instances; SQLite uses an immediate write transaction. Existing manual sessions consume slots too. The job is queued only after the reservation commits. The requesting user is recorded on the launch and carried through every subsequent step, together with the selected workstation.
+  Before launching any new task session, the orchestrator locks the project row and checks active runs in the same transaction that inserts the queued launch. PostgreSQL row locks serialize admission across server instances; SQLite uses an immediate write transaction. Existing manual sessions consume slots too. The cap is read from the locked project row, never from the caller, so every orchestrator, desktop profile and MCP agent shares the project's own limit, and lowering it applies at the next admission. The job is queued only after the reservation commits. The requesting user is recorded on the launch and carried through every subsequent step, together with the selected workstation.
+  A chained step is enqueued by the hand-back without a second admission: its task already held the slot. Between the end of a step and the insertion of the next, another invocation can take that slot, so the project may briefly run one chain over its cap. Closing that gap would mean reserving across steps, which is not worth the complexity at a cap of 1 to 10.
 
 - **Backlog Triage & Autonomy Eligibility**:
   The orchestrator retrieves tickets before `#implemented` in board order. The server applies deterministic title, description and blocker-label filters. Every dispatched step carries a mandatory preflight instruction to evaluate technical readiness and the project's natural-language guidelines before making changes or advancing the ticket:
   - **Eligible**: Tasks with clear, actionable specifications, bounded technical scope, and no blocking dependencies.
   - **Ineligible**: Tasks lacking sufficient details, blocked by external dependencies, or requiring critical product/architectural decisions.
   Server-filtered tickets remain untouched and are listed in the invocation's skipped report. If the agent declines a candidate under its readiness assessment or project guidelines, it ends the run with an explanation without advancing the ticket. The existing chain hand-back then stops instead of starting another step.
+  The hand-back repeats a step's prompt only when it opens with the orchestration prefix (`Backlog orchestration:`). An orchestrated chain must carry its gate to every step; a manual chain's launch prompt was written for its first step and is not repeated.
 
 - **Autonomous Chaining to Pull Request**:
   For each eligible ticket up to the available concurrency limit, the orchestrator queues an autonomous chain run configured with `FullChainStopImplemented`, regardless of the project's ordinary full-chain stop setting. The ticket proceeds autonomously through:

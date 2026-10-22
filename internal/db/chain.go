@@ -119,7 +119,14 @@ func (d *DB) handBackRun(taskID, runID, status string) {
 func (d *DB) enqueueChainStep(taskID, skillID, projectID string, out runOutcome) (*models.Task, *models.TaskActivity, error) {
 	// A chained step carries no model override: the chain is launched once and
 	// each step resolves the configured model, as it resolves its own stage.
-	return d.enqueueSkillWithOptions(taskID, projectID, skillID, out.Prompt, true, models.SkillModeAutonomous, "", queuedSkillOptions{
+	// Only an orchestrated chain repeats its prompt: it carries the eligibility
+	// gate every step must apply. A manual launch prompt was written for the
+	// first step, and a later step resolves its own instructions.
+	prompt := ""
+	if isOrchestratedPrompt(out.Prompt) {
+		prompt = out.Prompt
+	}
+	return d.enqueueSkillWithOptions(taskID, projectID, skillID, prompt, true, models.SkillModeAutonomous, "", queuedSkillOptions{
 		UserID: out.UserID, DeviceID: out.DeviceID, ChainStop: out.ChainStop,
 	})
 }
