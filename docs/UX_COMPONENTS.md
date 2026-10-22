@@ -113,6 +113,17 @@ The web app does not retrieve or display this local source comparison (ADR 0003)
 - Real-time stdout/stderr log inspector with auto-scroll.
 - Actions to retry failed jobs, cancel running jobs, and clear finished history.
 
+### 2.8 Shared filter controls (#866)
+Every view that filters (Board, List, Roadmap, Triage, Sprint timeline, Team, Activities) builds its filter bar from the same components, so a filter looks and behaves the same wherever it appears. A new filter reuses them rather than adding a native `<select>` or a bespoke popover.
+- `FilterToggle`: an on/off filter in the toolbar, such as pinned or in progress.
+- `FilterSearch`: the free-text filter of a view, with a clear button.
+- `FilterPanel`: the **Filters** button and its panel holding every value filter of the view. The button counts the set dimensions; the panel closes on Escape and on a press outside, not on a pick inside it.
+- `SinglePicker` (`FilterPicker.tsx`): a searchable single-value filter over `LookupField`. `MultiPicker`: a checklist with counts, open between picks.
+- `ActiveFilterChips`: one chip per active filter the toolbar does not already show pressed, one click to clear it, **Clear all** from two chips. Chips are built as `ActiveFilter` entries (`web/src/lib/activeFilters.ts`), keyed by id.
+- `useMacroFilterSearch`: the macro filter's values, the same on the board, the triage and the timeline.
+
+Each view keeps the filter state it had: global filters live in `AppContext` and reach the server, local ones stay in the view.
+
 ## Graphite styling
 
 The web theme uses neutral Graphite surfaces with project accents reserved for

@@ -54,13 +54,6 @@ const fr = {
     emptyHint: 'Glissez des tâches depuis le Backlog ou un autre sprint ici.',
     emptyEpicSprint: 'Aucune tâche de cette Epic dans ce sprint',
     removeTaskTitle: 'Retirer du sprint (renvoyer au backlog)',
-    epicFilter: 'Epic',
-    allEpics: 'Toutes les Epics',
-    noEpic: 'Sans Epic',
-    searchEpicPlaceholder: 'Rechercher une Epic…',
-    noEpicsFound: 'Aucune Epic trouvée',
-    filterByEpicTitle: 'Filtrer les sprints et le backlog par Epic',
-    clearEpicFilter: "Effacer le filtre d'Epic",
     /** Labels of the relative badge next to a sprint name, see getSprintRelativeInfo. */
     relative: {
       closed: 'Sprint clôturé',
@@ -245,13 +238,6 @@ const en: SprintsStrings = {
     emptyHint: 'Drag tasks here from the backlog or another sprint.',
     emptyEpicSprint: 'No tasks from this Epic in this sprint',
     removeTaskTitle: 'Remove from sprint (back to the backlog)',
-    epicFilter: 'Epic',
-    allEpics: 'All Epics',
-    noEpic: 'No Epic',
-    searchEpicPlaceholder: 'Search epics…',
-    noEpicsFound: 'No epics found',
-    filterByEpicTitle: 'Filter sprints and backlog by Epic',
-    clearEpicFilter: 'Clear Epic filter',
     relative: {
       closed: 'Closed sprint',
       active: 'Active',

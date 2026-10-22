@@ -98,8 +98,13 @@ try {
   const bare = await rowOf('PE-3').textContent();
   assert.ok(!/domain-billing|client-acme|roadmap:|priority:/.test(bare), 'PE-3 shows no label');
 
+  // The roadmap's value filters live in its "Filters" panel (#866).
+  const openFilters = async () => {
+    const button = page.getByRole('button', { name: /^Filtres( \d+)?$/ });
+    if ((await button.getAttribute('aria-expanded')) !== 'true') await button.click();
+  };
   // US3: the filter narrows the list, the chip clears it.
-  await page.getByRole('button', { name: 'Labels', exact: true }).click();
+  await openFilters();
   await page.getByRole('menuitemcheckbox', { name: /domain-billing/ }).click();
   await page.waitForFunction(() => !document.body.textContent.includes('Grafana decision'));
   assert.deepEqual(await visibleKeys(), ['PE-1']);

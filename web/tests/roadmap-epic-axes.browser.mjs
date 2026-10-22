@@ -128,12 +128,15 @@ try {
   assert.equal(await quarter.inputValue(), '', 'the quarter field follows the selected epic');
 
   // US5: filter on "no priority".
-  const filter = page.getByRole('combobox', { name: 'Filtrer les macros par priorité' });
-  await filter.selectOption('none');
+  // The priority filter is a picker of the roadmap's "Filters" panel (#866).
+  await page.getByRole('button', { name: /^Filtres( \d+)?$/ }).click();
+  await page.getByPlaceholder('Toutes priorités').click();
+  await page.locator('[data-portaled-panel]').getByRole('button', { name: /^Sans priorité/ }).click();
   await page.waitForFunction(() => !document.body.textContent.includes('Grafana decision'));
   assert.deepEqual(await rowOrder(), ['PE-3']);
-  await page.getByText('priorité Sans priorité').waitFor();
-  await filter.selectOption('');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'priorité Sans priorité', exact: true }).click();
+  await page.getByText('Grafana decision').first().waitFor();
 
   // US6: sort on the priority, epics without one last.
   await page.getByRole('combobox', { name: 'Trier les macros' }).selectOption('priority-desc');

@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Changed
+
+- **One way to filter, in every view.** Board, List, Roadmap, Triage, Sprint timeline, Team and Activities now filter with the same controls: on/off toggles and the search in the toolbar, every value filter (sprint, macro, team, person, status, type, epic priority, projects, labels, skill) as the same searchable picker in a **Filters** panel whose button counts what is set, and a row of chips naming each active filter, one click to remove it, **Clear all** to remove them all. The same filter reads the same everywhere; what each filter narrows, and whether it follows you from view to view, is unchanged. (#866)
+
 ## [0.7.1] - 2026-10-22
 
 ### Added

@@ -17,7 +17,7 @@ import {
   AlertTriangle,
   Save,
   X,
-  Filter,
+  Flame,
   Scissors,
   Search,
   Loader2,
@@ -51,8 +51,12 @@ import { LookupField } from './LookupField'
 import { MarkdownEditor } from './Markdown'
 import { EpicBar, useEpicColors } from './EpicMarker'
 import { MacroLabelGroups } from './MacroLabelGroups'
-import { EpicLabelFilter } from './EpicLabelFilter'
-import { EpicOriginFilter } from './EpicOriginFilter'
+import { FilterPanel } from './FilterPanel'
+import { matchesSearch } from '../lib/searchFold'
+import { SinglePicker } from './FilterPicker'
+import { MultiPicker } from './MultiPicker'
+import { ActiveFilterChips } from './ActiveFilterChips'
+import { countSetPickers, multiValueFilters, type ActiveFilter } from '../lib/activeFilters'
 import { EpicLabelEditor } from './EpicLabelEditor'
 import { MacroTaskRow } from './MacroTaskRow'
 import { sprintLookup, isProjectCompatible, targetProjectOptions } from '../lib/lookups'
@@ -549,28 +553,28 @@ export const RoadmapView: React.FC = () => {
 
   // Ce qui restreint la liste de tickets sur laquelle la roadmap est construite.
   const activeFilterChips = useMemo(() => {
-    const chips: { label: string; clear: () => void }[] = []
+    const chips: ActiveFilter[] = []
     if (assigneeFilter) {
       chips.push({
+        id: 'assignee',
         label: assigneeFilter === '__unassigned__' ? strings.filters.unassigned : assigneeFilter,
         clear: () => setAssigneeFilter(null),
       })
     }
-    if (myTasksOnly) chips.push({ label: t.nav.myTasks, clear: () => setMyTasksOnly(false) })
-    if (sprintFilter) chips.push({ label: sprintFilter, clear: () => setSprintFilter(null) })
-    if (teamFilter) chips.push({ label: teamFilter, clear: () => setTeamFilter(null) })
-    if (labelFilter) chips.push({ label: `#${labelFilter.replace(/^#+/, '')}`, clear: () => setLabelFilter(null) })
-    if (pinnedOnly) chips.push({ label: strings.filters.pinnedOnly, clear: () => setPinnedOnly(false) })
-    if (searchQuery) chips.push({ label: format(strings.filters.search, { query: searchQuery }), clear: () => setSearchQuery('') })
+    if (myTasksOnly) chips.push({ id: 'myTasks', label: t.nav.myTasks, clear: () => setMyTasksOnly(false) })
+    if (sprintFilter) chips.push({ id: 'sprint', label: sprintFilter, clear: () => setSprintFilter(null) })
+    if (teamFilter) chips.push({ id: 'team', label: teamFilter, clear: () => setTeamFilter(null) })
+    if (labelFilter) chips.push({ id: 'label', label: `#${labelFilter.replace(/^#+/, '')}`, clear: () => setLabelFilter(null) })
+    if (pinnedOnly) chips.push({ id: 'pinned', label: strings.filters.pinnedOnly, clear: () => setPinnedOnly(false) })
+    if (searchQuery) chips.push({ id: 'search', label: format(strings.filters.search, { query: searchQuery }), clear: () => setSearchQuery('') })
     if (priorityFilter) {
       const value = priorityFilter === 'none' ? strings.axes.noPriority : epicPriorityLabel(priorityFilter)
-      chips.push({ label: format(strings.axes.filterChip, { value }), clear: () => setPriorityFilter(null) })
+      chips.push({ id: 'epicPriority', label: format(strings.axes.filterChip, { value }), clear: () => setPriorityFilter(null) })
     }
-    selectedLabels.forEach(label =>
-      chips.push({
-        label: format(strings.epicLabels.chip, { label }),
-        clear: () => setSelectedLabels(prev => prev.filter(l => l !== label)),
-      })
+    chips.push(
+      ...multiValueFilters('epicLabel', selectedLabels, label => format(strings.epicLabels.chip, { label }), label =>
+        setSelectedLabels(prev => prev.filter(l => l !== label))
+      )
     )
     return chips
   }, [
@@ -761,6 +765,7 @@ export const RoadmapView: React.FC = () => {
     if (origins.length === 0 || isDefaultOriginSelection(selectedOrigins, ownOrigin)) return activeFilterChips
     return [
       {
+        id: 'origins',
         label: format(strings.origins.chip, { keys: selectedOrigins.join(', ') }),
         clear: () => chooseOrigins([ownOrigin]),
       },
@@ -769,6 +774,25 @@ export const RoadmapView: React.FC = () => {
   }, [activeFilterChips, origins, selectedOrigins, ownOrigin, strings, chooseOrigins])
 
   const labelInventory = useMemo(() => epicLabelInventory(originRows, currentProject), [originRows, currentProject])
+  const isLabelSelected = (label: string) => selectedLabels.some(s => s.toLowerCase() === label.toLowerCase())
+  const roadmapPanelCount = countSetPickers([
+    priorityFilter,
+    selectedLabels,
+    origins.length > 0 && !isDefaultOriginSelection(selectedOrigins, ownOrigin),
+  ])
+  const resetRoadmapPanel = () => {
+    setPriorityFilter(null)
+    setSelectedLabels([])
+    if (origins.length > 0) chooseOrigins([ownOrigin])
+  }
+  const searchEpicPriority = useCallback(
+    async (query: string) =>
+      [
+        ...EPIC_PRIORITIES.map(p => ({ id: p as string, label: epicPriorityLabel(p) })),
+        { id: 'none', label: strings.axes.noPriority },
+      ].filter(option => matchesSearch(query, option.label, option.id)),
+    [strings]
+  )
   // The editor suggests every free label of the project's epics, closed and
   // searched-away ones included: a label is reused, not typed anew.
   const labelSuggestions = useMemo(() => epicLabelInventory(allRows, currentProject).map(entry => entry.label), [allRows, currentProject])
@@ -1731,8 +1755,54 @@ export const RoadmapView: React.FC = () => {
             </button>
           )}
 
-          <EpicOriginFilter offered={origins} selected={selectedOrigins} onChange={chooseOrigins} />
-          <EpicLabelFilter inventory={labelInventory} selected={selectedLabels} onChange={setSelectedLabels} />
+          {/* The roadmap's own value filters (#866): the epic's priority (#627),
+              its Jira project (#632) and its free labels (#626). They are local
+              to the roadmap on purpose: the board's label filter is sent to the
+              server to filter tickets, and reusing it here would make epics
+              vanish for a filter set on the board. Unticking every project shows
+              the own key's epics, through chooseOrigins. */}
+          <FilterPanel activeCount={roadmapPanelCount} onReset={resetRoadmapPanel}>
+            <SinglePicker
+              icon={<Flame size={12} className={priorityFilter ? 'text-rose-400' : 'text-[var(--text-muted)]'} />}
+              label={t.shell.filters.priority}
+              value={
+                priorityFilter === 'none' ? strings.axes.noPriority : priorityFilter ? epicPriorityLabel(priorityFilter) : ''
+              }
+              placeholder={strings.axes.filterAll}
+              onSearch={searchEpicPriority}
+              onPick={id => setPriorityFilter(id as PriorityFilter)}
+            />
+            {origins.length > 0 && (
+              <MultiPicker
+                title={strings.origins.filter}
+                options={origins.map(o => ({ value: o.key, count: o.count, hint: o.own ? strings.origins.own : undefined }))}
+                isSelected={key => selectedOrigins.includes(key)}
+                onToggle={key =>
+                  chooseOrigins(selectedOrigins.includes(key) ? selectedOrigins.filter(k => k !== key) : [...selectedOrigins, key])
+                }
+                clearLabel={strings.origins.filterReset}
+                canClear={!isDefaultOriginSelection(selectedOrigins, ownOrigin)}
+                onClear={() => chooseOrigins([ownOrigin])}
+                mono
+              />
+            )}
+            {labelInventory.length > 0 && (
+              <MultiPicker
+                title={strings.epicLabels.filter}
+                options={labelInventory.map(entry => ({ value: entry.label, count: entry.count }))}
+                isSelected={isLabelSelected}
+                onToggle={label =>
+                  setSelectedLabels(prev =>
+                    isLabelSelected(label) ? prev.filter(l => l.toLowerCase() !== label.toLowerCase()) : [...prev, label]
+                  )
+                }
+                clearLabel={strings.epicLabels.filterClear}
+                canClear={selectedLabels.length > 0}
+                onClear={() => setSelectedLabels([])}
+                mono
+              />
+            )}
+          </FilterPanel>
 
           {/*
             The classification of a macro is written on the tracker as a
@@ -1792,20 +1862,8 @@ export const RoadmapView: React.FC = () => {
             </button>
           )}
 
-          {/* The epic's own priority (#627): filter and sort. Both apply to
-              every tab, and the tab counts follow the filter. */}
-          <select
-            value={priorityFilter || ''}
-            onChange={e => setPriorityFilter((e.target.value || null) as PriorityFilter)}
-            aria-label={strings.axes.filterLabel}
-            className="px-2 py-1 rounded-md text-[11px] font-semibold cursor-pointer border bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)]"
-          >
-            <option value="">{strings.axes.filterAll}</option>
-            {EPIC_PRIORITIES.map(p => (
-              <option key={p} value={p}>{epicPriorityLabel(p)}</option>
-            ))}
-            <option value="none">{strings.axes.noPriority}</option>
-          </select>
+          {/* The epic's own priority (#627) sorts here and filters from the
+              panel. Both apply to every tab, and the tab counts follow the filter. */}
           <select
             value={prioritySort}
             onChange={e => setPrioritySort(e.target.value as PrioritySort)}
@@ -1876,29 +1934,9 @@ export const RoadmapView: React.FC = () => {
             </button>
           )}
 
-          {/* Les filtres globaux */}
-          {filterChips.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {filterChips.map(chip => (
-                <button
-                  key={chip.label}
-                  type="button"
-                  onClick={chip.clear}
-                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-semibold cursor-pointer border"
-                  style={{
-                    background: 'rgb(var(--status-warn-rgb) / 0.14)',
-                    borderColor: 'rgb(var(--status-warn-rgb) / 0.34)',
-                    color: 'var(--status-warn)',
-                  }}
-                  title={format(strings.activeFilterTitle, { label: chip.label })}
-                >
-                  <Filter size={10} />
-                  {chip.label}
-                  <X size={10} />
-                </button>
-              ))}
-            </div>
-          )}
+          {/* Les filtres actifs : ceux du panneau, et les filtres globaux posés
+              ailleurs (recherche, épinglés, personne...) qui restreignent la roadmap. */}
+          <ActiveFilterChips filters={filterChips} />
 
           <button
             type="button"

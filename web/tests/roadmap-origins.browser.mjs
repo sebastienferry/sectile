@@ -81,10 +81,15 @@ try {
     }
     return seen.sort();
   });
-  const entries = () => page.getByRole('menuitemcheckbox').evaluateAll(items =>
+  const entries = () => page.getByRole('menu', { name: 'Projets' }).getByRole('menuitemcheckbox').evaluateAll(items =>
     items.map(i => [...i.querySelectorAll('span')].map(s => s.textContent.trim()).filter(Boolean).join(' '))
   );
 
+  // The roadmap's value filters live in its "Filters" panel (#866).
+  const openFilters = async () => {
+    const button = page.getByRole('button', { name: /^Filtres( \d+)?$/ });
+    if ((await button.getAttribute('aria-expanded')) !== 'true') await button.click();
+  };
   await page.goto(`${base}/roadmap`);
   await page.getByText('Billing').first().waitFor();
 
@@ -92,7 +97,7 @@ try {
   assert.deepEqual(await visibleKeys(), ['PE-1', 'PE-2']);
 
   // US2.1, US2.5, US2.6: own key first, declared keys, then the carried one.
-  await page.getByRole('button', { name: 'Projets', exact: true }).click();
+  await openFilters();
   assert.deepEqual(await entries(), ['PE ce projet 2', 'DATA 1', 'OPS 0', 'OLD 1']);
 
   // US2.3, US2.10: ticking DATA shows its epic and a chip.
@@ -108,7 +113,7 @@ try {
   assert.deepEqual(await visibleKeys(), ['DATA-12', 'PE-1', 'PE-2']);
 
   // US2.4: unticking everything falls back to the own key.
-  await page.getByRole('button', { name: /^Projets · 2$/ }).click();
+  await openFilters();
   await page.getByRole('menuitemcheckbox', { name: /^PE/ }).click();
   await page.getByRole('menuitemcheckbox', { name: /^DATA/ }).click();
   await page.waitForFunction(() => !document.body.textContent.includes('Data export'));
@@ -117,7 +122,7 @@ try {
   assert.equal(await page.getByRole('button', { name: /^projets / }).count(), 0, 'the default selection shows no chip');
 
   // US3: a foreign epic is marked read only, with no label edit.
-  await page.getByRole('button', { name: 'Projets', exact: true }).click();
+  await openFilters();
   await page.getByRole('menuitemcheckbox', { name: /^DATA/ }).click();
   await page.keyboard.press('Escape');
   const data = rowOf('DATA-12');
