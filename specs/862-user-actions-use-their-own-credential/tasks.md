@@ -2,28 +2,33 @@
 
 ## 1. Revert the routing - `revert`
 
-- [ ] T1.1 `git revert --no-commit` a37912f5, the skill-run test of 3ec7b91e, 32de3fd2, 554bb0c6, 062c9459, c52a8576; resolve conflicts.
-- [ ] T1.2 Restore `MissingServerCredentialError` and its helpers, and `serverWriter` for unattended writes.
-- [ ] T1.3 Keep the personal-check split and the OAuth port intact; build.
+- [x] T1.1 `git revert --no-commit` a37912f5, the skill-run test of 3ec7b91e, 32de3fd2, 554bb0c6, 062c9459, c52a8576; resolve conflicts.
+- [x] T1.2 Restore `MissingServerCredentialError` and its helpers, and `serverWriter` for unattended writes.
+- [x] T1.3 Keep the personal-check split and the OAuth port intact; build.
 
 ## 2. Reads with fallback - `fix(trackerapi)`
 
-- [ ] T2.1 Jira reads fall back to the server token for a person without a credential; a locked credential refuses.
-- [ ] T2.2 Tests for GitHub, GitLab and Jira reads: person's token, fallback, locked refusal.
+- [x] T2.1 Jira reads fall back to the server token for a person without a credential; a locked credential refuses.
+- [x] T2.2 Tests for GitHub, GitLab and Jira reads: person's token, fallback, locked refusal.
 
 ## 3. Scopes - `fix(oauth)`
 
-- [ ] T3.1 GitHub consent `repo read:project`; scope pin test; web scope list and its test.
+- [x] T3.1 GitHub consent `repo read:project`; scope pin test; web scope list and its test.
 
 ## 4. Tests - `test`
 
-- [ ] T4.1 Routing tests back to pre-#855 assertions; route and skill-run test files removed.
-- [ ] T4.2 A skill-run comment and a web stage move carry the person's token.
+- [x] T4.1 Routing tests back to pre-#855 assertions; route and skill-run test files removed.
+- [x] T4.2 A skill-run comment and a web stage move carry the person's token.
 
 ## 5. Docs - `docs`
 
-- [ ] T5.1 ADR 0059; status lines on ADR 0058, 0029, 0044.
-- [ ] T5.2 README, user guide, API spec, `.env.sample`, CHANGELOG, translations.
+- [x] T5.1 ADR 0059; status lines on ADR 0058, 0029, 0044.
+- [x] T5.2 README, user guide, API spec, `.env.sample`, CHANGELOG, translations.
+
+## Notes (implementation)
+
+- The revert applied without conflict. `MissingServerCredentialError` and `serverWriter` were restored for unattended writes only.
+- T4.2: the skill-run comment test is `TestACommentFromASkillRunIsThePersons`; the web stage move needs no new test since the route table and `stageMoveOnly` are gone and the pre-#855 isolation tests (stage report as the person) are back.
 
 ## 6. Gates
 

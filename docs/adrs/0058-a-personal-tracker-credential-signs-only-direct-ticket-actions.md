@@ -1,6 +1,10 @@
 # ADR 0058: A personal tracker credential signs only the ticket actions its owner performs
 
-Status: Accepted (#855)
+Status: Superseded in part by
+[ADR 0059](0059-every-action-a-user-performs-uses-their-own-tracker-credential.md)
+(#862): its credential routing is withdrawn, every action a user performs uses
+their own credential. Its GitHub and GitLab OAuth sections stay in force, the
+GitHub consent asking for `repo read:project` again.
 
 Amends: [ADR 0029](0029-server-tracker-credential-signs-unattended-work-only.md),
 whose rule "a tracker write a person causes uses that person's own credential"

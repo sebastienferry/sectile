@@ -575,12 +575,12 @@ the missing-credential error until the person connects again. The pending
 consents live in `jira_oauth_flows`, the state and the web session hashed,
 consumed by one statement.
 
-**GitHub and GitLab grants (#855, ADR 0058).** A row of `kind = 'oauth'` for
+**GitHub and GitLab grants (#855, ADR 0058, ADR 0059).** A row of `kind = 'oauth'` for
 `github` or `gitlab` holds, sealed under the server key with `kind` added to its
 additional authenticated data, the JSON
 `{accessToken, refreshToken?, expiresAt, scope?}`. `site_url` and `email` are
 empty and `account` is the `login` (GitHub) or `username` (GitLab) that
-`GET /user` answered through the grant. The consent asks for `repo`
+`GET /user` answered through the grant. The consent asks for `repo read:project`
 on GitHub and `api` on GitLab. A grant serves only a tracker whose API host is
 `api.github.com` or `gitlab.com`: a GitHub Enterprise or self-hosted GitLab
 tracker fails with the missing-credential error ("site not granted") and never
@@ -595,23 +595,18 @@ is only logged. The pending consents share `jira_oauth_flows`, whose `tracker`
 column (migration 55, default `jira`) lets only the callback of the tracker that
 started a flow consume its state.
 
-**Which credential a call uses (#855, ADR 0058).** A personal credential, of
-any kind and on every provider, signs only the ticket actions its owner
-performs outside a skill run: creating a ticket, editing it (fields, labels, a
-board column drop, assignee, parent or macro, team, sprint, transfer, delete)
-and posting a comment. A call belongs to a skill run when its MCP request
-carries `X-Sectile-Run-Id` or its MCP session holds a run it started and has
-not finished. Every other call uses the server credential and records the
-person on its activity: a ticket action inside a skill run, a stage transition
-(label, status, report), the macro lifecycle and every macro or epic mirror,
-sprint management, every read, the synchronisation and Administration. A
-ticket action without a personal credential is refused `403`
-`tracker_credential_missing`; a call that needs the server credential when the
-deployment has none is refused `503` `tracker_server_credential_missing`, with
-`tracker` naming the provider, and a stage transition keeps the local stage
-and fails its activity. The check button of the personal form
-(`POST /api/setup/tracker/check`) checks the token typed, else the caller's own
-token or grant, never the server's.
+**Which credential a call uses (#862, ADR 0059).** Every action a user
+performs, through the web UI, the desktop app or MCP, agents working for them
+during a skill run included, uses that user's own credential, of any kind and
+on every provider; a managed run's post-back writes as its launcher. A write
+without a personal credential is refused `403` `tracker_credential_missing`. A
+read made for a user uses their credential, the server credential when they
+have none, and is refused when theirs is sealed and locked. The server
+credential serves the synchronisation and unattended jobs; without it they are
+refused `503` `tracker_server_credential_missing`, with `tracker` naming the
+provider. The check button of the personal form (`POST
+/api/setup/tracker/check`) checks the token typed, else the caller's own token
+or grant, never the server's.
 
 **Jira OAuth app (admin).** `GET`, `PUT {clientId, clientSecret?, redirectUrl}`
 and `DELETE` on `/api/admin/jira-oauth` answer
