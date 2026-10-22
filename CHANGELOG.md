@@ -13,20 +13,26 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-10-22
+
 ### Added
 
+- Projects can enable the Backlog Orchestrator Agent to launch autonomous task chains on the requesting user's workstation, assess project eligibility guidelines before changes, and stop at implemented for human review. Concurrent requests share the project's execution limit, which no caller can override. (#859)
+- Desktop project settings support multiple named orchestration agents, each with its own local Markdown guidelines file (AGENTS.md by default). Run agent launches the selected policy under a shared project concurrency limit. ORCHESTRATION appears above PROJECTS only for enabled projects or active task agents, with compact profile rows and an Agent overview for run reports, shared capacity, stages, waiting states, sign-in recovery and console access. Task titles and short keys replace UUIDs in navigation. (#859)
 - Desktop projects can sort their sidebar task list by creation order, ticket ID, or workflow stage from the project's `…` menu, remembered per project.
 
 ### Changed
 
 - **One way to filter, in every view.** Board, List, Roadmap, Triage, Sprint timeline, Team and Activities now filter with the same controls: on/off toggles and the search in the toolbar, every value filter (sprint, macro, team, person, status, type, epic priority, projects, labels, skill) as the same searchable picker in a **Filters** panel whose button counts what is set, and a row of chips naming each active filter, one click to remove it, **Clear all** to remove them all. The same filter reads the same everywhere; what each filter narrows, and whether it follows you from view to view, is unchanged. (#866)
 
+### Fixed
+
+- Desktop keeps task rows in place while orchestration and task metadata refresh under the pointer or keyboard focus. (#859)
+
 ## [0.7.1] - 2026-10-22
 
 ### Added
 
-- Projects can enable the Backlog Orchestrator Agent to launch autonomous task chains on the requesting user's workstation, assess project eligibility guidelines before changes, and stop at implemented for human review. Concurrent requests share the project's execution limit, which no caller can override. (#859)
-- Desktop project settings support multiple named orchestration agents, each with its own local Markdown guidelines file (AGENTS.md by default). Run agent launches the selected policy under a shared project concurrency limit. ORCHESTRATION appears above PROJECTS only for enabled projects or active task agents, with compact profile rows and an Agent overview for run reports, shared capacity, stages, waiting states, sign-in recovery and console access. Task titles and short keys replace UUIDs in navigation. (#859)
 - The sprint timeline view can be filtered by Epic from a dedicated searchable dropdown in the toolbar, with matching sprint tracks, backlog counts, and one-click clear.
 - **Connect GitHub and GitLab from your profile.** Profile → Tracker credentials offers **Connect GitHub** and **Connect GitLab** once an admin has registered the app in Administration: one consent screen, and everything you do on github.com and gitlab.com is signed by your own account, with no token to create, paste or unseal. Disconnecting also revokes the access on the forge; GitHub Enterprise and self-hosted GitLab keep the personal token, still available behind **Use a token instead**. (#855)
 - Desktop allows customizing the workstation label in Settings → General with an inline save button and confirmation.
@@ -43,7 +49,6 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
-- Desktop keeps task rows in place while orchestration and task metadata refresh under the pointer or keyboard focus. (#859)
 - Verifying your own tracker access in your profile no longer reports the service account: a GitLab check used the server token, and a check with nothing stored answered with the service account on every tracker. (#855)
 
 ## [0.7.0] - 2026-10-15
@@ -892,7 +897,8 @@ release mechanism that will keep the following entries short.
   A run canceled because its client disconnected can still be finished by the
   agent that owns it, so the chain carries on. (#315)
 
-[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.7.5...HEAD
+[0.7.5]: https://github.com/sebastienferry/sectile/compare/v0.7.1...v0.7.5
 [0.7.1]: https://github.com/sebastienferry/sectile/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/sebastienferry/sectile/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/sebastienferry/sectile/compare/v0.5.0...v0.6.0
