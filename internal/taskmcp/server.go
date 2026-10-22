@@ -162,6 +162,13 @@ type macroTodoInput struct {
 	SourceEntry          string `json:"sourceEntry,omitempty" jsonschema:"ignored: an existing todo keeps its origin"`
 }
 
+// orchestrateProjectInput names the project only. Enablement and the
+// concurrency cap are project settings: an agent calling this tool cannot
+// override either.
+type orchestrateProjectInput struct {
+	ProjectID string `json:"projectId" jsonschema:"the project primary key or slug"`
+}
+
 // runTarget says whether a run input names a task or a macro, and refuses one
 // that names both or neither: a macro key alone can match another project's
 // macro, and a task key with a macro key is ambiguous.
@@ -830,6 +837,22 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			return nil, nil, err
 		}
 		return nil, map[string]any{"task": task}, nil
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "orchestrate_project",
+		Description: "Evaluate the project backlog and launch autonomous agentic sessions on eligible tickets up to the project's concurrency limit. The project must have the orchestrator enabled.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in orchestrateProjectInput) (*mcp.CallToolResult, any, error) {
+		projectID := in.ProjectID
+		if strings.TrimSpace(projectID) == "" {
+			projectID = callProject(database, sessions, req)
+		}
+		caller := callerOf(resolve, req)
+		actor := db.Actor{ID: caller.UserID, Name: caller.Name}
+		res, err := database.EvaluateAndOrchestrateBacklog(ctx, projectID, actor, models.OrchestrateProjectRequest{})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, res, nil
 	})
 	return s
 }

@@ -2,6 +2,22 @@
 
 Local task execution consoles, with an experimental Antigravity, Claude Code and Codex conversation view.
 
+## Orchestration
+
+The **ORCHESTRATION** section appears above **PROJECTS** only for enabled projects or active local task agents. It shows compact rows with each agent’s name, local instruction file and current state, plus one shared capacity counter. Select an agent to open its **Agent overview**, with **Run agent**, recent task activity, workflow stages, waiting states, **Stop agent**, console access and an optional local instruction preview. Manual task sessions appear separately while active; completed profile runs remain in that profile’s overview. The overview’s **Project settings** shortcut opens the selected project’s orchestration setup.
+
+While a task row is hovered or holds keyboard focus, sidebar layout changes wait until the interaction ends. This includes orchestration rows above the tasks, so an ending run cannot move the task under the pointer. The selected agent's operational overview continues to refresh during that hold.
+
+Open **Settings → project → Orchestration** to enable the project and choose a shared concurrency limit from 1 to 10. **Add agent** creates another named agent with a separate Markdown path, such as `AGENTS.md`, `docs/documentation-agent.md` or `docs/testing-agent.md`. Names are unique within the project. Each agent has a read-only file preview, **Reload file**, **Run agent** and **Remove agent**. **Save orchestration settings** saves the definitions on this workstation and the enablement/concurrency on the server. Existing single-file configurations appear as **Default agent**, retaining their selected file. A project supports up to 20 saved agents.
+
+**Run agent** reads only the selected saved agent's file, snapshots its name, ID and guidelines for the entire chain, and fills available project slots. Different agents can run against the same project, but never get separate concurrency allowances: task sessions from every agent and workstation share the project limit. The server also prevents duplicate task executions. A run report shows launched and skipped counts, capacity and skipped-ticket reasons. Changes must be saved before running from settings. Running agents is on demand; enabling orchestration schedules no background loop. Removing a definition or disabling the project leaves already launched task sessions alone.
+
+Paths must be relative `.md` files inside the mapped checkout, including through symlinks. Enabling requires every configured file to exist and contain nonempty UTF-8 Markdown. Each guideline snapshot, including the selected agent's name and ID, must fit within 32 KiB. A missing file prevents its agent from running; another valid saved agent can still run. A disabled project may save an empty agent list, and that list remains empty when reopened.
+
+These controls require the `orchestration-agents` capability on the local agent and an updated server. Older builds display an update/restart message. Agent definitions and file paths stay on this workstation; guideline snapshots are sent to the server for the requested run without replacing shared web/MCP policy.
+
+Capacity is project-wide, including runs on other workstations; the agent rows are local to this workstation. The server's usage and limit refresh every 15 seconds. The counter reports occupied slots, including queued reservations; no idle progress bar or second counter is shown under PROJECTS for an enabled project. If capacity cannot be refreshed, the section labels the figures as last known and disables new evaluations. Older agents without capacity metadata show **Capacity unavailable**. Stopping the local agent disables console controls until it reconnects. A failed Claude or Codex run with a retained authentication diagnostic shows **Sign-in needed** on its agent and recovery instructions in the overview. **Open sign-in terminal** opens the project’s terminal; complete the displayed provider sign-in command there, then choose **Retry agent**. Opening a terminal does not claim sign-in succeeded. Other failures retain a generic failure message and console access. Task titles and short tracker keys take precedence over internal UUIDs.
+
 ## Experimental conversations
 
 Turn it on with **Settings → Appearance → AI consoles → Conversation**.

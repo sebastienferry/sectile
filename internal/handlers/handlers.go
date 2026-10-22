@@ -1508,6 +1508,45 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Sub-action: /api/projects/{id}/orchestrate: evaluate project backlog and launch autonomous sessions up to max concurrency
+	if len(parts) >= 2 && parts[1] == "orchestrate" && r.Method == http.MethodPost {
+		var req models.OrchestrateProjectRequest
+		if r.Body != nil {
+			// An unknown field is refused rather than ignored: a caller sending a
+			// capacity or enablement override must learn that it has no effect.
+			decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256*1024))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&req); err != nil && err != io.EOF {
+				writeError(w, http.StatusBadRequest, "Invalid orchestration request")
+				return
+			}
+		}
+		actor := h.webPrincipal(r).Actor()
+		ctx := r.Context()
+		// A paired desktop evaluates on its own workstation, even if its user has
+		// several connected devices. The credential is the authority, not a header.
+		if credential, authErr := h.resolveAgentCredential(bearerToken(r)); authErr == nil && credential.Device != nil {
+			ctx = agentprotocol.WithDeviceID(ctx, credential.Device.ID)
+		}
+		result, err := h.db.EvaluateAndOrchestrateBacklog(ctx, id, actor, req)
+		switch {
+		case errors.Is(err, db.ErrOrchestratorProjectNotFound):
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		case errors.Is(err, db.ErrOrchestratorDisabled):
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		case errors.Is(err, db.ErrOrchestratorGuidelinesTooLarge):
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+
 	// Sub-action: /api/projects/{id}/priority-mapping/refresh: read the
 	// tracker's priority scheme again and fold it into the project's mapping
 	// (#679), for a person who just changed it.

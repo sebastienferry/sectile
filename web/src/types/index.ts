@@ -406,6 +406,9 @@ export interface Project {
   /** Étape où s'arrête une exécution en chaîne. Vide vaut « reviewed ». */
   fullChainStopStage?: 'implemented' | 'reviewed'
   pushStageCommits?: boolean
+  orchestratorEnabled?: boolean
+  orchestratorMaxConcurrent?: number
+  orchestratorPrompt?: string
   /** Template of the branch of a task that has none yet (#621). Empty means feat/{key_lower}. */
   branchNameFormat?: string
   /** Board du tracker retenu pour ce projet. */

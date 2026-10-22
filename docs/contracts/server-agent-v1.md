@@ -451,6 +451,15 @@ Atlassian CLI fallback remains. Tracker credentials are not sent to agents.
 
 Authenticated `GET /api/v1/agent/projects` returns
 `{"schemaVersion":1,"projects":[{"id":"server-primary-key","name":"Project","gitRemoteUrl":"..."}]}`.
+Discovery records may also carry `orchestratorEnabled`, `orchestratorMaxConcurrent`, and `orchestratorActiveRuns`. The count covers active task sessions across the project, including other workstations. It is present for enabled orchestrators; absence means capacity is unknown, while an explicit zero means no active runs. These optional fields do not change the schema version. The agent forwards them through authenticated `GET /desktop/projects` for the desktop orchestration section.
+
+The local agent advertises `orchestration-controls` and `orchestration-agents` for named desktop orchestration. New desktop controls require `orchestration-agents`. Authenticated `GET /desktop/orchestration?projectId=…` returns project `orchestratorEnabled`, `orchestratorMaxConcurrent`, `maxAgents` (20), and `agents`: local `{id,name,file,guidelines,guidelinesError?}` records. `GET /desktop/projects` also includes the local `orchestrationAgents` definitions `{id,name,file}` for sidebar controls, without file contents.
+
+`PUT /desktop/orchestration?projectId=…` accepts `{orchestratorEnabled,orchestratorMaxConcurrent,agents:[{id,name,file}]}`. IDs and names must be unique; IDs remain stable on edits. Names and IDs are bounded to 80 bytes. Names, IDs and file paths are trimmed; an empty file path uses `AGENTS.md`. A disabled project can store `agents:[]`, while enabling requires at least one agent and valid files for all definitions. The path and definitions stay in workstation project settings; only enablement and concurrency are forwarded to the server.
+
+`POST /desktop/orchestration?projectId=…` accepts `{agentId}` and runs only that saved agent. An omitted ID is accepted only when exactly one agent exists; unknown, removed or ambiguous agents are rejected. The selected file is read afresh. Relative `.md` paths must stay inside the mapped checkout, including through symlinks; missing, empty, non-UTF-8 or oversized files are rejected. The agent's name, ID and file contents form a guideline snapshot of at most 32 KiB. It is forwarded as the optional `guidelines` on `POST /api/projects/{id}/orchestrate` and retained through every chain step, without rewriting shared web/MCP policy. All agents use the same project concurrency cap and task reservation. The bridge accepts no actor, force, guideline text or capacity override on a run. The paired credential determines user and workstation; a device header cannot replace them. Missing server support produces HTTP 501.
+
+
 Discovery excludes server filesystem paths and credentials.
 
 `sectile-agent` defaults to `--project all`. Use `--list-projects` to
@@ -803,6 +812,12 @@ to native clients through the local gateway.
 not launched omit `startedAt`; completion preserves both timestamps. Desktop
 clients fall back to `createdAt` for legacy records without a valid start time.
 This display metadata does not change queue scheduling.
+
+A failed Claude or Codex run may carry `authenticationRequired: true` when its
+retained local trace contains a provider authentication diagnostic. The hint is
+recomputed for restored traces too; other failures and live/completed runs do
+not acquire it. Discovery does not include raw trace text. The desktop uses the
+hint for a sign-in recovery notice and continues to require an explicit retry.
 
 An entry may carry `folders`, the folders of the run when it has more than one
 (#762): an array of `{path, name, role, attached}`, the run's `directory` first
@@ -1691,3 +1706,5 @@ servers cannot safely share the new presence contract during a rolling upgrade.
 The optional agent fields remain additive version-1 fields; older clients
 continue to work for single-workstation users. No graphical picker, new cluster
 architecture, or persisted run-device column is introduced.
+
+For a separate local desktop profile, `SECTILE_DESKTOP_DATA_DIR` selects the same `settings.json` for the agent and companion. Workstation settings layout 6 records the local `orchestrationAgents` list and prevents older writers from dropping it. A missing/null list preserves the former single `orchestrationFile` (or `AGENTS.md`) as a stable `default` agent. An explicit empty list means no agents and must survive overlays and reopening.

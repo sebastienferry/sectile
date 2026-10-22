@@ -115,6 +115,9 @@ func undoTrackerMigration(d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN dispatch_state")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN device_label")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN device_id")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN orchestrator_prompt")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN orchestrator_max_concurrent")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN orchestrator_enabled")
 	for _, statement := range []string{
 		"DROP TABLE IF EXISTS agent_workstation_presence",
 		"DROP TABLE IF EXISTS trackers",
@@ -651,6 +654,9 @@ func TestMigration55TagsOAuthFlowsWithTheirTracker(t *testing.T) {
 		t.Fatalf("creating the database: %v", err)
 	}
 	for _, stmt := range []string{
+		"ALTER TABLE projects DROP COLUMN orchestrator_prompt",
+		"ALTER TABLE projects DROP COLUMN orchestrator_max_concurrent",
+		"ALTER TABLE projects DROP COLUMN orchestrator_enabled",
 		"ALTER TABLE jira_oauth_flows DROP COLUMN tracker",
 		"DELETE FROM schema_migrations WHERE version >= 55",
 	} {
@@ -690,5 +696,45 @@ func TestMigration55TagsOAuthFlowsWithTheirTracker(t *testing.T) {
 	}
 	if got := appliedVersions(t, reopened); !slices.Contains(got, 55) {
 		t.Errorf("applied versions = %v", got)
+	}
+}
+
+// A database written by main already carries forge OAuth migration 55.
+// Orchestration must upgrade it independently without changing that schema.
+func TestMigration56AddsOrchestrationAfterForgeOAuth(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "orchestration.db")
+	d, err := NewDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		"ALTER TABLE projects DROP COLUMN orchestrator_prompt",
+		"ALTER TABLE projects DROP COLUMN orchestrator_max_concurrent",
+		"ALTER TABLE projects DROP COLUMN orchestrator_enabled",
+		"DELETE FROM schema_migrations WHERE version >= 56",
+	} {
+		if _, err := d.conn.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d.Close()
+	upgraded, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("upgrading main's schema: %v", err)
+	}
+	defer upgraded.Close()
+	project, err := upgraded.GetProjectByID("default")
+	if err != nil || project == nil {
+		t.Fatalf("project: %+v %v", project, err)
+	}
+	if project.OrchestratorEnabled || project.OrchestratorMaxConcurrent != 1 || project.OrchestratorPrompt != "" {
+		t.Fatalf("unexpected orchestration defaults: %+v", project)
+	}
+	var trackerColumn int
+	if err := upgraded.conn.QueryRow("SELECT COUNT(*) FROM pragma_table_info('jira_oauth_flows') WHERE name = 'tracker'").Scan(&trackerColumn); err != nil || trackerColumn != 1 {
+		t.Fatalf("forge OAuth schema lost: %d %v", trackerColumn, err)
+	}
+	if !slices.Contains(appliedVersions(t, upgraded), 56) {
+		t.Fatal("orchestration migration was not recorded")
 	}
 }

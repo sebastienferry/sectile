@@ -104,7 +104,7 @@ func checkActivityDeviceMigration(t *testing.T, d *DB) {
 	if err := d.AddTaskActivity(models.TaskActivity{ID: "legacy-device", TaskID: task.ID, SkillID: "agent_launch", Status: "completed", Summary: "Old summary (invented-device)", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	for _, query := range []string{"DROP INDEX task_launch_affinity", "ALTER TABLE task_activities DROP COLUMN device_id", "ALTER TABLE task_activities DROP COLUMN device_label", "ALTER TABLE task_activities DROP COLUMN dispatch_state", "ALTER TABLE task_activities DROP COLUMN remote_run_id", "ALTER TABLE jira_oauth_flows DROP COLUMN tracker", "DELETE FROM schema_migrations WHERE version>=53"} {
+	for _, query := range []string{"DROP INDEX task_launch_affinity", "ALTER TABLE task_activities DROP COLUMN device_id", "ALTER TABLE task_activities DROP COLUMN device_label", "ALTER TABLE task_activities DROP COLUMN dispatch_state", "ALTER TABLE task_activities DROP COLUMN remote_run_id", "ALTER TABLE projects DROP COLUMN orchestrator_prompt", "ALTER TABLE projects DROP COLUMN orchestrator_max_concurrent", "ALTER TABLE projects DROP COLUMN orchestrator_enabled", "ALTER TABLE jira_oauth_flows DROP COLUMN tracker", "DELETE FROM schema_migrations WHERE version>=53"} {
 		if _, err := d.conn.Exec(query); err != nil {
 			t.Fatal(err)
 		}

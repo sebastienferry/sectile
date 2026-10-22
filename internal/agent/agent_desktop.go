@@ -109,6 +109,9 @@ type desktopRun struct {
 	// without a folder map, and from an older agent.
 	Folders []runFolder `json:"folders,omitempty"`
 	Status  string      `json:"status"`
+	// AuthenticationRequired is inferred only from a failed provider trace. It
+	// carries a recovery hint without exposing raw console output in discovery.
+	AuthenticationRequired bool `json:"authenticationRequired,omitempty"`
 	// ExternalTerminal marks the terminal emulator currently attached to or running this session.
 	ExternalTerminal string `json:"externalTerminal,omitempty"`
 	// Headless marks a run that has no PTY on purpose. The desktop shows its
@@ -179,7 +182,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"engine-setup", "batch-launch", "git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", "agy-conversation", codexSettingsCapability, agySettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability, taskPageCapability, taskFieldsCapability, stageMoveCapability}
+		capabilities := []string{"engine-setup", "batch-launch", "git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", "agy-conversation", codexSettingsCapability, agySettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability, taskPageCapability, taskFieldsCapability, stageMoveCapability, orchestrationControlsCapability, orchestrationAgentsCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -312,6 +315,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopPromoteSandboxRule(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/orchestration" {
+		d.desktopOrchestration(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/projects" {
 		d.desktopProjects(w, r)
 		return
@@ -360,6 +367,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	d.queue.mu.Lock()
 	if r.URL.Path == "/desktop/runs" && r.Method == http.MethodGet {
 		runs := []desktopRun{}
+		traces := map[string]*runTrace{}
 		for key, run := range d.queue.runs {
 			entry := run.desktop
 			entry.ID = key
@@ -367,9 +375,13 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			entry.CancelRequested = run.canceled && (entry.Status == "queued" || entry.Status == "preparing" || entry.Status == "running")
 			if entry.Status != "" {
 				runs = append(runs, entry)
+				traces[key] = run.trace
 			}
 		}
 		d.queue.mu.Unlock()
+		for i := range runs {
+			runs[i].AuthenticationRequired = runNeedsAuthentication(runs[i], traces[runs[i].ID])
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(runs)
 		return
@@ -569,11 +581,15 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		type entry struct {
-			ID           string `json:"id"`
-			Name         string `json:"name"`
-			Path         string `json:"path"`
-			Configured   bool   `json:"configured"`
-			Disconnected bool   `json:"disconnected"`
+			ID                        string                           `json:"id"`
+			Name                      string                           `json:"name"`
+			Path                      string                           `json:"path"`
+			Configured                bool                             `json:"configured"`
+			Disconnected              bool                             `json:"disconnected"`
+			OrchestratorEnabled       bool                             `json:"orchestratorEnabled,omitempty"`
+			OrchestratorMaxConcurrent int                              `json:"orchestratorMaxConcurrent,omitempty"`
+			OrchestratorActiveRuns    *int                             `json:"orchestratorActiveRuns,omitempty"`
+			OrchestrationAgents       []agentconfig.OrchestrationAgent `json:"orchestrationAgents"`
 		}
 		entries := []entry{}
 		base := d.repoRoot
@@ -598,7 +614,8 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 				root = ""
 				configured = false
 			}
-			entries = append(entries, entry{p.ID, p.Name, root, configured || root != "", disconnected})
+			entries = append(entries, entry{ID: p.ID, Name: p.Name, Path: root, Configured: configured || root != "", Disconnected: disconnected,
+				OrchestratorEnabled: p.OrchestratorEnabled, OrchestratorMaxConcurrent: p.OrchestratorMaxConcurrent, OrchestratorActiveRuns: p.OrchestratorActiveRuns, OrchestrationAgents: settings.Project(p.ID).OrchestrationAgentDefinitions()})
 		}
 		_ = json.NewEncoder(w).Encode(entries)
 		return

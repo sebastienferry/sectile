@@ -250,7 +250,16 @@ func (d *DB) AgentProjects() (*agentconfig.Projects, error) {
 	}
 	result := &agentconfig.Projects{SchemaVersion: agentconfig.Version, Projects: []agentconfig.Project{}}
 	for _, p := range projects {
-		result.Projects = append(result.Projects, agentconfig.Project{ID: p.ID, Name: p.Name, GitRemoteURL: p.GitRemoteUrl})
+		entry := agentconfig.Project{ID: p.ID, Name: p.Name, GitRemoteURL: p.GitRemoteUrl,
+			OrchestratorEnabled: p.OrchestratorEnabled, OrchestratorMaxConcurrent: p.OrchestratorMaxConcurrent}
+		if p.OrchestratorEnabled {
+			count, err := d.ActiveRunsCountForProject(p.ID)
+			if err != nil {
+				return nil, err
+			}
+			entry.OrchestratorActiveRuns = &count
+		}
+		result.Projects = append(result.Projects, entry)
 	}
 	return result, nil
 }

@@ -13,8 +13,10 @@ import (
 // predates #305: its flat keys and per-project maps are folded on read and
 // rewritten in this layout on the next save. Layout 3 (#510) moves the engine
 // settings into the engine catalogue, and layout 4 (#730) the project Sandbox
-// values into the workstation ones.
-const SettingsLayout = 4
+// values into the workstation ones. Layout 5 (#859) keeps the project-local
+// orchestration guidelines path. Layout 6 stores multiple named orchestration
+// agents, which older writers must not discard.
+const SettingsLayout = 6
 
 // DefaultProvider is the provider a workstation runs when neither its defaults
 // nor the project section name one.
@@ -124,6 +126,11 @@ func (d Defaults) InstalledSkillSourceOrDefault() string {
 
 // ProjectSettings is one project's section, keyed by the project's primary key.
 type ProjectSettings struct {
+	// A non-nil empty list explicitly removes all agents; keep it in JSON.
+	OrchestrationAgents []OrchestrationAgent `json:"orchestrationAgents"`
+	// OrchestrationFile is a Markdown path relative to the local checkout.
+	// Legacy single-agent settings use this path until their list is saved.
+	OrchestrationFile string `json:"orchestrationFile,omitempty"`
 	// Path is the project's checkout on this workstation.
 	Path string `json:"path,omitempty"`
 	// MacroSpecPath is the project's Macro specifications folder, a Git
@@ -194,7 +201,7 @@ func (e Execution) isZero() bool {
 func (p ProjectSettings) IsZero() bool {
 	return strings.TrimSpace(p.Path) == "" && strings.TrimSpace(p.MacroSpecPath) == "" && strings.TrimSpace(p.IssueSpecPath) == "" && p.Execution.isZero() && len(p.SkillCommands) == 0 &&
 		strings.TrimSpace(p.SpecArtifacts) == "" && len(p.Folders) == 0 && p.ClaudeSandbox.IsZero() &&
-		p.AnyRepository == nil && strings.TrimSpace(p.ClonesPath) == ""
+		p.AnyRepository == nil && strings.TrimSpace(p.ClonesPath) == "" && strings.TrimSpace(p.OrchestrationFile) == "" && p.OrchestrationAgents == nil
 }
 
 // Project returns the project's section, empty when it has none.

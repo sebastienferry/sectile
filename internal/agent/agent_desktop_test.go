@@ -1349,3 +1349,44 @@ func TestDesktopCreateTaskForwardsTheTracker(t *testing.T) {
 		t.Fatalf("a creation without a tracker names none: %d %+v", w.Code, created)
 	}
 }
+
+func TestDesktopProjectDiscoveryPreservesOrchestrationCapacity(t *testing.T) {
+	testhome.Temp(t)
+	root := t.TempDir()
+	if _, err := gitLocal(context.Background(), root, "init"); err != nil {
+		t.Fatal(err)
+	}
+	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root, OrchestrationAgents: []agentconfig.OrchestrationAgent{{ID: "docs", Name: "Docs", File: "docs.md"}, {ID: "tests", Name: "Tests", File: "tests.md"}}}}}); err != nil {
+		t.Fatal(err)
+	}
+	count := 3
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/agent/projects" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(agentconfig.Projects{SchemaVersion: agentconfig.Version, Projects: []agentconfig.Project{{ID: "p", Name: "Project", OrchestratorEnabled: true, OrchestratorMaxConcurrent: 4, OrchestratorActiveRuns: &count}}})
+	}))
+	defer server.Close()
+	d := &agentDaemon{repoRoot: root, link: serverLink{serverURL: server.URL}, loopback: loopbackServer{desktopToken: "private"}}
+	request := httptest.NewRequest(http.MethodGet, "/desktop/projects", nil)
+	request.Header.Set("Authorization", "Bearer private")
+	response := httptest.NewRecorder()
+	d.desktopHandler(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("discovery returned %d: %s", response.Code, response.Body.String())
+	}
+	var projects []struct {
+		agentconfig.Project
+		Agents []agentconfig.OrchestrationAgent `json:"orchestrationAgents"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &projects); err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || !projects[0].OrchestratorEnabled || projects[0].OrchestratorMaxConcurrent != 4 || projects[0].OrchestratorActiveRuns == nil || *projects[0].OrchestratorActiveRuns != 3 {
+		t.Fatalf("capacity was lost between server and desktop: %+v", projects)
+	}
+	if len(projects[0].Agents) != 2 || projects[0].Agents[0].ID != "docs" || projects[0].Agents[1].File != "tests.md" {
+		t.Fatalf("local agent definitions lost: %+v", projects[0].Agents)
+	}
+}

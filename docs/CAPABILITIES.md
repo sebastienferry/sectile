@@ -133,6 +133,27 @@ flowchart LR
     E --> F["5. Handoff (#finished)"]
 ```
 
+### Backlog Orchestrator Agent (`orchestrate_project` / `POST /api/projects/{id}/orchestrate`)
+
+Projects can activate an autonomous backlog orchestrator agent to supervise the backlog and dispatch parallel task sessions:
+- **Per-Project Configuration**:
+  - `orchestratorEnabled`: Enables on-demand or scheduled orchestration for the project.
+  - `orchestratorMaxConcurrent`: Caps the maximum number of concurrent task sessions (1 to 10).
+  - `orchestratorPrompt`: Optional instructions the autonomous agent must assess before making changes or advancing the ticket. A desktop orchestration agent sends its own local Markdown file instead, for its runs only. A ticket that fails these guidelines is left at its current stage, and the chain stops with the agent's explanation.
+- **Eligibility Assessment**:
+  The server scans tickets before `#implemented`, filtering out tickets with active executions, missing descriptions, or blocker labels (`blocked`, `needs-info`, `hold`, `manual`). Each launched agent must assess technical readiness and the project guidelines before doing any work; these instructions remain attached to every chain step.
+- **Autonomous Chaining up to PR**:
+  Admission reserves a slot transactionally, including across server instances, and counts existing manual sessions as occupied slots. Runs use the requesting user's workstation and retain that identity throughout the chain. For each candidate up to available concurrency slots, the orchestrator launches an autonomous full chain run (`clarify` $\rightarrow$ `specify` $\rightarrow$ `code`), stopping at `#implemented` regardless of the project's ordinary chain stop setting. Pull request creation follows the project's configured creation stage; review and merge remain human decisions.
+- **Execution Interfaces**:
+  - Triggered via HTTP `POST /api/projects/{id}/orchestrate` (returns structured `OrchestrationResult` report).
+  - Invoked through MCP tool `orchestrate_project`, which takes the project only.
+  - Neither interface can force a disabled project or raise its cap: a disabled project answers 409 over HTTP, an unknown one 404, and an unknown request field such as `force` or `maxConcurrent` is refused with 400.
+  - Configurable in the project execution settings.
+  - Desktop's **ORCHESTRATION** section above **PROJECTS** shows enabled projects and active local task agents, with project-wide capacity, workflow stages, waiting states, and direct console access. Capacity refreshes every 15 seconds; unavailable metadata is labeled explicitly.
+  - Desktop **Settings → project → Orchestration** configures enablement and shared concurrency (1–10). **Add agent** saves another named agent with its own workstation-local Markdown file, for example `AGENTS.md`, `docs/documentation.md` or `docs/tests.md`. Names and IDs are unique within a project; IDs remain stable across edits. Up to 20 agents may be saved. The former single-file setup becomes **Default agent** with the same file.
+  - Each agent has a preview, **Reload file**, **Run agent** and **Remove agent**. File paths must be relative `.md` files inside the checkout, including through symlinks, with nonempty UTF-8 text. Enabling validates all configured files. Running reads only the selected file again; its name, ID and contents form an immutable chain guideline snapshot bounded to 32 KiB. Missing selected files block launch, while unrelated saved agents remain runnable. Shared web/MCP project policy is preserved.
+  - **Run agent** is also available per saved agent in the sidebar. All agents share project-wide concurrency and the existing task admission lock; adding agents never multiplies capacity or allows duplicate task sessions. Reports show launched/skipped counts and reasons. The sidebar is hidden when no project is enabled and no local task agents are active. Unsaved settings prevent launch from settings. Disabling a project or removing a definition does not cancel existing task sessions. Disabled projects can save an explicitly empty list without recreating a default agent on reopening.
+
 ### Stage 1: Clarification (`clarify-issue` / `/clarify`)
 - **Objective**: Resolves functional gaps, edge cases, and architectural ambiguities through an iterative feedback loop between the agent and the work item owner (analogous to how `adjust-issue` iterates on code reviews).
 - **Rounds & Reports**: Clarification executes in numbered rounds (Round 1, Round N). Findings are stored in `docs/clarifications/<n>.md` on the assigned work branch, with dated sections `## Round N - answers from the owner (<date>)` appended as feedback arrives. Each round commits incrementally with `docs(spec): clarify #<n> (round <r>)`. On a workstation that drops the specification artefacts, the file stays uncommitted in the worktree and the rounds published on the ticket are the shared record: a worktree without the file rebuilds it from them and continues with the next round. (#487)

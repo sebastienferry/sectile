@@ -172,6 +172,9 @@ export const ProjectModal: React.FC = () => {
   const [pushStageCommits, setPushStageCommits] = useState(false)
   const [branchNameFormat, setBranchNameFormat] = useState('')
   const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>(DEFAULT_FULL_CHAIN_STOP_STAGE)
+  const [orchestratorEnabled, setOrchestratorEnabled] = useState(false)
+  const [orchestratorMaxConcurrent, setOrchestratorMaxConcurrent] = useState(1)
+  const [orchestratorPrompt, setOrchestratorPrompt] = useState('')
 
   const [gitRemoteUrl, setGitRemoteUrl] = useState('')
   // Remotes declared besides the code remote, which the server always lists
@@ -254,6 +257,9 @@ export const ProjectModal: React.FC = () => {
       setDefaultSkillMode(editingProject.defaultSkillMode || '')
       setFullChainStopStage(editingProject.fullChainStopStage || DEFAULT_FULL_CHAIN_STOP_STAGE)
       setPushStageCommits(editingProject.pushStageCommits === true)
+      setOrchestratorEnabled(editingProject.orchestratorEnabled === true)
+      setOrchestratorMaxConcurrent(editingProject.orchestratorMaxConcurrent || 1)
+      setOrchestratorPrompt(editingProject.orchestratorPrompt || '')
       setBranchNameFormat(editingProject.branchNameFormat || '')
       setGitRemoteUrl(editingProject.gitRemoteUrl || '')
       setRepositories(declaredRepositories(editingProject))
@@ -449,6 +455,9 @@ export const ProjectModal: React.FC = () => {
         defaultSkillMode,
         fullChainStopStage,
         pushStageCommits,
+        orchestratorEnabled,
+        orchestratorMaxConcurrent,
+        orchestratorPrompt: orchestratorPrompt.trim(),
         branchNameFormat: branchNameFormat.trim(),
         gitRemoteUrl: gitRemoteUrl.trim(),
         repositories: savedRepositories,
@@ -1053,6 +1062,61 @@ export const ProjectModal: React.FC = () => {
                 <p className="mt-1 text-[10px] text-[var(--text-muted)] leading-relaxed">
                   {ps.execution.mergeStaysManual}
                 </p>
+              </div>
+
+              <div className="pt-3 border-t border-[var(--border-color)] space-y-3">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                  {ps.execution.orchestratorTitle}
+                </span>
+
+                <label className="flex items-center gap-2 text-xs text-[var(--text-primary)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={orchestratorEnabled}
+                    onChange={e => setOrchestratorEnabled(e.target.checked)}
+                  />
+                  {ps.execution.orchestratorEnabledLabel}
+                </label>
+                <p className="text-[10px] text-[var(--text-muted)]">{ps.execution.orchestratorEnabledHelp}</p>
+
+                {orchestratorEnabled && (
+                  <div className="space-y-3 pt-1">
+                    <div>
+                      <label htmlFor="orchestratorMaxConcurrent" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                        {ps.execution.orchestratorMaxConcurrentLabel}
+                      </label>
+                      <input
+                        id="orchestratorMaxConcurrent"
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={orchestratorMaxConcurrent}
+                        onChange={e => setOrchestratorMaxConcurrent(Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 1)))}
+                        className="w-24 px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                      />
+                      <p className="mt-1 text-[10px] text-[var(--text-muted)]">
+                        {ps.execution.orchestratorMaxConcurrentHelp}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label htmlFor="orchestratorPrompt" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                        {ps.execution.orchestratorPromptLabel}
+                      </label>
+                      <textarea
+                        id="orchestratorPrompt"
+                        rows={3}
+                        value={orchestratorPrompt}
+                        onChange={e => setOrchestratorPrompt(e.target.value)}
+                        placeholder={ps.execution.orchestratorPromptPlaceholder}
+                        className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] resize-none"
+                      />
+                      <p className="mt-1 text-[10px] text-[var(--text-muted)]">
+                        {ps.execution.orchestratorPromptHelp}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

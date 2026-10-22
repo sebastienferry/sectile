@@ -804,6 +804,15 @@ var migrations = []migration{
 			"ALTER TABLE jira_oauth_flows ADD COLUMN tracker TEXT NOT NULL DEFAULT 'jira';",
 		},
 	},
+	{
+		version: 56,
+		name:    "projects.orchestrator",
+		statements: []string{
+			"ALTER TABLE projects ADD COLUMN orchestrator_enabled INTEGER NOT NULL DEFAULT 0;",
+			"ALTER TABLE projects ADD COLUMN orchestrator_max_concurrent INTEGER NOT NULL DEFAULT 1;",
+			"ALTER TABLE projects ADD COLUMN orchestrator_prompt TEXT NOT NULL DEFAULT '';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is
