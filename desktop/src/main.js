@@ -193,10 +193,14 @@ let renaming=null
 // blur, which must not be taken for the user leaving the field.
 let rebuildingSidebar=false
 const collapsedProjects=new Set(JSON.parse(localStorage.getItem('collapsedProjects')||'[]'))
-// Projects whose tasks are listed by workflow stage, chosen from their menu.
-const stageGroupedProjects=new Set()
-try{for(const id of JSON.parse(localStorage.getItem('stageGroupedProjects')||'[]'))stageGroupedProjects.add(id)}catch{}
-function saveStageGrouping(){localStorage.setItem('stageGroupedProjects',JSON.stringify([...stageGroupedProjects]))}
+// How each project orders its task rows, chosen from its menu.
+const projectTaskSort=new Map()
+try{for(const id of JSON.parse(localStorage.getItem('stageGroupedProjects')||'[]'))projectTaskSort.set(id,'stage')}catch{}
+try{for(const [id,sort] of Object.entries(JSON.parse(localStorage.getItem('projectTaskSort')||'{}')))if(['created','id','stage'].includes(sort))projectTaskSort.set(id,sort)}catch{}
+function saveTaskSort(){
+ localStorage.setItem('projectTaskSort',JSON.stringify(Object.fromEntries(projectTaskSort)))
+ localStorage.setItem('stageGroupedProjects',JSON.stringify([...projectTaskSort].filter(([,sort])=>sort==='stage').map(([id])=>id)))
+}
 // Projects the user hid from the sidebar. Hiding keeps the local configuration
 // and the executions: the project stays in Settings, where it can be shown again.
 const sidebarHiddenProjects=new Set()
@@ -804,10 +808,10 @@ function renderHeaderState(run){
  if(text.textContent!==label)text.textContent=label
  element.title='Process: '+label
 }
-function toggleStageGrouping(projectID){
+function toggleTaskSort(projectID,sort){
  selectedProject=projectID
- if(stageGroupedProjects.has(projectID))stageGroupedProjects.delete(projectID);else stageGroupedProjects.add(projectID)
- saveStageGrouping();render()
+ if(projectTaskSort.get(projectID)===sort)projectTaskSort.delete(projectID);else projectTaskSort.set(projectID,sort)
+ saveTaskSort();render()
 }
 function toggleQueue(projectID){
  selectedProject=projectID
@@ -849,12 +853,14 @@ function projectMenu(project,waitingCount=0){
  }
  // Measured once shown: a hidden menu has no width to align on.
  const open=()=>{const box=more.getBoundingClientRect();menu.hidden=false;openAt(box.right-menu.offsetWidth,box.bottom+2)}
- const queued=queueProjects.has(project.id)
+ const queued=queueProjects.has(project.id),sort=projectTaskSort.get(project.id)
  const items=[
   {label:'Open tasks',run:()=>openTickets(project.id)},
   {label:'Open board',run:()=>openBoard(project.id)},
   {label:(queued?'Show tasks':'Show execution queue')+(waitingCount?' · '+waitingCount+' waiting':''),run:()=>toggleQueue(project.id)},
-  {label:'Group by stage',checked:stageGroupedProjects.has(project.id),run:()=>toggleStageGrouping(project.id)},
+  {label:'Sort by creation',checked:sort==='created',run:()=>toggleTaskSort(project.id,'created')},
+  {label:'Sort by ID',checked:sort==='id',run:()=>toggleTaskSort(project.id,'id')},
+  {label:'Group by stage',checked:sort==='stage',run:()=>toggleTaskSort(project.id,'stage')},
   {label:'New task…',run:()=>newProjectTask(project.id)},
   {label:'Project prompt',disabled:!project.path,run:()=>openAgentConsole(project.id)},
   // An older agent cannot open it, so the item is left out rather than refused.
@@ -977,8 +983,8 @@ function render(options){
    renderQueue(project,group)
   }else if(!collapsedProjects.has(project.id)){
    if(!children.length){const empty=document.createElement('p');empty.className='hint';empty.textContent='No local tasks';group.append(empty)}
-   const stageOf=stageGroupedProjects.has(project.id)?run=>taskStages.get(run.taskId):undefined
-   for(const {executions,run,skillRun} of orderedTaskGroups(taskGroups.values(),{stageOf})){
+   const sort=projectTaskSort.get(project.id),stageOf=sort==='stage'?run=>taskStages.get(run.taskId):undefined
+   for(const {executions,run,skillRun} of orderedTaskGroups(taskGroups.values(),{sort,stageOf})){
     const isSelected=executions.some(item=>item.id===selected)
     const row=document.createElement('div');row.className='local-task '+(isSelected?'selected':'')
     const button=document.createElement('button');button.className='run '+(isSelected?'selected':'')
@@ -2766,7 +2772,7 @@ function requestRemoveProject(id,name){
   try{await api.removeProject(id)}
   catch(err){notice.textContent=err.message;confirm.disabled=false;cancel.disabled=false;return}
   projectStateVersion++
-  if(stageGroupedProjects.delete(id))saveStageGrouping()
+  if(projectTaskSort.delete(id))saveTaskSort()
   if(sidebarHiddenProjects.has(id))setSidebarHidden(id,false)
   await updateDisconnected([...disconnectedProjects,id])
   dialog.close()

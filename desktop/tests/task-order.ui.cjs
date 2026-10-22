@@ -91,3 +91,28 @@ test('a project grouped by stage lists its tasks in workflow order',async()=>{
  // Without stageOf the order is the usual one, stage ignored.
  assert.deepEqual(orderedTaskGroups(groups).map(group=>group.run.id),['console','active','reviewed','spec','odd','fresh'])
 })
+
+test('a project sorted by creation keeps chronological anchor order regardless of execution state',async()=>{
+ const {orderedTaskGroups}=await import('../src/task-order.mjs')
+ const groups=[
+  [run('oldest-running','running',time('01'))],
+  [run('middle-completed','completed',time('05'))],
+  [run('newest-queued','queued',time('09'))],
+  [{...run('relaunch-old','completed',time('03')),taskId:'relaunched'},{...run('relaunch-active','running',time('11')),taskId:'relaunched'}]
+ ]
+ assert.deepEqual(orderedTaskGroups(groups,{sort:'created'}).map(group=>group.run.id),['newest-queued','middle-completed','relaunch-active','oldest-running'])
+})
+
+test('a project sorted by ID uses natural key order and places keyless rows last',async()=>{
+ const {orderedTaskGroups}=await import('../src/task-order.mjs')
+ const keyed=(id,taskKey,status,hour,extra={})=>({...run(id,status,time(hour)),taskKey,...extra})
+ const groups=[
+  [keyed('ten','#10','running','09')],
+  [keyed('two','#2','completed','05')],
+  [keyed('console','','running','10',{kind:'console'})],
+  [keyed('macro','Macro','running','11',{macroKey:'M-1'})],
+  [keyed('one','#1','queued','02')]
+ ]
+ assert.deepEqual(orderedTaskGroups(groups,{sort:'id'}).map(group=>group.run.id),['one','two','ten','macro','console'])
+})
+

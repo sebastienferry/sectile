@@ -45,7 +45,10 @@ test('a project groups its tasks by stage from its menu and every key shows its 
   const page=await app.firstWindow();page.setDefaultTimeout(10000)
   const order=project=>page.locator('#runs .project-group').filter({has:page.locator(`.project-more[data-project-id="${project}"]`)}).locator('.local-task .run-state').evaluateAll(states=>states.map(state=>state.dataset.runId))
   const key=id=>page.locator(`#runs .local-task:has(.run-state[data-run-id="${id}"]) .task-number`)
-  const groupByStage=project=>page.locator(`.project-more[data-project-id="${project}"]`).click().then(()=>page.getByRole('menuitemcheckbox',{name:'Group by stage'}))
+  const menuOption=(project,name)=>page.locator(`.project-more[data-project-id="${project}"]`).click().then(()=>page.getByRole('menuitemcheckbox',{name}))
+  const groupByStage=project=>menuOption(project,'Group by stage')
+  const sortByCreation=project=>menuOption(project,'Sort by creation')
+  const sortById=project=>menuOption(project,'Sort by ID')
 
   // Every key carries the tint of its stage, grouping or not, once the tasks are read.
   await expect(key('reviewed')).toHaveAttribute('data-stage','reviewed')
@@ -56,12 +59,28 @@ test('a project groups its tasks by stage from its menu and every key shows its 
   assert.equal(await key('console').count(),0,'A free console has no key to tint')
   assert.deepEqual(await order('alpha'),['console','reviewed','fresh','spec'],'Off by default: the usual order')
 
+  const byCreation=await sortByCreation('alpha')
+  await expect(byCreation).toHaveAttribute('aria-checked','false')
+  await byCreation.click()
+  await expect.poll(()=>order('alpha')).toEqual(['reviewed','fresh','spec','console'])
+  await expect(await sortByCreation('alpha')).toHaveAttribute('aria-checked','true')
+  await page.keyboard.press('Escape')
+
+  const byId=await sortById('alpha')
+  await expect(byId).toHaveAttribute('aria-checked','false')
+  await byId.click()
+  await expect.poll(()=>order('alpha')).toEqual(['fresh','reviewed','spec','console'])
+  await expect(await sortById('alpha')).toHaveAttribute('aria-checked','true')
+  await expect(page.getByRole('menuitemcheckbox',{name:'Sort by creation'})).toHaveAttribute('aria-checked','false')
+  await page.keyboard.press('Escape')
+
   const entry=await groupByStage('alpha')
   await expect(entry).toHaveAttribute('aria-checked','false')
   await entry.click()
   await expect.poll(()=>order('alpha')).toEqual(['fresh','spec','reviewed','console'])
   assert.deepEqual(await order('beta'),['later','early'],'Another project keeps its order')
   await expect(await groupByStage('alpha')).toHaveAttribute('aria-checked','true')
+  await expect(page.getByRole('menuitemcheckbox',{name:'Sort by ID'})).toHaveAttribute('aria-checked','false')
   await page.keyboard.press('Escape')
   await page.mouse.move(0,0)
   // Kept for a look at the tints in both themes.

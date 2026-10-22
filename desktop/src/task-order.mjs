@@ -33,15 +33,31 @@ function compareGroups(a,b){
  return identityCompare(a.run.taskId,b.run.taskId)||identityCompare(a.run.id,b.run.id)
 }
 
+function compareCreated(a,b){
+ if(a.anchor!==b.anchor)return a.anchor>b.anchor?-1:1
+ return identityCompare(a.run.taskId,b.run.taskId)||identityCompare(a.run.id,b.run.id)
+}
+const displayedKey=run=>run.kind==='console'||run.macroKey?'':String(run.taskKey||run.taskId||'').trim()
+function compareById(a,b){
+ const left=displayedKey(a.run),right=displayedKey(b.run)
+ if(!left!==!right)return left?-1:1
+ if(left&&right){
+  const byKey=left.localeCompare(right,undefined,{numeric:true,sensitivity:'base'})
+  if(byKey)return byKey
+ }
+ return compareGroups(a,b)
+}
+
 // Input groups already contain only visible executions from a single project.
-// With stageOf, a project grouped by stage lists its tasks in workflow order,
-// the ones without a known stage last; the usual order breaks every tie.
-export function orderedTaskGroups(groups,{stageOf}={}){
+// A project can sort its tasks by creation order, by ticket key, or by workflow
+// stage (the ones without a known stage last); the usual order breaks ties.
+export function orderedTaskGroups(groups,{sort,stageOf}={}){
+ const mode=sort||(stageOf?'stage':'')
  const stageRank=group=>{
-  const index=STAGES.indexOf(stageOf(group.run))
+  const index=STAGES.indexOf(stageOf?.(group.run))
   return index===-1?STAGES.length:index
  }
- const compare=stageOf?(a,b)=>stageRank(a)-stageRank(b)||compareGroups(a,b):compareGroups
+ const compare=mode==='created'?compareCreated:mode==='id'?compareById:mode==='stage'?(a,b)=>stageRank(a)-stageRank(b)||compareGroups(a,b):compareGroups
  return [...groups].map(executions=>{
   const run=[...executions].sort(compareRuns)[0]
   return {executions,run,skillRun:newestSkillRun(executions)||run,anchor:anchorTime(executions)}
