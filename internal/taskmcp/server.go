@@ -162,6 +162,12 @@ type macroTodoInput struct {
 	SourceEntry          string `json:"sourceEntry,omitempty" jsonschema:"ignored: an existing todo keeps its origin"`
 }
 
+type orchestrateProjectInput struct {
+	ProjectID     string `json:"projectId" jsonschema:"the project primary key or slug"`
+	Force         bool   `json:"force,omitempty" jsonschema:"force execution even if orchestrator is not enabled by default"`
+	MaxConcurrent *int   `json:"maxConcurrent,omitempty" jsonschema:"optional override for max parallel executions (1-10)"`
+}
+
 // runTarget says whether a run input names a task or a macro, and refuses one
 // that names both or neither: a macro key alone can match another project's
 // macro, and a task key with a macro key is ambiguous.
@@ -830,6 +836,25 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			return nil, nil, err
 		}
 		return nil, map[string]any{"task": task}, nil
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "orchestrate_project",
+		Description: "Evaluate the project backlog and launch autonomous agentic sessions on eligible tickets up to the project's concurrency limit.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in orchestrateProjectInput) (*mcp.CallToolResult, any, error) {
+		projectID := in.ProjectID
+		if strings.TrimSpace(projectID) == "" {
+			projectID = callProject(database, sessions, req)
+		}
+		caller := callerOf(resolve, req)
+		actor := db.Actor{ID: caller.UserID, Name: caller.Name}
+		res, err := database.EvaluateAndOrchestrateBacklog(ctx, projectID, actor, models.OrchestrateProjectRequest{
+			Force:         in.Force,
+			MaxConcurrent: in.MaxConcurrent,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, res, nil
 	})
 	return s
 }

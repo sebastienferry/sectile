@@ -791,6 +791,15 @@ var migrations = []migration{
 		"ALTER TABLE task_activities ADD COLUMN dispatch_state TEXT NOT NULL DEFAULT '';",
 		"ALTER TABLE task_activities ADD COLUMN remote_run_id TEXT NOT NULL DEFAULT '';",
 	}},
+	{
+		version: 55,
+		name:    "projects.orchestrator",
+		statements: []string{
+			"ALTER TABLE projects ADD COLUMN orchestrator_enabled INTEGER NOT NULL DEFAULT 0;",
+			"ALTER TABLE projects ADD COLUMN orchestrator_max_concurrent INTEGER NOT NULL DEFAULT 1;",
+			"ALTER TABLE projects ADD COLUMN orchestrator_prompt TEXT NOT NULL DEFAULT '';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

@@ -113,6 +113,9 @@ func undoTrackerMigration(d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN dispatch_state")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN device_label")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN device_id")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN orchestrator_prompt")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN orchestrator_max_concurrent")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN orchestrator_enabled")
 	for _, statement := range []string{
 		"DROP TABLE IF EXISTS agent_workstation_presence",
 		"DROP TABLE IF EXISTS trackers",

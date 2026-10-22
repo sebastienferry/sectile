@@ -1499,6 +1499,22 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Sub-action: /api/projects/{id}/orchestrate: evaluate project backlog and launch autonomous sessions up to max concurrency
+	if len(parts) >= 2 && parts[1] == "orchestrate" && r.Method == http.MethodPost {
+		var req models.OrchestrateProjectRequest
+		if r.Body != nil {
+			_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&req)
+		}
+		actor := h.webPrincipal(r).Actor()
+		result, err := h.db.EvaluateAndOrchestrateBacklog(r.Context(), id, actor, req)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+
 	// Sub-action: /api/projects/{id}/priority-mapping/refresh: read the
 	// tracker's priority scheme again and fold it into the project's mapping
 	// (#679), for a person who just changed it.

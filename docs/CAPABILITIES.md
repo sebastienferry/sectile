@@ -133,6 +133,22 @@ flowchart LR
     E --> F["5. Handoff (#finished)"]
 ```
 
+### Backlog Orchestrator Agent (`orchestrate_project` / `POST /api/projects/{id}/orchestrate`)
+
+Projects can activate an autonomous backlog orchestrator agent to supervise the backlog and dispatch parallel task sessions:
+- **Per-Project Configuration**:
+  - `orchestratorEnabled`: Enables on-demand or scheduled orchestration for the project.
+  - `orchestratorMaxConcurrent`: Caps the maximum number of concurrent task sessions (1 to 10).
+  - `orchestratorPrompt`: Optional instructions guiding ticket eligibility assessment.
+- **Eligibility Assessment**:
+  The orchestrator scans candidate backlog items (`#new` / unstarted), filtering out tickets carrying active executions or blocker labels (`blocked`, `needs-info`, `hold`, `manual`). It assesses whether technical context is sufficient to run autonomously without human intervention.
+- **Autonomous Chaining up to PR**:
+  For each eligible ticket up to available concurrency slots, the orchestrator launches an autonomous full chain run (`clarify` $\rightarrow$ `specify` $\rightarrow$ `code`), stopping at `#implemented` where a draft pull request is published for human review and merge.
+- **Execution Interfaces**:
+  - Triggered via HTTP `POST /api/projects/{id}/orchestrate` (returns structured `OrchestrationResult` report).
+  - Invoked through MCP tool `orchestrate_project`.
+  - Configurable in the project execution settings.
+
 ### Stage 1: Clarification (`clarify-issue` / `/clarify`)
 - **Objective**: Resolves functional gaps, edge cases, and architectural ambiguities through an iterative feedback loop between the agent and the work item owner (analogous to how `adjust-issue` iterates on code reviews).
 - **Rounds & Reports**: Clarification executes in numbered rounds (Round 1, Round N). Findings are stored in `docs/clarifications/<n>.md` on the assigned work branch, with dated sections `## Round N - answers from the owner (<date>)` appended as feedback arrives. Each round commits incrementally with `docs(spec): clarify #<n> (round <r>)`. On a workstation that drops the specification artefacts, the file stays uncommitted in the worktree and the rounds published on the ticket are the shared record: a worktree without the file rebuilds it from them and continues with the next round. (#487)

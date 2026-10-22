@@ -183,6 +183,12 @@ type Project struct {
 	FullChainStopStage string `json:"fullChainStopStage"`
 	// PushStageCommits publishes clarify and specify commits when enabled.
 	PushStageCommits bool `json:"pushStageCommits"`
+	// OrchestratorEnabled activates the backlog orchestrator agent for the project.
+	OrchestratorEnabled bool `json:"orchestratorEnabled"`
+	// OrchestratorMaxConcurrent is the maximum parallel task executions allowed for this project.
+	OrchestratorMaxConcurrent int `json:"orchestratorMaxConcurrent"`
+	// OrchestratorPrompt contains project-level guidelines for the orchestrator when evaluating tickets.
+	OrchestratorPrompt string `json:"orchestratorPrompt,omitempty"`
 	// BoardID / TrackerColumns mirror the tracker's board: its columns in order,
 	// with the statuses each one groups. Imported from the tracker, not typed by
 	// hand.
@@ -545,6 +551,9 @@ type CreateProjectRequest struct {
 	DefaultSkillMode    string           `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage  string           `json:"fullChainStopStage,omitempty"`
 	PushStageCommits    bool             `json:"pushStageCommits,omitempty"`
+	OrchestratorEnabled bool             `json:"orchestratorEnabled,omitempty"`
+	OrchestratorMaxConcurrent int        `json:"orchestratorMaxConcurrent,omitempty"`
+	OrchestratorPrompt  string           `json:"orchestratorPrompt,omitempty"`
 	BoardID             string           `json:"boardId,omitempty"`
 	GitRemoteUrl        string           `json:"gitRemoteUrl,omitempty"`
 	GithubRepo          string           `json:"githubRepo,omitempty"`
@@ -593,6 +602,9 @@ type UpdateProjectRequest struct {
 	DefaultSkillMode    *string              `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage  *string              `json:"fullChainStopStage,omitempty"`
 	PushStageCommits    *bool                `json:"pushStageCommits,omitempty"`
+	OrchestratorEnabled *bool                `json:"orchestratorEnabled,omitempty"`
+	OrchestratorMaxConcurrent *int           `json:"orchestratorMaxConcurrent,omitempty"`
+	OrchestratorPrompt  *string              `json:"orchestratorPrompt,omitempty"`
 	BoardID             *string              `json:"boardId,omitempty"`
 	TrackerColumns      *[]TrackerColumn     `json:"trackerColumns,omitempty"`
 	Sprints             *[]TrackerSprint     `json:"sprints,omitempty"`
@@ -641,6 +653,48 @@ func NormalizeAutoSyncIntervalMin(min int) int {
 		return 30
 	}
 	return min
+}
+
+// NormalizeOrchestratorMaxConcurrent clamps parallel orchestrator executions between 1 and 10 (default 1).
+func NormalizeOrchestratorMaxConcurrent(n int) int {
+	if n < 1 {
+		return 1
+	}
+	if n > 10 {
+		return 10
+	}
+	return n
+}
+
+type OrchestrateProjectRequest struct {
+	Force         bool `json:"force,omitempty"`
+	MaxConcurrent *int `json:"maxConcurrent,omitempty"`
+}
+
+type OrchestratedTaskInfo struct {
+	ID         string `json:"id"`
+	Key        string `json:"key"`
+	Title      string `json:"title"`
+	Stage      string `json:"stage"`
+	ActivityID string `json:"activityId"`
+}
+
+type SkippedTaskInfo struct {
+	ID     string `json:"id"`
+	Key    string `json:"key"`
+	Title  string `json:"title"`
+	Reason string `json:"reason"`
+}
+
+type OrchestrationResult struct {
+	ProjectID        string                 `json:"projectId"`
+	EvaluatedCount   int                    `json:"evaluatedCount"`
+	ActiveRunsBefore int                    `json:"activeRunsBefore"`
+	ActiveRunsAfter  int                    `json:"activeRunsAfter"`
+	MaxConcurrent    int                    `json:"maxConcurrent"`
+	AvailableSlots   int                    `json:"availableSlots"`
+	Launched         []OrchestratedTaskInfo `json:"launched"`
+	Skipped          []SkippedTaskInfo      `json:"skipped"`
 }
 
 // A skill run is executed in one of two modes. Interactive opens a terminal the

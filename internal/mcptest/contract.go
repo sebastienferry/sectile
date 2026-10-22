@@ -44,6 +44,7 @@ func AssertNaming(t *testing.T, ctx context.Context, session *mcp.ClientSession,
 		"create_macro":       {"projectId": "default", "title": "Canonical macro"},
 		"update_macro":       {"projectId": "default", "macroKey": "M-1", "title": "Updated macro"},
 		"update_macro_todos": {"projectId": "default", "macroKey": "M-1", "todos": []any{}},
+		"orchestrate_project": {"projectId": "default", "force": true},
 	}
 	list, err := session.ListTools(ctx, nil)
 	if err != nil {
