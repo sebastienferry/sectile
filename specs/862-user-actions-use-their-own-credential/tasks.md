@@ -32,6 +32,13 @@
 
 ## 6. Gates
 
-- [ ] T6.1 `gofmt -l`, `go vet ./...`, `go test ./...`.
-- [ ] T6.2 Web `tsc`, `oxlint`, `npm test`.
-- [ ] T6.3 End-to-end replay against the fake GitHub.
+- [x] T6.1 `gofmt -l`, `go vet ./...`, `go test ./...`.
+- [x] T6.2 Web `tsc`, `oxlint`, `npm test`.
+- [x] T6.3 End-to-end replay against the fake GitHub.
+
+Gate results (2026-10-22): gofmt clean, go vet clean, go test ./... green except
+TestTryPullLocalAgentTasks, a TempDir cleanup race that passes 5/5 alone and
+already flaked on #855. Web tsc clean, oxlint 0 errors, npm test 764/764.
+End-to-end against the fake GitHub: create without a personal token refused
+403 tracker_credential_missing; create, comment, reads, stage move and macro
+rename all as ada; sync as service-bot.
