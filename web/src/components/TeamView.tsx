@@ -1,8 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { RefreshCw, Users, CircleSlash, ExternalLink } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { format, formatDate, formatTime, parseDateInput, plural } from '../lib/i18n'
 import { Avatar } from './Avatar'
+import { SinglePicker } from './FilterPicker'
+import type { LookupOption } from './LookupField'
+import { matchesSearch } from '../lib/searchFold'
 import type { Task, TeamMemberLoad, TeamWorkload } from '../types'
 
 /**
@@ -64,6 +67,18 @@ export const TeamView: React.FC = () => {
 
   const team = teams.find(t => t.name === selectedTeam)
 
+  const searchTeam = useCallback(
+    async (query: string): Promise<LookupOption[]> =>
+      teams
+        .map(entry => ({
+          id: entry.name,
+          label: entry.name,
+          sublabel: plural(language, entry.taskCount, t.shell.filters.ticketCount),
+        }))
+        .filter(option => matchesSearch(query, option.label)),
+    [teams, language, t]
+  )
+
   const totals = useMemo(() => {
     if (!workload) return { assigned: 0, people: 0, unassigned: 0, outside: 0 }
     return {
@@ -96,21 +111,23 @@ export const TeamView: React.FC = () => {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-[var(--border-color)] shrink-0">
-        <Users size={14} className="text-violet-400" />
-        <select
-          value={selectedTeam}
-          onChange={e => {
-            setSelectedTeam(e.target.value)
-            setTeamFilter(e.target.value || null)
-          }}
-          className="px-2 py-1.5 text-xs rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none cursor-pointer max-w-[240px]"
-        >
-          {teams.map(t => (
-            <option key={t.id || t.name} value={t.name}>
-              {t.name} ({t.taskCount})
-            </option>
-          ))}
-        </select>
+        {/* The team is the view's subject rather than a filter (#866): the
+            shared picker, inline, never empty, and never counted or chipped. */}
+        <div className="w-[300px] max-w-full">
+          <SinglePicker
+            icon={<Users size={12} className="text-violet-400" />}
+            label={t.shell.filters.team}
+            value={selectedTeam}
+            placeholder={t.shell.filters.team}
+            allowClear={false}
+            onSearch={searchTeam}
+            onPick={name => {
+              if (!name) return
+              setSelectedTeam(name)
+              setTeamFilter(name)
+            }}
+          />
+        </div>
 
         <span className="text-[10px] text-[var(--text-muted)]">
           {plural(language, team?.memberCount || 0, strings.people)} · {syncedLabel(team?.syncedAt)}

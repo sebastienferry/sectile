@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Check,
   ExternalLink,
@@ -9,14 +9,18 @@ import {
   Inbox,
   Eye,
   EyeOff,
-  Search,
   CheckCircle2,
-  X,
   SlidersHorizontal,
   Sparkles,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { LookupField, type LookupOption } from './LookupField'
+import { FilterSearch } from './FilterSearch'
+import { FilterPanel } from './FilterPanel'
+import { SinglePicker } from './FilterPicker'
+import { ActiveFilterChips } from './ActiveFilterChips'
+import { NO_MACRO, useMacroFilterSearch } from './useMacroFilterSearch'
+import { countSetPickers, type ActiveFilter } from '../lib/activeFilters'
 import { macroLookup, sprintLookup } from '../lib/lookups'
 import { matchesSearch } from '../lib/searchFold'
 import { format, plural } from '../lib/i18n'
@@ -93,6 +97,36 @@ export const TriageView: React.FC = () => {
     [macros]
   )
 
+  // The filters of the triage's toolbar (#866). 'all' and 'none' are the
+  // sprint's own sentinels; the macro is read from the board's parentFilter
+  // first, as it always was.
+  const F = t.shell.filters
+  const activeMacro = parentFilter === NO_MACRO ? 'none' : parentFilter || filterMacro
+  const macroSearch = useMacroFilterSearch(macroOptions, { alwaysOfferNone: true })
+  const sprintFilterLabel = filterSprint === 'all' ? '' : filterSprint === 'none' ? strings.noSprintBacklog : filterSprint
+  const searchTriageSprint = useCallback(
+    async (query: string): Promise<LookupOption[]> =>
+      [
+        { id: 'none', label: strings.noSprintBacklog },
+        ...sprintOptions.map(sp => ({ id: sp.name, label: sp.name, sublabel: sp.state })),
+      ].filter(option => matchesSearch(query, option.label)),
+    [sprintOptions, strings.noSprintBacklog]
+  )
+  const pickMacro = (id: string | null) => {
+    setFilterMacro(!id ? 'all' : id === NO_MACRO ? 'none' : id)
+    setParentFilter(id)
+  }
+  const resetTriageFilters = () => {
+    setFilterSprint('all')
+    pickMacro(null)
+  }
+  const triageChips: ActiveFilter[] = [
+    ...(filterSprint !== 'all' ? [{ id: 'sprint', label: sprintFilterLabel, clear: () => setFilterSprint('all') }] : []),
+    ...(activeMacro !== 'all'
+      ? [{ id: 'macro', label: macroSearch.label || (activeMacro === 'none' ? F.noMacro : activeMacro), clear: () => pickMacro(null) }]
+      : []),
+  ]
+
   const isMissing = (task: Task, dimension: Dimension): boolean => {
     if (dimension === 'sprint') return !(task.sprint || '').trim()
     if (dimension === 'macro') return !(task.parentKey || task.parentTitle || '').trim()
@@ -130,8 +164,7 @@ export const TriageView: React.FC = () => {
       list = list.filter(t => (t.sprint || '').trim() === filterSprint)
     }
 
-    // Macro dropdown filter
-    const activeMacro = parentFilter === '__no_macro__' ? 'none' : parentFilter || filterMacro
+    // Macro filter
     if (activeMacro === 'none') {
       list = list.filter(t => !(t.parentKey || t.parentTitle || '').trim())
     } else if (activeMacro !== 'all') {
@@ -146,7 +179,7 @@ export const TriageView: React.FC = () => {
     }
 
     return list
-  }, [pool, dimensions, filterSprint, filterMacro, searchQuery])
+  }, [pool, dimensions, filterSprint, activeMacro, searchQuery])
 
   const selectedIds = useMemo(() => filteredRows.filter(t => checked[t.id]).map(t => t.id), [filteredRows, checked])
   // A tracker ticket's projects follow from its labels (#741): only the local
@@ -222,68 +255,31 @@ export const TriageView: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Search Input */}
-            <div className="relative w-56">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder={strings.searchPlaceholder}
-                className="w-full pl-8 pr-2.5 py-1 text-xs rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+            <FilterSearch value={searchQuery} onChange={setSearchQuery} placeholder={strings.searchPlaceholder} />
+
+            {/* Sprint and macro (#866): the shared pickers of the Filters panel.
+                The sprint stays local to the triage; the macro writes the
+                board's parentFilter, as it did. */}
+            <FilterPanel activeCount={countSetPickers([filterSprint !== 'all', activeMacro !== 'all'])} onReset={resetTriageFilters}>
+              <SinglePicker
+                icon={<CalendarRange size={12} className={filterSprint !== 'all' ? 'text-cyan-400' : 'text-[var(--text-muted)]'} />}
+                label={F.sprint}
+                value={sprintFilterLabel}
+                placeholder={F.allSprints}
+                onSearch={searchTriageSprint}
+                onPick={id => setFilterSprint(id || 'all')}
               />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                >
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-
-            {/* Sprints Filter Dropdown */}
-            <div className="flex items-center gap-1">
-              <CalendarRange size={13} className="text-[var(--text-muted)]" />
-              <select
-                value={filterSprint}
-                onChange={e => setFilterSprint(e.target.value)}
-                className="px-2 py-1 text-xs rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none cursor-pointer"
-                title={strings.sprintFilterTitle}
-              >
-                <option value="all">{strings.allSprints}</option>
-                <option value="none">{strings.noSprintBacklog}</option>
-                {sprintOptions.map(sp => (
-                  <option key={sp.id} value={sp.name}>
-                    {sp.name} ({sp.state})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Macros Filter Dropdown */}
-            <div className="flex items-center gap-1">
-              <Target size={13} className="text-[var(--text-muted)]" />
-              <select
-                value={parentFilter === '__no_macro__' ? 'none' : parentFilter || filterMacro}
-                onChange={e => {
-                  const val = e.target.value
-                  setFilterMacro(val)
-                  setParentFilter(val === 'all' ? null : val === 'none' ? '__no_macro__' : val)
-                }}
-                className="px-2 py-1 text-xs rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none cursor-pointer"
-                title={strings.macroFilterTitle}
-              >
-                <option value="all">{strings.allMacros}</option>
-                <option value="none">{strings.noMacro}</option>
-                {macroOptions.map(m => (
-                  <option key={m.key} value={m.key}>
-                    {m.key} - {m.title}
-                  </option>
-                ))}
-              </select>
-            </div>
+              <SinglePicker
+                icon={<Target size={12} className={activeMacro !== 'all' ? 'text-amber-400' : 'text-[var(--text-muted)]'} />}
+                label={F.macro}
+                value={macroSearch.label}
+                placeholder={F.allMacrosPlaceholder}
+                clearLabel={F.allMacros}
+                onSearch={macroSearch.search}
+                onPick={pickMacro}
+              />
+            </FilterPanel>
+            <ActiveFilterChips filters={triageChips} />
 
             {/* Hide Done Toggle */}
             <button

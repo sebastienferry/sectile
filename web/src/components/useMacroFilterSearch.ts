@@ -7,6 +7,8 @@ import { plural } from '../lib/i18n'
 /** The value of `parentFilter` that keeps the tickets with no macro. */
 export const NO_MACRO = '__no_macro__'
 
+const NO_EXTRA: MacroCandidate[] = []
+
 export interface MacroCandidate {
   key: string
   title?: string
@@ -16,11 +18,12 @@ export interface MacroCandidate {
 /**
  * The macro filter's values, the same in every view that offers it (#866): the
  * macros the board's facets carry, then the known parents, then whatever the
- * view adds, each key once; "No macro" first while some ticket has none.
+ * view adds, each key once; "No macro" first while some ticket has none, or
+ * always with `alwaysOfferNone`, for a view whose list is not the board's.
  *
  * Returns the lookup's search, and the label of the current `parentFilter`.
  */
-export function useMacroFilterSearch(extra: MacroCandidate[] = []) {
+export function useMacroFilterSearch(extra: MacroCandidate[] = NO_EXTRA, { alwaysOfferNone = false } = {}) {
   const { taskFacets, availableParents, parentFilter, t, settings } = useApp()
   const F = t.shell.filters
   const lang = settings.language
@@ -46,12 +49,13 @@ export function useMacroFilterSearch(extra: MacroCandidate[] = []) {
   const search = React.useCallback(
     async (query: string): Promise<LookupOption[]> => {
       const filtered = macros.filter(m => matchesSearch(query, m.label, m.id))
-      if (taskFacets.noMacroCount > 0 && matchesSearch(query, F.noMacro, F.noMilestone)) {
-        return [{ id: NO_MACRO, label: F.noMacro, sublabel: plural(lang, taskFacets.noMacroCount, F.ticketCount) }, ...filtered]
+      const count = taskFacets.noMacroCount
+      if ((count > 0 || alwaysOfferNone) && matchesSearch(query, F.noMacro, F.noMilestone)) {
+        return [{ id: NO_MACRO, label: F.noMacro, sublabel: count > 0 ? plural(lang, count, F.ticketCount) : undefined }, ...filtered]
       }
       return filtered
     },
-    [macros, taskFacets.noMacroCount, F, lang]
+    [macros, taskFacets.noMacroCount, alwaysOfferNone, F, lang]
   )
 
   const label = React.useMemo(() => {

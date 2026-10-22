@@ -10,7 +10,6 @@ import {
   Clock,
   AlertTriangle,
   Loader2,
-  Search,
   ExternalLink,
   Copy,
   Check,
@@ -26,6 +25,12 @@ import {
   Bot,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { FilterPanel } from './FilterPanel'
+import { SinglePicker } from './FilterPicker'
+import { FilterSearch } from './FilterSearch'
+import { ActiveFilterChips } from './ActiveFilterChips'
+import type { LookupOption } from './LookupField'
+import type { ActiveFilter } from '../lib/activeFilters'
 import { MarkdownView } from './Markdown'
 import { RunStateGlyph } from './RunStateGlyph'
 import { runStateOf, runStateLabel } from '../../../shared/runStates'
@@ -81,6 +86,16 @@ export const ActivitiesView: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [copiedOutput, setCopiedOutput] = useState(false)
   const [outputViewMode, setOutputViewMode] = useState<'rendered' | 'raw'>('rendered')
+
+  const skillLabel = (sk: { name: string; command: string }) => `${sk.name} (${sk.command})`
+  const selectedSkill = skills.find(sk => sk.id === skillFilter)
+  const selectedSkillLabel = skillFilter === 'all' ? '' : selectedSkill ? skillLabel(selectedSkill) : skillFilter
+  const searchSkill = async (query: string): Promise<LookupOption[]> =>
+    skills
+      .map(sk => ({ id: sk.id, label: skillLabel(sk) }))
+      .filter(option => matchesSearch(query, option.label))
+  const activityChips: ActiveFilter[] =
+    skillFilter !== 'all' ? [{ id: 'skill', label: selectedSkillLabel, clear: () => setSkillFilter('all') }] : []
 
   const handleRefresh = async () => {
     setIsRefreshing(true)
@@ -396,34 +411,27 @@ export const ActivitiesView: React.FC = () => {
             </button>
           </div>
 
-          {/* Skill Filter Dropdown */}
-          <select
-            value={skillFilter}
-            onChange={e => setSkillFilter(e.target.value)}
-            className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent-color)]"
-          >
-            <option value="all">{t.activities.filters.allSkills}</option>
-            {skills.map(sk => (
-              <option key={sk.id} value={sk.id}>
-                {sk.name} ({sk.command})
-              </option>
-            ))}
-          </select>
+          {/* The skill (#866): a picker of the shared Filters panel; the
+              activities' filters stay local to this view. */}
+          <FilterPanel activeCount={skillFilter !== 'all' ? 1 : 0} onReset={() => setSkillFilter('all')}>
+            <SinglePicker
+              icon={<Sparkles size={12} className={skillFilter !== 'all' ? 'text-violet-400' : 'text-[var(--text-muted)]'} />}
+              label={t.shell.filters.skill}
+              value={selectedSkillLabel}
+              placeholder={t.activities.filters.allSkills}
+              onSearch={searchSkill}
+              onPick={id => setSkillFilter(id || 'all')}
+            />
+          </FilterPanel>
+          <ActiveFilterChips filters={activityChips} />
         </div>
 
-        {/* Search Filter Input */}
-        <div className="relative w-full sm:w-64">
-          <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none">
-            <Search size={13} />
-          </div>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder={t.activities.filters.searchPlaceholder}
-            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-color)]"
-          />
-        </div>
+        <FilterSearch
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder={t.activities.filters.searchPlaceholder}
+          className="w-full sm:w-64"
+        />
       </div>
 
       {/* Main Content Area (Split View: Activities List + Detailed Inspector) */}
