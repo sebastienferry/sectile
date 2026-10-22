@@ -392,11 +392,10 @@ func TestACredentialCheckGivesUpAfterFiveSeconds(t *testing.T) {
 	}
 }
 
-// The evidence lookup used to resolve with neither a project nor a person, so a
-// deployment whose only GitHub credential was the one somebody stored in their
-// profile had none on this path: the stage transition failed with "configure
-// SECTILE_TRACKER_TOKEN on the server" while every other tracker call worked.
-func TestStagePRLookupUsesTheCallersOwnToken(t *testing.T) {
+// The evidence lookup of a stage transition is a read: it uses the server
+// credential, whoever asked, and a token somebody stored in their profile
+// never answers for it (ADR 0058).
+func TestStagePRLookupUsesTheServerCredential(t *testing.T) {
 	database := testDB(t)
 	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Evidence", IssueTracker: "github", GithubRepo: "acme/app"})
 	if err != nil {
@@ -408,22 +407,11 @@ func TestStagePRLookupUsesTheCallersOwnToken(t *testing.T) {
 	if err = database.SetUserTrackerCredential("usr_alice", "github", "", "", "alice-pat", ""); err != nil {
 		t.Fatal(err)
 	}
-
-	// The person who asked travels under their own token.
-	if got := database.trackerAs("usr_alice", "github", project.ID); got.GithubToken != "alice-pat" {
-		t.Fatalf("the caller's own token is used: %q", got.GithubToken)
-	}
-	// Unattended work names nobody and uses the server credential.
 	if err = database.SaveServerTrackerCredential("github", "", "server-token", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if got := database.trackerAs("", "github", project.ID); got.GithubToken != "server-token" {
-		t.Fatalf("no caller uses the server credential: %q", got.GithubToken)
-	}
-	// A person without a stored credential is not refused on GitHub: the
-	// server's still answers, as it did before personal credentials existed.
-	if got := database.trackerAs("usr_bob", "github", project.ID); got.GithubToken != "server-token" {
-		t.Fatalf("a caller without a credential falls back: %q", got.GithubToken)
+	if got := database.trackerReader(project.ID); got.GithubToken != "server-token" {
+		t.Fatalf("a read uses the server credential: %q", got.GithubToken)
 	}
 }
 

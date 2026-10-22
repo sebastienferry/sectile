@@ -536,6 +536,9 @@ func (d *DB) SaveMacroAxes(projectID string, key string, priority *string, quart
 // priority removes the axis altogether. Run from a queued activity only, as
 // PushMacroHorizonLabel is.
 func (d *DB) PushMacroPriorityLabel(ctx context.Context, projectID string, macroKey string, priority string) (string, error) {
+	// The macro and its mirrors are Sectile's own writes: they go out with the
+	// server credential, whoever asked (ADR 0058).
+	ctx = tracker.WithServiceCredential(ctx)
 	// Only the labels under the current prefix are removed (#635): one left
 	// under a former prefix is a free label now, and stays.
 	prefixes := d.projectAxisPrefixes(projectID)
@@ -575,6 +578,9 @@ func (d *DB) withEpicAxisField(ctx context.Context, projectID, macroKey, axis st
 // readiness removes the axis altogether. The set is closed, so the epic is not
 // read first, unlike the quarter.
 func (d *DB) PushMacroReadinessLabel(ctx context.Context, projectID string, macroKey string, readiness string) (string, error) {
+	// The macro and its mirrors are Sectile's own writes: they go out with the
+	// server credential, whoever asked (ADR 0058).
+	ctx = tracker.WithServiceCredential(ctx)
 	key := strings.TrimSpace(macroKey)
 	prefixes := d.projectAxisPrefixes(projectID)
 	target := prefixes.ReadinessLabel(readiness)
@@ -602,6 +608,9 @@ func (d *DB) PushMacroReadinessLabel(ctx context.Context, projectID string, macr
 // leaving "2026-Q3" beside a freshly set "quarter:2026-q4" would have the
 // ticket carry two contradicting quarters for whoever opens it on the tracker.
 func (d *DB) PushMacroQuarterLabel(ctx context.Context, projectID string, macroKey string, quarter string) (string, error) {
+	// The macro and its mirrors are Sectile's own writes: they go out with the
+	// server credential, whoever asked (ADR 0058).
+	ctx = tracker.WithServiceCredential(ctx)
 	key := strings.TrimSpace(macroKey)
 	fail := func(err error) (string, error) {
 		return "", fmt.Errorf("trimestre posé dans Sectile mais pas sur %s : %w", key, err)

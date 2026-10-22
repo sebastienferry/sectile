@@ -2,13 +2,16 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Globe, Key, Link2, Trash2 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import {
-  JIRA_OAUTH_SCOPES,
-  clearJiraOAuthApp,
-  fetchJiraOAuthApp,
-  jiraOAuthAppSourceLabel,
-  saveJiraOAuthApp,
-  type JiraOAuthAppState,
-} from '../lib/jiraOAuthApp'
+  OAUTH_APP_SCOPES,
+  clearOAuthApp,
+  fetchOAuthApp,
+  oauthAppRedirectPlaceholder,
+  oauthAppSourceLabel,
+  saveOAuthApp,
+  type OAuthAppState,
+} from '../lib/oauthApp'
+import type { OAuthTracker } from '../lib/trackers'
+import type { OAuthAppStrings } from '../locales/translations'
 
 const fieldClass =
   'w-full pl-8 pr-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]'
@@ -16,22 +19,22 @@ const buttonClass =
   'flex items-center gap-1 rounded-lg border border-[var(--border-color)] px-2 py-1 text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed'
 
 /**
- * The Administration page's section for the Atlassian OAuth app people
- * connect Jira through (#654). The secret field starts empty and is emptied
- * again after a save: the page never holds the secret beyond what the admin
- * types.
+ * The Administration page's section for a tracker's OAuth app people connect
+ * through: Atlassian's for Jira (#654), GitHub's and GitLab's (#804). The
+ * secret field starts empty and is emptied again after a save: the page never
+ * holds the secret beyond what the admin types.
  */
-export const JiraOAuthAppPanel: React.FC = () => {
+export const OAuthAppPanel: React.FC<{ tracker: OAuthTracker }> = ({ tracker }) => {
   const { t, addToast } = useApp()
-  const labels = t.admin.jiraOAuth
-  const [state, setState] = useState<JiraOAuthAppState | null>(null)
+  const labels: OAuthAppStrings = t.admin[`${tracker}OAuth`]
+  const [state, setState] = useState<OAuthAppState | null>(null)
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('')
   const [redirectUrl, setRedirectUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const apply = useCallback((next: JiraOAuthAppState) => {
+  const apply = useCallback((next: OAuthAppState) => {
     setState(next)
     setClientId(next.clientId || '')
     setRedirectUrl(next.redirectUrl || '')
@@ -39,10 +42,10 @@ export const JiraOAuthAppPanel: React.FC = () => {
   }, [])
 
   useEffect(() => {
-    fetchJiraOAuthApp()
+    fetchOAuthApp(tracker)
       .then(apply)
       .catch(err => setError(err instanceof Error ? err.message : String(err)))
-  }, [apply])
+  }, [tracker, apply])
 
   const run = async (action: () => Promise<void>, failure: string) => {
     setBusy(true)
@@ -57,14 +60,14 @@ export const JiraOAuthAppPanel: React.FC = () => {
   }
 
   const save = () => run(async () => {
-    apply(await saveJiraOAuthApp({ clientId, clientSecret, redirectUrl }))
+    apply(await saveOAuthApp(tracker, { clientId, clientSecret, redirectUrl }))
     addToast({ type: 'success', title: labels.saved })
   }, labels.saveFailed)
 
   const clear = () => {
     if (!window.confirm(labels.confirmClear)) return
     void run(async () => {
-      apply(await clearJiraOAuthApp())
+      apply(await clearOAuthApp(tracker))
       addToast({ type: 'success', title: labels.cleared })
     }, labels.saveFailed)
   }
@@ -75,20 +78,22 @@ export const JiraOAuthAppPanel: React.FC = () => {
   const canSave = clientId.trim() !== '' && redirectUrl.trim() !== '' && (clientSecret.trim() !== '' || keepsSecret)
   const incomplete = state?.source === 'environment' && !state.configured
   const tone = incomplete ? 'text-amber-400' : state?.source === 'database' ? 'text-emerald-400' : state?.source === 'environment' ? 'text-cyan-400' : 'text-amber-400'
+  const titleId = `admin-${tracker}-oauth-title`
 
   return (
     <section
       className="space-y-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4"
-      aria-labelledby="admin-jira-oauth-title"
-      data-jira-oauth-app
+      aria-labelledby={titleId}
+      data-oauth-app={tracker}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <h3 id="admin-jira-oauth-title" className="flex items-center gap-2 font-bold text-[var(--text-primary)]">
+        <h3 id={titleId} className="flex items-center gap-2 font-bold text-[var(--text-primary)]">
           <Link2 size={14} /> {labels.title}
         </h3>
-        {state && <span className={`text-[11px] ${tone}`}>{incomplete ? labels.sourceEnvironmentIncomplete : jiraOAuthAppSourceLabel(state.source, labels)}</span>}
+        {state && <span className={`text-[11px] ${tone}`}>{incomplete ? labels.sourceEnvironmentIncomplete : oauthAppSourceLabel(state.source, labels)}</span>}
       </div>
       <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">{labels.intro}</p>
+      {labels.note && <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">{labels.note}</p>}
       {error && <p className="text-[11px] text-amber-400">{labels.loadFailed} ({error})</p>}
       {state?.unreadable && <p className="text-[11px] text-amber-400">{labels.unreadable}</p>}
 
@@ -117,7 +122,7 @@ export const JiraOAuthAppPanel: React.FC = () => {
         <label className="space-y-1">
           <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">{labels.redirectUrl}</span>
           <span className="relative block">
-            <input type="url" value={redirectUrl} onChange={e => setRedirectUrl(e.target.value)} placeholder="https://sectile.example.com/auth/jira/callback" className={fieldClass} />
+            <input type="url" value={redirectUrl} onChange={e => setRedirectUrl(e.target.value)} placeholder={oauthAppRedirectPlaceholder(tracker)} className={fieldClass} />
             <Globe size={13} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
           </span>
           <span className="block text-[9.5px] text-[var(--text-muted)]">{labels.redirectHint}</span>
@@ -126,7 +131,7 @@ export const JiraOAuthAppPanel: React.FC = () => {
 
       <details className="text-[11px] text-[var(--text-muted)]">
         <summary className="cursor-pointer">{labels.scopes}</summary>
-        <code className="block mt-1 break-words text-[10.5px] text-[var(--text-secondary)]">{JIRA_OAUTH_SCOPES.join(' ')}</code>
+        <code className="block mt-1 break-words text-[10.5px] text-[var(--text-secondary)]">{OAUTH_APP_SCOPES[tracker].join(' ')}</code>
       </details>
 
       <div className="flex items-center gap-2 text-[11px]">

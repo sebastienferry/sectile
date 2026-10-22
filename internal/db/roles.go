@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -8,6 +9,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"tasks/internal/tracker"
 )
 
 // Two roles. An admin owns the roster, who holds an account, what role it
@@ -85,6 +88,20 @@ func NormalizeDisplayName(name string) (string, error) {
 type Actor struct {
 	ID   string
 	Name string
+	// ServiceCredential says the action comes from a skill run working for
+	// that person: it is recorded as theirs, but its tracker writes go out
+	// with the server credential (ADR 0058).
+	ServiceCredential bool
+}
+
+// trackerContext is the context of a tracker write the actor causes: they are
+// its author, and a skill run's write is marked for the server credential.
+func (a Actor) trackerContext(ctx context.Context) context.Context {
+	ctx = tracker.WithActingUser(ctx, a.ID)
+	if a.ServiceCredential {
+		ctx = tracker.WithServiceCredential(ctx)
+	}
+	return ctx
 }
 
 // NormalizeRole folds any stored or requested value onto the two roles. An

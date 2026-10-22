@@ -1,6 +1,7 @@
 package trackerapi
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -786,36 +787,54 @@ func TestTheActingUsersOwnTokenIsWhatReachesJira(t *testing.T) {
 	adapter := NewJiraAdapter(c)
 	project := jiraTracker()
 
-	// Nobody acting: the server credential, as every queued job will use.
-	if _, err := adapter.SyncIssues(unattended(), tracker.SyncRequest{Tracker: project}); err != nil {
+	service := "Basic " + base64.StdEncoding.EncodeToString([]byte("service@example.com:service-token"))
+	personal := "Basic " + base64.StdEncoding.EncodeToString([]byte("ada@example.com:ada-token"))
+
+	// A read never resolves a personal credential (ADR 0058): nobody acting,
+	// a person with a token, one without, one whose token is sealed, all read
+	// with the server credential.
+	for _, user := range []string{"", "ada", "someone-else", "locked"} {
+		if _, err := adapter.SyncIssues(tracker.WithActingUser(unattended(), user), tracker.SyncRequest{Tracker: project}); err != nil {
+			t.Fatalf("%q: a read ignores the personal credential: %v", user, err)
+		}
+	}
+	for _, auth := range seen {
+		if auth != service {
+			t.Fatalf("a read must carry the server credential: %v", seen)
+		}
+	}
+
+	comment := func(ctx context.Context) error {
+		return adapter.AddComment(ctx, tracker.AddCommentRequest{Tracker: project, Key: "PE-1", Body: "hi"})
+	}
+	// A person's own comment goes out with their own token.
+	seen = nil
+	if err := comment(tracker.WithActingUser(context.Background(), "ada")); err != nil {
 		t.Fatal(err)
 	}
-	// Somebody acting, with a token of their own.
-	ctx := tracker.WithActingUser(unattended(), "ada")
-	if _, err := adapter.SyncIssues(ctx, tracker.SyncRequest{Tracker: project}); err != nil {
-		t.Fatal(err)
+	if len(seen) != 1 || seen[0] != personal {
+		t.Fatalf("a direct comment carries the person's token: %v", seen)
 	}
 	// Somebody acting, with no token of their own: refused rather than written
 	// under the server account, which would put a name on it nobody chose.
-	if _, err := adapter.SyncIssues(tracker.WithActingUser(unattended(), "someone-else"), tracker.SyncRequest{Tracker: project}); err == nil || !strings.Contains(err.Error(), "personal Jira token") {
+	if err := comment(tracker.WithActingUser(context.Background(), "someone-else")); err == nil || !strings.Contains(err.Error(), "personal Jira token") {
 		t.Fatalf("a named user without a token must be refused: %v", err)
 	}
-
-	service := "Basic " + base64.StdEncoding.EncodeToString([]byte("service@example.com:service-token"))
-	personal := "Basic " + base64.StdEncoding.EncodeToString([]byte("ada@example.com:ada-token"))
-	if len(seen) != 2 || seen[0] != service || seen[1] != personal {
-		t.Fatalf("wrong credential used: %v", seen)
+	// A sealed credential its owner has not unlocked fails loudly.
+	seen = nil
+	if err := comment(tracker.WithActingUser(context.Background(), "locked")); err == nil || !strings.Contains(err.Error(), "sealed") {
+		t.Fatalf("a locked credential must stop the write: %v", err)
 	}
-
-	// A sealed credential its owner has not unlocked fails loudly. Falling back
-	// to the service account would write under a name nobody chose.
-	before := len(seen)
-	_, err := adapter.SyncIssues(tracker.WithActingUser(unattended(), "locked"), tracker.SyncRequest{Tracker: project})
-	if err == nil || !strings.Contains(err.Error(), "sealed") {
-		t.Fatalf("a locked credential must stop the call: %v", err)
-	}
-	if len(seen) != before {
+	if len(seen) != 0 {
 		t.Fatal("nothing must reach Jira when the acting user's credential is locked")
+	}
+	// A comment Sectile posts by itself, a stage report for one, goes out with
+	// the server credential even for a person holding a token.
+	if err := comment(tracker.WithServiceCredential(tracker.WithActingUser(context.Background(), "ada"))); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 1 || seen[0] != service {
+		t.Fatalf("a write Sectile makes by itself carries the server credential: %v", seen)
 	}
 }
 

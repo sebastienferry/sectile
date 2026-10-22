@@ -307,7 +307,7 @@ func (d *DB) lookupStagePR(task *models.Task, userID, repo, branch string, targe
 	}
 	if target.foreign {
 		if target.link.Forge == "github" {
-			return d.trackerAs(userID, "github", task.ProjectID).BranchPullRequest(target.link.Repository, branch)
+			return d.trackerReader(task.ProjectID).BranchPullRequest(target.link.Repository, branch)
 		}
 		return d.agentBranchPullRequest(task, userID, branch, "gitlab", target.link.Identity())
 	}
@@ -319,7 +319,7 @@ func (d *DB) lookupStagePR(task *models.Task, userID, repo, branch string, targe
 	}
 	forge := stagePRForge(project)
 	if forge == "github" {
-		return d.trackerAs(userID, "github", task.ProjectID).BranchPullRequest(repo, branch)
+		return d.trackerReader(task.ProjectID).BranchPullRequest(repo, branch)
 	}
 	return d.agentBranchPullRequest(task, userID, branch, forge, "")
 }

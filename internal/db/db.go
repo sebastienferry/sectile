@@ -22,6 +22,7 @@ import (
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/atlassian"
+	"tasks/internal/forgeoauth"
 	"tasks/internal/models"
 	"tasks/internal/secrets"
 	"tasks/internal/skills"
@@ -43,6 +44,10 @@ type SkillJob struct {
 	// request that started it is gone. Empty means nobody asked, which is what
 	// a timer does, and resolves to the server credential.
 	ActingUser string
+	// ServiceCredential says the job's tracker writes go out with the server
+	// credential although it names a person: it was queued from a skill run
+	// (ADR 0058).
+	ServiceCredential bool
 	// Mode is the execution mode already resolved by ResolveSkillMode. The
 	// agent applies it; it never re-reads project settings to decide, so a
 	// stale agent configuration cannot open a window inside a full chain run.
@@ -145,6 +150,11 @@ type DB struct {
 	// the Jira grants (#654). Zero means Atlassian's own; tests set a fake.
 	atlassian     atlassian.Endpoints
 	atlassianHTTP *http.Client
+	// forge and forgeHTTP reach GitHub's and GitLab's OAuth endpoints for the
+	// forge grants (#804). A tracker missing from forge means the provider's
+	// own; tests set a fake.
+	forge     map[string]forgeoauth.Provider
+	forgeHTTP *http.Client
 	// prEvidenceLookup stands in for the forge answer on every route. It gets
 	// the repository asked (the foreign identity for a pull request in another
 	// repository), the branch and the prUrl the caller gave.
@@ -2550,6 +2560,29 @@ func StaleWorkflowLabels(targetLabel string) []string {
 	return out
 }
 
+// stageMoveOnly reports whether going from before to after changes the
+// workflow stage label and no other label.
+func stageMoveOnly(before, after []string) bool {
+	stageOf := func(labels []string) string {
+		for _, l := range labels {
+			clean := strings.ToLower(strings.TrimLeft(strings.TrimSpace(l), "#"))
+			if _, isStage := stageToInternalStatus[clean]; isStage || clean == "untouched" || clean == "closed" {
+				return clean
+			}
+		}
+		return ""
+	}
+	others := func(labels []string) string {
+		rest := SetWorkflowLabel(labels, "")
+		for i := range rest {
+			rest[i] = strings.ToLower(rest[i])
+		}
+		sort.Strings(rest)
+		return strings.Join(rest, "\x00")
+	}
+	return stageOf(before) != stageOf(after) && others(before) == others(after)
+}
+
 // SetWorkflowLabel replaces the stage label in existingLabels with targetLabel.
 // Callers pass a stage name in whatever spelling they have, with or without the
 // "#" prefix and in any case: this function decides the spelling that gets
@@ -3046,6 +3079,10 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 	if existing == nil {
 		return nil, fmt.Errorf("task not found")
 	}
+	// What the ticket was, to tell a pure stage move from an edit once the
+	// request is merged in (ADR 0058).
+	beforeLabels := append([]string(nil), existing.Labels...)
+	beforeTitle, beforeDescription, beforePriority := existing.Title, existing.Description, existing.Priority
 	// A priority the project's mapping only guessed is refused before
 	// anything is written (#679), so the whole update is: a partial write
 	// would leave the card half-changed with nothing on the tracker.
@@ -3359,7 +3396,20 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 
 	// Enqueue async CLI tracker sync in task activities queue whenever task is modified
 	if req.Status != nil || req.Labels != nil || req.Title != nil || req.Description != nil || req.Priority != nil || req.TrackerStatus != nil {
-		d.enqueueTrackerUpdateAsUnsafe(actor.ID, existing, req.Status, existing.Labels, removedLabels, TrackerFieldChanges{
+		// Moving a ticket to another workflow stage from the web is a stage
+		// transition, Sectile's own write, even though it travels as an
+		// update: when the stage label is all that changed, the sync goes out
+		// with the server credential (ADR 0058). An edit that also changes the
+		// title, the description, the priority or another label stays the
+		// person's.
+		syncActor := actor
+		edited := (req.Title != nil && *req.Title != beforeTitle) ||
+			(req.Description != nil && *req.Description != beforeDescription) ||
+			(req.Priority != nil && *req.Priority != beforePriority)
+		if !edited && stageMoveOnly(beforeLabels, existing.Labels) {
+			syncActor.ServiceCredential = true
+		}
+		d.enqueueTrackerUpdateAsUnsafe(syncActor, existing, req.Status, existing.Labels, removedLabels, TrackerFieldChanges{
 			Title:       req.Title != nil,
 			Description: req.Description != nil,
 			Priority:    req.Priority != nil,
@@ -3377,7 +3427,7 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 				}
 			}
 		}
-		if _, opErr := d.enqueueTrackerOpUnsafe(tracker.WithActingUser(context.Background(), actor.ID), TrackerOp{
+		if _, opErr := d.enqueueTrackerOpUnsafe(actor.trackerContext(context.Background()), TrackerOp{
 			Kind:       TrackerOpSetSprint,
 			ProjectID:  existing.ProjectID,
 			TaskID:     existing.ID,
@@ -3398,7 +3448,7 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		if req.AssigneeAccountID != nil {
 			accountID = strings.TrimSpace(*req.AssigneeAccountID)
 		}
-		if _, opErr := d.enqueueTrackerOpUnsafe(tracker.WithActingUser(context.Background(), actor.ID), TrackerOp{
+		if _, opErr := d.enqueueTrackerOpUnsafe(actor.trackerContext(context.Background()), TrackerOp{
 			Kind:         TrackerOpAssign,
 			ProjectID:    existing.ProjectID,
 			TaskID:       existing.ID,
@@ -3609,7 +3659,7 @@ func (d *DB) MoveTaskBy(actor Actor, id string, newStatus models.Status, newPosi
 
 	// Enqueue async CLI tracker sync in task activities queue
 	// Déplacement d'étape : seuls le statut et les labels bougent.
-	d.enqueueTrackerUpdateAsUnsafe(actor.ID, existing, &newStatus, existing.Labels, removedLabels, TrackerFieldChanges{})
+	d.enqueueTrackerUpdateAsUnsafe(actor, existing, &newStatus, existing.Labels, removedLabels, TrackerFieldChanges{})
 
 	return existing, nil
 }
@@ -5167,7 +5217,7 @@ type TrackerFieldChanges struct {
 // ended.
 // There is no variant without an actor: every such write is somebody's, and one
 // that names nobody is refused by the tracker client (#482).
-func (d *DB) enqueueTrackerUpdateAsUnsafe(actorID string, task *models.Task, status *models.Status, labels []string, removedLabels []string, changed TrackerFieldChanges) {
+func (d *DB) enqueueTrackerUpdateAsUnsafe(actor Actor, task *models.Task, status *models.Status, labels []string, removedLabels []string, changed TrackerFieldChanges) {
 	if task == nil {
 		return
 	}
@@ -5246,22 +5296,23 @@ func (d *DB) enqueueTrackerUpdateAsUnsafe(actorID string, task *models.Task, sta
 		Steps:     initialSteps,
 		Prompt:    "",
 		CreatedAt: now,
-		UserID:    strings.TrimSpace(actorID),
+		UserID:    strings.TrimSpace(actor.ID),
 	}
 
 	_ = d.addTaskActivityDirect(act)
 
 	job := SkillJob{
-		ActivityID:      activityID,
-		TaskID:          task.ID,
-		SkillID:         "tracker_update",
-		ActingUser:      actorID,
-		Prompt:          stStr,
-		RemovedLabels:   removedLabels,
-		TrackerStatus:   strings.TrimSpace(task.TrackerStatus),
-		SyncTitle:       changed.Title,
-		SyncDescription: changed.Description,
-		SyncPriority:    changed.Priority,
+		ActivityID:        activityID,
+		TaskID:            task.ID,
+		SkillID:           "tracker_update",
+		ActingUser:        actor.ID,
+		ServiceCredential: actor.ServiceCredential,
+		Prompt:            stStr,
+		RemovedLabels:     removedLabels,
+		TrackerStatus:     strings.TrimSpace(task.TrackerStatus),
+		SyncTitle:         changed.Title,
+		SyncDescription:   changed.Description,
+		SyncPriority:      changed.Priority,
 	}
 
 	d.enqueueJob(job)
@@ -5271,6 +5322,9 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 	// Whoever asked travels with the job: their credential is what the tracker
 	// attributes the write to.
 	ctx = tracker.WithActingUser(ctx, job.ActingUser)
+	if job.ServiceCredential {
+		ctx = tracker.WithServiceCredential(ctx)
+	}
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(job.TaskID)
 	d.mu.RUnlock()
@@ -6570,7 +6624,7 @@ func (d *DB) ConvertTaskToRemote(ctx context.Context, taskID string, target stri
 	}
 
 	// Creation is confirmed; synchronize its state through the observable queue.
-	d.enqueueTrackerUpdateAsUnsafe(tracker.ActingUser(ctx), task, &task.Status, task.Labels, nil, TrackerFieldChanges{})
+	d.enqueueTrackerUpdateAsUnsafe(Actor{ID: tracker.ActingUser(ctx), ServiceCredential: tracker.ServiceCredential(ctx)}, task, &task.Status, task.Labels, nil, TrackerFieldChanges{})
 
 	outputMsg := fmt.Sprintf("Tâche locale convertie vers %s.\nClé distante : %s", strings.ToUpper(target), task.Key)
 	if extURL != nil {

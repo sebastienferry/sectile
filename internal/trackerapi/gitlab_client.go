@@ -71,7 +71,7 @@ func (c *Client) gitlab(ctx context.Context, method, path string, query url.Valu
 	}
 	raw, _, err := c.request(ctx, method, endpoint, "Bearer "+c.GitlabToken, payload)
 	if err != nil {
-		return gitlabError(err)
+		return c.gitlabError(err)
 	}
 	if result != nil && len(raw) > 0 {
 		if err := json.Unmarshal(raw, result); err != nil {
@@ -101,7 +101,7 @@ func (c *Client) gitlabPages(ctx context.Context, path string, query url.Values)
 		q.Set("page", page)
 		raw, header, err := c.request(ctx, http.MethodGet, base+"?"+q.Encode(), "Bearer "+c.GitlabToken, nil)
 		if err != nil {
-			return nil, gitlabError(err)
+			return nil, c.gitlabError(err)
 		}
 		var chunk []json.RawMessage
 		if err := json.Unmarshal(raw, &chunk); err != nil {
@@ -141,7 +141,7 @@ func (c *Client) gitlabGraphQL(ctx context.Context, query string, variables map[
 	}
 	raw, _, err := c.request(ctx, http.MethodPost, c.gitlabGraphQLEndpoint(), "Bearer "+c.GitlabToken, map[string]any{"query": query, "variables": variables})
 	if err != nil {
-		return gitlabError(err)
+		return c.gitlabError(err)
 	}
 	var envelope struct {
 		Data   json.RawMessage `json:"data"`
@@ -177,6 +177,17 @@ func gitlabMutationErrors(action string, errs []string) error {
 		return nil
 	}
 	return fmt.Errorf("%s : %s", action, truncateText(strings.Join(errs, " | "), gitlabErrorMessageLimit))
+}
+
+// gitlabError is the package gitlabError, except that a 401 on a token from
+// the person's GitLab OAuth grant (#804) says to reconnect rather than to
+// check a token they never pasted. It does not disconnect the grant: only a
+// refused refresh does, as for Jira.
+func (c *Client) gitlabError(err error) error {
+	if c.oauthGrant && isUnauthorized(err) {
+		return fmt.Errorf("%w : GitLab a refusé l'accès accordé par votre connexion GitLab. Reconnectez GitLab dans Profil → Identifiants du tracker", err)
+	}
+	return gitlabError(err)
 }
 
 // gitlabError says in French what GitLab refused, quoting its own message when

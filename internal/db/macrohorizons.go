@@ -134,6 +134,9 @@ func (d *DB) macroTracker(projectID string, macroKey string, axis macroAxis) (tr
 // wait on it, and its failure has to stay readable in the activity rather than
 // vanish behind an HTTP timeout.
 func (d *DB) PushMacroHorizonLabel(ctx context.Context, projectID string, macroKey string, horizon string) (string, error) {
+	// The macro and its mirrors are Sectile's own writes: they go out with the
+	// server credential, whoever asked (ADR 0058).
+	ctx = tracker.WithServiceCredential(ctx)
 	macroKey = strings.TrimSpace(macroKey)
 	target := RoadmapLabel(horizon)
 	if err := d.pushMacroLabels(ctx, projectID, macroKey, axisHorizon, target, removedRoadmapLabels(target)); err != nil {

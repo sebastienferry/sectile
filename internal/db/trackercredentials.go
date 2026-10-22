@@ -141,20 +141,10 @@ func (d *DB) trackerForWrite(ctx context.Context, trackerName, projectID string)
 	return d.trackers.ForWrite(ctx, trackerName, projectCredentialRef(projectID))
 }
 
-// trackerAs is tracker with the credentials of the person who asked for the
-// work substituted where they stored any. It is for reads only: it falls back
-// to the project credential when theirs cannot be resolved, which a read may do
-// and a write may not. Writes use trackerForWrite.
-func (d *DB) trackerAs(userID, trackerName, projectID string) *trackerapi.Client {
-	ref := projectCredentialRef(projectID)
-	client, _, err := d.trackers.ForActingUser(userID, trackerName, ref)
-	if err != nil || client == nil {
-		// A credential that cannot be resolved is not a reason to drop the
-		// request: the project's own is still there, and the call will say for
-		// itself whether it is accepted.
-		return d.trackers.For(ref)
-	}
-	return client
+// trackerReader is the client of a read made for one project: always the
+// server credential, whoever asked (ADR 0058). Writes use trackerForWrite.
+func (d *DB) trackerReader(projectID string) *trackerapi.Client {
+	return d.trackers.ForRead(projectCredentialRef(projectID))
 }
 
 // withoutTrackerTokens strips the credential columns from a settings row on its
@@ -197,13 +187,25 @@ const credentialCheckTimeout = 5 * time.Second
 
 // CheckTrackerCredentials authenticates connection parameters against the
 // instance and answers with the account they belong to. An empty URL or token
-// falls back to what is already resolved for the server, so the setup screen can
-// re-check a stored credential it never received back. The e-mail only matters
-// to Jira, which authenticates the account rather than a bare token.
+// falls back to the caller's own stored credential, then to the server's, so
+// the setup can check a site it is pointed at. The e-mail only matters to
+// Jira, which authenticates the account rather than a bare token.
 func (d *DB) CheckTrackerCredentials(ctx context.Context, trackerName, apiURL, email, token string) (string, error) {
+	return d.checkTrackerCredentialsTimed(ctx, false, trackerName, apiURL, email, token)
+}
+
+// CheckPersonalTrackerCredentials is the check of the personal form: the token
+// typed, else the caller's own stored one, and never the server's. A caller
+// who has neither is told so rather than shown the service account, which
+// Administration checks through CheckServerTrackerCredentials (ADR 0058).
+func (d *DB) CheckPersonalTrackerCredentials(ctx context.Context, trackerName, apiURL, email, token string) (string, error) {
+	return d.checkTrackerCredentialsTimed(ctx, true, trackerName, apiURL, email, token)
+}
+
+func (d *DB) checkTrackerCredentialsTimed(ctx context.Context, personal bool, trackerName, apiURL, email, token string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, credentialCheckTimeout)
 	defer cancel()
-	account, err := d.checkTrackerCredentials(ctx, trackerName, apiURL, email, token)
+	account, err := d.checkTrackerCredentials(ctx, personal, trackerName, apiURL, email, token)
 	if errors.Is(err, context.DeadlineExceeded) {
 		// The deadline is ours, so the message says what it means rather than
 		// leaving "context deadline exceeded" in front of somebody.
@@ -212,19 +214,32 @@ func (d *DB) CheckTrackerCredentials(ctx context.Context, trackerName, apiURL, e
 	return account, err
 }
 
-func (d *DB) checkTrackerCredentials(ctx context.Context, trackerName, apiURL, email, token string) (string, error) {
+func (d *DB) checkTrackerCredentials(ctx context.Context, personal bool, trackerName, apiURL, email, token string) (string, error) {
 	client := d.tracker("")
 	switch strings.ToLower(strings.TrimSpace(trackerName)) {
 	case "github":
 		site, own := "", ""
 		if user := tracker.ActingUser(ctx); user != "" {
+			// The personal form checks a grant through itself (#804); the
+			// setup never does, a grant being no answer about a site.
+			if probed, ok := d.forgeGrantProbe(user, "github", apiURL, client.GithubURL, token); ok && personal {
+				access, _, err := d.forgeGrantAccess(ctx, "github", user, probed)
+				if err != nil {
+					return "", err
+				}
+				return client.CheckGithub(ctx, probed, access)
+			}
 			var err error
 			if site, _, own, err = d.UserTrackerCredentialsFor(user, "github"); err != nil {
 				return "", err
 			}
 		}
 		probed := firstNonEmpty(apiURL, site, client.GithubURL)
-		account, err := client.CheckGithub(ctx, probed, firstNonEmpty(token, own, client.GithubToken))
+		checked, err := d.checkToken(ctx, personal, "GitHub", token, own, client.GithubToken)
+		if err != nil {
+			return "", err
+		}
+		account, err := client.CheckGithub(ctx, probed, checked)
 		// Only a check of the caller's own stored token, on the site it is
 		// stored for, says whose it is. A typed token, or the server's one,
 		// proves nothing about the caller: the admin setup screen goes
@@ -234,7 +249,27 @@ func (d *DB) checkTrackerCredentials(ctx context.Context, trackerName, apiURL, e
 		}
 		return account, err
 	case "gitlab":
-		return client.CheckGitlab(ctx, firstNonEmpty(apiURL, client.GitlabURL), firstNonEmpty(token, client.GitlabToken))
+		site, own := "", ""
+		if user := tracker.ActingUser(ctx); user != "" {
+			// The personal form checks a grant through itself (#804); the
+			// setup never does, a grant being no answer about a site.
+			if probed, ok := d.forgeGrantProbe(user, "gitlab", apiURL, client.GitlabURL, token); ok && personal {
+				access, _, err := d.forgeGrantAccess(ctx, "gitlab", user, probed)
+				if err != nil {
+					return "", err
+				}
+				return client.CheckGitlab(ctx, probed, access)
+			}
+			var err error
+			if site, _, own, err = d.UserTrackerCredentialsFor(user, "gitlab"); err != nil {
+				return "", err
+			}
+		}
+		checked, err := d.checkToken(ctx, personal, "GitLab", token, own, client.GitlabToken)
+		if err != nil {
+			return "", err
+		}
+		return client.CheckGitlab(ctx, firstNonEmpty(apiURL, site, client.GitlabURL), checked)
 	case "jira":
 		// A Jira credential is personal, so re-checking a stored one falls back
 		// to the caller's own token rather than the server's: the interface
@@ -262,7 +297,11 @@ func (d *DB) checkTrackerCredentials(ctx context.Context, trackerName, apiURL, e
 			}
 		}
 		probedSite, probedEmail := firstNonEmpty(apiURL, site, client.JiraURL), firstNonEmpty(email, mail, client.JiraEmail)
-		account, err := client.CheckJira(ctx, probedSite, probedEmail, firstNonEmpty(token, own, client.JiraToken))
+		checked, err := d.checkToken(ctx, personal, "Jira", token, own, client.JiraToken)
+		if err != nil {
+			return "", err
+		}
+		account, err := client.CheckJira(ctx, probedSite, probedEmail, checked)
 		// As for GitHub: the stored token, on its own site and with its own
 		// e-mail, or nothing is learnt.
 		if err == nil && token == "" && own != "" &&
@@ -274,6 +313,34 @@ func (d *DB) checkTrackerCredentials(ctx context.Context, trackerName, apiURL, e
 	default:
 		return "", fmt.Errorf("aucune vérification de connexion pour le tracker %q", trackerName)
 	}
+}
+
+// checkToken is the token a check tries: the one typed, else the caller's own
+// stored one, else the server's. A check of the personal form stops before the
+// server's: answering "connected as" the service account on a personal screen
+// would tell somebody a credential works that is not theirs.
+func (d *DB) checkToken(ctx context.Context, personal bool, provider, typed, own, server string) (string, error) {
+	if token := firstNonEmpty(typed, own); token != "" {
+		return token, nil
+	}
+	if personal && tracker.ActingUser(ctx) != "" {
+		return "", fmt.Errorf("aucun accès %s personnel à vérifier : saisissez un jeton", provider)
+	}
+	return server, nil
+}
+
+// forgeGrantProbe says whether a check of the caller's own credential for a
+// forge is a check of their grant (#804), and on which site: no token typed,
+// and the stored row is a grant.
+func (d *DB) forgeGrantProbe(user, trackerName, apiURL, deployment, token string) (string, bool) {
+	if token != "" {
+		return "", false
+	}
+	row, err := d.readGrantRow(trackerName, user)
+	if err != nil || row.kind != CredentialKindOAuth {
+		return "", false
+	}
+	return firstNonEmpty(apiURL, deployment), true
 }
 
 // ConfirmUserTrackerCredential asks the tracker whom one person's stored
@@ -288,7 +355,7 @@ func (d *DB) ConfirmUserTrackerCredential(ctx context.Context, userID, trackerNa
 	d.mu.RLock()
 	site, email, token, err := d.userTrackerCredential(userID, trackerName)
 	d.mu.RUnlock()
-	if errors.Is(err, errJiraGrant) {
+	if errors.Is(err, errOAuthGrant) {
 		// A grant's account was confirmed through it when it was stored.
 		return "", nil
 	}

@@ -105,6 +105,14 @@ func newIsolationFixture(t *testing.T) *isolationFixture {
 	}
 }
 
+// dropServerCredential leaves the deployment with no GitHub server credential,
+// neither in the environment nor on the client already built from it.
+func (f *isolationFixture) dropServerCredential(t *testing.T) {
+	t.Helper()
+	t.Setenv("SECTILE_GITHUB_TOKEN", "")
+	f.d.trackers.GithubToken = ""
+}
+
 // remoteTask creates an issue as ada, the only person who may.
 func (f *isolationFixture) remoteTask(t *testing.T, title string) *models.Task {
 	t.Helper()
@@ -157,12 +165,44 @@ func hasStep(act *models.TaskActivity, fragment string) bool {
 	return false
 }
 
-// A stage report used to be posted with context.Background(), under the server
-// account, whoever recorded the stage. It now goes out, with the stage label,
-// under the person's own token.
-func TestStageReportIsPostedAsThePersonWhoRecordedIt(t *testing.T) {
+// A stage transition is Sectile's own write (ADR 0058): its label and its
+// report go out under the server account, even for a person holding a token of
+// their own, while the activity keeps naming that person.
+func TestStageReportIsPostedWithTheServerCredential(t *testing.T) {
+	for _, who := range []string{"usr_ada", "usr_grace"} {
+		t.Run(who, func(t *testing.T) {
+			f := newIsolationFixture(t)
+			task := f.remoteTask(t, "Report")
+			before := f.github.count()
+
+			_, act, err := f.d.TransitionTaskStageBy(who, task.ID, "clarified", "Scope settled", "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			done := f.finished(t, act.ID)
+			if done.Status != string(models.ActivityStatusCompleted) || done.UserID != who {
+				t.Fatalf("the stage must complete under its author's name: %+v", done)
+			}
+			requests := f.github.since(before)
+			signedOnlyBy(t, requests, "server-token")
+			commented := false
+			for _, request := range requests {
+				commented = commented || strings.HasPrefix(request, "POST /repos/acme/app/issues/") && strings.Contains(request, "/comments ")
+			}
+			if !commented {
+				t.Fatalf("the report must be posted as a comment: %v", requests)
+			}
+		})
+	}
+}
+
+// Without a server credential, the stage is recorded on the board and nothing
+// reaches the tracker: no label, no report, and no personal token stands in.
+// The activity fails and says an administrator has to set it.
+func TestStageWithoutAServerCredentialIsKeptLocallyAndFails(t *testing.T) {
 	f := newIsolationFixture(t)
-	task := f.remoteTask(t, "Report")
+	task := f.remoteTask(t, "No server token")
+	f.dropServerCredential(t)
 	before := f.github.count()
 
 	_, act, err := f.d.TransitionTaskStageBy("usr_ada", task.ID, "clarified", "Scope settled", "", "")
@@ -170,38 +210,11 @@ func TestStageReportIsPostedAsThePersonWhoRecordedIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := f.finished(t, act.ID)
-	if done.Status != string(models.ActivityStatusCompleted) {
-		t.Fatalf("the stage must complete: %+v", done)
-	}
-	requests := f.github.since(before)
-	signedOnlyBy(t, requests, "ada-token")
-	commented := false
-	for _, request := range requests {
-		commented = commented || strings.HasPrefix(request, "POST /repos/acme/app/issues/") && strings.Contains(request, "/comments ")
-	}
-	if !commented {
-		t.Fatalf("the report must be posted as a comment: %v", requests)
-	}
-}
-
-// Without a personal token, the stage is recorded on the board and nothing
-// reaches the tracker: no label, no report. The activity fails and says why,
-// rather than claiming a report nobody can find.
-func TestStageWithoutAPersonalTokenIsKeptLocallyAndFails(t *testing.T) {
-	f := newIsolationFixture(t)
-	task := f.remoteTask(t, "No token")
-	before := f.github.count()
-
-	_, act, err := f.d.TransitionTaskStageBy("usr_grace", task.ID, "clarified", "Scope settled", "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := f.finished(t, act.ID)
 	if done.Status != string(models.ActivityStatusFailed) {
 		t.Fatalf("the activity must fail: %+v", done)
 	}
-	if !hasStep(done, "Rapport d'étape non consigné") || !hasStep(done, "Profile → Tracker credentials") {
-		t.Fatalf("the failure step must name the missing credential: %v", done.Steps)
+	if !hasStep(done, "Rapport d'étape non consigné") || !hasStep(done, "Administration") {
+		t.Fatalf("the failure step must name the missing server credential: %v", done.Steps)
 	}
 	if hasStep(done, "Rapport d'étape consigné sur") {
 		t.Fatalf("no step may claim the report was posted: %v", done.Steps)
@@ -213,6 +226,19 @@ func TestStageWithoutAPersonalTokenIsKeptLocallyAndFails(t *testing.T) {
 	if err != nil || f.d.StageOfTask(stored) != "clarified" {
 		t.Fatalf("the stage must be kept locally: %+v %v", stored, err)
 	}
+
+	// A ticket action the person performs still goes out with their token.
+	before = f.github.count()
+	comment, err := f.d.EnqueueTrackerOp(f.ada, TrackerOp{
+		Kind: TrackerOpTaskLabels, ProjectID: f.project.ID, TaskID: task.ID, TaskKey: task.Key, Labels: []string{"bug"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done := f.finished(t, comment.ID); done.Status != string(models.ActivityStatusCompleted) {
+		t.Fatalf("a direct ticket action needs no server credential: %+v", done)
+	}
+	signedOnlyBy(t, f.github.since(before), "ada-token")
 }
 
 // A queued write that names neither a person nor unattended work is a write
@@ -278,7 +304,26 @@ func TestConversionCreatesTheIssueAsThePerson(t *testing.T) {
 		t.Fatalf("the task must be converted: %+v", converted)
 	}
 	f.settle(t)
-	signedOnlyBy(t, f.github.since(before), "ada-token")
+	writesSignedByReadsByServer(t, f.github.since(before), "ada-token")
+}
+
+// writesSignedByReadsByServer checks a person's direct ticket action: every
+// write carries their token. A read is either part of the write itself, made
+// by the same client, or one Sectile makes around it, which carries the
+// server's (ADR 0058); no other token may appear.
+func writesSignedByReadsByServer(t *testing.T, requests []string, token string) {
+	t.Helper()
+	if len(requests) == 0 {
+		t.Fatal("no request reached GitHub")
+	}
+	for _, request := range requests {
+		if strings.HasPrefix(request, "GET ") && strings.HasSuffix(request, " server-token") {
+			continue
+		}
+		if !strings.HasSuffix(request, " "+token) {
+			t.Fatalf("writes must carry %s and reads server-token, got %v", token, requests)
+		}
+	}
 }
 
 // A story created under a macro is created, and put on the macro's milestone,
@@ -313,56 +358,49 @@ func TestStoryUnderAMacroIsCreatedAsThePerson(t *testing.T) {
 	}
 }
 
-// The GitHub milestones backing macros were written with the server client.
-// They are now written as the person, and a refusal keeps the local change
-// while saying GitHub was not updated. Listing them stays a read.
-func TestMacroMilestonesAreWrittenAsThePerson(t *testing.T) {
+// The GitHub milestones backing macros are Sectile's own writes (ADR 0058):
+// they go out with the server credential whoever creates, renames or deletes
+// the macro, token or not. Without a server credential the change is kept
+// locally and the refusal says an administrator has to set it.
+func TestMacroMilestonesAreWrittenWithTheServerCredential(t *testing.T) {
 	f := newIsolationFixture(t)
 
-	before := f.github.count()
-	created, err := f.d.CreateMacro(f.ada, f.project.ID, "Macro", "", nil)
-	if err != nil {
-		t.Fatal(err)
+	for _, who := range []context.Context{f.ada, f.grace} {
+		before := f.github.count()
+		created, err := f.d.CreateMacro(who, f.project.ID, "Macro", "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		title := "Renamed"
+		if _, err := f.d.UpdateMacro(who, f.project.ID, created.Key, &title, nil, nil, nil, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.d.DeleteMacro(who, f.project.ID, created.Key); err != nil {
+			t.Fatal(err)
+		}
+		signedOnlyBy(t, f.github.since(before), "server-token")
 	}
-	title := "Renamed"
-	if _, err := f.d.UpdateMacro(f.ada, f.project.ID, created.Key, &title, nil, nil, nil, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.d.DeleteMacro(f.ada, f.project.ID, created.Key); err != nil {
-		t.Fatal(err)
-	}
-	signedOnlyBy(t, f.github.since(before), "ada-token")
 
-	before = f.github.count()
-	kept, err := f.d.CreateMacro(f.grace, f.project.ID, "Local macro", "", nil)
-	var missing *trackerapi.MissingPersonalCredentialError
-	if !errors.As(err, &missing) || kept == nil {
-		t.Fatalf("a creation without a token is kept locally and refused on GitHub: %+v %v", kept, err)
+	f.dropServerCredential(t)
+	before := f.github.count()
+	kept, err := f.d.CreateMacro(f.ada, f.project.ID, "Local macro", "", nil)
+	if trackerapi.MissingServerCredentialTracker(err) != "github" || kept == nil {
+		t.Fatalf("a creation without a server credential is kept locally and refused on GitHub: %+v %v", kept, err)
 	}
 	renamed := "Still local"
-	saved, err := f.d.UpdateMacro(f.grace, f.project.ID, "M-3", &renamed, nil, nil, nil, nil, nil)
-	if !errors.As(err, &missing) || saved == nil || saved.Title != renamed {
-		t.Fatalf("an edit without a token is saved locally and refused on GitHub: %+v %v", saved, err)
+	saved, err := f.d.UpdateMacro(f.ada, f.project.ID, "M-3", &renamed, nil, nil, nil, nil, nil)
+	if trackerapi.MissingServerCredentialTracker(err) != "github" || saved == nil || saved.Title != renamed {
+		t.Fatalf("an edit without a server credential is saved locally and refused on GitHub: %+v %v", saved, err)
 	}
-	if err := f.d.DeleteMacro(f.grace, f.project.ID, "M-3"); !errors.As(err, &missing) {
-		t.Fatalf("a deletion without a token is refused on GitHub: %v", err)
+	if requests := f.github.since(before); len(requests) != 0 {
+		t.Fatalf("nothing may reach GitHub without a credential, got %v", requests)
 	}
-	for _, request := range f.github.since(before) {
-		if !strings.HasPrefix(request, "GET ") {
-			t.Fatalf("a refused person may cause no write, got %v", request)
-		}
-	}
-
-	before = f.github.count()
-	if _, err := f.d.GetProjectMacros(f.project.ID); err != nil {
-		t.Fatal(err)
-	}
-	signedOnlyBy(t, f.github.since(before), "server-token")
 }
 
-// Migrating a macro to another GitHub repository writes its milestone there:
-// without a token of their own, the person moves nothing.
-func TestMacroMigrationIsRefusedBeforeAnythingMoves(t *testing.T) {
+// Migrating a macro to another GitHub repository is part of the macro's
+// lifecycle: its milestone writes go out with the server credential, so a
+// person without a token of their own migrates it too.
+func TestMacroMigrationUsesTheServerCredential(t *testing.T) {
 	f := newIsolationFixture(t)
 	target, err := f.d.CreateProject(models.CreateProjectRequest{Name: "Target", IssueTracker: "github", GithubRepo: "acme/other"})
 	if err != nil {
@@ -373,29 +411,8 @@ func TestMacroMigrationIsRefusedBeforeAnythingMoves(t *testing.T) {
 	}
 
 	before := f.github.count()
-	_, _, err = f.d.MigrateMacro(f.grace, f.project.ID, "M-9", target.ID, true)
-	var missing *trackerapi.MissingPersonalCredentialError
-	if !errors.As(err, &missing) {
-		t.Fatalf("the migration must be refused: %v", err)
-	}
-	if requests := f.github.since(before); len(requests) != 0 {
-		t.Fatalf("nothing may reach GitHub, got %v", requests)
-	}
-	metas, _ := f.d.GetProjectMacros(f.project.ID)
-	found := false
-	for _, meta := range metas {
-		found = found || meta.Key == "M-9"
-	}
-	if !found {
-		t.Fatal("a refused migration leaves the macro where it was")
-	}
-
-	if _, _, err := f.d.MigrateMacro(f.ada, f.project.ID, "M-9", target.ID, false); err != nil {
+	if _, _, err := f.d.MigrateMacro(f.grace, f.project.ID, "M-9", target.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	for _, request := range f.github.since(before) {
-		if !strings.HasPrefix(request, "GET ") && !strings.HasSuffix(request, " ada-token") {
-			t.Fatalf("a migration write must carry the person's token, got %v", request)
-		}
-	}
+	signedOnlyBy(t, f.github.since(before), "server-token")
 }

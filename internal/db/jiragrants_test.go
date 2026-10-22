@@ -207,25 +207,20 @@ func TestAnExpiredGrantIsRefreshedForQueuedWrites(t *testing.T) {
 		t.Errorf("version %d → %d, disconnected %v", before.version, after.version, after.disconnected)
 	}
 
-	// A managed run reports a stage on its owner's behalf, hours later.
+	// A comment Ada posts herself hours later refreshes the grant again. A
+	// stage report would not: it is Sectile's own write and goes out with the
+	// server credential (ADR 0058).
 	f.expire(t, f.d, "usr_ada")
 	writes := len(f.fake.Writes())
-	_, stage, err := f.d.TransitionTaskStageBy("usr_ada", task.ID, "clarified", "Clarified while you were away", "", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !f.d.jobs.drain(10 * time.Second) {
-		t.Fatal("the queue did not settle")
-	}
-	if done, err := f.d.GetActivityByID(stage.ID); err != nil || done.Status != string(models.ActivityStatusCompleted) {
-		t.Fatalf("the stage report: %+v %v", done, err)
+	if err := f.d.AddTaskCommentAs(f.as("usr_ada"), task.ID, "Back from lunch"); err != nil {
+		t.Fatalf("the comment: %v", err)
 	}
 	if f.fake.Refreshes() != 2 || len(f.fake.Writes()) <= writes {
 		t.Errorf("refreshes %d, writes %+v", f.fake.Refreshes(), f.fake.Writes())
 	}
 	for _, w := range f.fake.Writes()[writes:] {
 		if w.Account != "Ada" {
-			t.Errorf("a stage write not attributed to Ada: %+v", w)
+			t.Errorf("a comment not attributed to Ada: %+v", w)
 		}
 	}
 }
@@ -305,9 +300,9 @@ func TestARevokedGrantDisconnectsAndRefusesTheWrite(t *testing.T) {
 	if f.fake.Refreshes() != refreshes {
 		t.Error("a disconnected grant must not be refreshed again")
 	}
-	// A read falls back to the project client, as reads do.
-	if client := f.d.trackerAs("usr_ada", "jira", f.project.ID); client == nil || client.JiraBearer != "" {
-		t.Errorf("a read must fall back to the project client: %+v", client)
+	// A read never touches the grant: it uses the project client (ADR 0058).
+	if client := f.d.trackerReader(f.project.ID); client == nil || client.JiraBearer != "" {
+		t.Errorf("a read must use the project client: %+v", client)
 	}
 
 	// US3.3: reconnecting repairs it.

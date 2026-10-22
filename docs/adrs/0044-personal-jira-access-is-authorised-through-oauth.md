@@ -2,7 +2,10 @@
 
 Status: Accepted (#654). Amended while implementing on the sites a grant
 covers, the callback URL, the scopes and the serialisation of the refresh; the
-sections below state the decision as built.
+sections below state the decision as built. Amended by
+[ADR 0058](0058-a-personal-tracker-credential-signs-only-direct-ticket-actions.md):
+a grant signs only the ticket actions its owner performs, never a read or a
+write Sectile makes by itself.
 
 Amends: [ADR 0014](0014-personal-tracker-credentials-are-sealed.md), its
 rejected alternative "OAuth 2.0 three-legged authorisation with Atlassian",
