@@ -220,6 +220,15 @@ func (d *DB) checkTrackerCredentials(ctx context.Context, personal bool, tracker
 	case "github":
 		site, own := "", ""
 		if user := tracker.ActingUser(ctx); user != "" {
+			// The personal form checks a grant through itself (#804); the
+			// setup never does, a grant being no answer about a site.
+			if probed, ok := d.forgeGrantProbe(user, "github", apiURL, client.GithubURL, token); ok && personal {
+				access, _, err := d.forgeGrantAccess(ctx, "github", user, probed)
+				if err != nil {
+					return "", err
+				}
+				return client.CheckGithub(ctx, probed, access)
+			}
 			var err error
 			if site, _, own, err = d.UserTrackerCredentialsFor(user, "github"); err != nil {
 				return "", err
@@ -242,6 +251,15 @@ func (d *DB) checkTrackerCredentials(ctx context.Context, personal bool, tracker
 	case "gitlab":
 		site, own := "", ""
 		if user := tracker.ActingUser(ctx); user != "" {
+			// The personal form checks a grant through itself (#804); the
+			// setup never does, a grant being no answer about a site.
+			if probed, ok := d.forgeGrantProbe(user, "gitlab", apiURL, client.GitlabURL, token); ok && personal {
+				access, _, err := d.forgeGrantAccess(ctx, "gitlab", user, probed)
+				if err != nil {
+					return "", err
+				}
+				return client.CheckGitlab(ctx, probed, access)
+			}
 			var err error
 			if site, _, own, err = d.UserTrackerCredentialsFor(user, "gitlab"); err != nil {
 				return "", err
@@ -311,6 +329,20 @@ func (d *DB) checkToken(ctx context.Context, personal bool, provider, typed, own
 	return server, nil
 }
 
+// forgeGrantProbe says whether a check of the caller's own credential for a
+// forge is a check of their grant (#804), and on which site: no token typed,
+// and the stored row is a grant.
+func (d *DB) forgeGrantProbe(user, trackerName, apiURL, deployment, token string) (string, bool) {
+	if token != "" {
+		return "", false
+	}
+	row, err := d.readGrantRow(trackerName, user)
+	if err != nil || row.kind != CredentialKindOAuth {
+		return "", false
+	}
+	return firstNonEmpty(apiURL, deployment), true
+}
+
 // ConfirmUserTrackerCredential asks the tracker whom one person's stored
 // credential belongs to, and records the answer for My Tasks (#468). It is
 // called right after the credential is saved, while a sealed one is still
@@ -323,7 +355,7 @@ func (d *DB) ConfirmUserTrackerCredential(ctx context.Context, userID, trackerNa
 	d.mu.RLock()
 	site, email, token, err := d.userTrackerCredential(userID, trackerName)
 	d.mu.RUnlock()
-	if errors.Is(err, errJiraGrant) {
+	if errors.Is(err, errOAuthGrant) {
 		// A grant's account was confirmed through it when it was stored.
 		return "", nil
 	}

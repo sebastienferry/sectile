@@ -35,9 +35,10 @@ const (
 	CredentialKindOAuth    = "oauth"
 )
 
-// errJiraGrant tells the API token paths that the row holds a grant: there is
-// no token to open, check or re-store.
-var errJiraGrant = errors.New("the Jira credential of this user is an OAuth grant")
+// errOAuthGrant tells the API token paths that the row holds a grant, of Jira
+// or, since #804, of GitHub or GitLab: there is no token to open, check or
+// re-store.
+var errOAuthGrant = errors.New("the credential of this user is an OAuth grant")
 
 // ErrJiraOAuthNotConfigured refuses a connection, or the refresh of a grant,
 // while no OAuth app is configured.
@@ -128,8 +129,9 @@ func (d *DB) SaveJiraGrant(userID string, tokens atlassian.Tokens, sites []atlas
 	return tx.Commit()
 }
 
-// jiraGrantRow is the part of a credential row the refresh reads.
-type jiraGrantRow struct {
+// grantRow is the part of a credential row the refresh reads, for a Jira
+// grant or a forge one.
+type grantRow struct {
 	kind         string
 	version      int64
 	record       []byte
@@ -138,12 +140,17 @@ type jiraGrantRow struct {
 	claimedAt time.Time
 }
 
-// readJiraGrantRow takes no lock, and is never called under d.mu: a refresh
-// may follow it, and none is held across a call to Atlassian.
-func (d *DB) readJiraGrantRow(userID string) (*jiraGrantRow, error) {
-	var row jiraGrantRow
+// readJiraGrantRow reads the row of a person's Jira grant; see readGrantRow.
+func (d *DB) readJiraGrantRow(userID string) (*grantRow, error) {
+	return d.readGrantRow("jira", userID)
+}
+
+// readGrantRow takes no lock, and is never called under d.mu: a refresh may
+// follow it, and none is held across a call to the provider.
+func (d *DB) readGrantRow(tracker, userID string) (*grantRow, error) {
+	var row grantRow
 	var disconnected, claimed sql.NullTime
-	err := d.conn.QueryRow(`SELECT kind, version, record, disconnected_at, refresh_claimed_at FROM user_tracker_credentials WHERE user_id = ? AND tracker = 'jira'`, userID).
+	err := d.conn.QueryRow(`SELECT kind, version, record, disconnected_at, refresh_claimed_at FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker).
 		Scan(&row.kind, &row.version, &row.record, &disconnected, &claimed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNoUserCredential
@@ -204,12 +211,12 @@ func (d *DB) jiraGrantAccess(ctx context.Context, userID, site string) (apiBase,
 		// Another caller, here or on another instance, is refreshing: its
 		// refresh token is spent, so wait for what it writes.
 		if !row.claimedAt.IsZero() && time.Since(row.claimedAt) < jiraGrantRefreshWait {
-			if err := d.awaitJiraGrantRefresh(ctx, userID, row.version, row.claimedAt.Add(jiraGrantRefreshWait)); err != nil {
+			if err := d.awaitGrantRefresh(ctx, "jira", userID, row.version, row.claimedAt.Add(jiraGrantRefreshWait)); err != nil {
 				return "", "", err
 			}
 			continue
 		}
-		claimed, err := d.claimJiraGrantRefresh(userID, row.version)
+		claimed, err := d.claimGrantRefresh("jira", userID, row.version)
 		if err != nil {
 			return "", "", err
 		}
@@ -229,7 +236,7 @@ func (d *DB) refreshJiraGrant(ctx context.Context, userID string, version int64,
 		err = ErrJiraOAuthNotConfigured
 	}
 	if err != nil {
-		d.releaseJiraGrantClaim(userID, version)
+		d.releaseGrantClaim("jira", userID, version)
 		return "", "", err
 	}
 	// The caller's deadline never cuts a refresh in half: once Atlassian has
@@ -242,14 +249,13 @@ func (d *DB) refreshJiraGrant(ctx context.Context, userID string, version int64,
 	case errors.Is(err, atlassian.ErrInvalidGrant):
 		// Holding the claim, nobody else spent this refresh token: the grant
 		// itself is dead. Only a new consent repairs it.
-		if _, err := d.conn.Exec(`UPDATE user_tracker_credentials SET disconnected_at = ?, refresh_claimed_at = NULL, version = version + 1
-			WHERE user_id = ? AND tracker = 'jira' AND version = ?`+jiraGrantClaimHeld, time.Now().UTC(), userID, version); err != nil {
+		if err := d.disconnectClaimedGrant("jira", userID, version); err != nil {
 			return "", "", err
 		}
 		return "", "", &trackerapi.MissingPersonalCredentialError{Tracker: "jira", Reason: trackerapi.ReasonDisconnected}
 	case err != nil:
 		// A passing failure changes nothing; the next call tries again.
-		d.releaseJiraGrantClaim(userID, version)
+		d.releaseGrantClaim("jira", userID, version)
 		return "", "", fmt.Errorf("refreshing the Jira connection: %w", err)
 	}
 	grant.AccessToken, grant.RefreshToken, grant.ExpiresAt = tokens.AccessToken, tokens.RefreshToken, tokens.ExpiresAt
@@ -278,13 +284,27 @@ func (d *DB) refreshJiraGrant(ctx context.Context, userID string, version int64,
 // and may be back at the claimed version, unclaimed or holding a token.
 const jiraGrantClaimHeld = ` AND kind = 'oauth' AND refresh_claimed_at IS NOT NULL`
 
-// claimJiraGrantRefresh marks a refresh in flight, which only one caller can
-// do from a given version.
+// disconnectClaimedGrant marks a grant disconnected once its provider refused
+// the refresh this caller claimed at version.
+func (d *DB) disconnectClaimedGrant(tracker, userID string, version int64) error {
+	_, err := d.conn.Exec(`UPDATE user_tracker_credentials SET disconnected_at = ?, refresh_claimed_at = NULL, version = version + 1
+		WHERE user_id = ? AND tracker = ? AND version = ?`+jiraGrantClaimHeld, time.Now().UTC(), userID, tracker, version)
+	return err
+}
+
+// claimJiraGrantRefresh claims the refresh of a Jira grant; see
+// claimGrantRefresh.
 func (d *DB) claimJiraGrantRefresh(userID string, version int64) (bool, error) {
+	return d.claimGrantRefresh("jira", userID, version)
+}
+
+// claimGrantRefresh marks a refresh in flight, which only one caller can do
+// from a given version.
+func (d *DB) claimGrantRefresh(tracker, userID string, version int64) (bool, error) {
 	now := time.Now().UTC()
 	result, err := d.conn.Exec(`UPDATE user_tracker_credentials SET version = version + 1, refresh_claimed_at = ?
-		WHERE user_id = ? AND tracker = 'jira' AND kind = 'oauth' AND version = ?
-		  AND (refresh_claimed_at IS NULL OR refresh_claimed_at < ?)`, now, userID, version, now.Add(-jiraGrantRefreshWait))
+		WHERE user_id = ? AND tracker = ? AND kind = 'oauth' AND version = ?
+		  AND (refresh_claimed_at IS NULL OR refresh_claimed_at < ?)`, now, userID, tracker, version, now.Add(-jiraGrantRefreshWait))
 	if err != nil {
 		return false, err
 	}
@@ -292,23 +312,23 @@ func (d *DB) claimJiraGrantRefresh(userID string, version int64) (bool, error) {
 	return err == nil && affected == 1, err
 }
 
-// releaseJiraGrantClaim gives up a claim whose refresh token was never
-// spent, so the next caller tries at once rather than waiting it out.
-func (d *DB) releaseJiraGrantClaim(userID string, version int64) {
+// releaseGrantClaim gives up a claim whose refresh token was never spent, so
+// the next caller tries at once rather than waiting it out.
+func (d *DB) releaseGrantClaim(tracker, userID string, version int64) {
 	_, _ = d.conn.Exec(`UPDATE user_tracker_credentials SET refresh_claimed_at = NULL, version = version + 1
-		WHERE user_id = ? AND tracker = 'jira' AND version = ?`+jiraGrantClaimHeld, userID, version)
+		WHERE user_id = ? AND tracker = ? AND version = ?`+jiraGrantClaimHeld, userID, tracker, version)
 }
 
-// awaitJiraGrantRefresh waits until the row moves on from version, which a
+// awaitGrantRefresh waits until the row moves on from version, which a
 // claimant's write, a disconnection or a new row all do, or until until.
-func (d *DB) awaitJiraGrantRefresh(ctx context.Context, userID string, version int64, until time.Time) error {
+func (d *DB) awaitGrantRefresh(ctx context.Context, tracker, userID string, version int64, until time.Time) error {
 	for time.Now().Before(until) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(jiraGrantPollInterval):
 		}
-		row, err := d.readJiraGrantRow(userID)
+		row, err := d.readGrantRow(tracker, userID)
 		if err != nil {
 			return err
 		}
@@ -478,18 +498,23 @@ func (d *DB) CompleteJiraOAuth(ctx context.Context, userID, sessionToken, state,
 
 // ResolvePersonalCredential is the tracker client's ResolveUser: one person's
 // own credential for one tracker, for the site the call is for. An API token
-// resolves as it always did; a grant answers its gateway and a live access
-// token for that site, or the missing-credential error when it cannot serve
-// it.
+// resolves as it always did; a Jira grant answers its gateway and a live
+// access token for that site, a GitHub or GitLab grant (#804) a live access
+// token for github.com or gitlab.com, and either answers the missing-credential
+// error when it cannot serve the site.
 func (d *DB) ResolvePersonalCredential(userID, tracker, site string) (trackerapi.PersonalCredential, error) {
 	siteURL, email, token, err := d.userTrackerCredential(userID, tracker)
 	switch {
 	case errors.Is(err, ErrNoUserCredential):
 		return trackerapi.PersonalCredential{}, nil
-	case errors.Is(err, errJiraGrant):
+	case errors.Is(err, errOAuthGrant):
 		ctx, cancel := context.WithTimeout(context.Background(), jiraGrantCallTimeout+jiraGrantRefreshWait)
 		defer cancel()
-		apiBase, bearer, err := d.jiraGrantAccess(ctx, strings.TrimSpace(userID), site)
+		userID, tracker = strings.TrimSpace(userID), strings.ToLower(strings.TrimSpace(tracker))
+		if tracker != "jira" {
+			return d.resolveForgeGrant(ctx, tracker, userID, site)
+		}
+		apiBase, bearer, err := d.jiraGrantAccess(ctx, userID, site)
 		if err != nil {
 			return trackerapi.PersonalCredential{}, err
 		}
