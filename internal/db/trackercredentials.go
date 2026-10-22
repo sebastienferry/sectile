@@ -141,20 +141,10 @@ func (d *DB) trackerForWrite(ctx context.Context, trackerName, projectID string)
 	return d.trackers.ForWrite(ctx, trackerName, projectCredentialRef(projectID))
 }
 
-// trackerAs is tracker with the credentials of the person who asked for the
-// work substituted where they stored any. It is for reads only: it falls back
-// to the project credential when theirs cannot be resolved, which a read may do
-// and a write may not. Writes use trackerForWrite.
-func (d *DB) trackerAs(userID, trackerName, projectID string) *trackerapi.Client {
-	ref := projectCredentialRef(projectID)
-	client, _, err := d.trackers.ForActingUser(userID, trackerName, ref)
-	if err != nil || client == nil {
-		// A credential that cannot be resolved is not a reason to drop the
-		// request: the project's own is still there, and the call will say for
-		// itself whether it is accepted.
-		return d.trackers.For(ref)
-	}
-	return client
+// trackerReader is the client of a read made for one project: always the
+// server credential, whoever asked (ADR 0058). Writes use trackerForWrite.
+func (d *DB) trackerReader(projectID string) *trackerapi.Client {
+	return d.trackers.ForRead(projectCredentialRef(projectID))
 }
 
 // withoutTrackerTokens strips the credential columns from a settings row on its

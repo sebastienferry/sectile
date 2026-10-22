@@ -300,9 +300,9 @@ func TestARevokedGrantDisconnectsAndRefusesTheWrite(t *testing.T) {
 	if f.fake.Refreshes() != refreshes {
 		t.Error("a disconnected grant must not be refreshed again")
 	}
-	// A read falls back to the project client, as reads do.
-	if client := f.d.trackerAs("usr_ada", "jira", f.project.ID); client == nil || client.JiraBearer != "" {
-		t.Errorf("a read must fall back to the project client: %+v", client)
+	// A read never touches the grant: it uses the project client (ADR 0058).
+	if client := f.d.trackerReader(f.project.ID); client == nil || client.JiraBearer != "" {
+		t.Errorf("a read must use the project client: %+v", client)
 	}
 
 	// US3.3: reconnecting repairs it.
