@@ -135,6 +135,10 @@ type Project struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
 	GitRemoteURL string `json:"gitRemoteUrl"`
+	// Orchestration fields are optional so older agents can ignore the summary.
+	OrchestratorEnabled       bool `json:"orchestratorEnabled,omitempty"`
+	OrchestratorMaxConcurrent int  `json:"orchestratorMaxConcurrent,omitempty"`
+	OrchestratorActiveRuns    *int `json:"orchestratorActiveRuns,omitempty"`
 }
 type Projects struct {
 	SchemaVersion int       `json:"schemaVersion"`

@@ -451,6 +451,8 @@ Atlassian CLI fallback remains. Tracker credentials are not sent to agents.
 
 Authenticated `GET /api/v1/agent/projects` returns
 `{"schemaVersion":1,"projects":[{"id":"server-primary-key","name":"Project","gitRemoteUrl":"..."}]}`.
+Discovery records may also carry `orchestratorEnabled`, `orchestratorMaxConcurrent`, and `orchestratorActiveRuns`. The count covers active task sessions across the project, including other workstations. It is present for enabled orchestrators; absence means capacity is unknown, while an explicit zero means no active runs. These optional fields do not change the schema version. The agent forwards them through authenticated `GET /desktop/projects` for the desktop orchestration section.
+
 Discovery excludes server filesystem paths and credentials.
 
 `sectile-agent` defaults to `--project all`. Use `--list-projects` to

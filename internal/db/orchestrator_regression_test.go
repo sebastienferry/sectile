@@ -225,3 +225,25 @@ func TestPostgresOrchestratorConcurrentInstancesRespectCapacity(t *testing.T) {
 	a, b := openPostgresPair(t)
 	checkConcurrentOrchestratorCapacity(t, a, b)
 }
+
+func TestAgentProjectDiscoveryReportsOrchestrationCapacity(t *testing.T) {
+	d, project := orchestratorTestDB(t)
+	task := orchestratorTask(t, d, project.ID)
+	if _, err := d.StartAgentRun(task.ID, "clarify", RunLaunch{ProjectID: project.ID}); err != nil {
+		t.Fatal(err)
+	}
+	discovered, err := d.AgentProjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range discovered.Projects {
+		if entry.ID != project.ID {
+			continue
+		}
+		if !entry.OrchestratorEnabled || entry.OrchestratorMaxConcurrent != 2 || entry.OrchestratorActiveRuns == nil || *entry.OrchestratorActiveRuns != 1 {
+			t.Fatalf("incorrect orchestration capacity: %+v", entry)
+		}
+		return
+	}
+	t.Fatal("orchestrated project missing from discovery")
+}

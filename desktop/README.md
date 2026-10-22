@@ -2,6 +2,12 @@
 
 Local task execution consoles, with an experimental Antigravity, Claude Code and Codex conversation view.
 
+## Orchestration
+
+The **ORCHESTRATION** section sits above **PROJECTS** in the sidebar. It lists enabled project orchestrators and active task agents on this workstation, including manual task sessions that consume project capacity. Each agent shows its engine, task, current workflow stage, and running, queued, or waiting-for-you state. Select **Open console** to attach to that execution using the existing console view.
+
+Capacity is project-wide, including runs on other workstations; the agent rows are local to this workstation. The server's usage and limit refresh every 15 seconds. If capacity cannot be refreshed, the section labels the figures as last known and stops presenting a live progress meter. Older agents without capacity metadata show **Capacity unavailable**. Stopping the local agent disables console controls until it reconnects.
+
 ## Experimental conversations
 
 Turn it on with **Settings → General → AI consoles → Conversation**.

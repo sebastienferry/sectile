@@ -32,6 +32,8 @@ It consists of three complementary components:
   autonomous task chains run as the requesting user, assess project eligibility
   guidelines before changes, share a project concurrency limit, and stop at
   **Implemented** for human review.
+  Desktop shows live task agents, project capacity, workflow stages, waiting
+  states, and console access in **ORCHESTRATION**, above **PROJECTS**.
 - Frames and slices multi-ticket initiatives with **Macros** (`refine-macro` and
   `realign-macro`).
 - Scaffolds **Spec Kit** and **OpenSpec** directly inside project repositories.

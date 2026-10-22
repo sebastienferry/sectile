@@ -1,3 +1,4 @@
+import { createOrchestration } from './orchestration.mjs'
 import {engineSetup,setupStartup} from './engine-setup.mjs'
 import { renderDesktopUpdates } from './desktop-updates.mjs'
 import { batchMembers, moveBatchMember, suggestedBatchWorktreeName, buildBatchPickupPrompt } from './batch-pickup.mjs'
@@ -69,7 +70,7 @@ document.querySelector('#app').innerHTML=`
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label>
 <div id="pair-again"><button id="browser-sign-in" type="button">Sign in with your browser</button><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label></div>
 <p class="start-reason" role="alert" hidden></p><button type="submit">Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="worktree-folders" class="icon-button worktree-folders" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worktree-folders-menu" aria-label="Folders of this execution" title="Folders of this execution" hidden><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span><div id="worktree-folders-menu" class="folder-menu" role="menu" aria-label="Folders of this execution" hidden></div></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="selected-pr-more" class="icon-button selected-pr-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="selected-pr-menu" aria-label="Pull requests of this task" title="Pull requests of this task" hidden><span class="pr-count"></span><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div id="selected-pr-menu" class="folder-menu pr-menu" role="menu" aria-label="Pull requests of this task" hidden></div><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="edit-task" class="icon-button" type="button" aria-label="Edit task" title="Edit task" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Launch" title="Launch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop conversation" title="Stop conversation" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section><section id="task-page-pane" hidden></section></main>
+<main id="workspace" hidden><aside><div class="sidebar-scroll"><section id="orchestration" aria-label="Orchestration"></section><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-row toolbar-primary"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="toolbar-meta"><select id="execution-history" aria-label="Execution history" hidden></select><span id="next-step-label" class="step-badge" aria-hidden="true" hidden></span></div></div><div class="toolbar-row toolbar-secondary"><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><button id="worktree-folders" class="icon-button worktree-folders" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worktree-folders-menu" aria-label="Folders of this execution" title="Folders of this execution" hidden><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><button id="open-editor" class="icon-button" type="button" hidden></button><span id="worktree-copied" class="worktree-copied" role="status"></span><div id="worktree-folders-menu" class="folder-menu" role="menu" aria-label="Folders of this execution" hidden></div></div><div class="toolbar-actions"><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="selected-pr-more" class="icon-button selected-pr-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="selected-pr-menu" aria-label="Pull requests of this task" title="Pull requests of this task" hidden><span class="pr-count"></span><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div id="selected-pr-menu" class="folder-menu pr-menu" role="menu" aria-label="Pull requests of this task" hidden></div><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="edit-task" class="icon-button" type="button" aria-label="Edit task" title="Edit task" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Launch" title="Launch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop conversation" title="Stop conversation" disabled></button><button id="next-step" class="icon-button" type="button" hidden disabled></button><button id="pickup-chain" class="icon-button" type="button" aria-label="Pickup (full chain)" title="Pickup (full chain)" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" title="The pull request needs no more changes: skip Adjust, move the task to reviewed, and hand off once it is merged" hidden>Skip to Handoff</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div></div><div id="execution-content"><div id="terminal"></div><div id="execution-divider" role="separator" aria-label="Resize execution views" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" tabindex="0" hidden></div><section id="changes" aria-label="Worktree changes" hidden></section></div><footer id="task-status"><div class="execution-status"><span id="run-state" class="run-state selected-run-state" hidden></span><span id="skill-result" role="status" hidden></span></div><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section><section id="task-page-pane" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
 const sidebarFooter=document.querySelector('.sidebar-footer')
 const headerControls=document.createElement('div')
@@ -122,6 +123,8 @@ function refusedActiveRun(message){
 const taskTitles=new Map()
 // The workflow stage of each listed task, read with its title; absent when unknown.
 const taskStages=new Map()
+let orchestrationReadAt=0,orchestrationLoading=false,orchestrationStale=false
+const orchestration=createOrchestration({container:document.querySelector('#orchestration'),onConsole:run=>select(run,false,{console:true})})
 // The board data of a project (/desktop/project's board field), kept from the
 // last tickets list or board that read it, so the sidebar's grouping by stage
 // places a task where they do (#806).
@@ -320,6 +323,7 @@ function renderStartForm(stored){
 function setStartReason(text){const p=connectForm.querySelector('.start-reason');p.textContent=text;p.hidden=!text}
 function agentUnavailable(){
  agentConnected=false
+ renderOrchestration()
  changes.disconnect()
  updateStartControl()
  document.querySelector('#shutdown').hidden=true
@@ -359,6 +363,7 @@ function select(run,background=false,options){
  if(run.projectId)selectedProject=run.projectId
  selected=run.id
  changes.select(selected,currentFolder(run)?.path)
+ if(options?.console&&!changes.consoleVisible)document.querySelector('#view-console').click()
  conversation.select(run)
 
  refreshSkillResult()
@@ -835,7 +840,30 @@ function renderHeader(){
  badge.hidden=!result
  if(result){badge.className='skill-result '+result.kind;if(badge.textContent!==result.icon+' '+result.label)badge.textContent=result.icon+' '+result.label;badge.title='Skill: '+result.label;badge.setAttribute('aria-label',badge.title)}
 }
+function renderOrchestration(){
+ orchestration.render({projects,runs:runs.filter(run=>!hiddenProject(run.projectId)),taskStages,taskTitles,selected,stale:orchestrationStale,offline:!agentConnected})
+}
+async function refreshOrchestration(){
+ if(orchestrationLoading||Date.now()-orchestrationReadAt<15000)return
+ orchestrationLoading=true;orchestrationReadAt=Date.now()
+ const version=projectStateVersion
+ try{
+  const fresh=await api.projects()
+  if(version!==projectStateVersion)return
+  const byID=new Map(fresh.map(project=>[project.id,project]))
+  // Preserve the array while loadProjects resolves workstation limits.
+  for(const project of projects){
+   const snapshot=byID.get(project.id)
+   if(snapshot)Object.assign(project,snapshot)
+   // Missing fields from an older server must clear a previous capacity reading.
+   for(const field of ['orchestratorEnabled','orchestratorMaxConcurrent','orchestratorActiveRuns'])project[field]=snapshot?.[field]
+  }
+  orchestrationStale=false
+ }catch{orchestrationStale=true}
+ finally{orchestrationLoading=false;renderOrchestration()}
+}
 function render(options){
+ renderOrchestration()
  if(options?.deferrable&&sidebarBusy()){pendingRender=true;renderHeader();renderTaskRowStates();renderTicketRows();return}
  pendingRender=false
  changes.select(selected,currentFolder()?.path)
@@ -1030,7 +1058,7 @@ async function refresh(){
  try{
   const next=await api.runs(),status=await api.status()
   if(version!==projectStateVersion)return
-  ready();refreshPRs(next)
+  ready();refreshPRs(next);refreshOrchestration()
   connectionStatus(status)
   const previous=runs.find(run=>run.id===selected)
   // Compare the two polls before the new list replaces the old: a session that
@@ -1040,6 +1068,7 @@ async function refresh(){
   const followed=followedExecution(runs,next,selected,taskKey,run=>!freeConsole(run)&&!macroRun(run)&&!hiddenRun(run))
   const serialized=JSON.stringify(next),changed=serialized!==last
   runs=next;last=serialized
+  renderOrchestration()
   await updateDisconnected(status.disconnectedProjects||[],changed,true)
   const current=runs.find(run=>run.id===selected)
   if(followed&&selected)select(followed,true,{deferrable:true})
@@ -2384,6 +2413,7 @@ async function loadProjects(){
  if(version!==projectStateVersion)return
  const loaded=[...new Map(next.map(project=>[project.id,project])).values()]
  projects=loaded
+ orchestrationReadAt=Date.now();orchestrationStale=false
  await updateDisconnected(status.disconnectedProjects||[],true)
  const limits=await Promise.allSettled(loaded.map(project=>api.project(project.id)))
  if(version!==projectStateVersion||projects!==loaded)return

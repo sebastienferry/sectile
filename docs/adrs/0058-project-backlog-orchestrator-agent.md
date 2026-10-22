@@ -40,6 +40,9 @@ However, triggering these workflows has required manual human intervention: eith
   4. `#implemented`: Stops for human review. Pull request creation follows the project's configured creation stage.
   Human engineers retain the review and merge gate (`#reviewed` $\rightarrow$ `#finished`).
 
+- **Desktop Visibility**:
+  The sidebar's ORCHESTRATION section precedes PROJECTS. Optional project-discovery fields carry authoritative project-wide capacity to the agent and desktop; local live runs supply agent names, stages, waiting states and console access. Capacity refreshes every 15 seconds, with stale and older-server states labeled explicitly.
+
 - **Structured Reporting**:
   The orchestrator invocation returns an `OrchestrationResult` summarizing:
   - Total backlog items evaluated;

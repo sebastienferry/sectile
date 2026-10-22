@@ -569,11 +569,14 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		type entry struct {
-			ID           string `json:"id"`
-			Name         string `json:"name"`
-			Path         string `json:"path"`
-			Configured   bool   `json:"configured"`
-			Disconnected bool   `json:"disconnected"`
+			ID                        string `json:"id"`
+			Name                      string `json:"name"`
+			Path                      string `json:"path"`
+			Configured                bool   `json:"configured"`
+			Disconnected              bool   `json:"disconnected"`
+			OrchestratorEnabled       bool   `json:"orchestratorEnabled,omitempty"`
+			OrchestratorMaxConcurrent int    `json:"orchestratorMaxConcurrent,omitempty"`
+			OrchestratorActiveRuns    *int   `json:"orchestratorActiveRuns,omitempty"`
 		}
 		entries := []entry{}
 		base := d.repoRoot
@@ -598,7 +601,8 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 				root = ""
 				configured = false
 			}
-			entries = append(entries, entry{p.ID, p.Name, root, configured || root != "", disconnected})
+			entries = append(entries, entry{ID: p.ID, Name: p.Name, Path: root, Configured: configured || root != "", Disconnected: disconnected,
+				OrchestratorEnabled: p.OrchestratorEnabled, OrchestratorMaxConcurrent: p.OrchestratorMaxConcurrent, OrchestratorActiveRuns: p.OrchestratorActiveRuns})
 		}
 		_ = json.NewEncoder(w).Encode(entries)
 		return

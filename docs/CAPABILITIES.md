@@ -148,6 +148,7 @@ Projects can activate an autonomous backlog orchestrator agent to supervise the 
   - Triggered via HTTP `POST /api/projects/{id}/orchestrate` (returns structured `OrchestrationResult` report).
   - Invoked through MCP tool `orchestrate_project`.
   - Configurable in the project execution settings.
+  - Desktop's **ORCHESTRATION** section above **PROJECTS** shows enabled projects and active local task agents, with project-wide capacity, workflow stages, waiting states, and direct console access. Capacity refreshes every 15 seconds; unavailable metadata is labeled explicitly.
 
 ### Stage 1: Clarification (`clarify-issue` / `/clarify`)
 - **Objective**: Resolves functional gaps, edge cases, and architectural ambiguities through an iterative feedback loop between the agent and the work item owner (analogous to how `adjust-issue` iterates on code reviews).
