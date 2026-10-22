@@ -274,3 +274,27 @@ func TestOrchestratorLocalGuidelinesSnapshotDoesNotOverwriteProject(t *testing.T
 		t.Fatal("accepted oversized guidelines")
 	}
 }
+
+func TestNamedAgentPoliciesShareTheProjectConcurrencyLimit(t *testing.T) {
+	d, project := orchestratorTestDB(t)
+	limit := 1
+	if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{OrchestratorMaxConcurrent: &limit}); err != nil {
+		t.Fatal(err)
+	}
+	orchestratorTask(t, d, project.ID)
+	orchestratorTask(t, d, project.ID)
+	dispatched := orchestratorDispatches(d)
+	docs, tests := "Documentation agent policy", "Test agent policy"
+	first, err := d.EvaluateAndOrchestrateBacklog(context.Background(), project.ID, Actor{ID: "alice"}, models.OrchestrateProjectRequest{Guidelines: &docs})
+	if err != nil || len(first.Launched) != 1 {
+		t.Fatalf("first agent: %+v %v", first, err)
+	}
+	op := awaitOrchestratorDispatch(t, d, dispatched)
+	if !strings.Contains(op.Prompt, docs) {
+		t.Fatal("wrong agent policy dispatched")
+	}
+	second, err := d.EvaluateAndOrchestrateBacklog(context.Background(), project.ID, Actor{ID: "alice"}, models.OrchestrateProjectRequest{Guidelines: &tests})
+	if err != nil || len(second.Launched) != 0 || second.ActiveRunsBefore != 1 {
+		t.Fatalf("second agent bypassed shared capacity: %+v %v", second, err)
+	}
+}

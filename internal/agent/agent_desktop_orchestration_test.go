@@ -65,10 +65,12 @@ func TestDesktopOrchestrationSettingsAndEvaluationRelay(t *testing.T) {
 	if err := json.Unmarshal(get.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result["guidelines"] != "Only local small fixes" || result["orchestrationFile"] != "AGENTS.md" || result["repoPath"] != nil || result["orchestratorPrompt"] != nil {
+	views := result["agents"].([]any)
+	first := views[0].(map[string]any)
+	if len(views) != 1 || first["guidelines"] != "Only local small fixes" || first["file"] != "AGENTS.md" || first["id"] != "default" || result["repoPath"] != nil || result["orchestratorPrompt"] != nil {
 		t.Fatalf("unexpected settings: %v", result)
 	}
-	save := taskPageRequest(d, "PUT", "/desktop/orchestration?projectId=p", `{"orchestratorEnabled":true,"orchestratorMaxConcurrent":3,"orchestrationFile":"AGENTS.md"}`)
+	save := taskPageRequest(d, "PUT", "/desktop/orchestration?projectId=p", `{"orchestratorEnabled":true,"orchestratorMaxConcurrent":3,"agents":[{"id":"default","name":"Default agent","file":"AGENTS.md"}]}`)
 	if save.Code != 200 {
 		t.Fatal(save.Body.String())
 	}
@@ -91,7 +93,7 @@ func TestDesktopOrchestrationSettingsAndEvaluationRelay(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(writes) != 2 || methods[0] != "PUT" || methods[1] != "POST" || len(writes[0]) != 2 || writes[0]["orchestratorPrompt"] != nil || len(writes[1]) != 1 || writes[1]["guidelines"] != "Fresh local guidelines" {
+	if len(writes) != 2 || methods[0] != "PUT" || methods[1] != "POST" || len(writes[0]) != 2 || writes[0]["orchestratorPrompt"] != nil || len(writes[1]) != 1 || !strings.Contains(writes[1]["guidelines"].(string), "Fresh local guidelines") {
 		t.Fatalf("unexpected upstream writes: %v %v", methods, writes)
 	}
 }
@@ -174,7 +176,7 @@ func TestDesktopOrchestrationCustomFileAndMissingFileRefusal(t *testing.T) {
 	for _, method := range []string{"PUT", "POST"} {
 		body := `{}`
 		if method == "PUT" {
-			body = `{"orchestratorEnabled":true,"orchestratorMaxConcurrent":2,"orchestrationFile":"policy.md"}`
+			body = `{"orchestratorEnabled":true,"orchestratorMaxConcurrent":2,"agents":[{"id":"default","name":"Default agent","file":"policy.md"}]}`
 		}
 		if got := taskPageRequest(d, method, "/desktop/orchestration?projectId=p", body); got.Code != 400 {
 			t.Fatalf("%s accepted missing guidelines: %d", method, got.Code)
@@ -183,14 +185,109 @@ func TestDesktopOrchestrationCustomFileAndMissingFileRefusal(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(d.repoRoot, "policy.md"), []byte("Custom local policy"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if got := taskPageRequest(d, "POST", "/desktop/orchestration?projectId=p", `{}`); got.Code != 200 || guidelines != "Custom local policy" {
+	if got := taskPageRequest(d, "POST", "/desktop/orchestration?projectId=p", `{}`); got.Code != 200 || !strings.Contains(guidelines, "Custom local policy") {
 		t.Fatalf("custom policy not used: %d %q", got.Code, guidelines)
 	}
 	if err := os.Remove(filepath.Join(d.repoRoot, "policy.md")); err != nil {
 		t.Fatal(err)
 	}
 	// Disabling remains possible when the previously selected file disappeared.
-	if got := taskPageRequest(d, "PUT", "/desktop/orchestration?projectId=p", `{"orchestratorEnabled":false,"orchestratorMaxConcurrent":2,"orchestrationFile":"policy.md"}`); got.Code != 200 {
+	if got := taskPageRequest(d, "PUT", "/desktop/orchestration?projectId=p", `{"orchestratorEnabled":false,"orchestratorMaxConcurrent":2,"agents":[{"id":"default","name":"Default agent","file":"policy.md"}]}`); got.Code != 200 {
 		t.Fatal(got.Body.String())
+	}
+}
+
+func TestDesktopNamedOrchestrationAgentsSelectTheirOwnPolicy(t *testing.T) {
+	var snapshots []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer paired" {
+			t.Error("paired identity lost")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/projects/p/orchestrate" {
+			var input map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&input)
+			if len(input) != 1 {
+				t.Errorf("agent selection introduced a capacity or identity override: %v", input)
+			}
+			snapshots = append(snapshots, input["guidelines"].(string))
+			_, _ = w.Write([]byte(`{"launched":[],"skipped":[]}`))
+			return
+		}
+		if r.Method == "PUT" {
+			var input map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&input)
+			if len(input) != 2 || input["agents"] != nil {
+				t.Error("local definitions leaked into shared settings")
+			}
+		}
+		_, _ = w.Write([]byte(`{"id":"p","orchestratorEnabled":true,"orchestratorMaxConcurrent":2}`))
+	}))
+	defer server.Close()
+	d := taskPageDaemon(t, server)
+	d.link.projectID = "p"
+	if _, err := gitLocal(context.Background(), d.repoRoot, "init"); err != nil {
+		t.Fatal(err)
+	}
+	if err := agentconfig.WriteSettings(agentconfig.Settings{Seeded: agentconfig.Seeded{Defaults: server.URL, Projects: map[string]string{"p": "now"}}}); err != nil {
+		t.Fatal(err)
+	}
+	for file, text := range map[string]string{"docs.md": "Documentation policy only", "tests.md": "Regression test policy only"} {
+		if err := os.WriteFile(filepath.Join(d.repoRoot, file), []byte(text), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	route := "/desktop/orchestration?projectId=p"
+	body := `{"orchestratorEnabled":true,"orchestratorMaxConcurrent":2,"agents":[{"id":"docs","name":"Documentation","file":"docs.md"},{"id":"tests","name":"Tests","file":"tests.md"}]}`
+	if got := taskPageRequest(d, "PUT", route, body); got.Code != 200 {
+		t.Fatal(got.Body.String())
+	}
+	for _, id := range []string{"docs", "tests"} {
+		if got := taskPageRequest(d, "POST", route, `{"agentId":"`+id+`"}`); got.Code != 200 {
+			t.Fatal(got.Body.String())
+		}
+	}
+	if len(snapshots) != 2 || !strings.Contains(snapshots[0], "Documentation [docs]") || !strings.Contains(snapshots[0], "Documentation policy only") || strings.Contains(snapshots[0], "Regression test policy") || !strings.Contains(snapshots[1], "Tests [tests]") || !strings.Contains(snapshots[1], "Regression test policy only") {
+		t.Fatalf("wrong policy selection: %v", snapshots)
+	}
+	for _, body := range []string{`{}`, `{"agentId":"missing"}`, `{"agentId":"docs","force":true}`, `{"agentId":"docs","maxConcurrent":10}`} {
+		if got := taskPageRequest(d, "POST", route, body); got.Code != 400 {
+			t.Fatalf("accepted invalid selection %s: %d", body, got.Code)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(d.repoRoot, "docs.md"), []byte("Updated documentation policy"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(d.repoRoot, "tests.md")); err != nil {
+		t.Fatal(err)
+	}
+	if got := taskPageRequest(d, "POST", route, `{"agentId":"docs"}`); got.Code != 200 || !strings.Contains(snapshots[len(snapshots)-1], "Updated documentation policy") {
+		t.Fatal("selected file was not read afresh")
+	}
+	if got := taskPageRequest(d, "POST", route, `{"agentId":"tests"}`); got.Code != 400 {
+		t.Fatal("missing selected file launched")
+	}
+	// An unrelated missing policy must not block the valid saved agent.
+	if got := taskPageRequest(d, "PUT", route, `{"orchestratorEnabled":true,"orchestratorMaxConcurrent":2,"agents":[]}`); got.Code != 400 {
+		t.Fatal("enabled project accepted no agents")
+	}
+	if got := taskPageRequest(d, "PUT", route, `{"orchestratorEnabled":false,"orchestratorMaxConcurrent":2,"agents":[]}`); got.Code != 200 {
+		t.Fatal(got.Body.String())
+	}
+	if got := taskPageRequest(d, "GET", route, ""); !strings.Contains(got.Body.String(), `"agents":[]`) {
+		t.Fatal("empty list restored the default agent")
+	}
+	if got := taskPageRequest(d, "POST", route, `{"agentId":"docs"}`); got.Code != 400 {
+		t.Fatal("removed agent launched")
+	}
+}
+
+func TestNamedOrchestrationGuidelinesBoundTheIdentityAndFileTogether(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(strings.Repeat("x", models.OrchestratorGuidelinesMaxBytes)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := readOrchestrationAgentGuidelines(root, agentconfig.OrchestrationAgent{ID: "docs", Name: "Docs", File: "AGENTS.md"}); err == nil {
+		t.Fatal("agent identity bypassed the snapshot bound")
 	}
 }

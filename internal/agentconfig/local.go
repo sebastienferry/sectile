@@ -151,17 +151,18 @@ func overlay(base, top Settings) Settings {
 	for id, p := range top.ProjectSettings {
 		b := out.Project(id)
 		out.SetProject(id, ProjectSettings{
-			Path:              firstSet(p.Path, b.Path),
-			MacroSpecPath:     firstSet(p.MacroSpecPath, b.MacroSpecPath),
-			IssueSpecPath:     firstSet(p.IssueSpecPath, b.IssueSpecPath),
-			Folders:           firstList(p.Folders, b.Folders),
-			Execution:         overlayExecution(b.Execution, p.Execution),
-			SkillCommands:     mergeStrings(b.SkillCommands, p.SkillCommands),
-			SpecArtifacts:     firstSet(p.SpecArtifacts, b.SpecArtifacts),
-			ClaudeSandbox:     firstSandbox(p.ClaudeSandbox, b.ClaudeSandbox),
-			AnyRepository:     firstBool(p.AnyRepository, b.AnyRepository),
-			ClonesPath:        firstSet(p.ClonesPath, b.ClonesPath),
-			OrchestrationFile: firstSet(p.OrchestrationFile, b.OrchestrationFile),
+			Path:                firstSet(p.Path, b.Path),
+			MacroSpecPath:       firstSet(p.MacroSpecPath, b.MacroSpecPath),
+			IssueSpecPath:       firstSet(p.IssueSpecPath, b.IssueSpecPath),
+			Folders:             firstList(p.Folders, b.Folders),
+			Execution:           overlayExecution(b.Execution, p.Execution),
+			SkillCommands:       mergeStrings(b.SkillCommands, p.SkillCommands),
+			SpecArtifacts:       firstSet(p.SpecArtifacts, b.SpecArtifacts),
+			ClaudeSandbox:       firstSandbox(p.ClaudeSandbox, b.ClaudeSandbox),
+			AnyRepository:       firstBool(p.AnyRepository, b.AnyRepository),
+			ClonesPath:          firstSet(p.ClonesPath, b.ClonesPath),
+			OrchestrationFile:   firstSet(p.OrchestrationFile, b.OrchestrationFile),
+			OrchestrationAgents: firstOrchestrationAgents(p.OrchestrationAgents, b.OrchestrationAgents),
 		})
 	}
 	out.Repositories = mergeStrings(base.Repositories, top.Repositories)

@@ -869,7 +869,7 @@ async function refreshOrchestration(){
    const snapshot=byID.get(project.id)
    if(snapshot)Object.assign(project,snapshot)
    // Missing fields from an older server must clear a previous capacity reading.
-   for(const field of ['orchestratorEnabled','orchestratorMaxConcurrent','orchestratorActiveRuns'])project[field]=snapshot?.[field]
+   for(const field of ['orchestratorEnabled','orchestratorMaxConcurrent','orchestratorActiveRuns','orchestrationAgents'])project[field]=snapshot?.[field]
   }
   orchestrationStale=false
  }catch{orchestrationStale=true}

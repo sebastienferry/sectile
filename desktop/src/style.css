@@ -919,7 +919,7 @@ dialog.palette-dialog #close-dialog{display:none}
 
 .orchestration-meter::-webkit-progress-bar{background:var(--surface);border-radius:3px}
 .orchestration-meter::-webkit-progress-value{background:var(--accent);border-radius:3px}
-.orchestration-evaluate{font-size:11px;padding:4px 8px;margin-top:8px}
+.orchestration-run{font-size:11px;padding:4px 8px;margin-top:8px}
 .orchestration-form{font-size:11px;margin:8px 0;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
 .orchestration-form label{margin:8px 0;font-size:11px}
 .orchestration-form input,.orchestration-form textarea{font:inherit;width:100%;padding:7px;margin-top:5px;color:var(--text);background:var(--bg);border:1px solid var(--border-strong);border-radius:5px}
@@ -931,3 +931,8 @@ dialog.palette-dialog #close-dialog{display:none}
 .orchestration-report{font-size:11px;line-height:1.5;overflow-wrap:anywhere}
 
 .orchestration-guidelines{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px}
+
+.orchestration-agent-settings{margin:16px 0;padding:14px;border:1px solid var(--border);border-radius:8px;min-width:0}
+.orchestration-agent-settings legend{font-size:13px;font-weight:600;padding:0 5px}
+.orchestration-policy{display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin:10px 0;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:11px}
+.orchestration-policy-file{color:var(--text-muted);overflow-wrap:anywhere;max-width:100%}

@@ -640,12 +640,12 @@ ipcMain.handle('projects',()=>api('/desktop/projects'))
 async function orchestrationRequest(projectId,method='GET',body){
  if(!projectId)throw Error('Choose a project')
  const status=await api('/desktop/status')
- if(!status.capabilities?.includes('orchestration-controls'))throw Error('Update and restart the local agent to set up and launch orchestration from desktop.')
+ if(!status.capabilities?.includes('orchestration-agents'))throw Error('Update and restart the local agent to set up and launch orchestration from desktop.')
  return api('/desktop/orchestration?projectId='+encodeURIComponent(projectId),method,body)
 }
 ipcMain.handle('orchestration',(_,projectId)=>orchestrationRequest(projectId))
 ipcMain.handle('save-orchestration',(_,{projectId,settings})=>orchestrationRequest(projectId,'PUT',settings))
-ipcMain.handle('evaluate-backlog',(_,projectId)=>orchestrationRequest(projectId,'POST',{}))
+ipcMain.handle('run-orchestration-agent',(_,{projectId,agentId})=>orchestrationRequest(projectId,'POST',{agentId}))
 ipcMain.handle('remove-project',async(_,id)=>{
  const status=await api('/desktop/status')
  if(!status.capabilities?.includes('remove-project'))throw Error('The running local agent does not support project removal. Update it, then stop and restart the agent. Closing the desktop alone does not restart it.')

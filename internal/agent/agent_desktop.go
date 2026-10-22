@@ -179,7 +179,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"engine-setup", "batch-launch", "git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", "agy-conversation", codexSettingsCapability, agySettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability, taskPageCapability, taskFieldsCapability, stageMoveCapability, orchestrationControlsCapability}
+		capabilities := []string{"engine-setup", "batch-launch", "git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", "agy-conversation", codexSettingsCapability, agySettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability, taskPageCapability, taskFieldsCapability, stageMoveCapability, orchestrationControlsCapability, orchestrationAgentsCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -573,14 +573,15 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		type entry struct {
-			ID                        string `json:"id"`
-			Name                      string `json:"name"`
-			Path                      string `json:"path"`
-			Configured                bool   `json:"configured"`
-			Disconnected              bool   `json:"disconnected"`
-			OrchestratorEnabled       bool   `json:"orchestratorEnabled,omitempty"`
-			OrchestratorMaxConcurrent int    `json:"orchestratorMaxConcurrent,omitempty"`
-			OrchestratorActiveRuns    *int   `json:"orchestratorActiveRuns,omitempty"`
+			ID                        string                           `json:"id"`
+			Name                      string                           `json:"name"`
+			Path                      string                           `json:"path"`
+			Configured                bool                             `json:"configured"`
+			Disconnected              bool                             `json:"disconnected"`
+			OrchestratorEnabled       bool                             `json:"orchestratorEnabled,omitempty"`
+			OrchestratorMaxConcurrent int                              `json:"orchestratorMaxConcurrent,omitempty"`
+			OrchestratorActiveRuns    *int                             `json:"orchestratorActiveRuns,omitempty"`
+			OrchestrationAgents       []agentconfig.OrchestrationAgent `json:"orchestrationAgents"`
 		}
 		entries := []entry{}
 		base := d.repoRoot
@@ -606,7 +607,7 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 				configured = false
 			}
 			entries = append(entries, entry{ID: p.ID, Name: p.Name, Path: root, Configured: configured || root != "", Disconnected: disconnected,
-				OrchestratorEnabled: p.OrchestratorEnabled, OrchestratorMaxConcurrent: p.OrchestratorMaxConcurrent, OrchestratorActiveRuns: p.OrchestratorActiveRuns})
+				OrchestratorEnabled: p.OrchestratorEnabled, OrchestratorMaxConcurrent: p.OrchestratorMaxConcurrent, OrchestratorActiveRuns: p.OrchestratorActiveRuns, OrchestrationAgents: settings.Project(p.ID).OrchestrationAgentDefinitions()})
 		}
 		_ = json.NewEncoder(w).Encode(entries)
 		return

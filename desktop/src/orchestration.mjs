@@ -1,3 +1,4 @@
+import { ipcMessage } from './execution-fields.mjs'
 import { runEngine } from './run-engine.mjs'
 import { runStateOf, runStateLabel, runStateSvg } from '../../shared/runStates.ts'
 
@@ -16,10 +17,10 @@ export function createOrchestration({container,onConsole,api,onChanged=()=>{}}){
  let previous='',lastInput,revision=0
  const states=new Map()
  const redraw=()=>{revision++;if(lastInput)view.render(lastInput)}
- async function evaluate(project,state){
+ async function runAgent(project,agent,state){
   state.pending=true;state.error='';state.report=null;redraw()
-  try{state.report=await api.evaluateBacklog(project.id);onChanged()}
-  catch(error){state.error=error.message||String(error)}
+  try{state.report=await api.runOrchestrationAgent(project.id,agent.id);onChanged()}
+  catch(error){state.error=ipcMessage(error)}
   finally{state.pending=false;redraw()}
  }
  const node=(tag,className,text)=>{const element=document.createElement(tag);if(className)element.className=className;if(text!==undefined)element.textContent=text;return element}
@@ -46,20 +47,27 @@ export function createOrchestration({container,onConsole,api,onChanged=()=>{}}){
    capacity.textContent=project.orchestratorEnabled?(known?project.orchestratorActiveRuns:'?')+' / '+(project.orchestratorMaxConcurrent||'?')+' slots':project.orchestratorMaxConcurrent?'Not enabled':'Capacity unavailable'
    capacity.title='Project-wide orchestration capacity'+(stale?' (last known)':'')
    heading.append(capacity);group.append(heading)
-   let state=states.get(project.id)
-   if(!state){state={};states.set(project.id,state)}
    if(project.orchestratorEnabled){
-    const evaluateButton=node('button','orchestration-evaluate','Evaluate backlog');evaluateButton.type='button'
-    evaluateButton.disabled=offline||stale||!!state.pending
-    evaluateButton.onclick=()=>evaluate(project,state);group.append(evaluateButton)
-   }
-   if(state.error){const error=node('p','orchestration-error',state.error);error.setAttribute('role','alert');group.append(error)}
-   if(state?.report){
-    const report=node('div','orchestration-report');report.setAttribute('role','status')
-    const result=state.report,launched=result.launched||[],skipped=result.skipped||[]
-    report.append(node('p','',launched.length+' launched · '+skipped.length+' skipped · '+result.activeRunsAfter+' / '+result.maxConcurrent+' slots used'))
-    for(const item of skipped)report.append(node('p','',(item.key||item.id)+': '+item.reason))
-    group.append(report)
+    const definitions=project.orchestrationAgents||[]
+    if(!definitions.length)group.append(node('p','orchestration-empty','Add agents in project settings'))
+    for(const agent of definitions){
+     const key=project.id+':'+agent.id
+     let state=states.get(key)
+     if(!state){state={};states.set(key,state)}
+     const card=node('section','orchestration-policy');card.setAttribute('aria-label','Agent '+agent.name)
+     card.append(node('strong','',agent.name),node('span','orchestration-policy-file',agent.file))
+     const runButton=node('button','orchestration-run','Run agent');runButton.type='button'
+     runButton.disabled=offline||stale||!!state.pending;runButton.onclick=()=>runAgent(project,agent,state);card.append(runButton)
+     if(state.error){const error=node('p','orchestration-error',state.error);error.setAttribute('role','alert');card.append(error)}
+     if(state.report){
+      const report=node('div','orchestration-report');report.setAttribute('role','status')
+      const result=state.report
+      report.append(node('p','',(result.launched||[]).length+' launched · '+(result.skipped||[]).length+' skipped · '+result.activeRunsAfter+' / '+result.maxConcurrent+' slots used'))
+      for(const item of result.skipped||[])report.append(node('p','',(item.key||item.id)+': '+item.reason))
+      card.append(report)
+     }
+     group.append(card)
+    }
    }
    if(project.orchestratorEnabled){
     const meter=node('progress','orchestration-meter');meter.max=project.orchestratorMaxConcurrent||1

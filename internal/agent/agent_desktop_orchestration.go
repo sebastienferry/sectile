@@ -16,85 +16,105 @@ import (
 )
 
 const orchestrationControlsCapability = "orchestration-controls"
+const orchestrationAgentsCapability = "orchestration-agents"
 
-// desktopOrchestration exposes only orchestration settings and the explicit
-// evaluate action. The paired credential owns the upstream request; desktop
-// payloads cannot select another actor or bypass the configured concurrency.
+// desktopOrchestration keeps named agents on this workstation. Every agent
+// launches through the same paired identity and server-owned project capacity.
 func (d *agentDaemon) desktopOrchestration(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.URL.Query().Get("projectId"))
 	if id == "" {
 		http.Error(w, "Project required", 400)
 		return
 	}
-	path := "/api/projects/" + url.PathEscape(id)
+	var input struct {
+		Enabled    *bool                             `json:"orchestratorEnabled"`
+		Concurrent *int                              `json:"orchestratorMaxConcurrent"`
+		Agents     *[]agentconfig.OrchestrationAgent `json:"agents"`
+	}
+	var launch struct {
+		AgentID string `json:"agentId"`
+	}
 	switch r.Method {
 	case http.MethodGet:
-		var project models.Project
-		if err := d.readAPI(r.Context(), path, &project); err != nil {
-			http.Error(w, err.Error(), 502)
+	case http.MethodPut:
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536))
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&input) != nil || input.Enabled == nil || input.Concurrent == nil || input.Agents == nil || *input.Concurrent < 1 || *input.Concurrent > 10 {
+			http.Error(w, "Enablement, concurrency from 1 to 10, and an agent list are required", 400)
 			return
 		}
-		if project.OrchestratorMaxConcurrent < 1 {
-			http.Error(w, "Update the Sectile server to configure orchestration from desktop", 501)
+	case http.MethodPost:
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+		decoder.DisallowUnknownFields()
+		if decoder.Decode(&launch) != nil {
+			http.Error(w, "Run agent accepts only an agent ID", 400)
 			return
 		}
-		root, settings, err := d.localProjectRoot(r.Context(), agentconfig.Config{ProjectID: id, GitRemoteURL: project.GitRemoteUrl})
-		if err != nil {
-			http.Error(w, err.Error(), 409)
-			return
+	default:
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	path := "/api/projects/" + url.PathEscape(id)
+	var project models.Project
+	if err := d.readAPI(r.Context(), path, &project); err != nil {
+		http.Error(w, err.Error(), 502)
+		return
+	}
+	if project.OrchestratorMaxConcurrent < 1 {
+		http.Error(w, "Update the Sectile server to configure orchestration from desktop", 501)
+		return
+	}
+	root, settings, err := d.localProjectRoot(r.Context(), agentconfig.Config{ProjectID: id, GitRemoteURL: project.GitRemoteUrl})
+	if err != nil {
+		http.Error(w, err.Error(), 409)
+		return
+	}
+	agents := settings.Project(id).OrchestrationAgentDefinitions()
+	switch r.Method {
+	case http.MethodGet:
+		type agentView struct {
+			agentconfig.OrchestrationAgent
+			Guidelines      string `json:"guidelines"`
+			GuidelinesError string `json:"guidelinesError,omitempty"`
 		}
-		file := settings.Project(id).OrchestrationFile
-		if file == "" {
-			file = "AGENTS.md"
-		}
-		guidelines, fileErr := readOrchestrationGuidelines(root, file)
-		view := map[string]any{"orchestratorEnabled": project.OrchestratorEnabled, "orchestratorMaxConcurrent": project.OrchestratorMaxConcurrent, "orchestrationFile": file, "guidelines": guidelines}
-		if fileErr != nil {
-			view["guidelinesError"] = fileErr.Error()
+		views := make([]agentView, 0, len(agents))
+		for _, agent := range agents {
+			view := agentView{OrchestrationAgent: agent}
+			view.Guidelines, _, err = readOrchestrationAgentGuidelines(root, agent)
+			if err != nil {
+				view.GuidelinesError = err.Error()
+			}
+			views = append(views, view)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(view)
+		_ = json.NewEncoder(w).Encode(map[string]any{"orchestratorEnabled": project.OrchestratorEnabled, "orchestratorMaxConcurrent": project.OrchestratorMaxConcurrent, "agents": views, "maxAgents": agentconfig.MaxOrchestrationAgents})
 	case http.MethodPut:
-		var input struct {
-			Enabled    *bool   `json:"orchestratorEnabled"`
-			Concurrent *int    `json:"orchestratorMaxConcurrent"`
-			File       *string `json:"orchestrationFile"`
-		}
-		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384))
-		decoder.DisallowUnknownFields()
-		if decoder.Decode(&input) != nil || input.Enabled == nil || input.Concurrent == nil || input.File == nil || *input.Concurrent < 1 || *input.Concurrent > 10 {
-			http.Error(w, "Enablement, concurrency from 1 to 10, and a Markdown guidelines file are required", 400)
-			return
-		}
-		var project models.Project
-		if err := d.readAPI(r.Context(), path, &project); err != nil {
-			http.Error(w, err.Error(), 502)
-			return
-		}
-		root, _, err := d.localProjectRoot(r.Context(), agentconfig.Config{ProjectID: id, GitRemoteURL: project.GitRemoteUrl})
+		agents, err = agentconfig.NormalizeOrchestrationAgents(*input.Agents)
 		if err != nil {
-			http.Error(w, err.Error(), 409)
-			return
-		}
-		file := strings.TrimSpace(*input.File)
-		if file == "" {
-			file = "AGENTS.md"
-		}
-		if err := validateOrchestrationFile(file); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		if *input.Enabled {
-			if _, err := readOrchestrationGuidelines(root, file); err != nil {
-				http.Error(w, err.Error(), 400)
+		if *input.Enabled && len(agents) == 0 {
+			http.Error(w, "Add an agent before enabling orchestration", 400)
+			return
+		}
+		for _, agent := range agents {
+			if err := validateOrchestrationFile(agent.File); err != nil {
+				http.Error(w, agent.Name+": "+err.Error(), 400)
 				return
 			}
+			if *input.Enabled {
+				if _, _, err := readOrchestrationAgentGuidelines(root, agent); err != nil {
+					http.Error(w, agent.Name+": "+err.Error(), 400)
+					return
+				}
+			}
 		}
-		// Save the workstation path first: a failed server write cannot enable
-		// a project with a path that was never stored on this workstation.
+		// Save local definitions before enabling their server-owned project.
 		if _, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
 			local := settings.Project(id)
-			local.OrchestrationFile = file
+			local.OrchestrationAgents = agents
+			local.OrchestrationFile = ""
 			settings.SetProject(id, local)
 			return nil
 		}); err != nil {
@@ -103,37 +123,42 @@ func (d *agentDaemon) desktopOrchestration(w http.ResponseWriter, r *http.Reques
 		}
 		d.relayServer(w, r, http.MethodPut, path, mustJSON(models.UpdateProjectRequest{OrchestratorEnabled: input.Enabled, OrchestratorMaxConcurrent: input.Concurrent}))
 	case http.MethodPost:
-		// No force or capacity override: Evaluate always respects saved settings.
-		var input struct{}
-		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
-		decoder.DisallowUnknownFields()
-		if decoder.Decode(&input) != nil {
-			http.Error(w, "Evaluation accepts an empty JSON object", 400)
+		// An omitted ID is unambiguous only for the former single-agent setup.
+		if launch.AgentID == "" && len(agents) == 1 {
+			launch.AgentID = agents[0].ID
+		}
+		var selected *agentconfig.OrchestrationAgent
+		for i := range agents {
+			if agents[i].ID == launch.AgentID {
+				selected = &agents[i]
+				break
+			}
+		}
+		if selected == nil {
+			http.Error(w, "Choose a saved orchestration agent", 400)
 			return
 		}
-		var project models.Project
-		if err := d.readAPI(r.Context(), path, &project); err != nil {
-			http.Error(w, err.Error(), 502)
-			return
-		}
-		root, settings, err := d.localProjectRoot(r.Context(), agentconfig.Config{ProjectID: id, GitRemoteURL: project.GitRemoteUrl})
+		_, guidelines, err := readOrchestrationAgentGuidelines(root, *selected)
 		if err != nil {
-			http.Error(w, err.Error(), 409)
+			http.Error(w, selected.Name+": "+err.Error(), 400)
 			return
 		}
-		file := settings.Project(id).OrchestrationFile
-		if file == "" {
-			file = "AGENTS.md"
-		}
-		guidelines, err := readOrchestrationGuidelines(root, file)
-		if err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
+
 		d.relayServer(w, r, http.MethodPost, path+"/orchestrate", mustJSON(models.OrchestrateProjectRequest{Guidelines: &guidelines}))
-	default:
-		http.Error(w, "Method not allowed", 405)
 	}
+}
+
+// The preview, enabling and run paths all validate the same named snapshot.
+func readOrchestrationAgentGuidelines(root string, agent agentconfig.OrchestrationAgent) (content, snapshot string, err error) {
+	content, err = readOrchestrationGuidelines(root, agent.File)
+	if err != nil {
+		return content, "", err
+	}
+	snapshot = fmt.Sprintf("Orchestration agent: %s [%s]\n\n%s", agent.Name, agent.ID, content)
+	if len(snapshot) > models.OrchestratorGuidelinesMaxBytes {
+		return content, "", fmt.Errorf("agent name and guidelines exceed 32 KiB")
+	}
+	return content, snapshot, nil
 }
 
 // validateOrchestrationFile keeps guidelines inside the mapped checkout.
