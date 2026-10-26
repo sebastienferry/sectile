@@ -423,3 +423,81 @@ func TestAMultiBlockListItemSurvivesTheJiraRoundTrip(t *testing.T) {
 	}
 	everyListItemOpensOnAParagraph(t, back)
 }
+
+// ADF accepts the code mark next to a link only. Inline code inside bold,
+// italic or struck text used to inherit the span's mark, and Jira refused the
+// whole document with INVALID_INPUT (#870). Each case gives the text nodes as
+// text:marks, marks joined by +.
+func TestInlineCodeKeepsOnlyItsLink(t *testing.T) {
+	cases := []struct {
+		name     string
+		markdown string
+		want     string
+	}{
+		{"bold", "**a `b` c**", "a :strong | b:code |  c:strong"},
+		{"italic", "*a `b` c*", "a :em | b:code |  c:em"},
+		{"underscore italic", "_a `b` c_", "a :em | b:code |  c:em"},
+		{"strike", "~~a `b` c~~", "a :strike | b:code |  c:strike"},
+		{"link", "[a `b` c](https://x)", "a :link | b:link+code |  c:link"},
+		{"bold link", "**[a `b`](https://x)**", "a :strong+link | b:link+code"},
+		{"bare code", "`b`", "b:code"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var parts []string
+			for _, node := range parseInline(tc.markdown) {
+				var marks []string
+				for _, mark := range node.Marks {
+					marks = append(marks, mark.Type)
+				}
+				parts = append(parts, node.Text+":"+strings.Join(marks, "+"))
+			}
+			if got := strings.Join(parts, " | "); got != tc.want {
+				t.Errorf("nodes:\n got %q\nwant %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// The ticket's own reproduction, in every block that holds inline text: no
+// node of the document may carry code with a mark other than link.
+func TestNoCodeNodeCarriesAForbiddenMark(t *testing.T) {
+	line := "**What is left under `pe` in the follow-up tab**, still `To migrate`:"
+	markdown := "# " + line + "\n\n" + line + "\n\n- " + line + "\n  1. *" + line + "*\n\n> ~~" + line + "~~\n\n" +
+		"| **`h`** |\n| --- |\n| _`c`_ |"
+	raw, err := json.Marshal(MarkdownToADF(markdown))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc adfNode
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	codes := 0
+	var walk func(adfNode)
+	walk = func(node adfNode) {
+		hasCode, other := false, ""
+		for _, mark := range node.Marks {
+			switch mark.Type {
+			case "code":
+				hasCode = true
+			case "link":
+			default:
+				other = mark.Type
+			}
+		}
+		if hasCode {
+			codes++
+			if other != "" {
+				t.Errorf("text %q carries code with %s", node.Text, other)
+			}
+		}
+		for _, child := range node.Content {
+			walk(child)
+		}
+	}
+	walk(doc)
+	if codes != 12 {
+		t.Errorf("code nodes = %d, want 12: the document lost some", codes)
+	}
+}

@@ -42,8 +42,7 @@ change to the queue. It returns the last row read; a read error is returned.
 
 After a successful transition, `transition_stage` calls
 `AwaitTrackerOp(ctx, activity.ID, stageSyncWait)` with
-`stageSyncWait = 15 * time.Second` (a package variable, so tests can shorten
-it) and maps the row:
+`stageSyncWait = 15 * time.Second` and maps the row:
 
 | Activity status | `trackerSync` | Extra field |
 | --- | --- | --- |
