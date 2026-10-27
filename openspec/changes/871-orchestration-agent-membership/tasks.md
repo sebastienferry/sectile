@@ -34,3 +34,11 @@
 - Reviewed the final diff: only Desktop presentation, regression tests, changelog and task evidence changed. No execution, scheduling, capacity, Go contract or context-repository changes.
 - Publication reuses draft PR #873 on `feat/871`. The branch includes current `origin/main`; remote branch identity was verified before publication. SSH authentication is unavailable in this session; HTTPS fetch succeeded without changing repository remote configuration.
 - The original supplied run ID was already finished as failed at the initial sandbox blocker; `start_run` refuses reopening it. No replacement run identity was created.
+
+## Adjustment review (2026-10-27)
+
+- Verified existing open draft PR #873 matches `feat/871`. Retrieved issue discussion, PR comments, submitted reviews and inline review comments successfully. No PR feedback was present; prior clarification/specification/implementation reports were checked against the accepted scope and retained.
+- Reviewed the entire branch diff and current agent discovery/evaluation contracts. No additional functional defect found. No dedicated-session producer exists; positive session scenarios remain inapplicable on this baseline. A future producer must add authoritative identity and project/profile association together before enabling the predicate.
+- Rebased onto current `origin/main` (`89505303`), preserving both #870 and #871 changelog entries when resolving the only conflict. No context repository changes.
+- Final Desktop unit suite: 314 passed, zero failures. Production build passed with the existing chunk-size advisory. Strict OpenSpec validation and branch whitespace checks passed.
+- Final focused UI/queue regression run: 4 passed, zero failures (`orchestration.ui.cjs`, `task-order-hold.ui.cjs`, `queue.ui.cjs`).
