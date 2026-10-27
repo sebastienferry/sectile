@@ -585,6 +585,19 @@ example:
 {"taskKey":"full-task-primary-key","stage":"reviewed","note":"Review complete","branch":"feat/example","prUrl":"https://gitlab.com/example/repo/-/merge_requests/42"}
 ```
 
+The stage is committed before the tracker is called, together with the queued
+job that carries the status, the label and the note to the tracker. The call
+then waits up to 15 seconds for that job and returns its outcome in
+`trackerSync` (#870):
+
+| `trackerSync` | Meaning |
+| --- | --- |
+| `done` | The status, the label and the note reached the tracker. |
+| `failed` | The job ended in error; `trackerError` says why. The stage stays applied and the call is not an error, so the agent does not repeat the transition: it reports the error and posts the note with `add_comment`. |
+| `queued` | The job was still running at the deadline; its outcome is recorded on the task's activity. |
+
+`activity` is the job's activity row as last read.
+
 ## Remote execution visibility
 
 A delegated skill creates a `remote_run` activity before dispatch. Its ID travels
@@ -1432,7 +1445,7 @@ Creation defaults to horizon `now`; supported horizons are `now`, `next`,
 `later` and `hidden` (`future` normalizes to `later`).
 Editable metadata is `title`, `description`, `framingComment`, `horizon`,
 `closed`, `priority`, `quarter` and `readiness`.
-Priority accepts P0–P3, quarter accepts normalized year/quarter forms such as
+Priority accepts P0 to P3, quarter accepts normalized year/quarter forms such as
 `2026-Q4`, and readiness accepts `idea`, `shaping` or `ready`.
 Omitted fields are preserved, empty strings clear optional fields, and
 `closed:false` reopens. A blank title or invalid value refuses the request
