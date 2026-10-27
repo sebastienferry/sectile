@@ -81,21 +81,23 @@ func fileSha256(path string) string {
 }
 
 type desktopRun struct {
-	Conversation    bool      `json:"conversation,omitempty"`
-	EngineID        string    `json:"engineId,omitempty"`
-	EngineName      string    `json:"engineName,omitempty"`
-	Branch          string    `json:"branch,omitempty"`
-	Kind            string    `json:"kind,omitempty"`
-	Provider        string    `json:"provider,omitempty"`
-	Model           string    `json:"model,omitempty"`
-	CancelRequested bool      `json:"cancelRequested,omitempty"`
-	QueueSequence   uint64    `json:"queueSequence,omitempty"`
-	CreatedAt       time.Time `json:"createdAt"`
-	StartedAt       time.Time `json:"startedAt,omitzero"`
-	Prompt          string    `json:"prompt,omitempty"`
-	ID              string    `json:"id"`
-	TaskID          string    `json:"taskId"`
-	TaskKey         string    `json:"taskKey"`
+	AgentProfileID   string    `json:"agentProfileId,omitempty"`
+	AgentProfileName string    `json:"agentProfileName,omitempty"`
+	Conversation     bool      `json:"conversation,omitempty"`
+	EngineID         string    `json:"engineId,omitempty"`
+	EngineName       string    `json:"engineName,omitempty"`
+	Branch           string    `json:"branch,omitempty"`
+	Kind             string    `json:"kind,omitempty"`
+	Provider         string    `json:"provider,omitempty"`
+	Model            string    `json:"model,omitempty"`
+	CancelRequested  bool      `json:"cancelRequested,omitempty"`
+	QueueSequence    uint64    `json:"queueSequence,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+	StartedAt        time.Time `json:"startedAt,omitzero"`
+	Prompt           string    `json:"prompt,omitempty"`
+	ID               string    `json:"id"`
+	TaskID           string    `json:"taskId"`
+	TaskKey          string    `json:"taskKey"`
 	// MacroKey is set on a macro skill run, which has no task. TaskKey then
 	// carries the macro key too, for the label.
 	MacroKey  string `json:"macroKey,omitempty"`
@@ -217,6 +219,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/git-diff" {
 		d.desktopGitDiff(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/agent-profiles" {
+		d.desktopAgentProfiles(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/consoles" {

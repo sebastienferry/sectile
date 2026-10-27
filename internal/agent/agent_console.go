@@ -32,9 +32,10 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		ProjectID string `json:"projectId"`
-		Provider  string `json:"provider"`
-		EngineID  string `json:"engineId"`
+		ProjectID      string `json:"projectId"`
+		Provider       string `json:"provider"`
+		EngineID       string `json:"engineId"`
+		AgentProfileID string `json:"agentProfileId"`
 		// View "conversation" asks for Claude's structured view instead of a
 		// PTY. It is a preference: an engine it cannot honour gets the PTY.
 		View string `json:"view"`
@@ -61,6 +62,15 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	if input.AgentProfileID != "" && !validAgentProfileID(input.AgentProfileID) {
+		http.Error(w, "Invalid agent profile name", 400)
+		return
+	}
+	profile, err := loadAgentProfile(root, input.AgentProfileID)
+	if err != nil {
+		profileHTTPError(w, err)
+		return
+	}
 	id := uuid.NewString()
 	var engine agentconfig.Engine
 	if input.EngineID != "" {
@@ -85,11 +95,26 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	if input.EngineID != "" {
 		template = config.AICommandTemplate
 	}
+	if profile != nil {
+		if err := checkProfileProvider(r.Context(), provider, template); err != nil {
+			http.Error(w, err.Error(), 422)
+			return
+		}
+		if provider == "codex" {
+			instructions, err := codexProfileInstructions(r.Context(), root, profile.Prompt)
+			if err != nil {
+				http.Error(w, err.Error(), 422)
+				return
+			}
+			profile.DeveloperInstructions = instructions
+		}
+	}
 	command, err := consoleLaunch(provider, agentconfig.ResolveModel(config, ""), template, config.AIModel, root, folderMapDirs(folders))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	command = profileConsoleCommand(command, provider, profile)
 	// A supported engine with a launch template still converses: the template is
 	// not run, only its model is kept, and the first notice says so.
 	if input.View == "conversation" && (provider == "claude" || provider == "codex" || provider == "agy") {
@@ -104,6 +129,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
 		}
+		applyProfile(run, profile)
 		run.desktop.EngineID, run.desktop.EngineName = engine.ID, engine.Name
 		run.desktop.Folders = runFolders(root, folders)
 		entry := run.desktop
@@ -124,6 +150,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	// The engine the console opens decides whether a folder attached from it
 	// is typed in (#689); a template whose provider is Claude counts as Claude.
 	run.interactiveProvider = liveProvider(agentconfig.Config{AIProvider: provider})
+	applyProfile(run, profile)
 	run.desktop.EngineID, run.desktop.EngineName = engine.ID, engine.Name
 	run.desktop.Model = config.AIModel
 	run.desktop.Folders = runFolders(root, folders)

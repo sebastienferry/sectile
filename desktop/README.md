@@ -473,6 +473,18 @@ cd desktop && npm run build && cd ..
 scripts/release/package-desktop.sh v0.0.0 linux amd64 path/to/sectile-agent-linux-amd64 dist-desktop
 ```
 
+### Project agent profiles
+
+Use the **+** beside a mapped project or its **Project prompt** menu to start a
+session. Select an engine and an optional repository agent profile independently.
+**Create profile** saves reusable instructions in `.sectile/agents/<name>.md`
+and selects the saved profile without launching. Enter your request after
+opening the session. Built-in Claude Code and Codex support profiles in both
+console views; custom templates and other providers require **None**. Project
+defaults are unchanged, and files are never committed automatically. See the
+[profile guide](../docs/project-agent-profiles.md) for validation, compatibility,
+and snapshot behavior.
+
 ### Restarting the agent
 
 Use **Restart agent** in the desktop header. The confirmation explains that active

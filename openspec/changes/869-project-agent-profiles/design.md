@@ -61,3 +61,28 @@ Update Desktop usage documentation (README if it describes the launch feature), 
 No unresolved product decisions. Provider schema/version compatibility is an implementation verification gate, not permission to silently omit instructions. Use fake provider executables/protocol fixtures to prove safe delivery, persistence and instruction composition; manually smoke-test real supported versions with repository instructions and a distinctive profile. Profile prompts go to the selected AI provider like other session instructions, never to another session.
 
 Specification artifacts are not ignored (`git check-ignore -q` returns 1). The owner authorized committing the specification and creating a draft PR, overriding the specification-stage PR restriction and authorizing a retry of the previously denied Git write. Publication still requires successful remote synchronization and PR creation checks. No production code is changed here.
+
+## Implementation verification notes — 2026-10-27
+
+The existing local run store restores read-only history and cannot resume provider
+conversations after daemon restart. Consequently prompt snapshots remain in the
+controlled run's memory; only profile identity is persisted. Active Claude and
+Codex process reconnects retain the snapshot. This preserves instruction isolation
+without storing unused prompt copies. ADR 0061 documents this lifecycle.
+
+Codex interface checks use the inspected 0.162.1 schema and conservatively require
+CLI 0.162 or newer. Admission reads effective developer instructions through
+config/read before composing a session override. Version 0.164.0 was also verified.
+
+The owner delegated authenticated Claude verification to #876 on the professional
+workstation. It remains an explicit follow-up, not a successful local smoke test.
+The local real Codex conversation and native CLI override/no-profile checks pass.
+The interactive TUI reached the waiting composer, but its inference harness was
+removed after it accidentally activated the provider's updater. No provider-menu
+automation is retained in the tests.
+
+Windows device names (con, prn, aux, nul, com1–com9, lpt1–lpt9) are rejected
+consistently on every platform. They fit the original ASCII grammar but cannot
+name regular Markdown files through Windows filesystem APIs. This technical
+validation refinement keeps repository profiles portable instead of failing only
+when a profile is shared with a Windows workstation.

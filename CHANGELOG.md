@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- Desktop projects have a + shortcut to start a session with reusable agent instructions, selected or created in the repository, for built-in Claude and Codex engines. (#869)
+
 ## [0.7.5] - 2026-10-22
 
 ### Added
