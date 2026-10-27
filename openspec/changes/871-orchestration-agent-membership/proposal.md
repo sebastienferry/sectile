@@ -29,4 +29,4 @@ None. This change corrects presentation without introducing orchestration capabi
 
 Primary targets are `desktop/src/orchestration.mjs` and its tests, available on the feature baseline in `origin/main`. Minimal agent discovery/persistence metadata is permitted only if an actual existing dedicated-session producer needs it. No infrastructure changes, new persistent agent service, scheduling redesign, concurrency change or new triage/issue-writing workflow is included. Existing runtime language is preserved.
 
-The assigned branch predates the feature; integrate the feature baseline during implementation preparation while preserving the committed clarification and these specifications. Specification does not merge or rebase it.
+The original assigned branch predated the feature. During owner-authorized PR preparation on 2026-10-27, it was rebased onto `origin/main` without conflicts, preserving the accepted clarification and these specifications. No production code was changed by this task.

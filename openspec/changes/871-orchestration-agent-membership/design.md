@@ -9,7 +9,7 @@ Worktree branch: `feat/871`. The assigned checkout predates Orchestration. Read-
 - Configured profiles are workstation policy definitions. `internal/agent/agent_desktop_orchestration.go` evaluates backlog through the server; the returned launches are ticket chains. This is not a persistent dedicated orchestration session.
 - `desktopRun` has task, macro, console and session identity, but no verified dedicated orchestration role. A session ID by itself proves no such responsibility.
 
-Use the live project setting, OpenSpec, rather than the stale framework value in the supplied skill. Specification artifacts are not ignored in this worktree. The supplied skill expressly forbids specification-time PR creation despite the live project's `prCreationStage: specified`; retain this discrepancy in the report and defer PR creation rather than silently overriding that instruction.
+Use the live project setting, OpenSpec, rather than the stale framework value in the supplied skill. Specification artifacts are not ignored in this worktree. On 2026-10-27 the owner explicitly authorized PR creation, resolving the earlier conflict between the supplied skill and the live project setting `prCreationStage: specified`. The unpublished branch was rebased onto `origin/main` without conflicts before publication; accepted clarification and specification artifacts were preserved.
 
 ## Decisions
 
@@ -51,4 +51,4 @@ Run focused Desktop tests, then `npm test` and `npm run build` in `desktop`. Run
 
 ## Risks and open points
 
-Zero open product requirements. The older branch must gain the known feature baseline before implementation. A later baseline may contain an authoritative dedicated-session producer; inspect it rather than assuming one or creating it. Positive dedicated-session fixtures must be clearly identified as contract fixtures when no real producer exists. No code is implemented by this specification.
+Zero open product requirements. The known feature baseline is now included after the publication rebase. A later baseline may contain an authoritative dedicated-session producer; inspect it rather than assuming one or creating it. Positive dedicated-session fixtures must be clearly identified as contract fixtures when no real producer exists. No code is implemented by this specification.

@@ -2,7 +2,7 @@
 
 ## 1. Prepare and confirm contracts
 
-- [ ] 1.1 Preserve accepted clarification/specification commits and integrate the current feature baseline into `feat/871` through the repository workflow; do not recreate the missing Orchestration feature.
+- [x] 1.1 Preserve accepted clarification/specification commits and integrate the current feature baseline into `feat/871` through the repository workflow; completed by conflict-free rebase onto `origin/main` during owner-authorized PR preparation on 2026-10-27.
 - [ ] 1.2 Inspect actual session producers, discovery and restoration. Document the authoritative dedicated-session identity if present; otherwise explicitly keep current policy evaluations and workers distinct with no manufactured sessions.
 
 ## 2. Correct membership and actions
