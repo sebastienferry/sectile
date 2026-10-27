@@ -19,8 +19,8 @@ test` green. Tests go with the step they cover. One commit per step.
   - handoff completed, task finished -> none (AC6, US2.2);
   - project not configured, skill not offered -> none (US2.3);
   - another active run, submitting -> none (US2.4);
-  - free console, macro run, `discuss`, provider `agy`, terminal run -> none
-    (AC7);
+  - providers `claude`, `codex`, `agy` -> offered (AC9);
+  - free console, macro run, `discuss`, terminal run -> none (AC7);
   - `blocksLaunch` ignores the predecessor only.
 
 ## 2. Conversation view
@@ -52,9 +52,10 @@ test` green. Tests go with the step they cover. One commit per step.
     beside the offer, toolbar shows `Launch anyway` (AC5, US3.6);
   - approval pending: no offer (AC4);
   - toolbar `Next:` state identical with and without the offer (AC8).
+  - the offer case of AC1 on a Codex and an Antigravity conversation (AC9).
 - Existing suites still pass: `concurrent-launch.ui.cjs`,
   `declare-reviewed.ui.cjs`, `conversation.ui.cjs`, `codex-conversation.ui.cjs`,
-  `conversation-mode.ui.cjs`.
+  `agy-conversation.ui.cjs`, `conversation-mode.ui.cjs`.
 
 ## 4. Documentation
 
@@ -70,7 +71,8 @@ test` green. Tests go with the step they cover. One commit per step.
 
 - `cd desktop && npm test` (unit), `cd desktop && npm run test:ui` (Electron).
 - `make test` before the implemented transition.
-- Manual: on a real project, run Specify in a Claude conversation and in a
-  Codex conversation; check the offer, the launch, the read-only predecessor;
-  check that a launch refused while a terminal run is active keeps the
+- Manual: on a real project, run Specify in a Claude, a Codex and an
+  Antigravity conversation; check the offer, the launch, the read-only
+  predecessor (for Antigravity, that the skill ends its run and the offer
+  shows); check that a launch refused while a terminal run is active keeps the
   predecessor open.

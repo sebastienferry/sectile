@@ -20,8 +20,9 @@ when the step ends, and it offers nothing.
 
 In:
 
-- Sectile Desktop, conversation view, task conversations run by Claude Code or
-  Codex.
+- Sectile Desktop, conversation view, task conversations run by Claude Code,
+  Codex or Antigravity. Antigravity was added by the owner after the
+  clarification, which named Claude and Codex only (2026-10-27).
 - Every next step the workflow already defines: Clarify, Specify, Implement,
   Create PR, Adjust, Handoff, with the conditions it already applies to each.
 
@@ -35,14 +36,12 @@ Out:
   a stage, so they never lead to the offer.
 - The toolbar's `Next:` and `Pickup (full chain)` buttons, the board and the
   tickets list: unchanged.
-- Antigravity conversations: the clarification covers Claude and Codex only
-  (see Open points).
 - The web client.
 
 ## Vocabulary
 
 - **Task conversation**: a conversation-view run launched on a task, by Claude
-  Code or Codex.
+  Code, Codex or Antigravity.
 - **Predecessor**: the task conversation in which the step just ended.
 - **Successor**: the conversation launched by the offer for the next step.
 - **Next step**: the step the workflow names for the task's current stage, as
@@ -123,9 +122,9 @@ Out:
 ## Functional requirements
 
 - **FR1** The offer is shown only when all of these hold for the selected
-  conversation: it is a task conversation by Claude Code or Codex, not
-  read-only; the skill it speaks for (its own, or the one it went on to run)
-  is a workflow skill with an expected stage (clarify, specify, implement,
+  conversation: it is a task conversation by Claude Code, Codex or
+  Antigravity, not read-only; the skill it speaks for (its own, or the one it
+  went on to run) is a workflow skill with an expected stage (clarify, specify, implement,
   adjust) and its skill result is "Skill completed"; the conversation is idle,
   with no queued message, no pending approval or question and no declared
   wait; the task is not finished; the workflow names a next step whose skill
@@ -165,16 +164,15 @@ Out:
   and selected, and the refusal is shown beside the offer.
 - **AC6** Given a Handoff conversation that completed, the task is finished
   and no offer shows.
-- **AC7** A project prompt, a macro run, a discussion and an Antigravity
-  conversation never show the offer.
+- **AC7** A project prompt, a macro run and a discussion never show the
+  offer.
 - **AC8** The toolbar's next-step controls behave exactly as before in every
   case above.
+- **AC9** AC1, AC4 and AC5 hold alike in a Claude Code, a Codex and an
+  Antigravity conversation.
 
 ## Open points
 
-- **Antigravity conversations.** The clarification names Claude and Codex
-  task conversations only. Antigravity conversations are left out; including
-  them is a product decision for the owner. Not blocking.
 - **Clarification report file.** The committed report
   (`docs/clarifications/875.md`, commits `cface39d` and `5e995bab`) is not
   reachable from this repository; the decisions are taken from the ticket

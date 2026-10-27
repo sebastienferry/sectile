@@ -57,7 +57,7 @@ Inputs:
 
 Rules, in order, each returning a `reason` (used by tests, not shown):
 
-1. `run.conversation && run.taskId`, provider `claude` or `codex`, not
+1. `run.conversation && run.taskId`, provider `claude`, `codex` or `agy`, not
    `freeConsole`, not a macro run, skill not `discuss`.
 2. `conversation` known, `!readOnly`, `!busy`, `approvals.length === 0`,
    `!run.waitingSince`.
@@ -173,6 +173,18 @@ existing launch call and `stop`.
 - The conversation state and the skill result are polled at different paces;
   the offer may lag the stage move by up to one skill-result settle cycle
   (`SETTLE_MS`). Acceptable: it never shows early, only late.
+- Antigravity takes a message sent during a turn as a queued message rather
+  than joining the turn. The offer only shows on an idle conversation, so it
+  is unaffected; the predecessor check re-reads `busy` before launching.
+- Antigravity skill completion: a task launch keeps its environment,
+  `SECTILE_RUN_ID` included, in `run.conversation.env`
+  (`internal/agent/agent.go`, `startLaunchConversation`), and every Antigravity
+  turn merges it into `agy`'s environment
+  (`internal/agent/agent_agy_conversation.go`, `agyConversationTurn`), whose
+  Sectile MCP is checked with `agy mcp list`. A skill can therefore end its run
+  as under Claude and Codex. Should one not, its conversation never reaches
+  "Skill completed": the failure mode is a missing offer, never a premature
+  one.
 - Codex keeps an app-server process per conversation; stopping the predecessor
   after the successor started in the same directory must not touch the
   successor. `api.stop` is per run id, so it does not.
