@@ -392,12 +392,14 @@ func parseInline(s string) []adfNode {
 		var buf strings.Builder
 		i := 0
 		for i < len(s) {
-			// Inline code wins over every other mark and takes no nesting.
+			// Inline code wins over every other mark and takes no nesting. ADF
+			// allows code next to a link only: a bold, italic or struck span
+			// around it would make Jira refuse the whole document (#870).
 			if s[i] == '`' {
 				if end := strings.IndexByte(s[i+1:], '`'); end >= 0 {
 					emit(buf.String(), marks)
 					buf.Reset()
-					emit(s[i+1:i+1+end], append(append([]adfMark{}, marks...), adfMark{Type: "code"}))
+					emit(s[i+1:i+1+end], append(linkMarks(marks), adfMark{Type: "code"}))
 					i += end + 2
 					continue
 				}
@@ -442,6 +444,18 @@ func parseInline(s string) []adfNode {
 		emit(buf.String(), marks)
 	}
 	parse(s, nil)
+	return out
+}
+
+// linkMarks returns, in a fresh slice, the link marks of marks: the only ones
+// ADF accepts on a code node.
+func linkMarks(marks []adfMark) []adfMark {
+	out := []adfMark{}
+	for _, mark := range marks {
+		if mark.Type == "link" {
+			out = append(out, mark)
+		}
+	}
 	return out
 }
 

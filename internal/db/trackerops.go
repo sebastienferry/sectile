@@ -1062,6 +1062,42 @@ func refusalOrFailures(prefix string, failures []string, refused error, refusals
 	return fmt.Errorf("%s : %s", prefix, strings.Join(failures, " | "))
 }
 
+// AwaitTrackerOp waits until the activity of a queued tracker write leaves the
+// queue, bound expires or ctx ends, and returns the last row it read. A caller
+// that must tell its own caller what reached the tracker reads the outcome
+// there: the worker that ran the job, on this instance or another, closed that
+// row through finishTrackerOp (#870).
+func (d *DB) AwaitTrackerOp(ctx context.Context, activityID string, bound time.Duration) (*models.TaskActivity, error) {
+	deadline := time.NewTimer(bound)
+	defer deadline.Stop()
+	tick := time.NewTicker(trackerOpPoll)
+	defer tick.Stop()
+	for {
+		activity, err := d.GetActivityByID(activityID)
+		if err != nil || activity == nil || trackerOpSettled(activity.Status) {
+			return activity, err
+		}
+		select {
+		case <-ctx.Done():
+			return activity, nil
+		case <-deadline.C:
+			return activity, nil
+		case <-tick.C:
+		}
+	}
+}
+
+// trackerOpPoll is how often AwaitTrackerOp reads the activity again.
+var trackerOpPoll = 100 * time.Millisecond
+
+func trackerOpSettled(status string) bool {
+	switch models.ActivityStatus(status) {
+	case models.ActivityStatusCompleted, models.ActivityStatusFailed, models.ActivityStatusCanceled:
+		return true
+	}
+	return false
+}
+
 // finishTrackerOp closes the activity with what the write actually did.
 func (d *DB) finishTrackerOp(activityID string, steps []string, output string, opErr error) {
 	status := string(models.ActivityStatusCompleted)
