@@ -24,7 +24,9 @@ function commandOutputLines(text){
 // beside the conversation; canQueue whether it takes a message while Claude
 // works.
 // models lists the Claude models the workstation offers in its settings.
-export function createConversationView({api,container,onError,canAddFolder=()=>false,canControl=()=>false,canQueue=()=>false,models=()=>[]}){
+// onState hears the state of each poll, null when it is unknown, and onOffer
+// the activation of the next step shown by showOffer (#875).
+export function createConversationView({api,container,onError,canAddFolder=()=>false,canControl=()=>false,canQueue=()=>false,models=()=>[],onState=()=>{},onOffer=()=>{}}){
  const panel=document.createElement('section');panel.className='conversation';panel.hidden=true
  panel.setAttribute('aria-label','Claude Code conversation')
  panel.innerHTML='<div class="conversation-events" role="log" aria-label="Conversation messages"></div><form class="conversation-composer"><label class="visually-hidden" for="conversation-message">Message Claude Code</label><ul class="conversation-commands" id="conversation-commands" role="listbox" aria-label="Slash commands" hidden></ul><textarea id="conversation-message" rows="2" maxlength="60000" placeholder="Ask a question or describe a change…" role="combobox" aria-autocomplete="list" aria-controls="conversation-commands" aria-expanded="false" required></textarea><div class="conversation-toolbar"><label class="conversation-chip conversation-model" title="Model for the next message"><select aria-label="Model"></select></label><label class="conversation-chip conversation-effort" title="Reasoning effort for the next message"><svg viewBox="0 0 20 14" width="18" height="13" aria-hidden="true"><rect x="0" y="10" width="3" height="4" rx="1"/><rect x="4" y="8" width="3" height="6" rx="1"/><rect x="8" y="6" width="3" height="8" rx="1"/><rect x="12" y="3" width="3" height="11" rx="1"/><rect x="16" y="0" width="3" height="14" rx="1"/></svg><select aria-label="Effort"><option value="">Default effort</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option></select></label><label class="conversation-chip conversation-mode" title="What Claude may do without asking, from the next message. Sectile’s tools are always allowed."><select aria-label="Permission mode"><option value="default">Ask before edits</option><option value="acceptEdits">Accept edits</option><option value="auto">Auto mode</option><option value="plan">Plan mode</option></select></label><button type="button" class="conversation-chip conversation-add-folder" aria-label="Add folder…" title="Attach a folder of this workstation to the project; Claude sees it from the next message" hidden><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/><path d="M12 11v6M9 14h6"/></svg><span>Add folder…</span></button><button type="button" class="conversation-chip conversation-terminal" aria-label="Open a terminal" title="Open a terminal in this conversation’s directory" hidden><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7.5 10 2.5 2.5-2.5 2.5"/><path d="M13 15h4"/></svg><span>Terminal</span></button><button type="button" class="conversation-chip conversation-mcp" hidden><span class="conversation-mcp-dot" aria-hidden="true"></span><span>Sectile MCP</span></button><span class="conversation-status" role="status"></span><span class="conversation-context" role="img" hidden><svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle class="conversation-context-used" cx="18" cy="18" r="15" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 18 18)"/></svg><span></span></span><button type="button" class="conversation-interrupt" aria-label="Stop answer" title="Stop this answer (Esc); the conversation stays open" hidden><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg></button><button type="submit" class="conversation-send" aria-label="Send" title="Send (Enter) · New line (Shift+Enter)"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></form>'
@@ -203,6 +205,34 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   catch(err){if(token===generation)onError(err)}
   finally{if(token===generation)openTerminal.disabled=false}
  })
+ // The next workflow step, offered after the last message once the step that
+ // ran here is done (#875). The caller decides when; the view only draws it,
+ // and keeps it last when the history is redrawn.
+ const offerNode=document.createElement('div');offerNode.className='conversation-offer'
+ offerNode.setAttribute('role','group');offerNode.setAttribute('aria-label','Next workflow step')
+ const offerButton=document.createElement('button');offerButton.type='button';offerButton.className='conversation-offer-launch'
+ const offerHint=document.createElement('p');offerHint.className='conversation-offer-hint';offerHint.textContent='Starts a new conversation for this step and closes this one.'
+ const offerStatus=document.createElement('p');offerStatus.className='conversation-offer-status';offerStatus.setAttribute('role','status')
+ offerNode.append(offerButton,offerHint,offerStatus)
+ let offer=null,offerPending=false,offerError=''
+ offerButton.addEventListener('click',()=>{if(offer&&!offerPending)onOffer(offer)})
+ function drawOffer(){
+  if(!offer){offerNode.remove();return}
+  const text='Next: '+offer.label
+  if(offerButton.textContent!==text)offerButton.textContent=text
+  offerButton.disabled=offerPending
+  const note=offerPending?'Launching '+offer.label+'…':offerError
+  if(offerStatus.textContent!==note)offerStatus.textContent=note
+  offerStatus.classList.toggle('conversation-offer-error',!offerPending&&!!offerError)
+  // Moving a node that is already last would only drop its focus.
+  if(events.lastChild!==offerNode){
+   const follow=events.scrollHeight-events.scrollTop-events.clientHeight<80
+   events.append(offerNode)
+   if(follow)events.scrollTop=events.scrollHeight
+  }
+ }
+ let state=null
+ const report=next=>{state=next;onState(next)}
  function draw(data){
   if(version===data.version)return
   version=data.version
@@ -237,6 +267,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
    if(event.detail){const detail=document.createElement('small');detail.textContent=event.detail;node.append(detail)}
    events.append(node)
   }
+  if(offer)events.append(offerNode)
   if(follow)events.scrollTop=events.scrollHeight
  }
  // A tool call Claude may not make on its own waits in its card for Allow,
@@ -346,7 +377,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
    partialNode.setAttribute('aria-busy','true')
    const label=document.createElement('strong');label.className='conversation-speaker';label.textContent=providerLabel()
    const body=document.createElement('div');body.className='conversation-markdown'
-   partialNode.append(label,body);events.append(partialNode)
+   partialNode.append(label,body);events.insertBefore(partialNode,offerNode.parentNode===events?offerNode:null)
   }
   partialNode.lastChild.replaceChildren(renderMarkdown(markdownModel(text),{openLink:url=>api.openLink(url)}))
   partialText=text
@@ -360,9 +391,11 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
    if(Array.isArray(data.models)&&JSON.stringify(catalog)!==JSON.stringify(data.models)){catalog=data.models;fillModels(model.value);fillEfforts(effort.value)}
    if(Array.isArray(data.commands))commands=data.commands.filter(command=>command&&typeof command.name==='string')
    draw(data);drawPartial(data.busy?data.partial||'':'');drawApprovals(Array.isArray(data.approvals)?data.approvals:[]);controls(data);busy=!!data.busy
+   report({id,busy,readOnly:!!data.readOnly,approvals:Array.isArray(data.approvals)?data.approvals:[],sending:pending})
   }catch(err){
    if(token!==generation)return
    available=false;send.disabled=true;showStatus(err.message||String(err))
+   report(null)
   }finally{if(token===generation&&selected)timer=setTimeout(()=>poll(token,id),busy?250:750)}
  }
  // The conversation's model first, then the workstation's Claude models.
@@ -380,6 +413,7 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
   const id=selected,token=generation,message=input.value
   if(!id||!message.trim()||pending||!available)return
   pending=true;send.disabled=true
+  if(state)report({...state,sending:true})
   try{
    await api.conversationMessage(id,message,effort.value,model.value,mode.value)
    if(token!==generation)return
@@ -391,7 +425,17 @@ export function createConversationView({api,container,onError,canAddFolder=()=>f
  return {select(run){
   generation++;clearTimeout(timer);provider=run?.provider==='codex'?'codex':run?.provider==='agy'?'agy':'claude';catalog=[];configureProvider();selected=run?.conversation?run.id:null;directory=run?.directory||'';busy=false;commands=[];closeCompletion();openTerminal.hidden=true;mcp.hidden=true;interrupt.hidden=true;send.hidden=false;partialNode=null;partialText='';version=null;pending=false;available=false;effortLoaded=false;readOnly=true;attaching=false;notice='';noticeUntil=0;showAddFolder()
   events.replaceChildren();effort.value='';effort.disabled=true;showEffort();showContext(null);input.value='';grow();fillModels(run?.model);fillEfforts('');mode.value=provider==='codex'?'workspace-write':provider==='agy'?'accept-edits':'acceptEdits';model.disabled=mode.disabled=true;input.disabled=true;send.disabled=true
+  offer=null;offerPending=false;offerError='';drawOffer();report(null)
   panel.hidden=!selected;container.classList.toggle('conversation-active',!!selected)
   if(selected){showStatus('Loading conversation…','working');poll(generation,selected)}
- },get active(){return !!selected}}
+ },
+ // The offer of the next step, {skillId,label}, or null to withdraw it.
+ showOffer(next){
+  if(!next){offer=null;offerPending=false;drawOffer();return}
+  if(offer&&offer.skillId!==next.skillId)offerError=''
+  offer={skillId:next.skillId,label:next.label};drawOffer()
+ },
+ // A launch from the offer is in flight, or ended with the error shown beside it.
+ offerState({pending=false,error=''}={}){offerPending=pending;offerError=error;drawOffer()},
+ get active(){return !!selected}}
 }
