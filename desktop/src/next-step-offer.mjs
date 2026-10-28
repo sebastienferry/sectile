@@ -1,5 +1,5 @@
 import {STAGES,nextTaskStep,taskStage} from './workflow.mjs'
-import {expectedStage,skillResult,workflowSkill} from './skill-result.mjs'
+import {expectedStage,primaryStatus,workflowSkill} from './skill-result.mjs'
 
 // The engines whose task conversations end their skill through Sectile, so a
 // completed skill can be told apart from a turn that merely stopped (#875).
@@ -29,7 +29,8 @@ export function nextStepOffer({run,result,conversation,task,project,runs=[],subm
  const successor=result?.activity?.id===run.id&&result.successor
  const skill=successor?workflowSkill(successor.skillId):run.skill
  if(!offering.has(skill))return {reason:'skill'}
- if(skillResult(run,result)?.kind!=='completed')return {reason:'skill-not-completed'}
+ // Done: the skill ended well and its task reached the stage it is expected to.
+ if(primaryStatus(run,result)?.kind!=='done')return {reason:'skill-not-completed'}
  if(!task||!project)return {reason:'task-unknown'}
  // The task read for the toolbar may predate the stage move the skill result
  // already saw: the offer waits for it rather than naming a stale step.

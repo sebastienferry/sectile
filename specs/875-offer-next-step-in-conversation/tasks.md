@@ -11,7 +11,7 @@ test` green. Tests go with the step they cover. One commit per step.
   - offered: completed Specify at `specified` -> `Next: Implement` (AC1);
   - Implement at `implemented` without / with `prUrl` -> Create PR / Adjust
     (AC2, US2.1);
-  - "Awaiting stage validation" -> none (AC3, US1.2);
+  - "Needs verification" (reported, stage not reached) -> none (AC3, US1.2);
   - failed, canceled, unconfirmed -> none (US1.3);
   - busy, approvals, `AskUserQuestion`, `waitingSince`, read-only -> none
     (AC4, US1.4, US4.3);

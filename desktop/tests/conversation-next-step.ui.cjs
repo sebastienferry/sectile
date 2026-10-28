@@ -87,14 +87,14 @@ for(const [provider,name] of [['claude','Claude Code'],['codex','Codex'],['agy',
 
    // A completed skill whose task has not reached its stage yet offers nothing (AC3).
    state.activity='completed'
-   await expect(badge).toHaveText(/Awaiting stage validation/)
+   await expect(badge).toHaveAttribute('data-kind','verify')
    await expect(offer).toHaveCount(0)
 
    // Nor does a conversation waiting for a tool approval (AC4).
    state.approvals=[{id:'ask-1',tool:'Bash',toolUseId:'t-1',input:{command:'make test'}}]
    state.stage='specified'
    await expect(status).toHaveText('Waiting for your approval')
-   await expect(badge).toHaveText(/Skill completed/)
+   await expect(badge).toHaveAttribute('data-kind','done')
    await page.waitForTimeout(1500)
    await expect(offer).toHaveCount(0)
    await expect(page.locator('#next-step-status')).toContainText('specified')

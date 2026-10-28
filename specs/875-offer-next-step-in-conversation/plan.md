@@ -10,8 +10,8 @@ Spec: `spec.md`. This file says how; `spec.md` says what.
 - No change to the server, the agent, the database, the MCP tools or the
   skills. The pieces the offer needs already exist:
   - the next step: `nextTaskStep` in `desktop/src/workflow.mjs`;
-  - skill completion and stage validation: `skillResult` in
-    `desktop/src/skill-result.mjs` (`kind: 'completed'` only once the task has
+  - skill completion and stage validation: `primaryStatus` in
+    `desktop/src/skill-result.mjs` (`kind: 'done'` only once the task has
     reached the skill's expected stage; it already speaks for a successor skill
     started in the same console, #586);
   - the conversation's idle state, approvals and questions: the agent's
@@ -23,8 +23,8 @@ Spec: `spec.md`. This file says how; `spec.md` says what.
   - closing a conversation: `api.stop(runId)`; a stopped conversation already
     reopens as `Read-only history`.
 - Why the server needs nothing: a launched skill reuses its launch activity as
-  its run (`SECTILE_RUN_ID`) and ends it with `finish_run`. When `skillResult`
-  says "completed", that activity is already `completed`, so the
+  its run (`SECTILE_RUN_ID`) and ends it with `finish_run`. When `primaryStatus`
+  says "done", that activity is already `completed`, so the
   `idx_activities_one_active_run` rule does not count it, and the successor's
   launch is not refused because of the predecessor. Only Desktop's local guard
   (`activeRun(run)` on the still-`running` conversation process) blocks today.
@@ -65,7 +65,7 @@ Rules, in order, each returning a `reason` (used by tests, not shown):
    successor exists, else `run.skill`; it must be one of `clarify`, `specify`,
    `implement`, `adjust` (`handoff` ends at `finished`, which has no next
    step).
-4. `skillResult(run, result)?.kind === 'completed'`.
+4. `primaryStatus(run, result)?.kind === 'done'` (#878).
 5. `taskStage(task) !== 'finished'`; `nextTaskStep(task, project).skillId`
    set.
 6. No run of the same task key other than `run` is active
@@ -183,7 +183,7 @@ existing launch call and `stop`.
   (`internal/agent/agent_agy_conversation.go`, `agyConversationTurn`), whose
   Sectile MCP is checked with `agy mcp list`. A skill can therefore end its run
   as under Claude and Codex. Should one not, its conversation never reaches
-  "Skill completed": the failure mode is a missing offer, never a premature
+  "Done": the failure mode is a missing offer, never a premature
   one.
 - Codex keeps an app-server process per conversation; stopping the predecessor
   after the successor started in the same directory must not touch the

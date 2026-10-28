@@ -58,7 +58,7 @@ Out:
   conversation is idle, then the offer appears after its last message, naming
   the next step (`Next: Implement`).
 - **US1.2** Given the skill has completed but the task has not reached the
-  expected stage yet ("Awaiting stage validation"), then no offer shows; it
+  expected stage yet ("Needs verification"), then no offer shows; it
   appears as soon as the stage is reached, without the owner refreshing.
 - **US1.3** Given the skill failed, was stopped, or its completion is
   unconfirmed, then no offer shows.
@@ -125,7 +125,7 @@ Out:
   conversation: it is a task conversation by Claude Code, Codex or
   Antigravity, not read-only; the skill it speaks for (its own, or the one it
   went on to run) is a workflow skill with an expected stage (clarify, specify, implement,
-  adjust) and its skill result is "Skill completed"; the conversation is idle,
+  adjust) and its execution status is "Done"; the conversation is idle,
   with no queued message, no pending approval or question and no declared
   wait; the task is not finished; the workflow names a next step whose skill
   the project offers; no other run is active or being submitted on the task.
