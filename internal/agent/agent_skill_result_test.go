@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"tasks/internal/models"
 	"testing"
 	"time"
@@ -138,5 +139,36 @@ func TestDesktopSkillResultReportsTheSuccessor(t *testing.T) {
 	result := read()
 	if result.Successor == nil || result.Successor.ID != "next" || result.Successor.SkillID != "specify-issue" || result.Successor.Status != "running" || result.Successor.WaitingSince == nil || !result.Successor.WaitingSince.Equal(waiting) {
 		t.Fatalf("wrong successor: %+v", result.Successor)
+	}
+}
+
+func TestDesktopSkillRecordCarriesTheRecordedReason(t *testing.T) {
+	completed := time.Date(2026, 10, 6, 9, 30, 0, 0, time.FixedZone("CEST", 2*3600))
+	long := strings.Repeat("é", desktopReasonLimit+10)
+	own := desktopSkillRecord(models.TaskActivity{ID: "run", TaskID: "task", SkillID: "remote_run", SkillName: "clarify", Status: "canceled", CompletedAt: &completed,
+		Summary: "Execution reported by a local agent or native client \u2014 " + models.RunDisconnectNote, Error: long})
+	if own["id"] != "run" || own["taskId"] != "task" || own["skillId"] != "clarify" || own["status"] != "canceled" {
+		t.Fatalf("wrong identity: %+v", own)
+	}
+	if own["summary"] != "Execution reported by a local agent or native client \u2014 "+models.RunDisconnectNote || own["disconnected"] != true || own["completedAt"] != "2026-10-06T07:30:00Z" {
+		t.Fatalf("wrong reason fields: %+v", own)
+	}
+	if got := own["error"].(string); got != strings.Repeat("é", desktopReasonLimit) {
+		t.Fatalf("error not trimmed to %d characters: %d", desktopReasonLimit, len([]rune(got)))
+	}
+	if _, ok := own["waitingReason"]; ok {
+		t.Fatalf("waiting reason sent for a run that does not wait: %+v", own)
+	}
+	parked := desktopSkillRecord(models.TaskActivity{ID: "next", TaskID: "task", SkillName: "specify-issue", Status: "running", WaitingReason: "repository"})
+	// summary and error are sent even empty: they tell this agent from an older one.
+	if parked["disconnected"] != false || parked["waitingReason"] != "repository" || parked["error"] != "" || parked["summary"] != "" {
+		t.Fatalf("wrong parked record: %+v", parked)
+	}
+	if _, ok := parked["completedAt"]; ok {
+		t.Fatalf("completion time sent for a running skill: %+v", parked)
+	}
+	// A note quoting the disconnection elsewhere than in its summary is no disconnection.
+	if quoted := desktopSkillRecord(models.TaskActivity{Status: "failed", Error: models.RunDisconnectNote}); quoted["disconnected"] != false {
+		t.Fatalf("disconnection read from the error: %+v", quoted)
 	}
 }
