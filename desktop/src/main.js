@@ -1,3 +1,4 @@
+import { agentProfileFields } from './agent-profiles.mjs'
 import { createOrchestration } from './orchestration.mjs'
 import { orchestrationSettings } from './orchestration-settings.mjs'
 import { renderDesktopUpdates } from './desktop-updates.mjs'
@@ -952,7 +953,7 @@ function render(options){
 
  const listed=id=>!hiddenProject(id)&&!sidebarHiddenProjects.has(id)
  const groups=new Map(projects.filter(project=>project.path&&listed(project.id)).map(project=>[project.id,project]))
- for(const run of runs)if(listed(run.projectId)&&!groups.has(run.projectId))groups.set(run.projectId,{id:run.projectId,name:run.projectId})
+ for(const run of runs)if(listed(run.projectId)&&!groups.has(run.projectId))groups.set(run.projectId,projects.find(project=>project.id===run.projectId)||{id:run.projectId,name:run.projectId})
  for(const project of [...groups.values()].sort((a,b)=>a.name.localeCompare(b.name))){
   const group=document.createElement('section');group.className='project-group'
 
@@ -975,7 +976,10 @@ function render(options){
   const waitingCount=runs.filter(run=>run.projectId===project.id&&run.status==='queued'&&!run.cancelRequested).length
   const {more,menu,openAt}=projectMenu(project,waitingCount)
   projectRow.oncontextmenu=event=>{event.preventDefault();openAt(event.clientX,event.clientY)}
-  projectRow.append(heading,more,menu);group.append(projectRow)
+  const prompt=document.createElement('button');prompt.type='button';prompt.textContent='+'
+  prompt.setAttribute('aria-label','Start project prompt for '+project.name);prompt.title=project.path?'Start a project prompt':'Map a local checkout to start a project prompt';prompt.disabled=!project.path
+  prompt.onclick=event=>{event.stopPropagation();openAgentConsole(project.id)}
+  projectRow.append(heading,prompt,more,menu);group.append(projectRow)
   const children=runs.filter(run=>run.projectId===project.id&&!hiddenRun(run))
   const taskGroups=new Map()
   for(const run of children){const key=taskKey(run);if(!taskGroups.has(key))taskGroups.set(key,[]);taskGroups.get(key).push(run)}
@@ -4509,7 +4513,7 @@ async function openProjectTerminal(projectID){
 }
 async function openAgentConsole(projectID,previousProvider){
  showDialog('Project prompt')
- paragraph('Start an interactive agent in this project’s local repository. Enter your instructions directly in its console.')
+ paragraph('Start an interactive agent in '+(projects.find(project=>project.id===projectID)?.name||'this project')+'’s local repository. Enter your request directly in its console.')
  const form=document.createElement('form'),label=document.createElement('label'),provider=document.createElement('select')
  label.textContent='AI engine';provider.setAttribute('aria-label','Console agent')
  for(const [value,text] of [['codex','Codex'],['claude','Claude']]){const option=document.createElement('option');option.value=value;option.textContent=text;provider.append(option)}
@@ -4517,7 +4521,9 @@ async function openAgentConsole(projectID,previousProvider){
  const location=document.createElement('p');location.textContent=projects.find(project=>project.id===projectID)?.path||''
  const launch=document.createElement('button');launch.textContent='Open console'
  const notice=document.createElement('p');notice.setAttribute('role','status')
- form.append(label,location,launch,notice);dialogBody.append(form)
+ let creatingProfile=false,launching=false
+ const profileFields=agentProfileFields({api,projectID,active:()=>form.isConnected&&dialog.open,onCreating:value=>{creatingProfile=value;launch.hidden=value}})
+ form.append(label,profileFields.element,location,launch,notice);dialogBody.append(form)
  let catalogue=false
  launch.disabled=true
  try{
@@ -4540,13 +4546,14 @@ async function openAgentConsole(projectID,previousProvider){
   launch.disabled=!provider.value
  }catch(err){notice.textContent=err.message}
  form.onsubmit=async event=>{
-  event.preventDefault();if(launch.disabled)return
-  launch.disabled=true;notice.textContent='Opening console…'
+  event.preventDefault();if(launch.disabled||creatingProfile||launching)return
+  launching=true;launch.disabled=true;provider.disabled=true;profileFields.disable(true);notice.textContent='Opening console…'
   try{
-   const run=await api.launchConsole(projectID,catalogue?undefined:provider.value,catalogue?provider.value:undefined,consoleView)
+   const run=await api.launchConsole(projectID,catalogue?undefined:provider.value,catalogue?provider.value:undefined,consoleView,profileFields.selected()||undefined)
+   if(!form.isConnected||!dialog.open)return
    collapsedProjects.delete(projectID);queueProjects.delete(projectID)
    if(!runs.some(item=>item.id===run.id))runs.push(run)
    dialog.close();select(run);await refresh()
-  }catch(err){notice.textContent=err.message;launch.disabled=false}
+  }catch(err){if(form.isConnected){notice.textContent=err.message;launch.disabled=false}}finally{launching=false;provider.disabled=false;profileFields.disable(false)}
  }
 }

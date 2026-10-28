@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- Desktop projects have a + shortcut to start a session with reusable agent instructions, selected or created in the repository, for built-in Claude and Codex engines. (#869)
+
 ### Fixed
 
 - Jira no longer refuses a comment, a stage report or a description whose Markdown puts inline code inside bold, italic or struck-through text (`HTTP 400 INVALID_INPUT`): that code keeps its code formatting and drops the surrounding emphasis. (#870)

@@ -525,7 +525,9 @@ ipcMain.handle('choose-repository',async()=>{
 })
 ipcMain.handle('server-tasks',(_,id,q,launchable)=>api('/desktop/tasks?projectId='+encodeURIComponent(id)+'&q='+encodeURIComponent(q||'')+'&launchable='+Boolean(launchable)))
 // An agent that predates the conversation view ignores `view` and opens a PTY.
-ipcMain.handle('launch-console',(_,projectId,provider,engineId,view)=>api('/desktop/consoles','POST',Object.assign(engineId?{projectId,engineId}:{projectId,provider},view==='conversation'?{view}:null)))
+ipcMain.handle('agent-profiles',(_,projectId)=>api('/desktop/agent-profiles?projectId='+encodeURIComponent(projectId)))
+ipcMain.handle('create-agent-profile',(_,projectId,id,prompt)=>api('/desktop/agent-profiles','POST',{projectId,id,prompt}))
+ipcMain.handle('launch-console',(_,projectId,provider,engineId,view,agentProfileId)=>api('/desktop/consoles','POST',Object.assign(engineId?{projectId,engineId}:{projectId,provider},view==='conversation'?{view}:null,agentProfileId?{agentProfileId}:null)))
 // An absent mode means "no override": nothing is sent, so a launch with no
 // explicit choice puts exactly the payload on the wire that it always did.
 // The project of the launch is the run's (#741): the agent forwards it.

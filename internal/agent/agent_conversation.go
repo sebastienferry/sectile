@@ -493,7 +493,7 @@ func startConversationLocked(run *controlledRun, model, mode, origin string, pro
 //
 // settings is the file generated from the project's sandbox values (#700),
 // "" when it has none, which leaves the command as it was.
-func claudeConversationCommand(directory, model, effort, mode, session, settings string, dirs []string, env map[string]string) *exec.Cmd {
+func claudeConversationCommand(directory, model, effort, mode, session, settings string, dirs []string, env map[string]string, profiles ...*profileSnapshot) *exec.Cmd {
 	// Partial messages stream each reply as Claude writes it; the complete
 	// messages still arrive, so the trace is built from them alone.
 	args := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-mode", conversationMode(mode), "--permission-prompt-tool", "stdio", conversationAllowedTools}
@@ -511,6 +511,9 @@ func claudeConversationCommand(directory, model, effort, mode, session, settings
 	}
 	if settings != "" {
 		args = append(args, "--settings="+settings)
+	}
+	if len(profiles) > 0 && profiles[0] != nil {
+		args = append(args, "--append-system-prompt", profiles[0].Prompt)
 	}
 	cmd := agentexec.Hidden(exec.Command("claude", args...))
 	cmd.Dir = directory
@@ -611,7 +614,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 			env[key] = value
 		}
 	}
-	cmd := claudeConversationCommand(directory, run.desktop.Model, run.conversation.effort, run.conversation.mode, run.conversation.session, settings, dirs, env)
+	cmd := claudeConversationCommand(directory, run.desktop.Model, run.conversation.effort, run.conversation.mode, run.conversation.session, settings, dirs, env, run.profile)
 	d.queue.mu.Unlock()
 	initialize, initID := conversationInitialize()
 	var input *conversationInput
@@ -915,7 +918,7 @@ func (d *agentDaemon) loadConversationCommandsLocked(run *controlledRun) {
 		cmd = agyConversationCommand(run.desktop.Directory, run.desktop.Model, "", c.mode, "", "/skills", c.extraDirs, env)
 		probe = d.probeAgyConversationCommands
 	} else {
-		cmd = claudeConversationCommand(run.desktop.Directory, run.desktop.Model, "", c.mode, "", "", c.extraDirs, env)
+		cmd = claudeConversationCommand(run.desktop.Directory, run.desktop.Model, "", c.mode, "", "", c.extraDirs, env, run.profile)
 	}
 	if d.probeCommandsFn != nil {
 		probe = d.probeCommandsFn

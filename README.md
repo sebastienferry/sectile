@@ -136,6 +136,9 @@ Sectile Desktop includes:
   Code** and **Codex** (**Settings → General → AI consoles → Conversation**)
   with inline diff cards, tool approval prompts, slash commands, and `$skill`
   completion.
+- **Project agent profiles**: start a session with the project-row **+**, select
+  or create repository-owned instructions independently of the engine, and enter
+  your request afterwards. See [profile storage and support](docs/project-agent-profiles.md).
 - **Autonomy in sandbox**: configurable under **Claude settings** to run
   sandboxed shell commands automatically while blocking unsandboxed retries.
 - **Desktop project board & task editor**: six-column workflow board (**Open

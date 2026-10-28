@@ -42,6 +42,8 @@ func TestCodexAppServerHelper(t *testing.T) {
 		case "initialize":
 			reply(frame.ID, map[string]string{"userAgent": "codex-test"})
 		case "initialized":
+		case "config/read":
+			reply(frame.ID, map[string]any{"config": map[string]any{"developer_instructions": "native instructions"}})
 		case "thread/start", "thread/resume":
 			reply(frame.ID, map[string]any{"thread": map[string]string{"id": thread}, "model": "codex-test", "reasoningEffort": "medium"})
 		case "model/list":
@@ -101,7 +103,7 @@ func TestCodexAppServerHelper(t *testing.T) {
 	os.Exit(0)
 }
 
-func codexConversationFixture(t *testing.T) (*agentDaemon, string, string) {
+func codexConversationFixture(t *testing.T, profiles ...*profileSnapshot) (*agentDaemon, string, string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("the helper launcher is a POSIX script; Windows command flags have separate tests")
@@ -130,6 +132,9 @@ func codexConversationFixture(t *testing.T) (*agentDaemon, string, string) {
 		t.Fatalf("provider lost: %+v", entry)
 	}
 	t.Cleanup(d.stopConversations)
+	if len(profiles) > 0 {
+		applyProfile(d.queue.runs[entry.ID], profiles[0])
+	}
 	// Opening the view initializes the CLI and discovers skills/models without inference.
 	conversationRequest(d, "GET", "/desktop/conversation?id="+entry.ID, "", "private")
 	waitCodex(t, d, entry.ID, func(c *providerConversation) bool {
