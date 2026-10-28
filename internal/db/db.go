@@ -1256,10 +1256,12 @@ func (d *DB) ImportOrUpdateTasks(trackerID string, syncedTasks []models.Task) er
 			} else {
 				_, _ = d.conn.Exec(`DELETE FROM pinned_tasks WHERE task_id = ? OR task_id = ?`, existingID, t.Key)
 			}
-			// Update existing task title/desc/status/labels/source
+			// Update existing task title/desc/status/labels/source. The priority
+			// is only taken from a tracker that carries one: GitHub and GitLab
+			// tickets keep the level set in Sectile (#882).
 			if _, updErr := d.conn.Exec(`
 				UPDATE tasks
-				SET title = ?, description = ?, status = ?, priority = ?, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?, source = ?, external_url = ?,
+				SET title = ?, description = ?, status = ?, priority = CASE WHEN ? THEN ? ELSE priority END, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?, source = ?, external_url = ?,
 				    creator = CASE WHEN ? != '' THEN ? ELSE creator END,
 				    creator_avatar = CASE WHEN ? != '' THEN ? ELSE creator_avatar END,
 				    issue_type = CASE WHEN ? != '' THEN ? ELSE issue_type END,
@@ -1275,7 +1277,7 @@ func (d *DB) ImportOrUpdateTasks(trackerID string, syncedTasks []models.Task) er
 				    status_changed_at = COALESCE(?, status_changed_at),
 				    updated_at = ?
 				WHERE id = ?
-			`, t.Title, t.Description, string(t.Status), string(t.Priority), string(labelsJSON), pinnedVal, t.Assignee, t.AssigneeAvatar, src, t.ExternalURL,
+			`, t.Title, t.Description, string(t.Status), trackerCarriesPriority(src), string(t.Priority), string(labelsJSON), pinnedVal, t.Assignee, t.AssigneeAvatar, src, t.ExternalURL,
 				t.Creator, t.Creator, t.CreatorAvatar, t.CreatorAvatar,
 				t.IssueType, t.IssueType, t.ParentKey, t.ParentKey, t.ParentTitle, t.ParentTitle, t.ParentType, t.ParentType,
 				t.Sprint, t.Sprint, t.Team, t.Team, t.TeamID, t.TeamID, t.TrackerStatus, t.TrackerStatus, t.TrackerCreatedAt, t.TrackerUpdatedAt, t.StatusChangedAt, now, existingID); updErr != nil {
@@ -1294,6 +1296,15 @@ func (d *DB) ImportOrUpdateTasks(trackerID string, syncedTasks []models.Task) er
 			len(importErrs), len(syncedTasks), strings.Join(shown, "; "))
 	}
 	return nil
+}
+
+// trackerCarriesPriority tells whether a ticket of this source has a priority
+// of its own on its tracker. GitHub and GitLab have none: their adapters return
+// medium, which must not overwrite the level set in Sectile (#882). The answer
+// reads the source, never the incoming value, so a Jira ticket moved to Medium
+// in Jira still syncs.
+func trackerCarriesPriority(source string) bool {
+	return source == "jira"
 }
 
 // externalURLResolver computes the tracker links of one read. It loads the settings at most once, and only when a row
