@@ -401,31 +401,69 @@ need a new execution. A failed refresh clears the previous result.
 
 ### Skill result indicator
 
-The bottom task status bar and each visible task row show the skill's result
-independently of its console process. A checkmark means the server reports that
-exact execution completed;
-for workflow stages, the task must also have reached the corresponding stage.
-An open console can therefore show **Skill completed**. Process exit alone shows
-**Execution ended · skill completion unconfirmed**, and pending stage validation,
-failures and cancellations have distinct labels.
+A skill execution shows one status: the glyph that leads its task row, and the
+status beside the task ID at the top of the execution view. It says what your
+situation is and what to do next, so you never have to reconcile the state of
+the process with what the server recorded for the skill.
 
-The indicator reports only what the run state beside it cannot. A queued,
-preparing or running execution with no server verdict yet, and an execution that
-failed or was cancelled without one, show no indicator at all: their state is
-already carried by the run state, and a second glyph restating it in other words
-only looks like a second fact. A free console runs no skill and shows no
-indicator either, except while a requested stop has not taken effect: the one
-transient the run state has no word for.
-Task-row icons use the same completion rules as the task status bar, with the
-skill name and result in their tooltip and accessible label. Visible rows refresh
-even when
-they are not selected, with at most four concurrent result lookups. A task row
-represents its current execution; selecting older history does not replace that
-row's result. Updates preserve selection and keyboard focus without reattaching
-or resetting the terminal. It requires
-an updated local agent for server-result lookup; unavailable results never produce
-a success checkmark. Whether a session is waiting for you comes from the Claude
-Code hooks Sectile installs, never from inactivity: a long build is not a
+| Status | Meaning | Detail or next step |
+| --- | --- | --- |
+| **Working · *skill*** | The session is queued, preparing or running. | "Queued", "Preparing", or "No output for a while" when the session went quiet. |
+| **Needs your answer** | The session is blocked on you, or the launch waits for its ticket to be pinned to a repository. | "Answer in the console" or "Choose a repository for this ticket". |
+| **Done · *outcome*** | The server recorded the skill as completed and the task reached the skill's stage. | The outcome names that stage (Clarified, Specification ready, Implemented, Review complete, Handed off), and a hint names the next step, for example "Next: Specify". |
+| **Needs verification** | Something reported an end that nothing confirms. | The skill reported completion but the task is still at an earlier stage, or the session ended without reporting a result. |
+| **Could not finish** | The skill, or its session, failed. | The recorded reason, then "Open the console" while the console is open, or "Relaunch *skill*" once it has exited. |
+| **Stopped** | The skill, or its session, was stopped. | "Stopped by you" when you stopped it from Desktop, "Session disconnected" when the server closed the run because its session ended, otherwise the recorded reason. |
+| **Stopping** | A stop you asked for has not taken effect yet. | "Waiting for the session to exit". |
+
+When the signals disagree, the first matching line of this order wins:
+
+1. a stop requested and not taken effect yet: Stopping;
+2. a completion recorded and the stage reached, or a skill with no stage of its
+   own: Done, even while its console stays open;
+3. a completion recorded before the task reached the stage: Needs verification,
+   until the task moves;
+4. a failure recorded: Could not finish;
+5. a stop recorded: Stopped;
+6. a running session waiting for you: Needs your answer;
+7. a queued, preparing or running session: Working;
+8. a session that exited normally with no result recorded: Needs verification;
+9. a session that failed or was stopped with no result recorded: Could not
+   finish, or Stopped.
+
+Done never says more than the skill achieved: it names the stage the task
+reached, and never says the task is finished unless it is. A process exit or a
+reported completion alone is never Done. A skill with no stage (create PR,
+story rewrite, macro refinement) is Done once it reports completion, "reported
+by the skill". A pickup is Done once it moved the task forward, "Now
+*stage*"; Desktop takes the stage it started from the first time it reads the
+pickup's result while it runs, so a pickup it only saw once ended reads as Needs
+verification.
+
+The reason is the first line of the recorded error, or of the note the skill
+left when it ended, shown as recorded and shortened to about 120 characters;
+the full text is in the details line. "reason not recorded" means the server
+holds none; "reason not available" means the local agent is too old to send
+it: update and restart it. Desktop names who or what stopped a run only from a
+record of it.
+
+When another skill starts in a console left open after its own skill ended, the
+status speaks for that newer skill; the previous skill's outcome stays in the
+diagnostics. The diagnostics, in the row tooltip and accessible label and in the
+details line under the execution view, keep every signal the status was drawn
+from: `Execution: <run state> · Skill record: <status or none> · Task stage:
+<stage>`.
+
+A free console and a discussion run no skill: they show the state of their
+process, and Stopping while a requested stop has not taken effect.
+
+Visible rows refresh even when they are not selected, with at most four
+concurrent result lookups. A task row represents its newest skill execution;
+selecting older history does not replace that row's status. Updates preserve
+selection and keyboard focus without reattaching or resetting the terminal. The
+status requires an updated local agent for server-result lookup; an unavailable
+result never produces Done. Whether a session is waiting for you comes from the
+Claude Code hooks Sectile installs, never from inactivity: a long build is not a
 request for input.
 
 ### Execution queue

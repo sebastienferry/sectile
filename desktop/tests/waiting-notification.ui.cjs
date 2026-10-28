@@ -63,7 +63,7 @@ test('a waiting session raises one native notification carrying the shared glyph
   const state=page.locator('.local-task .run-state')
   await state.waitFor()
   assert.equal(await state.getAttribute('data-run-state'),'waiting')
-  assert.equal(await state.getAttribute('aria-label'),'Process: Waiting for you')
+  assert.match(await state.getAttribute('aria-label'),/^Needs your answer · Answer in the console\nExecution: Waiting for you · /)
 
   // Several more polls of the same state must stay silent.
   await page.waitForTimeout(5000)
@@ -76,8 +76,9 @@ test('a waiting session raises one native notification carrying the shared glyph
   assert.match(second.body,/finished its turn/)
   assert.equal(second.icon,runStateIconDataUrl('completed'))
   // And the row follows the banner rather than keeping the wait it left behind.
-  await page.waitForFunction(()=>document.querySelector('.local-task .run-state')?.dataset.runState==='completed')
-  assert.equal(await state.getAttribute('aria-label'),'Process: Finished')
+  // An exit with no skill record is no result: the row says it needs checking.
+  await page.waitForFunction(()=>document.querySelector('.local-task .run-state')?.dataset.kind==='verify')
+  assert.match(await state.getAttribute('aria-label'),/^Needs verification · The session ended without reporting a result\nExecution: Finished · /)
  } finally {
   await app?.close().catch(()=>{})
   server.close()

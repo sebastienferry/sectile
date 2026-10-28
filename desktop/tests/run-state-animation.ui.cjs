@@ -29,9 +29,9 @@ test('desktop running icons pulse across polls and stop for other states or redu
   const states=page.locator('.local-task .run-state, #run-state')
   const icons=states.locator('svg')
   await expect(states).toHaveCount(2)
-  await expect(page.locator('#toolbar #run-state')).toHaveText('Running')
+  await expect(page.locator('#toolbar #run-state')).toHaveText('Working · Implement')
   await expect(page.locator('#task-status #run-state')).toHaveCount(0)
-  await expect(page.locator('#run-state')).toHaveText('Running')
+  await expect(page.locator('#run-state')).toHaveText('Working · Implement')
   for(const icon of await icons.all()){
    await expect.poll(()=>icon.evaluate(el=>el.getAnimations().filter(a=>a.playState==='running').length)).toBe(1)
    const timing=await icon.evaluate(el=>{
@@ -51,18 +51,20 @@ test('desktop running icons pulse across polls and stop for other states or redu
 
   await page.emulateMedia({reducedMotion:'reduce'})
   for(const icon of await icons.all())await expect.poll(()=>icon.evaluate(el=>el.getAnimations().length)).toBe(0)
-  await expect(page.locator('#run-state')).toHaveText('Running')
+  await expect(page.locator('#run-state')).toHaveText('Working · Implement')
   await page.emulateMedia({reducedMotion:'no-preference'})
   for(const icon of await icons.all())await expect.poll(()=>icon.evaluate(el=>el.getAnimations().length)).toBe(1)
 
   // These changes arrive through the real agent polling path, not DOM edits.
   for(const [status,waitingSince,state,label] of [
-   ['running','2026-09-23T06:00:00Z','waiting','Waiting for you'],
-   ['running',undefined,'running','Running'],
-   ['queued',undefined,'queued','Queued'],
-   ['preparing',undefined,'queued','Queued'],
-   ['completed',undefined,'completed','Finished'],
-   ['failed',undefined,'failed','Failed'],
+   // A skill run shows its primary status (#878); with no skill record, an
+   // exit is no result and an end names no reason.
+   ['running','2026-09-23T06:00:00Z','waiting','Needs your answer'],
+   ['running',undefined,'running','Working · Implement'],
+   ['queued',undefined,'queued','Working · Implement'],
+   ['preparing',undefined,'queued','Working · Implement'],
+   ['completed',undefined,'verify','Needs verification'],
+   ['failed',undefined,'failed','Could not finish'],
    ['canceled',undefined,'canceled','Stopped'],
   ]){
    run.status=status;run.waitingSince=waitingSince

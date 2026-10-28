@@ -20,7 +20,8 @@ import { logText } from './log-text.mjs'
 import { createGitDiff } from './gitDiff.js'
 import { createConversationView } from './conversation.js'
 
-import { skillResult } from './skill-result.mjs'
+import { primaryStatus } from './skill-result.mjs'
+import { statusGlyphId, statusGlyphSvg, statusText } from './status-glyphs.mjs'
 import { orderedQueueRuns } from './queue.mjs'
 import { followedExecution, orderedTaskGroups } from './task-order.mjs'
 import { transitions, announce } from './notifications.mjs'
@@ -144,6 +145,18 @@ const projectBoards=new Map()
 const skillResults=new Map(),loadingSkillResults=new Set()
 // When each run's skill result was last read, and in what state the run was.
 const skillResultReads=new Map()
+// The stage a pickup's task was at when Desktop first read its result with the
+// run still going: a pickup's outcome is how far it moved the task (#878). A
+// pickup first seen once ended has none, and its completion reads as Needs
+// verification rather than as a claim nothing supports.
+const launchStages=new Map()
+try{for(const [id,stage] of Object.entries(JSON.parse(localStorage.getItem('launchStages')||'{}')))launchStages.set(id,stage)}catch{}
+function noteLaunchStage(run,result){
+ if(!['pickup','pickup_issues'].includes(run.skill)||launchStages.has(run.id)||!result?.task||skillEnded(result)||['completed','failed','canceled'].includes(run.status))return
+ launchStages.set(run.id,taskStage(result.task))
+ for(const id of launchStages.keys())if(!runs.some(item=>item.id===id))launchStages.delete(id)
+ localStorage.setItem('launchStages',JSON.stringify(Object.fromEntries(launchStages)))
+}
 const pullRequests=new Map()
 let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
@@ -416,13 +429,37 @@ function select(run,background=false,options){
 // The state the user reads, drawn from the shared definition so the row, the
 // execution queue and the banner the desktop raises cannot say three things.
 // The glyph is decorative: the label carries the state for anyone who cannot
-// resolve an amber hand, and the row tooltip repeats it. "Process:" tells it
-// apart from the skill badge beside it, which answers another question.
+// resolve an amber hand, and the row tooltip repeats it. A run with a skill
+// shows its primary status instead (renderRowStatus); this is what a free
+// console and a discussion show.
 function renderRunState(element,run){
  const state=runStateOf(run),label=runStateLabel(state)
+ delete element.dataset.kind
  if(element.dataset.runState!==state){element.dataset.runState=state;element.innerHTML=runStateSvg(state,14)}
  element.title='Process: '+label;element.setAttribute('aria-label',element.title)
  return label
+}
+// The one status of a skill execution (#878), from its latest skill result. The
+// next-step hint is the one the next-step button launches, so it is only known
+// for the task whose workflow was read.
+function runStatus(run){
+ if(!run)return null
+ const step=nextStepData&&!nextStepData.error&&nextStepData.key===taskKey(run)?nextStepData.step:null
+ return primaryStatus(run,skillResults.get(run.id),{nextStep:step?.skillId?step.label:'',launchStage:launchStages.get(run.id)||''})
+}
+// A task row's leading glyph: the primary status of the task's newest skill run
+// (#586), or the run state of its leading run when the task runs no skill.
+// Nothing is rewritten that has not changed, so focus and selection hold.
+function renderRowStatus(element,run,skillRun){
+ element.dataset.runId=run.id;element.dataset.skillRunId=skillRun.id
+ const shown=runStatus(skillRun)
+ if(!shown)return renderRunState(element,run)
+ const glyph=statusGlyphId(shown)
+ if(element.dataset.runState!==glyph){element.dataset.runState=glyph;element.innerHTML=statusGlyphSvg(shown,14)}
+ element.dataset.kind=shown.kind
+ const text=statusText(shown)
+ if(element.title!==text){element.title=text;element.setAttribute('aria-label',text)}
+ return shown.label
 }
 function renderQueue(project,group){
  const runsForProject=runs.filter(run=>run.projectId===project.id)
@@ -469,6 +506,7 @@ async function refreshSkillResult(id=selected){
   // run; a run the latest poll still lists as live is the anomaly worth noting.
   if(result===null&&runs.includes(run)&&!['completed','failed','canceled'].includes(run.status))console.warn('The local agent reports no run '+run.id+' while the desktop still lists it as '+run.status)
   skillResults.set(run.id,result)
+  noteLaunchStage(run,result)
   skillResultReads.set(run.id,skillResultStamp(run,Date.now(),skillResultReads.get(run.id),skillEnded(result)))
  }catch{skillResults.delete(run.id)}
  finally{loadingSkillResults.delete(run.id);renderHeader();renderTaskSkillStatuses()}
@@ -479,7 +517,7 @@ async function refreshVisibleSkillResults(){
  refreshingVisibleSkillResults=true
  // Only the rows whose result can have changed are read again.
  const now=Date.now()
- const ids=[...new Set([selected,...[...document.querySelectorAll('.task-skill-status')].map(item=>item.dataset.runId)].filter(Boolean))]
+ const ids=[...new Set([selected,...[...document.querySelectorAll('#runs .local-task>.run-state')].map(item=>item.dataset.skillRunId)].filter(Boolean))]
   .filter(id=>{const run=runs.find(item=>item.id===id);return run&&skillResultDue(run,skillResultReads.get(id),now)})
  try{
   await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{
@@ -500,9 +538,7 @@ function renderTaskRowStates(){
   const selectedTask=executions.some(item=>item.id===selected)
   row.classList.toggle('selected',selectedTask)
   if(button){button.dataset.runId=run.id;button.dataset.status=run.status;button.onclick=choose;button.classList.toggle('selected',selectedTask)}
-  element.dataset.runId=run.id;element.onclick=choose;renderRunState(element,run)
-  const skill=row.querySelector('.task-skill-status')
-  if(skill)skill.dataset.runId=skillRun.id
+  element.onclick=choose;renderRowStatus(element,run,skillRun)
  }
  renderTaskSkillStatuses()
 }
@@ -515,7 +551,8 @@ function renderTaskMetadata(){
   const executions=runs.filter(item=>taskKey(item)===taskKey(run)&&!hiddenRun(item))
   const title=button.querySelector('strong')
   if(title)title.textContent=displayedName(run)
-  button.title=displayedName(run)+' · '+runLabel(run)+' · '+runStateLabel(runStateOf(run))+' · '+executions.length+' execution(s)'
+  const skillRun=runs.find(item=>item.id===row.querySelector('.run-state')?.dataset.skillRunId)
+  button.title=displayedName(run)+' · '+runLabel(run)+' · '+(runStatus(skillRun)?.label||runStateLabel(runStateOf(run)))+' · '+executions.length+' execution(s)'
   const pencil=row.querySelector('.task-rename-button'),archive=row.querySelector('.task-archive')
   if(pencil){pencil.title='Rename '+displayedName(run);pencil.setAttribute('aria-label',pencil.title)}
   if(archive){archive.title=archiveLabel(taskState(run).name||run.taskKey||run.taskId||runLabel(run),{active:executions.some(activeRun),ticket:archivesWorktree(run)});archive.setAttribute('aria-label',archive.title)}
@@ -537,18 +574,11 @@ function renderTaskMetadata(){
   if(others.length)pr.after(otherPullRequestsBadge(others))
  }
 }
+// Redraws every task row's leading glyph from the latest skill results.
 function renderTaskSkillStatuses(){
- for(const badge of document.querySelectorAll('.task-skill-status')){
-  const run=runs.find(item=>item.id===badge.dataset.runId)
-  const result=skillResult(run,skillResults.get(run?.id))
-  // No skill result is a state of its own: leaving the previous glyph in place
-  // would keep showing a verdict that no longer holds, beside a run state that
-  // has moved on.
-  if(!result){badge.className='status task-skill-status';badge.textContent='';badge.removeAttribute('title');badge.removeAttribute('aria-label');continue}
-  badge.className='status task-skill-status '+result.kind
-  if(badge.textContent!==result.icon)badge.textContent=result.icon
-  badge.title='Skill: '+result.label
-  badge.setAttribute('aria-label',badge.title)
+ for(const element of document.querySelectorAll('#runs .local-task>.run-state')){
+  const run=runs.find(item=>item.id===element.dataset.runId),skillRun=runs.find(item=>item.id===element.dataset.skillRunId)
+  if(run&&skillRun)renderRowStatus(element,run,skillRun)
  }
 }
 // The worktree path is the one piece of the header a user needs elsewhere - in a
@@ -794,20 +824,24 @@ const prMenu=toolbarMenu(prMoreButton,document.querySelector('#selected-pr-menu'
   return item
  })
 })
-// The state beside the task ID is the one the sidebar row and notification
-// already show, drawn from the shared definition with its label spelled out.
+// The status beside the task ID is the one its sidebar row shows, with its
+// label spelled out: the primary status of a skill execution (#878), the run
+// state of a free console or a discussion.
 function renderHeaderState(run){
  const element=document.querySelector('#run-state')
  element.hidden=!run
  if(!run)return
- const state=runStateOf(run),label=runStateLabel(state)
+ const shown=runStatus(run)
+ const state=shown?statusGlyphId(shown):runStateOf(run),label=shown?shown.label:runStateLabel(state)
  if(element.dataset.runState!==state){
   element.dataset.runState=state
-  element.innerHTML=runStateSvg(state,14)+'<span class="run-state-label"></span>'
+  element.innerHTML=(shown?statusGlyphSvg(shown,14):runStateSvg(state,14))+'<span class="run-state-label"></span>'
  }
+ if(shown)element.dataset.kind=shown.kind
+ else delete element.dataset.kind
  const text=element.querySelector('.run-state-label')
  if(text.textContent!==label)text.textContent=label
- element.title='Process: '+label
+ element.title=shown?statusText(shown):'Process: '+label
 }
 function toggleTaskSort(projectID,sort){
  selectedProject=projectID
@@ -904,11 +938,24 @@ function renderHeader(){
  const title=document.querySelector('#title')
  title.textContent=text;title.title=text
  renderHeaderState(run)
- const badge=document.querySelector('#skill-result'),result=skillResult(run,skillResults.get(run?.id))
+ // The status bar spells out the status the header names: its detail and next
+ // step, then the signals it was drawn from and the full recorded reason.
+ const badge=document.querySelector('#skill-result'),shown=runStatus(run)
  const badgeHome=(conversation.active&&document.querySelector('.conversation-status-row'))||document.querySelector('#task-status .execution-status')
  if(badge.parentElement!==badgeHome)badgeHome.append(badge)
- badge.hidden=!result
- if(result){badge.className='skill-result '+result.kind;if(badge.textContent!==result.icon+' '+result.label)badge.textContent=result.icon+' '+result.label;badge.title='Skill: '+result.label;badge.setAttribute('aria-label',badge.title)}
+ badge.hidden=!shown
+ if(shown){
+  if(!badge.querySelector('.status-details'))badge.innerHTML='<span class="status-summary"></span><span class="status-details"></span>'
+  badge.className='skill-result';badge.dataset.kind=shown.kind
+  const summary=[shown.detail,shown.next].filter(Boolean).join(' · ')
+  const details=[shown.diagnostics,shown.reason&&shown.reason!==shown.detail?'Reason: '+shown.reason:''].filter(Boolean).join('\n')
+  const [first,second]=badge.children
+  if(first.textContent!==summary)first.textContent=summary
+  first.hidden=!summary
+  if(second.textContent!==details)second.textContent=details
+  const text=statusText(shown)
+  if(badge.title!==text){badge.title=text;badge.setAttribute('aria-label',text)}
+ }
 }
 function renderOrchestration(){
  const holdNavigation=sidebarBusy()
@@ -996,14 +1043,13 @@ function render(options){
     const context=document.createElement('button');context.textContent=taskIdentity(run)||'Task';context.className='task-number';context.title='Open task in Sectile';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in Sectile');context.disabled=macroRun(run);context.onclick=()=>api.openTask(run.taskId).catch(error)
     const stage=taskStages.get(run.taskId)
     if(stage){context.dataset.stage=stage;context.title+=' · Stage: '+stage}
-    // The skill badge speaks for the task's newest skill (#586); the rest of the row for its leading run.
-    const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=skillRun.id
-    const state=document.createElement('span');state.className='run-state';state.dataset.runId=run.id
-    const stateLabel=renderRunState(state,run)
+    // The leading glyph speaks for the task's newest skill (#586); the rest of the row for its leading run.
+    const state=document.createElement('span');state.className='run-state'
+    const stateLabel=renderRowStatus(state,run,skillRun)
     // data-status stays the status the server reported: the UI tests select on it.
     button.dataset.status=run.status;button.dataset.runId=run.id
     // The glyph leads the row, ahead of the key button it cannot nest inside, and still selects the run.
-    button.append(title,status);button.onclick=state.onclick=()=>select(run)
+    button.append(title);button.onclick=state.onclick=()=>select(run)
     // The slot keeps the key column's width even for a free console, which has no key.
     const keySlot=document.createElement('span');keySlot.className='task-key-slot'
     if(!freeConsole(run))keySlot.append(context)
@@ -4459,7 +4505,8 @@ async function refreshNextStep(){
   const data=await readNextStep(run)
   if(generation===nextStepGeneration)nextStepData=data
  }catch(err){if(generation===nextStepGeneration)nextStepData={key:taskKey(run),error:'Cannot load next step: '+err.message}}
- if(generation===nextStepGeneration)renderNextStep()
+ // The workflow read is also where a Done status takes its next-step hint from.
+ if(generation===nextStepGeneration){renderNextStep();renderHeader();renderTaskSkillStatuses()}
 }
 document.querySelector('#retry-next-step').onclick=refreshNextStep
 // force re-sends the very same launch with the duplicate check waived. It is

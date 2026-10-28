@@ -384,13 +384,12 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .pr-menu .pr-menu-icon{display:inline-flex;flex-shrink:0}.pr-menu .pr-menu-icon svg{width:14px;height:14px}
 .pr-menu .pr-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
 .pr-others{flex-shrink:0;padding:0 4px;border-radius:4px;color:var(--link);font-size:10px;font-weight:600;line-height:16px;background:var(--pr-hover-bg)}
-.skill-result{font-size:11px;color:var(--text-muted);white-space:nowrap}.skill-result.completed{color:var(--accent-text)}.skill-result.failed{color:var(--danger)}.skill-result.canceled{color:var(--canceled)}.skill-result.waiting{color:var(--waiting)}
+/* The status bar spells out the primary status (#878): its detail and next step, then a smaller details line with the signals it was drawn from. */.skill-result{display:inline-flex;flex-direction:column;gap:1px;font-size:11px;color:var(--text-muted);white-space:nowrap}.skill-result[data-kind=done]{color:var(--accent-text)}.skill-result[data-kind=failed]{color:var(--danger)}.skill-result[data-kind=stopped]{color:var(--canceled)}.skill-result[data-kind=waiting]{color:var(--waiting)}.skill-result .status-details{font-size:10px;color:var(--text-muted);white-space:pre-line}
 .native-terminal-badge{font-size:11px;font-weight:500;color:var(--badge-text);background:var(--badge-bg);border:1px solid var(--badge-border);border-radius:9999px;padding:1px 7px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
 #detach-terminal{flex-shrink:0;background:transparent;color:var(--info);border:1px solid var(--detach-border);cursor:pointer}
 #detach-terminal:hover:not(:disabled){background:var(--detach-hover-bg);border-color:var(--info)}
 #detach-terminal:disabled{opacity:0.5;cursor:not-allowed}
 
-.task-skill-status.completed{color:var(--accent-text)}.task-skill-status.pending{color:var(--text-muted)}.task-skill-status.canceled{color:var(--canceled)}.task-skill-status.waiting{color:var(--waiting)}
 
 .agent-log-source{overflow-wrap:anywhere;font-family:monospace}#agent-log-pane{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;padding:20px;overflow:auto;gap:12px}#agent-log-pane p,#agent-log-pane h2{margin:0}#agent-log-pane>button{align-self:flex-start}.agent-log-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px}.agent-log-output{flex:1;min-height:120px;margin:0;padding:16px;background:var(--bg);white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto;font:12px Menlo,monospace}.agent-log-output:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
