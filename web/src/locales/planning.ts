@@ -454,6 +454,7 @@ const fr = {
     columns: {
       ticket: 'Ticket',
       title: 'Titre',
+      priority: 'Priorité',
       macro: 'Macro (Milestone)',
       sprint: 'Sprint',
       team: 'Équipe',
@@ -951,6 +952,7 @@ const en: PlanningStrings = {
     columns: {
       ticket: 'Ticket',
       title: 'Title',
+      priority: 'Priority',
       macro: 'Macro (Milestone)',
       sprint: 'Sprint',
       team: 'Team',
