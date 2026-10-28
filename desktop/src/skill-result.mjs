@@ -6,6 +6,8 @@ import {RUN_SILENCE_PREFIX,isSilentSummary,runStateLabel,runStateOf} from '../..
 const expected={clarify:'clarified',specify:'specified',implement:'implemented',adjust:'reviewed',review:'reviewed',handoff:'finished'}
 const outcomes={clarify:'Clarified',specify:'Specification ready',implement:'Implemented',adjust:'Review complete',review:'Review complete',handoff:'Handed off'}
 const pickups=new Set(['pickup','pickup_issues'])
+// The stage a workflow skill is expected to bring its task to; '' for any other.
+export const expectedStage=skill=>Object.hasOwn(expected,skill)?expected[skill]:''
 const ended=run=>['completed','failed','canceled'].includes(run.status)
 // The summary the server gives a remote run when it starts: bookkeeping, never
 // a reason.
