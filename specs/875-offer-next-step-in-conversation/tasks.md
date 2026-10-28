@@ -5,7 +5,7 @@ test` green. Tests go with the step they cover. One commit per step.
 
 ## 1. Eligibility
 
-- [ ] T1.1 `desktop/src/next-step-offer.mjs`: `nextStepOffer`, `blocksLaunch`
+- [x] T1.1 `desktop/src/next-step-offer.mjs`: `nextStepOffer`, `blocksLaunch`
       (FR1, FR3; plan §1).
 - Tests: `desktop/tests/next-step-offer.test.mjs`, one case per rule:
   - offered: completed Specify at `specified` -> `Next: Implement` (AC1);
@@ -25,19 +25,19 @@ test` green. Tests go with the step they cover. One commit per step.
 
 ## 2. Conversation view
 
-- [ ] T2.1 `conversation.js`: `onState` after each poll; `showOffer`,
+- [x] T2.1 `conversation.js`: `onState` after each poll; `showOffer`,
       `offerState`; offer removed on `select` (FR2; plan §2).
-- [ ] T2.2 `style.css`: `.conversation-offer`.
+- [x] T2.2 `style.css`: `.conversation-offer`.
 - Tests: covered by step 3's UI test.
 
 ## 3. Launch and handover
 
-- [ ] T3.1 `main.js`: compute the offer in `renderNextStep` and on
+- [x] T3.1 `main.js`: compute the offer in `renderNextStep` and on
       `onState`; toolbar code untouched (US4.1).
-- [ ] T3.2 `launchTaskWork(kind, force, {predecessor})`: guard with
+- [x] T3.2 `launchTaskWork(kind, force, {predecessor})`: guard with
       `blocksLaunch`, freshness re-check of the offer, `'conversation'` view
       (FR3, FR5, US3.1, US3.3).
-- [ ] T3.3 Handover: select the successor, then `api.stop(predecessor)`;
+- [x] T3.3 Handover: select the successor, then `api.stop(predecessor)`;
       `pendingHandover` for a successor that shows on a later poll; nothing
       stopped on failure or refusal (FR4, US3.4 to US3.6).
 - Tests: `desktop/tests/conversation-next-step.ui.cjs` on the fake agent used
@@ -59,12 +59,12 @@ test` green. Tests go with the step they cover. One commit per step.
 
 ## 4. Documentation
 
-- [ ] T4.1 `CHANGELOG.md`, `## [Unreleased]` / `### Added`: one line, e.g.
+- [x] T4.1 `CHANGELOG.md`, `## [Unreleased]` / `### Added`: one line, e.g.
       "Desktop task conversations offer the next workflow step once the
       current one is done and validated: one click starts it in a fresh
       conversation in the same worktree and closes the finished one, which
       stays readable in the sidebar. (#875)" (FR7).
-- [ ] T4.2 `desktop/README.md`: describe the offer where conversations are
+- [x] T4.2 `desktop/README.md`: describe the offer where conversations are
       described, if they are.
 
 ## Test plan
