@@ -24,7 +24,8 @@ import { countSetPickers, type ActiveFilter } from '../lib/activeFilters'
 import { macroLookup, sprintLookup } from '../lib/lookups'
 import { matchesSearch } from '../lib/searchFold'
 import { format, plural } from '../lib/i18n'
-import type { MacroMeta, Task } from '../types'
+import type { MacroMeta, Priority, Task } from '../types'
+import { PRIORITY_LEVELS, priorityColor } from '../lib/priority'
 import { isTrackerTicket } from '../lib/projectTrackers'
 
 type Dimension = 'sprint' | 'macro' | 'team' | 'assignee'
@@ -61,6 +62,8 @@ export const TriageView: React.FC = () => {
   } = useApp()
   const strings = t.planning.triage
   const language = settings.language
+  // A tracker can send a level outside the four; it is shown as received.
+  const priorityLabel = (priority: Priority) => t.priority[priority] ?? priority
 
   const [macros, setMacros] = useState<MacroMeta[]>([])
   const [dimensions, setDimensions] = useState<Dimension[]>(['sprint', 'macro'])
@@ -522,6 +525,7 @@ export const TriageView: React.FC = () => {
               </th>
               <th className="py-2.5 px-3 w-24">{strings.columns.ticket}</th>
               <th className="py-2.5 px-3 min-w-[280px]">{strings.columns.title}</th>
+              <th className="py-2.5 px-3 w-8 text-center">{strings.columns.priority}</th>
               <th className="py-2.5 px-3 w-[220px]">{strings.columns.macro}</th>
               <th className="py-2.5 px-3 w-[200px]">{strings.columns.sprint}</th>
               <th className="py-2.5 px-3 w-[180px]">{strings.columns.team}</th>
@@ -532,7 +536,7 @@ export const TriageView: React.FC = () => {
           <tbody className="divide-y divide-[var(--border-color)]/60">
             {filteredRows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-12 px-4 text-center">
+                <td colSpan={9} className="py-12 px-4 text-center">
                   <div className="flex flex-col items-center justify-center gap-2 text-[var(--text-muted)]">
                     <CheckCircle2 size={24} className="text-emerald-400" />
                     <p className="text-sm font-semibold text-[var(--text-primary)]">{strings.emptyTitle}</p>
@@ -599,6 +603,29 @@ export const TriageView: React.FC = () => {
                       >
                         {task.title}
                       </button>
+                    </td>
+
+                    {/* Priority: the List view's dot, a native select over it */}
+                    <td className="py-2 px-3 w-8 text-center whitespace-nowrap">
+                      <div className="relative inline-flex items-center justify-center group/prio">
+                        <select
+                          value={task.priority}
+                          onChange={e => updateTask(task.id, { priority: e.target.value as Priority })}
+                          className="opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10"
+                          title={format(t.shell.list.priorityChange, { label: t.taskModal.priority, value: priorityLabel(task.priority) })}
+                        >
+                          {PRIORITY_LEVELS.map(level => (
+                            <option key={level} value={level}>
+                              {t.priority[level]}
+                            </option>
+                          ))}
+                        </select>
+                        <span
+                          className="w-2.5 h-2.5 rounded-full inline-block transition-transform group-hover/prio:scale-125 cursor-pointer"
+                          style={{ backgroundColor: priorityColor(task.priority) }}
+                          title={`${t.taskModal.priority} : ${priorityLabel(task.priority)}`}
+                        />
+                      </div>
                     </td>
 
                     {/* Macro (Milestone) Lookup */}
