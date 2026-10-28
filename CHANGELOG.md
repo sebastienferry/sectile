@@ -17,6 +17,10 @@ test fixtures or internal plumbing.
 
 - Desktop projects have a + shortcut to start a session with reusable agent instructions, selected or created in the repository, for built-in Claude and Codex engines. (#869)
 
+### Changed
+
+- Sectile Desktop shows one status per skill execution (Working, Needs your answer, Done, Needs verification, Could not finish, Stopped) in place of the process state and the separate skill badge. Done names what was achieved and the next step, failures and stops show the recorded reason or say none was recorded, and the process and skill details stay in the tooltip and under the execution view. (#878)
+
 ### Fixed
 
 - Jira no longer refuses a comment, a stage report or a description whose Markdown puts inline code inside bold, italic or struck-through text (`HTTP 400 INVALID_INPUT`): that code keeps its code formatting and drops the surrounding emphasis. (#870)

@@ -177,3 +177,30 @@ a while`. Parked launch (`run.status === 'waiting'` or `waitingReason ===
 - Infer the pickup start stage from activity history: the activities do not
   record stage moves with their run; the launch stage sent by Desktop is
   explicit and verifiable.
+
+## Implementation notes (changes to this plan)
+
+Recorded during implementation; the acceptance criteria of the spec are
+unchanged.
+
+- **Launch stage kept by Desktop, not by the agent.** The desktop run record is
+  rebuilt in five places in the agent (launch, dispatch, conversation, headless,
+  macro), and the run id is not known when Desktop sends the launch, so a
+  `launchStage` field would have to be threaded through all of them. Desktop
+  instead records, for a pickup, the task stage of the first skill result it
+  reads while the run is still going and its record has not ended
+  (`noteLaunchStage` in `main.js`), persisted in `localStorage` and pruned with
+  the runs. Stages only move forward, so a stage read late can only make a
+  pickup read Needs verification, never a Done nothing supports (US3.4). No
+  launch request change, no agent run-record change.
+- **Header and status bar.** The run-state element sits in the toolbar beside
+  the task ID, not in the status bar. It now hosts the primary status (glyph
+  and label); `#skill-result`, in the status bar or the conversation status
+  row, carries its detail and next step and the details line (diagnostics,
+  full reason). Both render from the same `primaryStatus()` call, so they
+  cannot disagree; no `#run-status` merge was needed.
+- **Glyphs.** `desktop/src/status-glyphs.mjs`. A Working status that is queued
+  or preparing keeps the shared queued glyph, so it does not pulse.
+- **Tests.** The pure status tests moved from `skill-result.ui.cjs` to
+  `skill-result.test.mjs` and run in `npm test`. The agent's new fields are
+  tested on `desktopSkillRecord()` directly.
