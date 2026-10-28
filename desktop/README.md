@@ -85,6 +85,16 @@ the conversation, the conversation is marked waiting in the sidebar and Desktop
 notifies you, as it does for a terminal; your answer, or your next message,
 ends the wait. **Stop**
 closes the conversation. Stored history is read-only after an agent restart.
+Once the skill of a task conversation has completed and the task has reached the
+stage it was expected to reach, the conversation, when nothing is waiting in it,
+offers the next workflow step after its last message: **Next: Implement**,
+**Next: Create PR**, the same step the toolbar names. Clicking it reads the task
+again, then starts that step in a new conversation in the same worktree, with a
+fresh context, selects it, and only then closes the finished conversation,
+which stays in the execution history as read-only. A launch that fails or is
+refused leaves the finished conversation open and says why beside the offer;
+**Launch anyway** stays in the toolbar. A finished task, a project prompt, a
+discussion and a macro run offer nothing.
 ### Codex conversations
 
 Codex must already be installed and signed in. The app-server integration was

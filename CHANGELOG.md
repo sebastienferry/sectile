@@ -17,6 +17,7 @@ test fixtures or internal plumbing.
 
 - Desktop projects have a + shortcut to start a session with reusable agent instructions, selected or created in the repository, for built-in Claude and Codex engines. (#869)
 - The Triage view shows each ticket's priority as a coloured dot after its title, and you can change it right from the row. (#882)
+- Desktop task conversations, with Claude Code, Codex or Antigravity, offer the next workflow step once the current one is done and its stage validated: one click starts it in a fresh conversation in the same worktree and closes the finished one, which stays readable in the execution history. (#875)
 
 ### Changed
 
