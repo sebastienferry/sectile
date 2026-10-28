@@ -16,6 +16,8 @@ test('any other skill is capitalized', () => {
   assert.equal(skillLabel('pickup'), 'Pickup')
   assert.equal(skillLabel('discuss'), 'Discuss')
   assert.equal(skillLabel(' custom '), 'Custom')
+  assert.equal(skillLabel('pickup_issues'), 'Pickup issues')
+  assert.equal(skillLabel('rewrite_story'), 'Rewrite story')
 })
 
 test('a missing skill has no label', () => {
