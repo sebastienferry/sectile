@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"tasks/internal/agentconfig"
 )
 
 // This opt-in check uses the owner's installed/authenticated providers. It
@@ -14,6 +16,15 @@ import (
 func TestInstalledProfileConversationSmoke(t *testing.T) {
 	if os.Getenv("SECTILE_TEST_PROFILE_SMOKE") != "1" {
 		t.Skip("requires installed, authenticated providers and inference")
+	}
+	// The launch writes the project's generated Claude settings beside the
+	// owner's real configuration; leave nothing behind that was not there.
+	settings, err := agentconfig.ClaudeSettingsPath("profile-smoke")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(settings); os.IsNotExist(err) {
+		t.Cleanup(func() { _ = os.Remove(settings) })
 	}
 	for _, provider := range []string{"claude", "codex"} {
 		t.Run(provider, func(t *testing.T) {

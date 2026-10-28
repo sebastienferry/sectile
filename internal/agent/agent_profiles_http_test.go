@@ -86,6 +86,26 @@ func TestAgentProfileDesktopContractAndAdmission(t *testing.T) {
 	}
 }
 
+func TestAgentProfileInvalidFileLaunchNamesTheProfile(t *testing.T) {
+	d := profileHTTPFixture(t)
+	if err := createAgentProfile(d.repoRoot, "reviewer", "review code"); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(d.repoRoot, ".sectile", "agents", "reviewer.md")
+	for _, content := range []string{"", "nul\x00byte"} {
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		response := disconnectRequest(d, "POST", "/desktop/consoles", `{"projectId":"p","provider":"claude","agentProfileId":"reviewer"}`)
+		if response.Code != 422 || !strings.Contains(response.Body.String(), "invalid or unreadable") {
+			t.Fatalf("invalid profile %q: %d %s", content, response.Code, response.Body.String())
+		}
+	}
+	if len(d.queue.runs) > 0 {
+		t.Fatal("invalid profile admitted a run")
+	}
+}
+
 func TestAgentProfileMissingCheckoutAndUnwritableDirectory(t *testing.T) {
 	d := profileHTTPFixture(t)
 	if err := os.WriteFile(filepath.Join(d.repoRoot, ".sectile"), []byte("not a directory"), 0644); err != nil {

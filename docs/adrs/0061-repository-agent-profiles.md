@@ -19,7 +19,8 @@ The local authenticated Desktop API accepts IDs, never renderer-supplied paths.
 Creation publishes a complete temporary file through an exclusive hard link;
 concurrent creation cannot overwrite an existing profile. Directory handles and
 file identities pin filesystem access; symbolic links and path substitutions
-are rejected before reading contents. This requires a filesystem supporting
+inside the checkout are rejected before reading contents. The mapped checkout
+path itself is the user's choice, so links at or above it are resolved once. This requires a filesystem supporting
 hard links; unsupported publication fails without exposing a partial profile.
 
 Snapshot selected instructions in the local controlled run. Keep public profile
@@ -39,7 +40,8 @@ metadata, and do not send profile text to Sectile's server.
 Profiles are engine-independent and shared through ordinary repository review.
 There is no database catalogue, default-profile setting, automatic commit, or
 provider-native registry synchronization. Users edit/delete files through their
-normal tools. Symlinked checkouts must be mapped by their canonical path.
+normal tools. A checkout mapped through a symbolic link, such as `/tmp` on
+macOS, works without being remapped to its canonical path.
 Supporting another provider requires proving additive instruction delivery for
 its console and conversation protocols first. Native Codex instructions are
 snapshotted at admission, so later config changes affect new sessions only.

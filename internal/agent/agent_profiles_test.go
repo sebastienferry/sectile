@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -106,15 +107,58 @@ func TestAgentProfileExclusiveConcurrentPublication(t *testing.T) {
 	}
 }
 
+// A link above or at the mapped checkout is the user's own path, such as /tmp
+// on macOS; only links inside the repository are refused.
+func TestAgentProfileFollowsSymlinkedCheckoutPath(t *testing.T) {
+	for _, part := range []string{"ancestor", "root"} {
+		t.Run(part, func(t *testing.T) {
+			base := profileTestRoot(t)
+			real := filepath.Join(base, "real", "repo")
+			if err := os.MkdirAll(real, 0755); err != nil {
+				t.Fatal(err)
+			}
+			mapped := filepath.Join(base, "link", "repo")
+			if part == "ancestor" {
+				if err := os.Symlink(filepath.Join(base, "real"), filepath.Join(base, "link")); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			} else {
+				if err := os.Mkdir(filepath.Join(base, "link"), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(real, mapped); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			}
+			if list, err := listAgentProfiles(mapped); err != nil || len(list.Profiles) != 0 {
+				t.Fatalf("empty catalogue: %+v %v", list, err)
+			}
+			if err := createAgentProfile(mapped, "reviewer", "review code"); err != nil {
+				t.Fatal(err)
+			}
+			if list, err := listAgentProfiles(mapped); err != nil || len(list.Profiles) != 1 {
+				t.Fatalf("catalogue: %+v %v", list, err)
+			}
+			snapshot, err := loadAgentProfile(mapped, "reviewer")
+			if err != nil || snapshot.Prompt != "review code" {
+				t.Fatalf("launch read: %+v %v", snapshot, err)
+			}
+			if _, err := os.Stat(filepath.Join(real, ".sectile", "agents", "reviewer.md")); err != nil {
+				t.Fatalf("profile not written in the resolved checkout: %v", err)
+			}
+		})
+	}
+}
+
 func TestAgentProfileRejectsSymlinkDirectoriesAndFiles(t *testing.T) {
-	for _, part := range []string{"root", ".sectile", "agents", "profile"} {
+	for _, part := range []string{".sectile", "agents", "profile"} {
 		t.Run(part, func(t *testing.T) {
 			root := profileTestRoot(t)
 			outside := profileTestRoot(t)
 			if err := createAgentProfile(root, "safe", "original"); err != nil {
 				t.Fatal(err)
 			}
-			target := root
+			var target string
 			switch part {
 			case ".sectile":
 				target = filepath.Join(root, ".sectile")
@@ -254,5 +298,34 @@ func TestAgentProfileSizeBoundaryAndReadOnlyCheckout(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(path, "readonly.md")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("partial profile remained")
+	}
+}
+
+func TestAgentProfileErrorStatusNamesTheCause(t *testing.T) {
+	root := profileTestRoot(t)
+	if err := createAgentProfile(root, "reviewer", "review code"); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, ".sectile", "agents", "reviewer.md")
+	if err := os.WriteFile(path, []byte("nul\x00byte"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, ".sectile", "agents", "folder.md"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, check := range []struct {
+		id, message string
+		status      int
+	}{
+		{"reviewer", "invalid or unreadable", 422},
+		{"folder", "invalid or unreadable", 422},
+		{"missing", "no longer available", 404},
+	} {
+		_, err := loadAgentProfile(root, check.id)
+		rec := httptest.NewRecorder()
+		profileHTTPError(rec, err)
+		if rec.Code != check.status || !strings.Contains(rec.Body.String(), check.message) {
+			t.Fatalf("%s: %d %s", check.id, rec.Code, rec.Body.String())
+		}
 	}
 }

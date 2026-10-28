@@ -34,9 +34,10 @@ CRLF to LF when creating a file. Existing names are never overwritten.
 
 Discovery is sorted, nonrecursive, and limited to this primary checkout.
 Attached context repositories are not searched or written. Invalid or unreadable
-Markdown files appear as warnings and cannot be selected. Symbolic links in the
-profile path are refused, including a symlinked checkout or ancestor directory;
-map the actual canonical checkout path instead. Listing creates no files.
+Markdown files appear as warnings and cannot be selected. A symbolic link at or
+above the mapped checkout, such as `/tmp` on macOS or a linked home folder, is
+resolved once; symbolic links inside the checkout (`.sectile`, `agents` or a
+profile file) are refused. Listing creates no files.
 
 Use your normal editor and Git workflow to maintain and share the files.
 Desktop does not edit or delete profiles and never commits or pushes them.
@@ -63,7 +64,8 @@ permission, model, or folder settings. The prompt is data, not shell syntax,
 and is never submitted as an initial user request.
 
 The agent rereads and validates the selected file at launch. If it disappeared
-or became invalid, the launch fails rather than silently omitting it. A running
+or became invalid, the launch fails rather than silently omitting it, and the
+dialog says which of the two happened. A running
 session uses its launch-time snapshot for subsequent turns and process
 reconnects. New sessions read the current file. A restarted Sectile agent only
 restores read-only console history; it does not resume provider processes.

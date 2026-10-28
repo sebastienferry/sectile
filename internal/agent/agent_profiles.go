@@ -24,6 +24,12 @@ var agentProfileID = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 var reservedAgentProfileID = regexp.MustCompile(`^(con|prn|aux|nul|com[1-9]|lpt[1-9])$`)
 var agentProfilesMu sync.Mutex
 
+// invalidAgentProfile marks a profile whose content or file type cannot be
+// used, as opposed to a repository that cannot be reached.
+type invalidAgentProfile string
+
+func (e invalidAgentProfile) Error() string { return string(e) }
+
 type agentProfile struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -49,7 +55,7 @@ func validAgentProfileID(id string) bool {
 }
 func validateAgentProfile(prompt string) error {
 	if len(prompt) > agentProfileLimit || !utf8.ValidString(prompt) || strings.ContainsRune(prompt, 0) || strings.TrimSpace(prompt) == "" {
-		return fmt.Errorf("Agent instructions must be nonempty UTF-8 text without NUL, at most 64 KiB")
+		return invalidAgentProfile("Agent instructions must be nonempty UTF-8 text without NUL, at most 64 KiB")
 	}
 	return nil
 }
@@ -85,6 +91,12 @@ func checkedProfileRoot(parent *os.Root, name string) (*os.Root, error) {
 func openAgentProfiles(root string, create bool) (*os.Root, error) {
 	absolute, err := filepath.Abs(root)
 	if err != nil {
+		return nil, err
+	}
+	// The mapped checkout path is the user's choice: links above or at it
+	// (/tmp to /private/tmp on macOS, a linked home) are resolved once here.
+	// Only the walk from the resolved path down to the profiles is pinned.
+	if absolute, err = filepath.EvalSymlinks(absolute); err != nil {
 		return nil, err
 	}
 	volume := filepath.VolumeName(absolute)
@@ -130,7 +142,7 @@ func readAgentProfileFile(dir *os.Root, id string) (string, error) {
 		return "", err
 	}
 	if !before.Mode().IsRegular() {
-		return "", fmt.Errorf("Agent profile must be a regular file")
+		return "", invalidAgentProfile("Agent profile must be a regular file")
 	}
 	file, err := dir.OpenFile(name, os.O_RDONLY|agentProfileOpenFlags, 0)
 	if err != nil {
@@ -254,6 +266,10 @@ func profileHTTPError(w http.ResponseWriter, err error) {
 	if errors.Is(err, fs.ErrNotExist) {
 		status = http.StatusNotFound
 		message = "The selected agent profile is no longer available; refresh the profile list"
+	}
+	if errors.As(err, new(invalidAgentProfile)) {
+		status = http.StatusUnprocessableEntity
+		message = "The selected agent profile is invalid or unreadable; fix its file in the repository or choose another profile"
 	}
 	// Paths and prompt text are not exposed in filesystem errors.
 	http.Error(w, message, status)
