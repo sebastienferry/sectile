@@ -16,6 +16,7 @@ test fixtures or internal plumbing.
 ### Added
 
 - Desktop projects have a + shortcut to start a session with reusable agent instructions, selected or created in the repository, for built-in Claude and Codex engines. (#869)
+- The Triage view shows each ticket's priority as a coloured dot after its title, and you can change it right from the row. (#882)
 
 ### Changed
 
@@ -26,6 +27,7 @@ test fixtures or internal plumbing.
 - Jira no longer refuses a comment, a stage report or a description whose Markdown puts inline code inside bold, italic or struck-through text (`HTTP 400 INVALID_INPUT`): that code keeps its code formatting and drops the surrounding emphasis. (#870)
 - An agent recording a workflow stage now learns when the tracker refused its report: `transition_stage` waits briefly for the tracker and says whether the report was published, refused (with the reason, the stage staying applied) or still being sent, and the workflow skills post a refused report again as a comment. (#870)
 - Desktop Orchestration no longer lists ordinary ticket executions as orchestration agents or policy sessions, including executions launched by an orchestrator. (#871)
+- The priority of a GitHub or GitLab ticket set in Sectile no longer resets to medium at each synchronisation; Jira tickets keep taking their priority from Jira. (#882)
 
 ## [0.7.5] - 2026-10-22
 
