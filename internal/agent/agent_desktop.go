@@ -24,6 +24,7 @@ import (
 	"tasks/internal/runner"
 	"tasks/internal/version"
 	"time"
+	"unicode/utf8"
 )
 
 // loopbackServer is the agent's private HTTP surface: the Electron companion
@@ -1519,9 +1520,9 @@ func (d *agentDaemon) desktopRunResult(w http.ResponseWriter, r *http.Request) {
 		if item.ID == id && item.TaskID == taskID {
 			// A remote run stores the record kind in SkillID ("remote_run") and the
 			// launched skill in SkillName. The desktop matches the launched skill.
-			activity = map[string]string{"id": item.ID, "taskId": item.TaskID, "skillId": item.SkillName, "status": item.Status}
+			activity = desktopSkillRecord(item)
 			if next := skillSuccessor(item, activities, held, exited, exitedAt); next != nil {
-				entry := map[string]any{"id": next.ID, "taskId": next.TaskID, "skillId": next.SkillName, "status": next.Status}
+				entry := desktopSkillRecord(*next)
 				if next.WaitingSince != nil {
 					entry["waitingSince"] = next.WaitingSince
 				}
@@ -1532,6 +1533,39 @@ func (d *agentDaemon) desktopRunResult(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"activity": activity, "successor": successor, "task": map[string]any{"status": task.Status, "labels": task.Labels}})
+}
+
+// desktopReasonLimit bounds the recorded note and error the desktop is sent:
+// it shows their first line, and the full text in a details line.
+const desktopReasonLimit = 2000
+
+// desktopSkillRecord is what the desktop reads of a skill's activity to say
+// how it ended and why (#878). summary and error are always present, empty or
+// not: their presence is how the desktop tells this agent from an older one,
+// which sent no reason at all. disconnected is decided here, from the server's
+// own constant, so the desktop never matches server prose.
+func desktopSkillRecord(item models.TaskActivity) map[string]any {
+	record := map[string]any{
+		"id": item.ID, "taskId": item.TaskID, "skillId": item.SkillName, "status": item.Status,
+		"summary": truncateRunes(item.Summary, desktopReasonLimit), "error": truncateRunes(item.Error, desktopReasonLimit),
+		"disconnected": strings.Contains(item.Summary, models.RunDisconnectNote),
+	}
+	if item.WaitingReason != "" {
+		record["waitingReason"] = item.WaitingReason
+	}
+	if item.CompletedAt != nil {
+		record["completedAt"] = item.CompletedAt.UTC().Format(time.RFC3339)
+	}
+	return record
+}
+
+// truncateRunes keeps at most limit runes of text, so a cut never splits a
+// character in two.
+func truncateRunes(text string, limit int) string {
+	if utf8.RuneCountInString(text) <= limit {
+		return text
+	}
+	return string([]rune(text)[:limit])
 }
 
 // skillSuccessor finds the skill a console went on to run once the one it was
