@@ -19,6 +19,7 @@ import { initialProject, leaveMessage } from './task-form.mjs'
 import { logText } from './log-text.mjs'
 import { createGitDiff } from './gitDiff.js'
 import { createConversationView } from './conversation.js'
+import { nextStepOffer, blocksLaunch } from './next-step-offer.mjs'
 
 import { primaryStatus } from './skill-result.mjs'
 import { statusGlyphId, statusGlyphSvg, statusText } from './status-glyphs.mjs'
@@ -107,6 +108,12 @@ let nextStepData=null,nextStepGeneration=0,nextStepUpdated=0,lastDiffChecked=0
 const submittingSteps=new Map()
 const submittedSteps=new Map()
 const nextStepErrors=new Map()
+// The last polled state of the selected conversation, and the launches its
+// next-step offer made, keyed by task key: {predecessorId}, then the runs the
+// task had before the launch, so the predecessor is closed once its successor
+// shows (#875).
+let conversationState=null
+const offerLaunches=new Map()
 // Task keys whose last launch was refused because a run is already active on
 // them. Only that refusal is forceable, so the offer is keyed on the marker the
 // server puts in its body, never on the 409 status alone: a finished task and a
@@ -239,7 +246,9 @@ let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,p
 // another folder of a run than its directory (#784), read with the editor
 // setting from its status.
 let folderSelectionAvailable=false,runFoldersAvailable=false,runFoldersTerminalsAvailable=false,conversationControlsAvailable=false,conversationQueueAvailable=false,providerModels={}
-const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable,canControl:()=>conversationControlsAvailable,canQueue:()=>conversationQueueAvailable,models:provider=>providerModels[provider]||[]})
+const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable,canControl:()=>conversationControlsAvailable,canQueue:()=>conversationQueueAvailable,models:provider=>providerModels[provider]||[],
+ onState:state=>{conversationState=state;renderOffer()},
+ onOffer:offer=>{const run=currentTaskRun();if(run)launchTaskWork('next',false,{predecessor:{id:run.id,skillId:offer.skillId}})}})
 // The conversation view is opt-in from Appearance; the terminal stays the default.
 let consoleView='terminal'
 api.consoleView().then(value=>{consoleView=value;render()}).catch(()=>{})
@@ -405,6 +414,9 @@ function select(run,background=false,options){
  // stays the one its relaunch falls back to.
  if(run.projectId)selectedProject=run.projectId
  selected=run.id
+ // A handover still waiting for its successor is dropped once the user moves
+ // to another task: its predecessor then stays open (#875).
+ for(const [key,launch] of offerLaunches)if(launch.runIds&&key!==taskKey(run))offerLaunches.delete(key)
  changes.select(selected,currentFolder(run)?.path)
  if(options?.console&&!changes.consoleVisible)document.querySelector('#view-console').click()
  conversation.select(run)
@@ -509,7 +521,7 @@ async function refreshSkillResult(id=selected){
   noteLaunchStage(run,result)
   skillResultReads.set(run.id,skillResultStamp(run,Date.now(),skillResultReads.get(run.id),skillEnded(result)))
  }catch{skillResults.delete(run.id)}
- finally{loadingSkillResults.delete(run.id);renderHeader();renderTaskSkillStatuses()}
+ finally{loadingSkillResults.delete(run.id);renderHeader();renderTaskSkillStatuses();renderOffer()}
 }
 let refreshingVisibleSkillResults=false
 async function refreshVisibleSkillResults(){
@@ -1207,6 +1219,7 @@ async function refresh(){
   if(followed&&selected)select(followed,true,{deferrable:true})
   else if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current,true,{deferrable:true})
   if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible,true,{deferrable:true})}
+  handOverConversations()
   if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
   if(selected&&!changes.active&&(changed||Date.now()-lastDiffChecked>10000)){lastDiffChecked=Date.now();changes.check()}
   if(changed)loadCustomSkillSignal()
@@ -4479,6 +4492,43 @@ function renderNextStep(){
   markReviewed.hidden=false
   markReviewed.disabled=busy||pending
  }
+ renderOffer()
+}
+// The next step offered at the end of the selected task conversation (#875).
+// A launch it made keeps it drawn as in progress until the successor shows.
+function renderOffer(){
+ const run=currentTaskRun()
+ if(!run?.conversation){conversation.showOffer(null);return}
+ const key=taskKey(run)
+ if(offerLaunches.get(key)?.predecessorId===run.id)return
+ const data=nextStepData?.key===key&&!nextStepData.error?nextStepData:null
+ const result=skillResults.get(run.id)
+ // The skill result may see the stage move before the task read does: the
+ // task is read again rather than left to its slower refresh.
+ if(data&&result?.task&&taskStage(result.task)!==taskStage(data.task)&&Date.now()-nextStepUpdated>3000)refreshNextStep()
+ const offer=nextStepOffer({run,result,conversation:conversationState,task:data?.task,project:data?.project,runs,submitting:submittingSteps.has(key)||submittedSteps.has(key)})
+ conversation.showOffer(offer.skillId?offer:null)
+}
+// Why a launch from the offer was abandoned once the task and runs were read again.
+function offerAbandonedText(reason){
+ if(reason==='active-run')return 'A run is already active on this task.'
+ if(['busy','approval','waiting','read-only','conversation-unknown'].includes(reason))return 'This conversation is no longer idle.'
+ return 'The next step has changed.'
+}
+// A successor launched from an offer has shown: it takes the console, then the
+// predecessor is closed and stays in the sidebar as read-only history. A user
+// who moved to another task meanwhile keeps both runs as they are.
+function handOverConversations(){
+ for(const [key,launch] of offerLaunches){
+  if(!launch.runIds)continue
+  const successor=runs.find(item=>taskKey(item)===key&&!launch.runIds.includes(item.id))
+  if(!successor)continue
+  offerLaunches.delete(key)
+  const current=currentTaskRun()
+  if(!current||taskKey(current)!==key)continue
+  if(current.id!==successor.id)select(successor)
+  api.stop(launch.predecessorId).catch(err=>error(Error('Could not close the previous conversation: '+ipcMessage(err))))
+ }
 }
 new ResizeObserver(resize).observe(document.querySelector('#task-status'))
 new ResizeObserver(resize).observe(document.querySelector('#toolbar'))
@@ -4512,25 +4562,49 @@ document.querySelector('#retry-next-step').onclick=refreshNextStep
 // force re-sends the very same launch with the duplicate check waived. It is
 // the only difference between the two buttons: everything else, from the
 // freshness recheck to the local busy guard, applies identically.
-async function launchTaskWork(kind,force){
+//
+// predecessor, {id,skillId}, is the task conversation whose offer asked for the
+// launch (#875): it alone does not count as an active run, and only while the
+// offer still holds once the task, the runs and the conversation are read again.
+// The successor always opens in the conversation view.
+async function launchTaskWork(kind,force,{predecessor}={}){
  const run=currentTaskRun(),displayed=nextStepData
  if(!run||displayed?.key!==taskKey(run))return
  if(kind==='next'&&!displayed.step?.skillId)return
  if(kind==='pickup'&&(!pickupAvailable(displayed.project)||taskStage(displayed.task)==='finished'))return
+ if(predecessor&&(predecessor.id!==run.id||displayed.step.skillId!==predecessor.skillId))return
  const key=taskKey(run)
- if(submittingSteps.has(key)||submittedSteps.has(key)||runs.some(item=>taskKey(item)===key&&activeRun(item)))return
+ const blocking=predecessor?item=>blocksLaunch(item,predecessor.id):activeRun
+ if(submittingSteps.has(key)||submittedSteps.has(key)||offerLaunches.has(key)||runs.some(item=>taskKey(item)===key&&blocking(item)))return
  const skill=kind==='pickup'?'pickup':displayed.step.skillId
+ let offerError=''
+ if(predecessor){offerLaunches.set(key,{predecessorId:predecessor.id});conversation.offerState({pending:true})}
  nextStepGeneration++;nextStepErrors.delete(key);forceableLaunches.delete(key);submittingSteps.set(key,skill);renderNextStep()
  try{
-  const [fresh,latestRuns]=await Promise.all([readNextStep(run),api.runs()])
+  const [fresh,latestRuns,state,result]=await Promise.all([readNextStep(run),api.runs(),predecessor?api.conversation(predecessor.id):null,predecessor?api.runResult(predecessor.id):null])
   if(taskKey(currentTaskRun()||{})!==key)return
   nextStepData=fresh
-  const abandoned=latestRuns.some(item=>taskKey(item)===key&&activeRun(item))||(kind==='next'?fresh.step.skillId!==displayed.step.skillId:(!pickupAvailable(fresh.project)||taskStage(fresh.task)==='finished'))
-  if(abandoned){await refresh();return}
+  let offer=null
+  if(predecessor){
+   skillResults.set(predecessor.id,result)
+   const latest=latestRuns.find(item=>item.id===predecessor.id)||run
+   const polled={id:state?.id,busy:!!state?.busy,readOnly:!!state?.readOnly,approvals:Array.isArray(state?.approvals)?state.approvals:[]}
+   if(currentTaskRun()?.id===predecessor.id)conversationState=polled
+   offer=nextStepOffer({run:latest,result,conversation:polled,task:fresh.task,project:fresh.project,runs:latestRuns})
+  }
+  const abandoned=latestRuns.some(item=>taskKey(item)===key&&blocking(item))||(kind==='next'?fresh.step.skillId!==displayed.step.skillId:(!pickupAvailable(fresh.project)||taskStage(fresh.task)==='finished'))||(predecessor&&offer.skillId!==displayed.step.skillId)
+  if(abandoned){
+   if(predecessor)offerError=offerAbandonedText(latestRuns.some(item=>taskKey(item)===key&&blocking(item))?'active-run':offer.reason)
+   await refresh();return
+  }
   const launchSkill=kind==='pickup'?'pickup':fresh.step.skillId
   submittingSteps.set(key,launchSkill)
-  await api.launchServerTask(relaunchProject(run,boardProject()),run.taskId,launchSkill,'',launchModeFor(kind,undefined),force,consoleView)
-  submittedSteps.set(key,{skillId:launchSkill,kind,runIds:latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)})
+  await api.launchServerTask(relaunchProject(run,boardProject()),run.taskId,launchSkill,'',launchModeFor(kind,undefined),force,predecessor?'conversation':consoleView)
+  const runIds=latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)
+  submittedSteps.set(key,{skillId:launchSkill,kind,runIds})
+  // The launch is accepted: the predecessor is closed as soon as the
+  // successor's run shows, on this refresh or a later poll.
+  if(predecessor)offerLaunches.set(key,{predecessorId:predecessor.id,runIds})
   await refresh()
   if(taskKey(currentTaskRun()||{})===key){
    const launched=runs.find(item=>taskKey(item)===key&&!latestRuns.some(previous=>previous.id===item.id))
@@ -4540,7 +4614,16 @@ async function launchTaskWork(kind,force){
   const refusal=refusedActiveRun(err.message)
   if(refusal){nextStepErrors.set(key,refusal.error||'A run is already active on this task.');forceableLaunches.set(key,kind)}
   else nextStepErrors.set(key,(kind==='pickup'?'Could not launch full chain: ':'Could not launch next step: ')+launchErrorText(err))
- }finally{submittingSteps.delete(key);renderNextStep()}
+  // Forcing stays a toolbar action: the offer only says why nothing started.
+  if(predecessor)offerError=refusal?'A run is already active on this task.':'Could not launch next step: '+launchErrorText(err)
+ }finally{
+  submittingSteps.delete(key)
+  if(predecessor&&!offerLaunches.get(key)?.runIds){
+   offerLaunches.delete(key)
+   if(currentTaskRun()?.id===predecessor.id)conversation.offerState({error:offerError})
+  }
+  renderNextStep()
+ }
 }
 document.querySelector('#next-step').onclick=()=>launchTaskWork('next',false)
 document.querySelector('#pickup-chain').onclick=()=>launchTaskWork('pickup',false)
