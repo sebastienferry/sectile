@@ -226,7 +226,13 @@ matching `7dea9140` binaries; an isolated optimized `.app` included the
 manifest and all three resources with matching hashes. This verifies
 reproducible source identity and packaged provenance on this host, not a tagged
 release, signature or other-platform package. The active Local installation
-and its companion remained running during those checks.
+and its companion remained running during those checks, but the debug-bundle
+companion was built earlier (2026-10-29 05:06 local time) and its SHA-256 does
+not match the current `src-tauri/binaries/sectile-companion` input (rebuilt at
+08:39). Its version output is only `dev`, without the embedded source revision.
+Do not count that already-running Local installation as execution of the current
+Go binary; a fresh isolated current-source Local launch remains a qualification
+gate.
 
 Current UX-source bundle check (2026-10-29, Tauri commit `8803eff`): an isolated
 unsigned optimized app was built with bundle identifier
