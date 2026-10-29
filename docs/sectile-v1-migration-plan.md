@@ -120,7 +120,13 @@ validating its live connection. The shared Electron discovery file is no longer
 a silent fallback. Paired Fleet connections now expose native profile, personal
 tracker credential, project and OAuth account setup through the selected backend;
 OAuth app secrets and shared tracker administration remain server-admin tasks.
-Stage 4 remains open for one-time Fleet pairing/setup qualification. New
+At Go commit `7dea9140`, the current Tauri agent completed a real temporary
+one-time pairing against the live Fleet backend (`660-main`, commit
+`b8fabf44`). Its local desktop gateway reported connected, `/api/me` matched the
+pairing owner, and `/api/projects` returned successfully. The test revoked the
+temporary workstation afterward and verified that no matching device remained.
+Stage 4 remains open for visual qualification of the native pairing, profile,
+tracker and project forms. New
 conversations persist the selected runtime's private connection UUID in Go's
 run journal; a mismatched Tauri connection cannot read or resume them. Legacy
 histories remain readable and Tauri requires an explicit association before
@@ -195,7 +201,7 @@ launched and no visual or runtime behavior is qualified by this build.
 | Combination | Evidence now available | Qualification |
 | --- | --- | --- |
 | Tauri + Local companion + embedded backend from this branch | Existing macOS managed-install migration; disposable Claude Code, Codex, MCP and companion lifecycle checks | Verified on macOS for the recorded prototype; repeat against the current commit before V1 |
-| Tauri + bundled Fleet agent + current Go backend | Pairing HTTP contract fixture, TLS/credential checks, API authorization tests and UI/native setup tests | Contract coverage only; a real remote one-time-code pairing and paired-agent native setup are still required |
+| Tauri current agent + live Fleet backend | A temporary one-time code paired the current Tauri agent to the live `660-main` backend; the local gateway reported connected, `/api/me` matched the pairing owner, and `/api/projects` succeeded. The temporary credential was revoked and its absence verified afterward. | Real pairing and authenticated project access pass. The native pairing/profile/tracker/project screens and tracker writes remain unqualified |
 | Tauri + legacy attached Fleet agent | An isolated `com.sebferry.sectile.tauri.fleetcheck` macOS bundle used the native “attach existing agent” flow, reported `Agent local · backend Fleet`, loaded 19 live projects, and read 390 tickets from the Sectile project (2026-10-29). It attached to the existing v0.7.6 workstation agent without creating tracker writes or replacing the active Local profile. A read-only `/api/me` request through that agent gateway returned `401`, so the legacy connection cannot supply the authenticated user profile needed for native API setup. | Live attachment, backend mode display, project discovery and tracker-backed board reads verified. Native user/tracker/project setup requires a newly paired desktop credential; one-time pairing remains unqualified. |
 | Existing Electron/Go workstation + live backend | The installed Electron `sectile-agent mcp` bridge connected to the configured live backend, listed 21 tools and completed a read-only `list_projects` call (2026-10-29); 315 Electron unit tests pass | Live MCP bridge behavior is verified for this installed client and backend. Current-branch Electron/server compatibility and the Electron UI suite remain unqualified |
 | Source-level v0.7.6 protocol fixtures | The current server parses a pinned v0.7.6 agent connection query; a parser copied from the v0.7.6 server source parses the current agent announcement. Focused agent/handler tests also cover operation dispatch. | Pass on this source revision. These tests do not execute either released binary. |
