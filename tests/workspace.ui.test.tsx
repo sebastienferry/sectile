@@ -46,6 +46,30 @@ test("theme selection remains available without tabs", async () => {
   expect(screen.queryByRole("tab")).toBeNull();
 });
 
+test("a trackerless local project shows prompt guidance without tracker controls",async()=>{
+ vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[]}});
+ render(<App />);
+ await screen.findByRole("heading",{name:"Votre projet local est prêt"});
+ expect(screen.getByText("Aucun tracker n’est associé. Lancez un prompt pour travailler dans votre dossier local.")).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Nouveau prompt"})).toBeTruthy();
+ expect(screen.queryByRole("textbox",{name:"Rechercher des tickets"})).toBeNull();
+ expect(screen.queryByRole("combobox",{name:"Regrouper les tickets"})).toBeNull();
+ expect(screen.queryByText("Statuts du tracker · lecture seule")).toBeNull();
+ expect(screen.queryByRole("button",{name:"Commencer une conversation"})).toBeNull();
+});
+
+test("tracker-backed projects retain board search, grouping and ticket status",async()=>{
+ vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
+ vi.mocked(api.listTasks).mockResolvedValue([{id:"t",key:"APP-2",title:"Remote issue",source:"jira",trackerStatus:"To Do",status:"to_clarify"}]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1"}]}});
+ render(<App />);
+ await screen.findByRole("textbox",{name:"Rechercher des tickets"});
+ expect(screen.getByRole("combobox",{name:"Regrouper les tickets"})).toBeTruthy();
+ expect(screen.getByText("Statuts du tracker · lecture seule")).toBeTruthy();
+ expect(screen.getByText("Remote issue")).toBeTruthy();
+});
+
 test("opening a folder navigates straight to its free prompt; cancel leaves the board visible", async () => {
   vi.mocked(invoke).mockResolvedValueOnce(null).mockResolvedValueOnce({id:"p",name:"Example",path:"/work/example"});
   render(<App />);
