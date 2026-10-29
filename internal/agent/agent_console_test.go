@@ -37,7 +37,11 @@ func TestMain(m *testing.M) {
 func TestConsoleCommandsHaveNoPromptOrFlags(t *testing.T) {
 	for _, provider := range []string{"codex", "claude", "agy"} {
 		command, err := consoleCommand(provider, "")
-		if err != nil || command != "exec "+provider {
+		want := "exec " + provider
+		if provider == "codex" {
+			want += " --no-daemon"
+		}
+		if err != nil || command != want {
 			t.Fatalf("%q: %q %v", provider, command, err)
 		}
 	}
@@ -53,7 +57,11 @@ func TestConsoleCommandsHaveNoPromptOrFlags(t *testing.T) {
 func TestConsoleCommandCarriesTheResolvedModel(t *testing.T) {
 	for _, provider := range []string{"codex", "claude"} {
 		command, err := consoleCommand(provider, "M")
-		if err != nil || command != "exec "+provider+" --model M" {
+		want := "exec " + provider + " --model M"
+		if provider == "codex" {
+			want = "exec codex --no-daemon --model M"
+		}
+		if err != nil || command != want {
 			t.Fatalf("%q: %q %v", provider, command, err)
 		}
 	}
@@ -382,7 +390,7 @@ func TestFreeConsoleCarriesTheProjectFolders(t *testing.T) {
 	dirs := []string{"/repo/b", "/notes with space"}
 	for provider, want := range map[string]string{
 		"claude": `exec claude --model M --add-dir='/repo/b' --add-dir='/notes with space'`,
-		"codex":  `exec codex --model M --add-dir='/repo/b' --add-dir='/notes with space'`,
+		"codex":  `exec codex --no-daemon --model M --add-dir='/repo/b' --add-dir='/notes with space'`,
 		"agy":    "exec agy",
 	} {
 		got, err := consoleLaunch(provider, "M", "", "", "/root", dirs)

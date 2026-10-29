@@ -403,7 +403,11 @@ func TestNativePickupBootstrapAndLaunch(t *testing.T) {
 				t.Fatalf("native MCP bootstrap: %s %v", raw, err)
 			}
 			command, err := dispatchCommand(config, "#48", "pickup-issue", "pickup-issue", "", "", models.SkillModeInteractive, "")
-			if err != nil || command != provider+" '/pickup-issue #48'" {
+			want := provider + " '/pickup-issue #48'"
+			if provider == "codex" {
+				want = "codex --no-daemon '/pickup-issue #48'"
+			}
+			if err != nil || command != want {
 				t.Fatalf("pickup launch: %q %v", command, err)
 			}
 		})

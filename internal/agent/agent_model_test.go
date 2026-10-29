@@ -13,7 +13,7 @@ import (
 func TestAgentCommandLineModelFlag(t *testing.T) {
 	cases := map[string]string{
 		"claude": "claude --model M 'do it'",
-		"codex":  "codex --model M 'do it'",
+		"codex":  "codex --no-daemon --model M 'do it'",
 		"agy":    "agy -i 'do it'",
 	}
 	for provider, want := range cases {
@@ -32,7 +32,7 @@ func TestAgentCommandLineModelFlag(t *testing.T) {
 func TestAgentCommandLineWithoutModelIsUnchanged(t *testing.T) {
 	cases := map[string]string{
 		"claude": "claude 'do it'",
-		"codex":  "codex 'do it'",
+		"codex":  "codex --no-daemon 'do it'",
 		"agy":    "agy -i 'do it'",
 	}
 	for provider, want := range cases {

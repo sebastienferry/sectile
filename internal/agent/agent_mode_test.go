@@ -8,13 +8,12 @@ import (
 	"tasks/internal/models"
 )
 
-// The interactive command lines are the ones the tool emitted before an
-// execution mode existed. They must not move.
-func TestInteractiveCommandLineIsUnchanged(t *testing.T) {
+// Interactive Codex owns its app server so Sectile can stop its tool processes.
+func TestInteractiveCommandLineOwnsCodexServer(t *testing.T) {
 	cases := map[string]string{
 		"agy":    "agy -i 'do the thing'",
 		"claude": "claude 'do the thing'",
-		"codex":  "codex 'do the thing'",
+		"codex":  "codex --no-daemon 'do the thing'",
 	}
 	for provider, want := range cases {
 		got, err := modeCommandLine(provider, "", "", "do the thing", models.SkillModeInteractive)

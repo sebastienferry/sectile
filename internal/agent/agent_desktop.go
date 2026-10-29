@@ -434,6 +434,11 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		d.queue.mu.Unlock()
+		if d.stopPTYRun(id, run, entry) {
+			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, stoppedStatus(entry.Skill), stoppedNote(entry.Skill, true))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		// A supervised PTY run normally closes exited through agent-exec. If the
 		// terminal has already vanished, there is no process left that can send
 		// that acknowledgement. Recover it here instead of making every Stop
@@ -484,6 +489,30 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Error(w, "Not found", 404)
+}
+
+// stopPTYRun sends an interrupt while the CLI can still forward cancellation
+// to its provider, then closes the owned terminal process tree. The short grace
+// period lets a CLI cancel a tool running in its private app server.
+func (d *agentDaemon) stopPTYRun(id string, run *controlledRun, entry desktopRun) bool {
+	if d.terminal.manager == nil || entry.SessionID == "" || entry.Headless {
+		return false
+	}
+	sessionID := entry.SessionID
+	_ = d.terminal.manager.SendInput(sessionID, "\x03")
+	time.Sleep(350 * time.Millisecond)
+	_ = d.terminal.manager.CloseSession(sessionID)
+	d.queue.mu.Lock()
+	if d.queue.runs[id] == run {
+		select {
+		case <-run.exited:
+		default:
+			run.desktop.Status = stoppedStatus(run.desktop.Skill)
+			run.once.Do(func() { close(run.exited) })
+		}
+	}
+	d.queue.mu.Unlock()
+	return true
 }
 
 // recoverOrphanedPTYRun closes the local record only when the agent itself can

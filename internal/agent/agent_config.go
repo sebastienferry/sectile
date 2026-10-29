@@ -660,7 +660,10 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 	case "claude":
 		return words(provider, companionMCPFlags(provider), modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs), settingsArg(provider, settings)), nil
 	case "codex":
-		return words(provider, companionMCPFlags(provider), modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
+		// A private app server keeps commands started from this PTY inside the
+		// process tree Sectile supervises, so Stop can cancel the turn before the
+		// terminal process tree is closed.
+		return words(provider, "--no-daemon", companionMCPFlags(provider), modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
 	default:
 		return "", fmt.Errorf("unsupported AI provider %q; configure an AI command template", provider)
 	}

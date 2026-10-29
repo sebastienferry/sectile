@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -114,6 +116,139 @@ func TestStopRecoversRunWhosePTYAlreadyClosed(t *testing.T) {
 	case <-run.exited:
 	default:
 		t.Fatal("orphaned run was not closed")
+	}
+}
+
+func TestStopClosesPTYProcessTree(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("this shell-command fixture targets macOS and Linux")
+	}
+	root := t.TempDir()
+	manager := terminal.NewManager()
+	run := &controlledRun{
+		desktop: desktopRun{ID: "pty-stop", SessionID: "pty-stop", Provider: "codex", Directory: root, Status: "running"},
+		exited:  make(chan struct{}),
+	}
+	d := &agentDaemon{
+		terminal: terminalChoice{manager: manager},
+		loopback: loopbackServer{desktopToken: "private"},
+		queue:    runQueue{runs: map[string]*controlledRun{"pty-stop": run}},
+	}
+	started := filepath.Join(root, "started-marker.txt")
+	stopped := filepath.Join(root, "stop-marker.txt")
+	command := "printf STARTED > " + started + "; sleep 90; printf STOPPED > " + stopped
+	if err := d.runInPty(run.desktop.SessionID, root, nil, command); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if _, err := os.Stat(started); err != nil {
+		t.Fatalf("delayed command did not start: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/desktop/stop?id=pty-stop", nil)
+	req.Header.Set("Authorization", "Bearer private")
+	rec := httptest.NewRecorder()
+	d.desktopHandler(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("stop returned %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(stopped); !os.IsNotExist(err) {
+		t.Fatalf("delayed command survived Stop; marker stat error = %v", err)
+	}
+	for _, session := range manager.ListSessions() {
+		if session.ID == run.desktop.SessionID {
+			t.Fatal("Stop left its PTY session open")
+		}
+	}
+	select {
+	case <-run.exited:
+	default:
+		t.Fatal("Stop did not acknowledge the run exit")
+	}
+}
+
+// Set SECTILE_TEST_CODEX_PTY=1 to qualify cancellation with the installed,
+// authenticated Codex CLI and its real delayed shell tool. The isolated
+// CODEX_HOME keeps this test out of the user's shared app-server and history.
+func TestCodexPTYStopPreventsDelayedMarker(t *testing.T) {
+	if os.Getenv("SECTILE_TEST_CODEX_PTY") != "1" {
+		t.Skip("set SECTILE_TEST_CODEX_PTY=1 to run the signed-in Codex PTY qualification")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("the Codex PTY qualification uses POSIX shell syntax")
+	}
+	if _, err := exec.LookPath("codex"); err != nil {
+		t.Skip("Codex CLI is not installed")
+	}
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := filepath.Join(userHome, ".codex", "auth.json")
+	if _, err := os.Stat(auth); err != nil {
+		t.Skip("Codex CLI auth.json is unavailable")
+	}
+	root := t.TempDir()
+	codexHome := filepath.Join(t.TempDir(), "codex-home")
+	if err := os.Mkdir(codexHome, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(auth, filepath.Join(codexHome, "auth.json")); err != nil {
+		t.Fatal(err)
+	}
+	config := fmt.Sprintf("[projects.%q]\ntrust_level = \"trusted\"\n", root)
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	prompt := "Run exactly one shell command here: printf STARTED > started-marker.txt; sleep 90; printf STOPPED > stop-marker.txt. Do not run any other command. Tell me when it has started, then wait."
+	command, err := modeCommandLine("codex", "", "", prompt, models.SkillModeInteractive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := &controlledRun{
+		desktop: desktopRun{ID: "codex-stop", SessionID: "codex-stop", Provider: "codex", Directory: root, Status: "running"},
+		exited:  make(chan struct{}),
+	}
+	manager := terminal.NewManager()
+	d := &agentDaemon{
+		terminal: terminalChoice{manager: manager},
+		loopback: loopbackServer{desktopToken: "private"},
+		queue:    runQueue{runs: map[string]*controlledRun{"codex-stop": run}},
+	}
+	defer manager.CloseSession(run.desktop.SessionID)
+	line := "CODEX_HOME=" + quoteShell(codexHome) + " " + command
+	if err := d.runInPty(run.desktop.SessionID, root, nil, line); err != nil {
+		t.Fatal(err)
+	}
+	started := filepath.Join(root, "started-marker.txt")
+	deadline := time.Now().Add(180 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	if _, err := os.Stat(started); err != nil {
+		t.Fatalf("Codex did not start the delayed command: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/desktop/stop?id=codex-stop", nil)
+	request.Header.Set("Authorization", "Bearer private")
+	response := httptest.NewRecorder()
+	d.desktopHandler(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("Stop returned %d: %s", response.Code, response.Body.String())
+	}
+	t.Log("Codex PTY stopped; waiting 95 seconds for the forbidden marker")
+	stopMarker := filepath.Join(root, "stop-marker.txt")
+	time.Sleep(95 * time.Second)
+	if _, err := os.Stat(stopMarker); !os.IsNotExist(err) {
+		t.Fatalf("Codex tool survived Stop; delayed marker stat error = %v", err)
 	}
 }
 

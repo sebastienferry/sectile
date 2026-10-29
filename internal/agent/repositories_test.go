@@ -125,10 +125,10 @@ func TestContextFoldersReachClaudeAndCodex(t *testing.T) {
 	}
 	// Codex repeats --add-dir once per folder, interactive and headless.
 	codexInteractive, _ := modeCommandLine("codex", "", "", "go", models.SkillModeInteractive, launch)
-	if codexInteractive != `codex 'go' --add-dir='/src/b' --add-dir='/src/it'\''s'` {
+	if codexInteractive != `codex --no-daemon 'go' --add-dir='/src/b' --add-dir='/src/it'\''s'` {
 		t.Errorf("codex interactive = %q", codexInteractive)
 	}
-	if argv := shellArguments(t, "sh", "printf '%s\\0'"+strings.TrimPrefix(codexInteractive, "codex")); len(argv) != 3 || argv[1] != "--add-dir=/src/b" || argv[2] != "--add-dir=/src/it's" {
+	if argv := shellArguments(t, "sh", "printf '%s\\0'"+strings.TrimPrefix(codexInteractive, "codex")); len(argv) != 4 || argv[0] != "--no-daemon" || argv[2] != "--add-dir=/src/b" || argv[3] != "--add-dir=/src/it's" {
 		t.Errorf("codex receives %q", argv)
 	}
 	if codexHeadless, err := modeCommandLine("codex", "", "", "go", models.SkillModeAutonomous, launch); err != nil || !strings.HasPrefix(codexHeadless, "codex exec") || !strings.HasSuffix(codexHeadless, `'go' --add-dir='/src/b' --add-dir='/src/it'\''s'`) {
