@@ -126,7 +126,9 @@ one-time pairing against the live Fleet backend (`660-main`, commit
 pairing owner, and `/api/projects` returned successfully. The test revoked the
 temporary workstation afterward and verified that no matching device remained.
 Stage 4 remains open for visual qualification of the native pairing, profile,
-tracker and project forms. New
+tracker and project forms. Existing-project folder association now uses the
+native directory picker, and UI tests cover successful selection and cancel
+without mutation; this does not replace live visual qualification. New
 conversations persist the selected runtime's private connection UUID in Go's
 run journal; a mismatched Tauri connection cannot read or resume them. Legacy
 histories remain readable and Tauri requires an explicit association before
@@ -162,7 +164,7 @@ infer that this branch constitutes a V1 release.
 The first compatibility slice passed: standalone `cmd/agent` and `cmd/server`
 tests, race-enabled companion/backend/agent tests, a Windows companion
 cross-build, 315 Electron unit tests, and the Tauri typecheck/build plus 9 domain,
-89 UI and 35 Rust tests. Fleet-native setup also passes its Go handler/backend
+90 UI and 35 Rust tests. Fleet-native setup also passes its Go handler/backend
 tests. The migrated macOS install preserved its ten original
 projects, trackers, OAuth key and 25 conversation histories; live Jira,
 Claude/Codex prompt and embedded MCP calls succeeded. One idle companion used
