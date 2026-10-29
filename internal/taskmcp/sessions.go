@@ -163,9 +163,11 @@ type SessionRegistry struct {
 	bound time.Duration
 	// abandon is how long a silence lasts before the session is closed. It is
 	// never shorter than bound, so no session is closed before it was noticed.
-	abandon time.Duration
-	now     func() time.Time
-	stop    chan struct{}
+	abandon       time.Duration
+	now           func() time.Time
+	stop          chan struct{}
+	sweepDone     chan struct{}
+	keepaliveDone chan struct{}
 	// instance names the server instance this registry belongs to, for the
 	// sessions view of a deployment several instances serve.
 	instance string
@@ -205,8 +207,11 @@ func NewSessionRegistryBounded(runs RunCloser, notes RunNoter, bound, abandon ti
 		abandon = bound
 	}
 	r := &SessionRegistry{live: make(map[string]*liveSession), runs: runs, notes: notes,
-		bound: bound, abandon: abandon, now: time.Now, stop: make(chan struct{})}
-	go r.sweep(bound / silenceSweepDivisor)
+		bound: bound, abandon: abandon, now: time.Now, stop: make(chan struct{}), sweepDone: make(chan struct{})}
+	go func() {
+		defer close(r.sweepDone)
+		r.sweep(bound / silenceSweepDivisor)
+	}()
 	return r
 }
 
@@ -230,7 +235,13 @@ func (r *SessionRegistry) SetKeepalive(interval time.Duration, failures int) {
 	if failures <= 0 {
 		failures = DefaultKeepaliveFailures
 	}
-	r.keepaliveOnce.Do(func() { go r.keepalive(interval, failures) })
+	r.keepaliveOnce.Do(func() {
+		r.keepaliveDone = make(chan struct{})
+		go func() {
+			defer close(r.keepaliveDone)
+			r.keepalive(interval, failures)
+		}()
+	})
 }
 
 func (r *SessionRegistry) keepalive(interval time.Duration, failures int) {
@@ -354,6 +365,25 @@ func (r *SessionRegistry) Stop() {
 		return
 	}
 	r.stopOnce.Do(func() { close(r.stop) })
+}
+
+// Wait confirms that the sweeper and keepalive have stopped before their
+// database-backed callbacks can be released. Call Stop first.
+func (r *SessionRegistry) Wait(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	for _, done := range []<-chan struct{}{r.sweepDone, r.keepaliveDone} {
+		if done == nil {
+			continue
+		}
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
 }
 
 // sweep remarks on the sessions that crossed the silence bound, and gives up on

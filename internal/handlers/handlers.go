@@ -73,6 +73,9 @@ type Handler struct {
 	// at construction; tests shorten them to observe a drop quickly.
 	agentPingInterval time.Duration
 	agentReadTimeout  time.Duration
+	backgroundMu      sync.Mutex
+	backgroundClosing bool
+	backgroundCount   atomic.Int64
 }
 
 func (h *Handler) SetPullOnConnect(enable bool) {
@@ -3922,6 +3925,11 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[AgentConnect] WebSocket upgrade failed: %v", err)
 		return
 	}
+	if !h.beginBackground() {
+		_ = conn.Close()
+		return
+	}
+	defer h.endBackground()
 
 	// Register the agent, potentially rebinding an existing session.
 	ac := h.agentDispatcher.RegisterBuild(userID, projectID, deviceID, ParseAgentBuild(r.URL.Query()), conn)
@@ -3936,7 +3944,7 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 		ac.Touch()
 		return conn.SetReadDeadline(time.Now().Add(h.agentReadTimeout))
 	})
-	go ac.Keepalive(h.agentPingInterval)
+	h.launchBackground(func() { ac.Keepalive(h.agentPingInterval) })
 
 	// Broadcast agent connection event to SSE subscribers.
 	h.BroadcastEvent(Event{
@@ -3945,7 +3953,7 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 
 	// Pull active running/queued tasks from the newly connected agent if enabled.
 	if h.pullOnConnect {
-		go h.pullAndApplyAgentTasks(ac)
+		h.launchBackground(func() { h.pullAndApplyAgentTasks(ac) })
 	}
 
 	// Read loop: handle messages from the local agent (pty_output, step_status,
@@ -4283,13 +4291,13 @@ func (h *Handler) HandleAgentPull(w http.ResponseWriter, r *http.Request) {
 
 	activeConns := h.agentDispatcher.ActiveConnections()
 	for _, ac := range activeConns {
-		go h.pullAndApplyAgentTasks(ac)
+		h.launchBackground(func() { h.pullAndApplyAgentTasks(ac) })
 	}
 	// Agents connected to other instances sharing the database report through
 	// the instance holding them.
 	remote := h.agentDispatcher.RemoteAgents()
 	for _, location := range remote {
-		go h.pullAndApplyRemoteAgentTasks(location)
+		h.launchBackground(func() { h.pullAndApplyRemoteAgentTasks(location) })
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

@@ -916,6 +916,10 @@ func (b *limitedConversationBuffer) Write(data []byte) (int, error) {
 }
 
 func (d *agentDaemon) stopConversations() {
+	_ = d.stopConversationsChecked()
+}
+
+func (d *agentDaemon) stopConversationsChecked() error {
 	d.queue.mu.Lock()
 	var exits []<-chan struct{}
 	for _, run := range d.queue.runs {
@@ -938,9 +942,10 @@ func (d *agentDaemon) stopConversations() {
 		select {
 		case <-exit:
 		case <-deadline.C:
-			return
+			return fmt.Errorf("conversation process termination was not confirmed before shutdown deadline")
 		}
 	}
+	return nil
 }
 
 // conversationProbeTimeout bounds the Claude started only to list commands.

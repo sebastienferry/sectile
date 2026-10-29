@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"tasks/internal/db"
 	"tasks/internal/handlers"
 	"tasks/internal/metrics"
+	"tasks/internal/storelock"
 )
 
 func TestStandaloneBackendRegistersAPIMCPAuthAndMetricsWithoutWebsite(t *testing.T) {
@@ -60,5 +62,51 @@ func TestStandaloneBackendRegistersAPIMCPAuthAndMetricsWithoutWebsite(t *testing
 		if response.Code != tc.status {
 			t.Errorf("%s returned %d, want %d", tc.path, response.Code, tc.status)
 		}
+	}
+}
+
+func TestLocalBackendOwnsStoreBeforeDatabaseOpenAndReleasesItAfterClose(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "local")
+	config := Config{
+		Database:  db.SQLiteConfig(filepath.Join(root, "tasks.db")),
+		DataDir:   root,
+		StoreRoot: root,
+	}
+	first, err := Open(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second, err := Open(config); !errors.Is(err, storelock.ErrOwned) || second != nil {
+		t.Fatalf("second Local backend: runtime=%v error=%v", second, err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := Open(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLocalBackendReleasesOwnershipOnDatabaseOpenFailure(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "local")
+	if runtime, err := Open(Config{
+		Database:  db.SQLiteConfig(root),
+		StoreRoot: root,
+	}); err == nil || runtime != nil {
+		t.Fatalf("database directory accepted as SQLite file: runtime=%v error=%v", runtime, err)
+	}
+	lock, err := storelock.Acquire(root)
+	if err != nil {
+		t.Fatalf("failed startup retained Local ownership: %v", err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

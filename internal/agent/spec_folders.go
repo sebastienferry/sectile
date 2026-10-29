@@ -116,7 +116,7 @@ func (d *agentDaemon) taskSpecWorkspace(ctx context.Context, config agentconfig.
 	if err != nil {
 		return models.TaskSpecWorkspace{}, err
 	}
-	taskRoot, _, err := primaryRoot(ctx, config, overrides, root, task)
+	taskRoot, _, err := d.primaryRoot(ctx, config, overrides, root, task)
 	if err != nil {
 		return models.TaskSpecWorkspace{}, err
 	}
@@ -178,7 +178,7 @@ func (d *agentDaemon) knownTaskSpecWorkspace(ctx context.Context, config agentco
 	if err != nil {
 		return models.TaskSpecWorkspace{}
 	}
-	taskRoot, _, err := primaryRoot(ctx, config, overrides, root, task)
+	taskRoot, _, err := d.primaryRoot(ctx, config, overrides, root, task)
 	if err != nil {
 		return models.TaskSpecWorkspace{}
 	}

@@ -17,10 +17,10 @@ func (d *agentDaemon) projectClaudeSettings(projectID string) (string, error) {
 	if strings.TrimSpace(projectID) == "" {
 		return "", nil
 	}
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err == nil {
 		var path string
-		if path, err = agentconfig.ClaudeSettingsFile(projectID, settings.ResolvedClaudeSandbox(projectID)); err == nil {
+		if path, err = d.claudeSettingsFile(projectID, settings.ResolvedClaudeSandbox(projectID)); err == nil {
 			return path, nil
 		}
 	}
@@ -47,7 +47,7 @@ func (d *agentDaemon) sandboxNotice(config agentconfig.Config) string {
 	if liveProvider(config) != "claude" || strings.TrimSpace(config.ProjectID) == "" {
 		return ""
 	}
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err != nil {
 		return ""
 	}
@@ -72,7 +72,7 @@ func (d *agentDaemon) addProjectAllowRules(projectID string, rules []string) ([]
 		return nil, nil
 	}
 	var added []string
-	_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+	_, err := d.updateSettings(func(settings *agentconfig.Settings) error {
 		project := settings.Project(projectID)
 		sandbox := agentconfig.ClaudeSandbox{}
 		if project.ClaudeSandbox != nil {
@@ -139,7 +139,7 @@ func (d *agentDaemon) addProjectDirectories(projectID string, directories []stri
 	if projectID == "" || len(directories) == 0 {
 		return nil
 	}
-	_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+	_, err := d.updateSettings(func(settings *agentconfig.Settings) error {
 		project := settings.Project(projectID)
 		sandbox := agentconfig.ClaudeSandbox{}
 		if project.ClaudeSandbox != nil {

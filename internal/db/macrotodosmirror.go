@@ -524,24 +524,26 @@ func (d *DB) scheduleMacroCopy(ctx context.Context, part macroCopyPart, projectI
 		pending.timer.Stop()
 	}
 	pending.timer = time.AfterFunc(todosMirrorDelay, func() {
-		pending.mu.Lock()
-		user, unattended := pending.userID, pending.unattended
-		pending.timer = nil
-		pending.mu.Unlock()
-		// The context of the save is long gone: the write is signed by the
-		// person it named, as #482 requires of every queued write.
-		opCtx := tracker.WithActingUser(context.Background(), user)
-		if unattended {
-			opCtx = tracker.WithUnattended(opCtx)
-		}
-		if _, err := d.EnqueueTrackerOp(opCtx, TrackerOp{
-			Kind:      part.opKind,
-			ProjectID: projectID,
-			TaskKey:   key,
-			EpicKey:   key,
-		}); err != nil {
-			log.Printf("[macros] recopie (%s) de %s non mise en file : %v", part.name, key, err)
-		}
+		d.dispatchCallback(func() {
+			pending.mu.Lock()
+			user, unattended := pending.userID, pending.unattended
+			pending.timer = nil
+			pending.mu.Unlock()
+			// The context of the save is long gone: the write is signed by the
+			// person it named, as #482 requires of every queued write.
+			opCtx := tracker.WithActingUser(context.Background(), user)
+			if unattended {
+				opCtx = tracker.WithUnattended(opCtx)
+			}
+			if _, err := d.EnqueueTrackerOp(opCtx, TrackerOp{
+				Kind:      part.opKind,
+				ProjectID: projectID,
+				TaskKey:   key,
+				EpicKey:   key,
+			}); err != nil {
+				log.Printf("[macros] recopie (%s) de %s non mise en file : %v", part.name, key, err)
+			}
+		})
 	})
 }
 

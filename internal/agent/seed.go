@@ -53,8 +53,7 @@ func (d *agentDaemon) seedSettings(ctx context.Context, config agentconfig.Confi
 	if d.link.serverURL == "" {
 		return
 	}
-	root := d.localSettingsRoot()
-	settings, err := agentconfig.ReadSettings(root)
+	settings, err := d.readSettings()
 	if err != nil {
 		return
 	}
@@ -73,7 +72,7 @@ func (d *agentDaemon) seedSettings(ctx context.Context, config agentconfig.Confi
 		return
 	}
 	changed := false
-	_, err = agentconfig.UpdateSettings(root, func(s *agentconfig.Settings) error {
+	_, err = d.updateSettings(func(s *agentconfig.Settings) error {
 		if !s.HasSeededDefaults() && seed.Defaults != nil {
 			agentconfig.ApplyWorkstationSeed(s, *seed.Defaults, d.link.serverURL)
 			changed = true

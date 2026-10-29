@@ -195,14 +195,20 @@ func claudeSettingsDocument(c ClaudeSandbox, goos string) map[string]any {
 // beside the workstation settings, outside every repository and worktree, so
 // they are neither committed nor removed with a worktree.
 func claudeSettingsPath(projectID string) (string, error) {
-	if projectID == "" || projectID != filepath.Base(projectID) || strings.HasPrefix(projectID, ".") {
-		return "", fmt.Errorf("invalid project id %q", projectID)
-	}
 	settings, err := SettingsPath()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(filepath.Dir(settings), "claude", projectID+".json"), nil
+	return ClaudeSettingsPathAt(settings, projectID)
+}
+
+// ClaudeSettingsPathAt locates generated Claude settings beside one explicit
+// workstation settings file.
+func ClaudeSettingsPathAt(settingsPath, projectID string) (string, error) {
+	if projectID == "" || projectID != filepath.Base(projectID) || strings.HasPrefix(projectID, ".") {
+		return "", fmt.Errorf("invalid project id %q", projectID)
+	}
+	return filepath.Join(filepath.Dir(settingsPath), "claude", projectID+".json"), nil
 }
 
 // ClaudeSettingsPath is where the project's generated Claude settings live,
@@ -219,8 +225,21 @@ func ClaudeSettingsFile(projectID string, sandbox *ClaudeSandbox) (string, error
 	return writeClaudeSettingsFile(projectID, sandbox, runtime.GOOS)
 }
 
+// ClaudeSettingsFileAt writes generated settings beside an explicit store.
+func ClaudeSettingsFileAt(settingsPath, projectID string, sandbox *ClaudeSandbox) (string, error) {
+	return writeClaudeSettingsFileAt(settingsPath, projectID, sandbox, runtime.GOOS)
+}
+
 func writeClaudeSettingsFile(projectID string, sandbox *ClaudeSandbox, goos string) (string, error) {
-	path, err := claudeSettingsPath(projectID)
+	settingsPath, err := SettingsPath()
+	if err != nil {
+		return "", err
+	}
+	return writeClaudeSettingsFileAt(settingsPath, projectID, sandbox, goos)
+}
+
+func writeClaudeSettingsFileAt(settingsPath, projectID string, sandbox *ClaudeSandbox, goos string) (string, error) {
+	path, err := ClaudeSettingsPathAt(settingsPath, projectID)
 	if err != nil {
 		return "", err
 	}

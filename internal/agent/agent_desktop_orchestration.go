@@ -111,7 +111,7 @@ func (d *agentDaemon) desktopOrchestration(w http.ResponseWriter, r *http.Reques
 			}
 		}
 		// Save local definitions before enabling their server-owned project.
-		if _, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+		if _, err := d.updateSettings(func(settings *agentconfig.Settings) error {
 			local := settings.Project(id)
 			local.OrchestrationAgents = agents
 			local.OrchestrationFile = ""

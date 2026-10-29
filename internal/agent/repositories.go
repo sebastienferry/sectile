@@ -431,7 +431,14 @@ func repositoryWorktreeFor(ctx context.Context, config agentconfig.Config, overr
 		if root, source, err = unknownRepositoryFolder(ctx, config, overrides, projectRoot, identity, request); err != nil {
 			return models.RepositoryWorktree{}, err
 		}
-		if answer.Remembered, err = rememberRepositoryFolder(request.SettingsRoot, identity, root); err != nil {
+		settingsPath := settingsPathFromContext(ctx)
+		if settingsPath == "" {
+			settingsPath, err = agentconfig.SettingsPath()
+			if err != nil {
+				return models.RepositoryWorktree{}, err
+			}
+		}
+		if answer.Remembered, err = rememberRepositoryFolderAt(settingsPath, request.SettingsRoot, identity, root); err != nil {
 			return models.RepositoryWorktree{}, err
 		}
 	}
@@ -536,7 +543,7 @@ func (d *agentDaemon) taskFolderMap(ctx context.Context, config agentconfig.Conf
 	if err != nil {
 		return nil
 	}
-	_, primary, err := primaryRoot(ctx, config, overrides, root, task)
+	_, primary, err := d.primaryRoot(ctx, config, overrides, root, task)
 	if err != nil {
 		return nil
 	}
@@ -584,7 +591,7 @@ func (d *agentDaemon) rememberConvertedFolders(ctx context.Context, config agent
 	defer d.prepareMu.Unlock()
 	unlock := agentconfig.LockSettings()
 	defer unlock()
-	overrides, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	overrides, err := d.readSettings()
 	if err != nil {
 		log.Printf("[Agent] Could not read the settings to keep converted folders: %v", err)
 		return
@@ -606,7 +613,7 @@ func (d *agentDaemon) rememberConvertedFolders(ctx context.Context, config agent
 		changed = true
 	}
 	if changed {
-		if err := agentconfig.WriteSettings(overrides); err != nil {
+		if err := d.writeSettings(overrides); err != nil {
 			log.Printf("[Agent] Could not keep converted folders: %v", err)
 		}
 	}

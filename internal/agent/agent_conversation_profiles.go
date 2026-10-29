@@ -80,7 +80,7 @@ func (d *agentDaemon) desktopConversationProfiles(w http.ResponseWriter, r *http
 			return
 		}
 		d.prepareMu.Lock()
-		_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+		_, err := d.updateSettings(func(settings *agentconfig.Settings) error {
 			list := append([]agentconfig.Engine(nil), settings.Engines.Catalogue...)
 			switch input.Action {
 			case "select":
@@ -165,7 +165,7 @@ func (d *agentDaemon) desktopConversationProfiles(w http.ResponseWriter, r *http
 		}
 		d.reportCapabilitiesLater()
 	}
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err != nil {
 		http.Error(w, "Impossible de lire les profils locaux", 500)
 		return

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -98,58 +99,87 @@ type autoSyncPacing struct {
 // had enough.
 const autoSyncBackoff = 10 * time.Minute
 
-// StartAutoSync runs the loop until the process stops. It reads its settings on
-// every tick, so switching it on or changing the interval takes effect without a
-// restart.
+// StartAutoSync runs one owned loop until CloseContext stops it. It reads its
+// settings on every tick, so changes take effect without a restart.
 func (d *DB) StartAutoSync() {
-	if d.auto == nil {
-		d.auto = &autoSync{}
+	d.closeMu.Lock()
+	defer d.closeMu.Unlock()
+	if d.closed || d.queueClosing {
+		return
 	}
-
-	go func() {
-		for {
-			time.Sleep(30 * time.Second)
-
-			trackers, err := d.autoSyncTrackers()
-			if err != nil {
-				continue
-			}
-
-			hasActiveAutoSync := false
-			for _, t := range trackers {
-				if t.AutoSyncEnabled {
-					hasActiveAutoSync = true
-					break
-				}
-			}
-
-			settings, _ := d.GetSettings()
-			if !hasActiveAutoSync && (settings == nil || !settings.AutoSyncEnabled) {
-				continue
-			}
-
-			// A backoff asked for by any instance holds for all of them: the
-			// tracker that answered 429 is the same one for everybody.
-			if time.Now().UTC().Before(d.autoSyncBackoffUntil()) {
-				continue
-			}
-
-			d.auto.mu.Lock()
-			busy := d.auto.running
-			if !busy {
-				d.auto.running = true
-			}
-			d.auto.mu.Unlock()
-
-			if busy {
-				// The previous pass has not finished: starting a second one
-				// would only pile requests onto an already slow instance.
-				continue
-			}
-
-			d.runAutoSyncPassGuarded(settings)
+	d.autoStartOnce.Do(func() {
+		if d.auto == nil {
+			d.auto = &autoSync{}
 		}
-	}()
+		d.autoStop = make(chan struct{})
+		d.autoDone = make(chan struct{})
+		go d.autoSyncLoop()
+	})
+}
+
+func (d *DB) autoSyncLoop() {
+	defer close(d.autoDone)
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-d.autoStop:
+			return
+		case <-ticker.C:
+		}
+
+		trackers, err := d.autoSyncTrackers()
+		if err != nil {
+			continue
+		}
+
+		hasActiveAutoSync := false
+		for _, t := range trackers {
+			if t.AutoSyncEnabled {
+				hasActiveAutoSync = true
+				break
+			}
+		}
+
+		settings, _ := d.GetSettings()
+		if !hasActiveAutoSync && (settings == nil || !settings.AutoSyncEnabled) {
+			continue
+		}
+
+		// A backoff asked for by any instance holds for all of them: the
+		// tracker that answered 429 is the same one for everybody.
+		if time.Now().UTC().Before(d.autoSyncBackoffUntil()) {
+			continue
+		}
+
+		d.auto.mu.Lock()
+		busy := d.auto.running
+		if !busy {
+			d.auto.running = true
+		}
+		d.auto.mu.Unlock()
+
+		if busy {
+			// The previous pass has not finished: starting a second one
+			// would only pile requests onto an already slow instance.
+			continue
+		}
+
+		d.runAutoSyncPassGuarded(settings)
+	}
+}
+
+func (d *DB) stopAutoSync(ctx context.Context) error {
+	if d.autoStop == nil {
+		return nil
+	}
+	d.autoStopOnce.Do(func() { close(d.autoStop) })
+	select {
+	case <-d.autoDone:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (d *DB) autoSyncInterval() time.Duration {

@@ -84,5 +84,49 @@ func (h *Handler) CloseAgentConnections() int {
 	return len(conns)
 }
 
+// StopBackground joins MCP maintenance before the database can close. HTTP
+// admission and active requests are drained by the composition root first.
+func (h *Handler) StopBackground(ctx context.Context) error {
+	h.BeginDrain()
+	h.backgroundMu.Lock()
+	h.backgroundClosing = true
+	h.backgroundMu.Unlock()
+	h.CloseAgentConnections()
+	h.mcpSessions.Stop()
+	if err := h.mcpSessions.Wait(ctx); err != nil {
+		return err
+	}
+	for h.backgroundCount.Load() > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	return nil
+}
+
+func (h *Handler) beginBackground() bool {
+	h.backgroundMu.Lock()
+	defer h.backgroundMu.Unlock()
+	if h.backgroundClosing {
+		return false
+	}
+	h.backgroundCount.Add(1)
+	return true
+}
+
+func (h *Handler) endBackground() { h.backgroundCount.Add(-1) }
+
+func (h *Handler) launchBackground(fn func()) {
+	if !h.beginBackground() {
+		return
+	}
+	go func() {
+		defer h.endBackground()
+		fn()
+	}()
+}
+
 // InstanceID names the server instance this handler serves.
 func (h *Handler) InstanceID() string { return h.db.InstanceID() }

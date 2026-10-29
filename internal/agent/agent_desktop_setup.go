@@ -183,7 +183,7 @@ func (d *agentDaemon) recordSetupAssets(provider, step, projectID, root, framewo
 	if step == "sdd" {
 		outcome.Root, outcome.Framework = root, framework
 	}
-	_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+	_, err := d.updateSettings(func(settings *agentconfig.Settings) error {
 		if settings.Setup == nil {
 			settings.Setup = map[string]map[string]agentconfig.SetupOutcome{}
 		}
@@ -306,7 +306,7 @@ func (d *agentDaemon) desktopSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer d.prepareMu.Unlock()
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err != nil {
 		http.Error(w, "Impossible de lire la configuration locale", 500)
 		return
@@ -331,7 +331,7 @@ func (d *agentDaemon) desktopSetup(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "La configuration a changé. Actualisez avant de confirmer.", 409)
 			return
 		}
-		_, err = agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+		_, err = d.updateSettings(func(settings *agentconfig.Settings) error {
 			if input.Step == "permissions" && setupDigest(setupPermissions(*settings, provider)) != input.Fingerprint {
 				return fmt.Errorf("permissions changed")
 			}
@@ -358,7 +358,7 @@ func (d *agentDaemon) desktopSetup(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Impossible de conserver la décision. Actualisez et réessayez.", 409)
 			return
 		}
-		settings, err = agentconfig.ReadSettings(d.localSettingsRoot())
+		settings, err = d.readSettings()
 		if err != nil {
 			http.Error(w, "Impossible de relire la configuration", 500)
 			return

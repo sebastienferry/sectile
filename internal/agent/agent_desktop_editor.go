@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"tasks/internal/agentconfig"
 	"tasks/internal/runner"
 )
 
@@ -56,7 +55,7 @@ func (d *agentDaemon) desktopOpenEditor(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

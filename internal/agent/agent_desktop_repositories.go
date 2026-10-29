@@ -105,7 +105,7 @@ func (d *agentDaemon) mapRepository(r *http.Request, repository models.ProjectRe
 	defer d.prepareMu.Unlock()
 	unlock := agentconfig.LockSettings()
 	defer unlock()
-	overrides, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	overrides, err := d.readSettings()
 	if err != nil {
 		return 500, err
 	}
@@ -117,7 +117,7 @@ func (d *agentDaemon) mapRepository(r *http.Request, repository models.ProjectRe
 		}
 		overrides.Repositories[repository.Identity] = path
 	}
-	if err := agentconfig.WriteSettings(overrides); err != nil {
+	if err := d.writeSettings(overrides); err != nil {
 		return 500, err
 	}
 	return 0, nil
@@ -281,7 +281,7 @@ func (d *agentDaemon) editFolders(projectID string, edit func([]string) []string
 	defer d.prepareMu.Unlock()
 	unlock := agentconfig.LockSettings()
 	defer unlock()
-	overrides, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	overrides, err := d.readSettings()
 	if err != nil {
 		return err
 	}
@@ -291,5 +291,5 @@ func (d *agentDaemon) editFolders(projectID string, edit func([]string) []string
 		section.Folders = nil
 	}
 	overrides.SetProject(projectID, section)
-	return agentconfig.WriteSettings(overrides)
+	return d.writeSettings(overrides)
 }

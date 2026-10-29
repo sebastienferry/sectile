@@ -315,3 +315,6 @@
 ### Approved Local/Fleet composition (2026-10-29)
 - Phase 0 records contracts in `docs/desktop-runtime-contracts.md` and ADR 0066. Keep `cmd/agent` free of DB/handlers/SQLite; compose backend and agent in a separate Local executable, initially retaining HTTP/WebSocket. Do not weaken dependency tests to merge the binaries.
 - Current OAuth must remain functional through migration, including reconnect/refresh. Local/Fleet topology and tracker auth are separate choices. Lifetime ownership precedes DB open/recovery; migration snapshots cannot be automatically restored after commit/external effects. These are design gates, not implemented guarantees.
+
+### Backend shutdown and SQLite callback race (2026-10-29)
+- `TestTryPullLocalAgentTasks` could pass alone but fail in the full handlers suite when `t.TempDir` removed SQLite files. `SyncRemoteRunStatusFor` spawned postback listeners that accessed SQL after `DB.Close`; waiting only for queue jobs did not prevent WAL/SHM recreation. Count asynchronous postback/wait callbacks before launch, join them with queued jobs, stop auto-sync and timers, then close SQL. A timed-out close must leave SQL and the Local lifetime lock held for retry.

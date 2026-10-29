@@ -9,7 +9,7 @@ import (
 const codexSettingsCapability = "codex-settings"
 
 func (d *agentDaemon) workstationCodexReviewer() string {
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err == nil && settings.Defaults.CodexApprovalsReviewer == "auto_review" {
 		return "auto_review"
 	}
@@ -33,7 +33,7 @@ func (d *agentDaemon) desktopCodexSettings(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		d.prepareMu.Lock()
-		_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+		_, err := d.updateSettings(func(settings *agentconfig.Settings) error {
 			settings.Defaults.CodexApprovalsReviewer = ""
 			if input.ApprovalsReviewer == "auto_review" {
 				settings.Defaults.CodexApprovalsReviewer = input.ApprovalsReviewer

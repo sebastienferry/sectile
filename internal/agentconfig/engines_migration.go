@@ -218,12 +218,17 @@ func MigrateSettings(legacyRoot string) (bool, error) {
 // the retired providers removed and what the Sandbox fold did, so the agent
 // can log it.
 func MigrateSettingsReport(legacyRoot string) (bool, SettingsMigration, error) {
-	settingsMu.Lock()
-	defer settingsMu.Unlock()
 	path, err := SettingsPath()
 	if err != nil {
 		return false, SettingsMigration{}, err
 	}
+	return MigrateSettingsReportAt(path, legacyRoot)
+}
+
+// MigrateSettingsReportAt migrates one explicit workstation settings file.
+func MigrateSettingsReportAt(path, legacyRoot string) (bool, SettingsMigration, error) {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return false, SettingsMigration{}, nil
@@ -238,7 +243,7 @@ func MigrateSettingsReport(legacyRoot string) (bool, SettingsMigration, error) {
 	if newest := before.highest(); newest > SettingsLayout {
 		return false, SettingsMigration{NewerLayout: newest}, nil
 	}
-	settings, changed, report, err := readConverted(legacyRoot)
+	settings, changed, report, err := readConvertedAt(path, legacyRoot)
 	if err != nil {
 		return false, SettingsMigration{}, err
 	}
@@ -267,7 +272,7 @@ func MigrateSettingsReport(legacyRoot string) (bool, SettingsMigration, error) {
 			return false, SettingsMigration{}, err
 		}
 	}
-	if err = storeSettings(settings, false); err != nil {
+	if err = storeSettingsAt(path, settings, false); err != nil {
 		return false, SettingsMigration{}, err
 	}
 	return converted, report, nil

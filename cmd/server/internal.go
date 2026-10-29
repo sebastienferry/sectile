@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 
 	"tasks/internal/handlers"
 )
@@ -47,7 +49,7 @@ func internalURL(getenv func(string) string, port string) string {
 // work and MCP requests to, on their own port. A failure to authenticate the
 // instances, or to listen, leaves this instance serving its own agents and
 // MCP sessions and says why.
-func startInternalListener(h *handlers.Handler, port string) {
+func startInternalListener(h *handlers.Handler, port string) func(context.Context) error {
 	if err := h.EnableAgentCluster(); err != nil {
 		log.Printf("⚠️  Relais d'agents et de sessions MCP entre instances désactivé : %v", err)
 	}
@@ -58,14 +60,34 @@ func startInternalListener(h *handlers.Handler, port string) {
 	listener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		log.Printf("⚠️  Port interne %s indisponible, relais d'agents entre instances impossible : %v", port, err)
-		return
+		return func(context.Context) error { return nil }
 	}
 	log.Printf("   interne : :%s", port)
 	h.SetInternalServing(true)
+	server := &http.Server{Handler: mux}
+	served := make(chan error, 1)
 	go func() {
 		defer h.SetInternalServing(false)
-		if err := http.Serve(listener, mux); err != nil {
+		err := server.Serve(listener)
+		if err != nil && err != http.ErrServerClosed {
 			log.Printf("⚠️  Serveur interne arrêté : %v", err)
 		}
+		served <- err
 	}()
+	var once sync.Once
+	var stopErr error
+	return func(ctx context.Context) error {
+		once.Do(func() {
+			stopErr = server.Shutdown(ctx)
+			if stopErr != nil {
+				_ = server.Close()
+			}
+			select {
+			case <-served:
+			case <-ctx.Done():
+				stopErr = ctx.Err()
+			}
+		})
+		return stopErr
+	}
 }

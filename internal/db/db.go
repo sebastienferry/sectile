@@ -165,19 +165,32 @@ type DB struct {
 	// dialect carries what differs between the engines: placeholder
 	// rebinding, DDL type names, whether the legacy migrations apply. Every
 	// query and all 210 methods below are shared. See docs/adrs/0016.
-	dialect  dialect
-	cfg      Config
-	mu       sync.RWMutex
-	jobQueue chan SkillJob
-	limiter  *ProjectLimiter
-	// auto porte l'état de la boucle de synchronisation de fond.
+	dialect         dialect
+	cfg             Config
+	mu              sync.RWMutex
+	jobQueue        chan SkillJob
+	queueMu         sync.Mutex
+	queueClosing    bool
+	queueClosed     bool
+	queueWorkerDone chan struct{}
+	limiter         *ProjectLimiter
+	// auto tracks the background synchronization pass in this process.
 	auto              *autoSync
+	autoStartOnce     sync.Once
+	autoStop          chan struct{}
+	autoDone          chan struct{}
+	autoStopOnce      sync.Once
+	closeMu           sync.Mutex
+	closed            bool
 	cancelMap         map[string]context.CancelFunc
 	cancelMu          sync.Mutex
 	postBackListeners []PostBackListener
 	// waitListeners hear the changes of a run's waiting mark, and only those.
-	waitListeners []WaitListener
-	postBackMu    sync.RWMutex
+	waitListeners    []WaitListener
+	postBackMu       sync.RWMutex
+	callbackMu       sync.Mutex
+	callbacksClosing bool
+	callbacks        atomic.Int64
 	// relayed receives the events other server instances published. See
 	// internal/db/bus.go.
 	relayed   []func(BusMessage)
@@ -266,6 +279,7 @@ func openWith(cfg Config, d dialect) (*DB, error) {
 		trackers:        trackerClient,
 		trackerRegistry: trackerapi.NewDefaultRegistry(trackerClient),
 		jobQueue:        make(chan SkillJob, 100),
+		queueWorkerDone: make(chan struct{}),
 		limiter:         newProjectLimiter(),
 		cancelMap:       make(map[string]context.CancelFunc),
 		instanceID:      uuid.NewString(),
@@ -316,7 +330,10 @@ func openWith(cfg Config, d dialect) (*DB, error) {
 	db.reportOrphanedTrackerCredentials()
 
 	// Start background queue worker
-	go db.startQueueWorker()
+	go func() {
+		defer close(db.queueWorkerDone)
+		db.startQueueWorker()
+	}()
 
 	if err := db.seedIfEmpty(); err != nil {
 		log.Printf("Warning: error seeding default data: %v", err)
@@ -354,6 +371,12 @@ func (f *inFlightJobs) drain(bound time.Duration) bool {
 // shutdown waits for work that is queued and not yet started. A full queue is
 // handed to a goroutine rather than blocking the HTTP request that caused it.
 func (d *DB) enqueueJob(job SkillJob) {
+	d.queueMu.Lock()
+	defer d.queueMu.Unlock()
+	if d.queueClosing {
+		log.Printf("[queue] job %s refused after database shutdown began", job.ActivityID)
+		return
+	}
 	d.jobs.begin()
 	select {
 	case d.jobQueue <- job:
@@ -362,15 +385,62 @@ func (d *DB) enqueueJob(job SkillJob) {
 	}
 }
 
-// Close waits for the queue work already running before closing the database.
-// Those jobs write, and closing under them turns an ordinary write into
-// "database is closed"; in a test it also races the temporary directory's own
-// cleanup, which then fails on a directory that is not empty. The wait is
-// bounded so one stuck job cannot hold a shutdown open.
+// Close gives the owned workers five seconds to finish. A timed-out close
+// leaves the SQL store open, so the caller must not release Local ownership.
 func (d *DB) Close() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return d.CloseContext(ctx)
+}
+
+// CloseContext stops producers, drains accepted queue work, joins the queue
+// worker, and closes SQL last. A caller may retry after its deadline expires.
+func (d *DB) CloseContext(ctx context.Context) error {
+	d.closeMu.Lock()
+	defer d.closeMu.Unlock()
+	if d.closed {
+		return nil
+	}
+	if err := d.stopAutoSync(ctx); err != nil {
+		return fmt.Errorf("stop auto-sync: %w", err)
+	}
 	d.stopTodosMirrorTimers()
-	d.jobs.drain(5 * time.Second)
-	return d.conn.Close()
+	// Queue jobs and callbacks can schedule one another. Wait for a stable idle
+	// point before closing either admission gate or the SQL connection.
+	for {
+		d.queueMu.Lock()
+		d.callbackMu.Lock()
+		if d.jobs.running.Load() == 0 && d.callbacks.Load() == 0 {
+			d.queueClosing = true
+			d.callbacksClosing = true
+			d.callbackMu.Unlock()
+			d.queueMu.Unlock()
+			break
+		}
+		d.callbackMu.Unlock()
+		d.queueMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("drain database jobs and callbacks: %w", ctx.Err())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	d.queueMu.Lock()
+	if !d.queueClosed {
+		close(d.jobQueue)
+		d.queueClosed = true
+	}
+	d.queueMu.Unlock()
+	select {
+	case <-d.queueWorkerDone:
+	case <-ctx.Done():
+		return fmt.Errorf("join database queue worker: %w", ctx.Err())
+	}
+	if err := d.conn.Close(); err != nil {
+		return err
+	}
+	d.closed = true
+	return nil
 }
 
 func (d *DB) TrackerRegistry() *tracker.Registry {

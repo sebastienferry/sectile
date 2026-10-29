@@ -18,7 +18,7 @@ import (
 // Only an explicit workstation preference opens MCP without a client key.
 // The gateway still rejects browser origins and unexpected Host headers.
 func (d *agentDaemon) localMCPEnabled() bool {
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err != nil {
 		return false
 	}
@@ -57,7 +57,7 @@ func (d *agentDaemon) desktopMCP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -106,7 +106,7 @@ func (d *agentDaemon) desktopMCP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		choice.Written = mcpFingerprint(server, key, executable)
-		_, err = agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+		_, err = d.updateSettings(func(settings *agentconfig.Settings) error {
 			if settings.MCPConnections == nil {
 				settings.MCPConnections = map[string]agentconfig.MCPConnection{}
 			}
@@ -117,7 +117,7 @@ func (d *agentDaemon) desktopMCP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Provider configuration updated, but preference could not be saved: "+err.Error(), 500)
 			return
 		}
-		if settings, err = agentconfig.ReadSettings(d.localSettingsRoot()); err != nil {
+		if settings, err = d.readSettings(); err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
@@ -214,7 +214,7 @@ func (d *agentDaemon) registerMCP(provider, executable string) (string, error) {
 	if companionMCPURL() != "" && (provider == "claude" || provider == "codex") {
 		return "", nil
 	}
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err != nil {
 		return "", err
 	}
@@ -244,7 +244,7 @@ func (d *agentDaemon) registerMCP(provider, executable string) (string, error) {
 		}
 		choice.Written = mcpFingerprint(server, key, executable)
 	}
-	_, err = agentconfig.UpdateSettings(d.localSettingsRoot(), func(s *agentconfig.Settings) error {
+	_, err = d.updateSettings(func(s *agentconfig.Settings) error {
 		if s.MCPConnections == nil {
 			s.MCPConnections = map[string]agentconfig.MCPConnection{}
 		}
@@ -262,10 +262,10 @@ func (d *agentDaemon) registerMCP(provider, executable string) (string, error) {
 func (d *agentDaemon) refreshMCPConnections() error {
 	// A companion can own a separate backend without taking over registrations
 	// belonging to another installation. Explicit repair remains user initiated.
-	if os.Getenv("SECTILE_DISABLE_MCP_REFRESH") == "1" {
+	if os.Getenv("SECTILE_DISABLE_MCP_REFRESH") == "1" || (d != nil && d.disableMCPRefresh) {
 		return nil
 	}
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err != nil {
 		return err
 	}
@@ -315,7 +315,7 @@ func (d *agentDaemon) refreshMCPConnections() error {
 	if len(rewritten) == 0 {
 		return errors.Join(errs...)
 	}
-	_, err = agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+	_, err = d.updateSettings(func(settings *agentconfig.Settings) error {
 		for provider, fingerprint := range rewritten {
 			if choice, ok := settings.MCPConnections[provider]; ok {
 				choice.Written = fingerprint

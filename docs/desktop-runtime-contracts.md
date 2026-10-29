@@ -1,7 +1,7 @@
 # Local/Fleet runtime contracts: phase 0
 
 Date: 2026-10-29
-Status: approved design baseline; phase 1 backend extraction implemented, later phases pending.
+Status: approved design baseline; phase 1 implemented and phase 2 lifecycle work in progress.
 
 ## Approved scope and ownership
 
@@ -272,7 +272,39 @@ Phase 1 verification: `go test` passed for `cmd/server`, `internal/backend`,
 SQLite, passed readiness and local sign-in, served an authenticated project read,
 and rejected unauthenticated MCP with HTTP 401. The wider Go run passed its other
 selected packages but `internal/handlers` reproduced the previously observed
-`TestTryPullLocalAgentTasks` temporary-directory cleanup race; that test passes
-in isolation. `DB.Close` currently drains counted jobs without joining all queue
-and auto-sync workers, so phase 2 must close this lifecycle gap before treating
-the complete suite as a clean acceptance result.
+`TestTryPullLocalAgentTasks` temporary-directory cleanup race; that test passed
+in isolation. Phase 2 traced this to asynchronous postback listeners reading
+SQLite after close and added callback joining. The full handlers suite now passes.
+
+Phase 2 implementation in progress: `internal/storelock` provides an exclusive
+OS lock acquired by `backend.Open` before Local SQLite is opened and released
+only after SQL closes. Its tests cover contention, reacquisition, startup
+failure and a killed owner; Windows compilation is checked. `DB.CloseContext`
+stops auto-sync, cancels pending mirror timers, drains queued jobs and database
+callbacks, joins the queue worker and closes SQL last. MCP maintenance and
+agent WebSocket/pull work have stop/join paths, and the Fleet internal listener
+has an owned stop function.
+The agent has an explicit `RunEmbedded` entry point that uses a caller context,
+private settings/discovery paths and a restart callback instead of installing
+signals or self-execing. A restart test checks that the gateway stops before
+the owner callback runs. Explicit-path settings reads, writes, migrations,
+repository mappings and generated Claude settings keep the embedded runtime
+out of the standalone agent's global settings file. These are reusable
+lifecycle primitives, not a Local companion yet. Work admission, authenticated
+self-connection/readiness gating, provider process termination under every
+shutdown deadline and full combined
+startup/failure tests remain to be validated with the composition root. The
+existing installation has not been migrated.
+
+### Phase 2 ownership inventory
+
+| Resource | Admission and stop | Join and deadline behavior |
+| --- | --- | --- |
+| Local store lock | Acquired before SQLite open; released after SQL close | Retained when a backend join fails; process death releases the OS lock |
+| Database queue and callbacks | Stop accepting after active work reaches idle | Join the queue worker and callbacks before SQL close; timeout leaves SQL open |
+| Auto-sync and mirror timers | Stop ticker and cancel pending timers | Wait for active sync and callbacks before SQL close |
+| Handler WebSocket and pull work | Begin drain and close agent connections | Join counted background work before backend close |
+| MCP session maintenance | Stop sweeper and keepalive | Wait for both loops before backend close |
+| Agent gateway and run journal | Cancel the agent context and close the gateway | Join gateway and persistence loops; provider exit failures are returned |
+| Provider processes | Stop conversations while postback paths remain available | Full deadline and crash-path validation remains pending |
+| HTTP request admission and Local self-connection | Composition root not implemented yet | Readiness gate and full queue/startup-failure tests remain pending |

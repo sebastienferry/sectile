@@ -32,7 +32,7 @@ type workstationSandboxInput struct {
 func (d *agentDaemon) desktopWorkstationSandbox(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+		settings, err := d.readSettings()
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -45,7 +45,7 @@ func (d *agentDaemon) desktopWorkstationSandbox(w http.ResponseWriter, r *http.R
 			return
 		}
 		d.prepareMu.Lock()
-		settings, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+		settings, err := d.updateSettings(func(settings *agentconfig.Settings) error {
 			sandbox := *input.ClaudeSandbox
 			if input.ClaudeSandboxBase != nil {
 				stored := agentconfig.ClaudeSandbox{}
@@ -153,7 +153,7 @@ func (d *agentDaemon) desktopPromoteSandboxRule(w http.ResponseWriter, r *http.R
 		return
 	}
 	d.prepareMu.Lock()
-	settings, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+	settings, err := d.updateSettings(func(settings *agentconfig.Settings) error {
 		project := settings.Project(id)
 		if project.ClaudeSandbox == nil {
 			return errRuleNotFound

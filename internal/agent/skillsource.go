@@ -256,16 +256,27 @@ func runSkillsRoot() (string, error) {
 	return filepath.Join(filepath.Dir(path), "runs"), nil
 }
 
+func (d *agentDaemon) runSkillsRoot() (string, error) {
+	if d.settingsRoot != "" {
+		return filepath.Join(d.settingsRoot, "runs"), nil
+	}
+	return runSkillsRoot()
+}
+
 // writeRunSkill writes a custom skill where only its run reads it, and returns
 // the file. The ticket travels in the prompt, so the file holds the skill
 // alone.
 func writeRunSkill(runID string, skill agentconfig.Skill) (string, error) {
-	if !runIDShape.MatchString(runID) {
-		return "", fmt.Errorf("run ID %q cannot name a run directory", runID)
-	}
 	root, err := runSkillsRoot()
 	if err != nil {
 		return "", err
+	}
+	return writeRunSkillAt(root, runID, skill)
+}
+
+func writeRunSkillAt(root, runID string, skill agentconfig.Skill) (string, error) {
+	if !runIDShape.MatchString(runID) {
+		return "", fmt.Errorf("run ID %q cannot name a run directory", runID)
 	}
 	dir := filepath.Join(root, runID, skill.Directory)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -280,11 +291,15 @@ func writeRunSkill(runID string, skill agentconfig.Skill) (string, error) {
 
 // removeRunSkills drops what writeRunSkill wrote for a run.
 func removeRunSkills(runID string) {
-	if !runIDShape.MatchString(runID) {
-		return
-	}
 	root, err := runSkillsRoot()
 	if err != nil {
+		return
+	}
+	removeRunSkillsAt(root, runID)
+}
+
+func removeRunSkillsAt(root, runID string) {
+	if !runIDShape.MatchString(runID) {
 		return
 	}
 	if err := os.RemoveAll(filepath.Join(root, runID)); err != nil {
@@ -299,6 +314,10 @@ func sweepRunSkills(maxAge time.Duration) {
 	if err != nil {
 		return
 	}
+	sweepRunSkillsAt(root, maxAge)
+}
+
+func sweepRunSkillsAt(root string, maxAge time.Duration) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return
@@ -353,7 +372,7 @@ func (d *agentDaemon) prepareSkill(config agentconfig.Config, skillID, action, p
 	if skill == nil {
 		return nil, nil
 	}
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err != nil {
 		return nil, err
 	}
@@ -367,12 +386,16 @@ func (d *agentDaemon) prepareSkill(config agentconfig.Config, skillID, action, p
 		if strings.TrimSpace(runID) == "" {
 			runID = "local-" + uuid.NewString()
 		}
-		if choice.File, err = writeRunSkill(runID, *skill); err != nil {
+		root, rootErr := d.runSkillsRoot()
+		if rootErr != nil {
+			return nil, rootErr
+		}
+		if choice.File, err = writeRunSkillAt(root, runID, *skill); err != nil {
 			return nil, err
 		}
 		go func() {
 			<-done
-			removeRunSkills(runID)
+			removeRunSkillsAt(root, runID)
 		}()
 	}
 	return &choice, nil

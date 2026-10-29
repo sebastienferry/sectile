@@ -293,7 +293,7 @@ type workstationEffective struct {
 func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+		settings, err := d.readSettings()
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -319,7 +319,7 @@ func (d *agentDaemon) desktopWorkstation(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		d.prepareMu.Lock()
-		_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+		_, err := d.updateSettings(func(settings *agentconfig.Settings) error {
 			// Provider model controls save separately from execution defaults.
 			if preserveModels {
 				input.AIProviderModels = settings.Defaults.AIProviderModels

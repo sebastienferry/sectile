@@ -162,7 +162,7 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 		root, _ = os.Getwd()
 		root = findRepoRoot(root)
 	}
-	settings, err := agentconfig.ReadSettings(root)
+	settings, err := d.readSettings()
 	if err != nil {
 		return "", settings, err
 	}
@@ -194,7 +194,7 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	// the first time it is resolved (#305).
 	if !settings.HasSeededProject(c.ProjectID) {
 		d.seedSettings(ctx, c)
-		if seeded, err := agentconfig.ReadSettings(d.localSettingsRoot()); err == nil {
+		if seeded, err := d.readSettings(); err == nil {
 			settings = seeded
 		}
 	}
@@ -428,7 +428,7 @@ func (d *agentDaemon) prepareTaskWorkspaceLocked(ctx context.Context, taskKey st
 	}
 	// The worktree lives in the ticket's own repository: the one it is pinned
 	// to, else the project root (#456, #484).
-	primary, _, err := primaryRoot(ctx, config, overrides, root, task)
+	primary, _, err := d.primaryRoot(ctx, config, overrides, root, task)
 	if err != nil {
 		return config, "", "", "", task, false, err
 	}

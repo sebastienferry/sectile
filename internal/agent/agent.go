@@ -79,12 +79,14 @@ type agentDaemon struct {
 	link serverLink
 	// terminal is which native terminal consoles open in, and the PTY manager
 	// that runs them.
-	terminal         terminalChoice
-	repoRoot         string
-	prepareMu        sync.Mutex
-	done             chan struct{}
-	contract         contractState
-	launchTerminalFn func(terminalApp, sessionID string) error
+	terminal          terminalChoice
+	repoRoot          string
+	settingsRoot      string
+	disableMCPRefresh bool
+	prepareMu         sync.Mutex
+	done              chan struct{}
+	contract          contractState
+	launchTerminalFn  func(terminalApp, sessionID string) error
 	// openEditorFn replaces the editor launch in tests (#535).
 	openEditorFn func(editor, directory string) error
 	// openTerminalFn replaces the plain terminal a conversation opens, in tests.
@@ -347,16 +349,29 @@ func Run(args []string) {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 	go func() {
-		<-sigCh
-		log.Println("[Agent] Shutting down...")
-		cancel()
-		close(daemon.done)
+		select {
+		case <-sigCh:
+			log.Println("[Agent] Shutting down...")
+			cancel()
+			close(daemon.done)
+		case <-ctx.Done():
+		}
 	}()
 
-	log.Printf("🚀 Sectile Agent starting (server=%s, project=%s, device=%s)", daemon.link.serverURL, daemon.link.projectID, daemon.link.deviceID)
+	if err := daemon.runDaemon(ctx); err != nil {
+		log.Printf("[Agent] Startup failed: %v", err)
+	}
+}
 
-	daemon.loopback.binarySha256 = executableSha256()
+// runDaemon owns the agent gateway, persistence, and server connection under
+// the caller's context. It neither installs signal handlers nor starts a new
+// process on restart; those belong to its composition root.
+func (d *agentDaemon) runDaemon(ctx context.Context) (runErr error) {
+	log.Printf("🚀 Sectile Agent starting (server=%s, project=%s, device=%s)", d.link.serverURL, d.link.projectID, d.link.deviceID)
+
+	d.loopback.binarySha256 = executableSha256()
 	// The engine settings of #305 become the engine catalogue once, before the
 	// first project sync and capability report (#510), the settings naming a
 	// retired provider are dropped (#614), and the project Sandbox values are
@@ -364,7 +379,7 @@ func Run(args []string) {
 	// alone: every read converts the engines in memory anyway. A file an
 	// older or a newer agent wrote is reported (#744). What only Sectile
 	// Desktop used is removed: it keeps its own file (#746).
-	migrated, report, err := agentconfig.MigrateSettingsReport(daemon.localSettingsRoot())
+	migrated, report, err := d.migrateSettings()
 	if err != nil {
 		log.Printf("[Agent] Workstation settings not migrated: %v", err)
 	} else if report.NewerLayout > 0 {
@@ -387,43 +402,62 @@ func Run(args []string) {
 	if report.DesktopKeysRemoved {
 		log.Printf("[Agent] Sectile Desktop settings removed from the workstation settings; Desktop keeps them in its own file")
 	}
-	// The server and device of the pairing Desktop started this agent with,
-	// never its key, so that `sectile-agent pair` replaces that device (#746).
-	if err := agentconfig.RecordDesktopConnection(daemon.link.serverURL, os.Getenv("SECTILE_PAIRED_DEVICE_ID")); err != nil {
-		log.Printf("[Agent] Paired device not recorded in the workstation settings: %v", err)
+	// The Fleet CLI records pairing on the shared workstation store. An
+	// embedded Local runtime keeps its explicit settings root independent.
+	if d.settingsRoot == "" {
+		if err := agentconfig.RecordDesktopConnection(d.link.serverURL, os.Getenv("SECTILE_PAIRED_DEVICE_ID")); err != nil {
+			log.Printf("[Agent] Paired device not recorded in the workstation settings: %v", err)
+		}
 	}
 	// Start local agent HTTP reverse proxy gateway
-	if err := daemon.startLocalProxy(ctx); err != nil {
-		log.Printf("[Agent] Cannot bootstrap MCP without the local gateway: %v", err)
-		return
+	if err := d.startLocalProxy(ctx); err != nil {
+		return fmt.Errorf("cannot bootstrap MCP without the local gateway: %w", err)
 	}
-	if err := daemon.refreshMCPConnections(); err != nil {
+	defer func() {
+		if d.loopback.server != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := d.loopback.server.Shutdown(shutdownCtx); err != nil {
+				_ = d.loopback.server.Close()
+				runErr = errors.Join(runErr, fmt.Errorf("stop agent gateway: %w", err))
+			}
+			if d.loopback.serveDone != nil {
+				select {
+				case <-d.loopback.serveDone:
+				case <-shutdownCtx.Done():
+					runErr = errors.Join(runErr, fmt.Errorf("join agent gateway: %w", shutdownCtx.Err()))
+				}
+			}
+		}
+	}()
+	if err := d.refreshMCPConnections(); err != nil {
 		log.Printf("[Agent] MCP configuration refresh failed: %v", err)
 	}
 	// Custom skills handed to a run are removed when it ends; a crash can
 	// skip that, so what is older than a week goes at start.
-	sweepRunSkills(runSkillsMaxAge)
-	if err := daemon.writeDesktopInfo(); err != nil {
-		log.Printf("Desktop connection: %v", err)
-		return
+	if root, err := d.runSkillsRoot(); err == nil {
+		sweepRunSkillsAt(root, runSkillsMaxAge)
+	}
+	if err := d.writeDesktopInfo(); err != nil {
+		return fmt.Errorf("write desktop connection: %w", err)
 	}
 	defer func() {
-		if daemon.loopback.server != nil {
-			_ = daemon.loopback.server.Shutdown(context.Background())
-		}
-	}()
-
-	defer func() {
-		for _, session := range daemon.terminal.manager.ListSessions() {
-			_ = daemon.terminal.manager.CloseSession(session.ID)
+		for _, session := range d.terminal.manager.ListSessions() {
+			_ = d.terminal.manager.CloseSession(session.ID)
 		}
 	}()
 	// Deferred after the sessions are closed, so it runs before: what the
 	// consoles show is written while they still show it.
-	defer daemon.persistRuns()
-	defer daemon.stopConversations()
-	go daemon.persistLoop(ctx)
-	daemon.connectLoop(ctx)
+	defer d.persistRuns()
+	defer func() { runErr = errors.Join(runErr, d.stopConversationsChecked()) }()
+	persistDone := make(chan struct{})
+	go func() {
+		defer close(persistDone)
+		d.persistLoop(ctx)
+	}()
+	defer func() { <-persistDone }()
+	d.connectLoop(ctx)
+	return nil
 }
 
 // connectLoop establishes and maintains the WebSocket connection to the remote
@@ -550,8 +584,10 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	d.loopback.server = server
+	d.loopback.serveDone = make(chan struct{})
 
 	go func() {
+		defer close(d.loopback.serveDone)
 		if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Printf("[Agent Proxy] Server error: %v", err)
 		}

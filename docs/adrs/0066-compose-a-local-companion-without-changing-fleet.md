@@ -1,7 +1,7 @@
 # ADR 0066: Compose a Local companion without changing Fleet boundaries
 
 - Date: 2026-10-29
-- Status: Accepted architecture; phase 0 contracts recorded, implementation pending
+- Status: Accepted architecture; backend extraction implemented, lifecycle work in progress
 
 ## Context
 
@@ -40,5 +40,7 @@ The companion binary includes backend dependencies; Fleet's agent does not.
 A separate artifact adds packaging/version compatibility obligations.
 
 The shared runtime extraction changes no tracker source of truth and does not
-merge Local and Fleet data. Existing Go licensing remains unchanged. Phase 0
-captures prototypes and contracts only; no running installation is migrated.
+merge Local and Fleet data. Existing Go licensing remains unchanged. Phase 1
+added `internal/backend`; phase 2 is adding an OS-owned Local store lock and
+context-owned shutdown paths. No combined Local process is deployed and no
+running installation is migrated yet.

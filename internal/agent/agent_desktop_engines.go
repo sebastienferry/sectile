@@ -64,7 +64,7 @@ func enginesViewOf(settings agentconfig.Settings) enginesView {
 func (d *agentDaemon) desktopEngines(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+		settings, err := d.readSettings()
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -91,7 +91,7 @@ func (d *agentDaemon) desktopEngines(w http.ResponseWriter, r *http.Request) {
 		}
 		var refused error
 		d.prepareMu.Lock()
-		settings, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+		settings, err := d.updateSettings(func(settings *agentconfig.Settings) error {
 			refused = settings.ReplaceCatalogue(input.Catalogue, input.Default)
 			return refused
 		})
@@ -156,7 +156,7 @@ func (d *agentDaemon) desktopTaskEngines(w http.ResponseWriter, r *http.Request)
 			http.Error(w, "Project required", 400)
 			return
 		}
-		settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+		settings, err := d.readSettings()
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -175,7 +175,7 @@ func (d *agentDaemon) desktopTaskEngines(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		errUnknown := errors.New("this engine is no longer in the catalogue")
-		settings, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+		settings, err := d.updateSettings(func(settings *agentconfig.Settings) error {
 			id := strings.TrimSpace(input.EngineID)
 			if _, ok := settings.Engine(id); id != "" && !ok {
 				return errUnknown

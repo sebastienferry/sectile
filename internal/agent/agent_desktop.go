@@ -31,9 +31,10 @@ import (
 // and it never leaves the machine. Its fields are set once at start and read
 // afterwards, so they need no lock of their own.
 type loopbackServer struct {
-	server *http.Server
-	port   int
-	url    string
+	server    *http.Server
+	serveDone chan struct{}
+	port      int
+	url       string
 	// Proxied requests use serverLink.token upstream. Local MCP may omit a
 	// client key only after explicit opt-in; the companion has its own token.
 	// desktopToken authenticates the companion; desktopInfo is the handshake
@@ -176,7 +177,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.link.mu.Lock()
 		connected := d.link.conn != nil
 		d.link.mu.Unlock()
-		settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+		settings, err := d.readSettings()
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -611,7 +612,7 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 			base, _ = os.Getwd()
 			base = findRepoRoot(base)
 		}
-		settings, err := agentconfig.ReadSettings(base)
+		settings, err := d.readSettings()
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -691,7 +692,7 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	defer d.prepareMu.Unlock()
 	unlock := agentconfig.LockSettings()
 	defer unlock()
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -729,7 +730,7 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	settings.SetProject(input.ProjectID, project)
 	delete(settings.DisconnectedProjects, input.ProjectID)
-	if err := agentconfig.WriteSettings(settings); err != nil {
+	if err := d.writeSettings(settings); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -742,6 +743,9 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *agentDaemon) localSettingsRoot() string {
+	if d.settingsRoot != "" {
+		return d.settingsRoot
+	}
 	root := d.repoRoot
 	if root == "" {
 		root, _ = os.Getwd()
@@ -776,7 +780,7 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 	}
 	unlock := agentconfig.LockSettings()
 	defer unlock()
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -799,13 +803,13 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	settings.Defaults.ClaudeSandboxProjects = whitelist
-	if err := agentconfig.WriteSettings(settings); err != nil {
+	if err := d.writeSettings(settings); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	d.inventory.notify()
 	// The settings file generated from its sandbox values goes too (#700).
-	if _, err := agentconfig.ClaudeSettingsFile(id, nil); err != nil {
+	if _, err := d.claudeSettingsFile(id, nil); err != nil {
 		log.Printf("[Agent] Could not remove the Claude settings of project %s: %v", id, err)
 	}
 	d.reportCapabilitiesLater()
@@ -967,7 +971,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"claudeSandboxCovered":        sandboxCovered,
 			// Claude Code's sandbox does not run on Windows: only the rules apply.
 			"platformSandbox":    runtime.GOOS != "windows",
-			"claudeSettingsPath": claudeSettingsPathOf(id),
+			"claudeSettingsPath": d.claudeSettingsPath(id),
 			"fields":             fields,
 			"skills":             skillNames(config),
 		}
@@ -1017,7 +1021,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 	case "initialize", "provider-skills":
 		provider := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("provider")))
 		if provider == "" {
-			settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+			settings, err := d.readSettings()
 			if err != nil {
 				http.Error(w, err.Error(), 500)
 				return
@@ -1597,7 +1601,7 @@ func (d *agentDaemon) resolveTerminalForProject(ctx context.Context, projectID, 
 	if d.terminal.explicit && d.terminal.app != "" {
 		return d.terminal.app
 	}
-	if settings, err := agentconfig.ReadSettings(d.localSettingsRoot()); err == nil {
+	if settings, err := d.readSettings(); err == nil {
 		if terminal := settings.Terminal(projectID); terminal != "" {
 			return terminal
 		}
@@ -1713,7 +1717,7 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 	// The engine is the task's, as for the discussion the app opens (#690).
 	config = agentconfig.ResolveTask(config, overrides, task.ID)
 
-	root, _, err = primaryRoot(r.Context(), config, overrides, root, task)
+	root, _, err = d.primaryRoot(r.Context(), config, overrides, root, task)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return

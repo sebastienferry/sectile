@@ -18,7 +18,7 @@ const consoleViewCapability = "console-view-default"
 func (d *agentDaemon) desktopConsoleView(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+		settings, err := d.readSettings()
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
@@ -38,7 +38,7 @@ func (d *agentDaemon) desktopConsoleView(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		d.prepareMu.Lock()
-		settings, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+		settings, err := d.updateSettings(func(settings *agentconfig.Settings) error {
 			// The terminal is the default: an absent key says it.
 			settings.Defaults.ConsoleView = ""
 			if input.View == agentconfig.ConsoleViewConversation {
@@ -62,7 +62,7 @@ func (d *agentDaemon) desktopConsoleView(w http.ResponseWriter, r *http.Request)
 // request opens in. It is read at each dispatch, so a change applies to the
 // next one; an unreadable settings file means the terminal.
 func (d *agentDaemon) workstationConsoleView() string {
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err != nil {
 		return agentconfig.ConsoleViewTerminal
 	}

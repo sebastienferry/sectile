@@ -34,7 +34,7 @@ var agyConversationModes = map[string]bool{
 }
 
 func (d *agentDaemon) workstationAgyConversationMode() string {
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err == nil && agyConversationModes[settings.Defaults.AgyConversationMode] {
 		return settings.Defaults.AgyConversationMode
 	}
@@ -58,7 +58,7 @@ func (d *agentDaemon) desktopAgySettings(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		d.prepareMu.Lock()
-		_, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+		_, err := d.updateSettings(func(settings *agentconfig.Settings) error {
 			settings.Defaults.AgyConversationMode = ""
 			if input.ConversationMode != "accept-edits" {
 				settings.Defaults.AgyConversationMode = input.ConversationMode

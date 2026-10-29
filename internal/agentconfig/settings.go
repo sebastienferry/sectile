@@ -31,7 +31,17 @@ func SettingsPath() (string, error) {
 // WriteSettings rewrites it. The project Sandbox values are left where they
 // are: only the start-up migration moves them (#744).
 func ReadSettings(legacyRoot string) (Settings, error) {
-	settings, _, _, err := readConverted(legacyRoot)
+	path, err := SettingsPath()
+	if err != nil {
+		return Settings{}, err
+	}
+	return ReadSettingsAt(path, legacyRoot)
+}
+
+// ReadSettingsAt reads one explicitly selected workstation settings file.
+// Embedded runtimes use this to avoid the standalone agent's global path.
+func ReadSettingsAt(path, legacyRoot string) (Settings, error) {
+	settings, _, _, err := readConvertedAt(path, legacyRoot)
 	return settings, err
 }
 
@@ -58,7 +68,15 @@ type SettingsMigration struct {
 // readConverted also reports whether the engine conversion or the drop of the
 // retired providers changed anything, and what.
 func readConverted(legacyRoot string) (Settings, bool, SettingsMigration, error) {
-	settings, err := readFolded(legacyRoot)
+	path, err := SettingsPath()
+	if err != nil {
+		return Settings{}, false, SettingsMigration{}, err
+	}
+	return readConvertedAt(path, legacyRoot)
+}
+
+func readConvertedAt(path, legacyRoot string) (Settings, bool, SettingsMigration, error) {
+	settings, err := readFoldedAt(path, legacyRoot)
 	if err != nil {
 		return settings, false, SettingsMigration{}, err
 	}
@@ -103,6 +121,10 @@ func readFolded(legacyRoot string) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
+	return readFoldedAt(path, legacyRoot)
+}
+
+func readFoldedAt(path, legacyRoot string) (Settings, error) {
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return readLegacyRepositoryFile(legacyRoot)
@@ -181,6 +203,11 @@ func holdsDesktopOnlyKeys(fields map[string]json.RawMessage) bool {
 // copied beside it first, and the copy logged (#744).
 func WriteSettings(settings Settings) error { return storeSettings(settings, true) }
 
+// WriteSettingsAt writes one explicitly selected workstation settings file.
+func WriteSettingsAt(path string, settings Settings) error {
+	return storeSettingsAt(path, settings, true)
+}
+
 // storeSettings is WriteSettings; traceDowngrade false skips the copy of a
 // downgraded file, for the start-up migration that has already made it.
 func storeSettings(settings Settings, traceDowngrade bool) error {
@@ -188,6 +215,10 @@ func storeSettings(settings Settings, traceDowngrade bool) error {
 	if err != nil {
 		return err
 	}
+	return storeSettingsAt(path, settings, traceDowngrade)
+}
+
+func storeSettingsAt(path string, settings Settings, traceDowngrade bool) error {
 	fields := map[string]json.RawMessage{}
 	var stamp fileLayout
 	raw, err := os.ReadFile(path)
@@ -262,16 +293,25 @@ var settingsMu sync.Mutex
 // UpdateSettings reads the settings, lets change edit them, and writes them
 // back unless change fails. The whole cycle holds settingsMu.
 func UpdateSettings(legacyRoot string, change func(*Settings) error) (Settings, error) {
+	path, err := SettingsPath()
+	if err != nil {
+		return Settings{}, err
+	}
+	return UpdateSettingsAt(path, legacyRoot, change)
+}
+
+// UpdateSettingsAt holds the same process lock for an explicitly selected file.
+func UpdateSettingsAt(path, legacyRoot string, change func(*Settings) error) (Settings, error) {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
-	settings, err := ReadSettings(legacyRoot)
+	settings, err := ReadSettingsAt(path, legacyRoot)
 	if err != nil {
 		return settings, err
 	}
 	if err := change(&settings); err != nil {
 		return settings, err
 	}
-	return settings, WriteSettings(settings)
+	return settings, WriteSettingsAt(path, settings)
 }
 
 // LockSettings holds settingsMu for a read-modify-write cycle a caller spells

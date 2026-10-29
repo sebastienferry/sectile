@@ -624,7 +624,7 @@ func (d *DB) notifyWaitListeners(task *models.Task, activity *models.TaskActivit
 	defer d.postBackMu.RUnlock()
 	for _, l := range d.waitListeners {
 		fn := l
-		go fn(task, activity)
+		d.dispatchCallback(func() { fn(task, activity) })
 	}
 }
 

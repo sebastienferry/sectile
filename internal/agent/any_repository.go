@@ -175,9 +175,17 @@ func cloneCommand(ctx context.Context, remote, dest string) *exec.Cmd {
 // finds it without a path and handoff can remove its worktree. It answers
 // whether it wrote the mapping.
 func rememberRepositoryFolder(settingsRoot, identity, folder string) (bool, error) {
+	path, err := agentconfig.SettingsPath()
+	if err != nil {
+		return false, err
+	}
+	return rememberRepositoryFolderAt(path, settingsRoot, identity, folder)
+}
+
+func rememberRepositoryFolderAt(settingsPath, settingsRoot, identity, folder string) (bool, error) {
 	unlock := agentconfig.LockSettings()
 	defer unlock()
-	settings, err := agentconfig.ReadSettings(settingsRoot)
+	settings, err := agentconfig.ReadSettingsAt(settingsPath, settingsRoot)
 	if err != nil {
 		return false, err
 	}
@@ -188,7 +196,7 @@ func rememberRepositoryFolder(settingsRoot, identity, folder string) (bool, erro
 		settings.Repositories = map[string]string{}
 	}
 	settings.Repositories[identity] = filepath.Clean(folder)
-	if err := agentconfig.WriteSettings(settings); err != nil {
+	if err := agentconfig.WriteSettingsAt(settingsPath, settings); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -258,7 +266,14 @@ func undeclaredPrimaryRoot(ctx context.Context, config agentconfig.Config, overr
 	}
 	// The workstation settings exist whenever the option is on, so their
 	// legacy location is never read.
-	if _, err := rememberRepositoryFolder("", identity, root); err != nil {
+	settingsPath := settingsPathFromContext(ctx)
+	if settingsPath == "" {
+		settingsPath, err = agentconfig.SettingsPath()
+		if err != nil {
+			return "", err
+		}
+	}
+	if _, err := rememberRepositoryFolderAt(settingsPath, "", identity, root); err != nil {
 		return "", err
 	}
 	return root, nil

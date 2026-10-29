@@ -105,6 +105,11 @@ func logRepositoryWorktree(device string, op agentprotocol.Operation, err error)
 }
 
 func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Operation) (any, error) {
+	var settingsErr error
+	ctx, settingsErr = d.withSettingsPath(ctx)
+	if settingsErr != nil {
+		return nil, settingsErr
+	}
 	if op.ProjectID == "" {
 		return nil, fmt.Errorf("project primary key is required")
 	}
@@ -180,7 +185,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		// A ticket pinned to another repository has its worktree there.
 		taskRoot := root
 		if strings.TrimSpace(task.Repository) != "" {
-			pinned, _, err := primaryRoot(ctx, config, overrides, root, task)
+			pinned, _, err := d.primaryRoot(ctx, config, overrides, root, task)
 			if err != nil {
 				// Reporting on the project root would describe another
 				// repository's checkout as this ticket's.

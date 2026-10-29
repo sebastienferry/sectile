@@ -28,8 +28,24 @@ func (d *DB) notifyPostBackListeners(task *models.Task, activity *models.TaskAct
 	defer d.postBackMu.RUnlock()
 	for _, l := range d.postBackListeners {
 		fn := l
-		go fn(task, activity, err)
+		d.dispatchCallback(func() { fn(task, activity, err) })
 	}
+}
+
+// dispatchCallback counts asynchronous listeners before launching them, so
+// CloseContext never closes SQL while a listener still reads or writes it.
+func (d *DB) dispatchCallback(fn func()) {
+	d.callbackMu.Lock()
+	if d.callbacksClosing {
+		d.callbackMu.Unlock()
+		return
+	}
+	d.callbacks.Add(1)
+	d.callbackMu.Unlock()
+	go func() {
+		defer d.callbacks.Add(-1)
+		fn()
+	}()
 }
 
 // PostBackTask performs an idempotent local update of task attributes resulting from

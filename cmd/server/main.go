@@ -254,9 +254,17 @@ func run() error {
 	database := runtime.Database
 	h := runtime.Handler
 	log.Printf("   instance : %s", database.InstanceID())
+	stopInternal := func(context.Context) error { return nil }
 	if database.Shared() {
-		startInternalListener(h, internalPort)
+		stopInternal = startInternalListener(h, internalPort)
 	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownDeadline)
+		defer cancel()
+		if err := stopInternal(ctx); err != nil {
+			log.Printf("⚠️  Internal listener shutdown: %v", err)
+		}
+	}()
 	if os.Getenv("SECTILE_SERVER_TOKEN") != "" {
 		log.Printf("⚠️  %s", handlers.SharedServerTokenWarning)
 	}

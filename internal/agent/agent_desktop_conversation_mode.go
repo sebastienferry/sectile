@@ -36,7 +36,7 @@ func (d *agentDaemon) desktopConversationMode(w http.ResponseWriter, r *http.Req
 			return
 		}
 		d.prepareMu.Lock()
-		settings, err := agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+		settings, err := d.updateSettings(func(settings *agentconfig.Settings) error {
 			// acceptEdits is the default: an absent key says it.
 			settings.Defaults.ConversationMode = ""
 			if input.Mode != conversationMode("") {
@@ -62,7 +62,7 @@ func (d *agentDaemon) desktopConversationMode(w http.ResponseWriter, r *http.Req
 // included, should someone write it by hand) and an unreadable settings file
 // both mean acceptEdits.
 func (d *agentDaemon) workstationConversationMode() string {
-	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	settings, err := d.readSettings()
 	if err != nil {
 		return conversationMode("")
 	}
