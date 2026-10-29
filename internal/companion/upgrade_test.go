@@ -3,12 +3,14 @@ package companion
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"tasks/internal/db"
+	"tasks/internal/models"
 )
 
 func TestUpgradeRecoversEveryDurableBoundaryAndPreservesIdentity(t *testing.T) {
@@ -30,11 +32,38 @@ func TestUpgradeRecoversEveryDurableBoundaryAndPreservesIdentity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if err := database.SetUserTrackerCredential(user, "gitlab", "https://gitlab.example.test", "migration@example.com", "fixture-personal-token", ""); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.SaveJiraOAuthApp("fixture-client", "fixture-client-secret", "https://sectile.example.test/auth/jira/callback", user); err != nil {
+				t.Fatal(err)
+			}
+			project, err := database.CreateProject(models.CreateProjectRequest{Name: "Migration workspace", IssueTracker: "local"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "Retained ticket", Source: "local"})
+			if err != nil {
+				t.Fatal(err)
+			}
 			if err = database.Close(); err != nil {
 				t.Fatal(err)
 			}
 			if err = writeDurable(root, "installation.json", Installation{Port: 59999, Key: "01234567890123456789012345678901", Token: token, DeviceID: credential.ID, UserID: user}); err != nil {
 				t.Fatal(err)
+			}
+			if err := os.Mkdir(filepath.Join(root, "runs"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			conversationSnapshot := []byte(`{"version":1,"run":{"conversation":true,"provider":"codex","model":"fixture-model","id":"conversation-fixture","projectId":"` + project.ID + `","directory":"/tmp/fixture","status":"completed"},"conversation":{"session":"fixture-session","mode":"plan"}}`)
+			conversationJournal := []byte("{\"seq\":1,\"kind\":\"line\",\"text\":\"saved history\"}\n")
+			if !json.Valid(conversationSnapshot) || !json.Valid(bytes.TrimSpace(conversationJournal)) {
+				t.Fatal("run-store fixture is invalid JSON")
+			}
+			for name, data := range map[string][]byte{"conversation-fixture.json": conversationSnapshot, "conversation-fixture.json.journal": conversationJournal} {
+				if err := os.WriteFile(filepath.Join(root, "runs", name), data, 0600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			originalDatabase, err := os.ReadFile(filepath.Join(root, "server", "tasks.db"))
 			if err != nil {
@@ -102,6 +131,24 @@ func TestUpgradeRecoversEveryDurableBoundaryAndPreservesIdentity(t *testing.T) {
 			found, err := reopened.LookupDeviceToken(token)
 			if err != nil || found.UserID != user || found.ID != credential.ID {
 				t.Fatal("credential no longer resolves")
+			}
+			if site, email, personalToken, err := reopened.UserTrackerCredentialsFor(user, "gitlab"); err != nil || site != "https://gitlab.example.test" || email != "migration@example.com" || personalToken != "fixture-personal-token" {
+				t.Fatal("personal tracker credential was not retained")
+			}
+			if app, _, err := reopened.JiraOAuthApp(); err != nil || app.ClientID != "fixture-client" || app.ClientSecret != "fixture-client-secret" {
+				t.Fatal("encrypted OAuth app was not retained")
+			}
+			if restoredProject, err := reopened.GetProjectByID(project.ID); err != nil || restoredProject == nil || restoredProject.Name != "Migration workspace" {
+				t.Fatal("project was not retained")
+			}
+			if restoredTask, err := reopened.GetTaskByID(task.ID); err != nil || restoredTask == nil || restoredTask.Title != "Retained ticket" {
+				t.Fatal("ticket was not retained")
+			}
+			for name, expected := range map[string][]byte{"conversation-fixture.json": conversationSnapshot, "conversation-fixture.json.journal": conversationJournal} {
+				stored, err := os.ReadFile(filepath.Join(candidate, "runs", name))
+				if err != nil || !bytes.Equal(stored, expected) {
+					t.Fatalf("run-store file %s was not retained: %v", name, err)
+				}
 			}
 			if err = reopened.Close(); err != nil {
 				t.Fatal(err)
