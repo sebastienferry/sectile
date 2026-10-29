@@ -145,3 +145,16 @@ clean Go commit `f598412218d4127823d976eacce551faa907c758` produced a
 files, `goDirty: false` and `releaseEligible: false`. DMG SHA-256:
 `c770aa7e2a7e050aee433fed7718e4b2af58de57bed650b876ee7b0ff99c6c24`.
 Signing, notarization and clean-user installation remain open.
+
+Tracked-tool cancellation and package refresh (2026-10-29): Go commit
+`25a8e77d25c172cb22cfe7a348fca2279af9fe01` passed `go test ./...` and a
+real Electron tracked-ticket Stop check with signed-in Codex `0.165.0`. Its
+shell tool wrote a start marker, then was stopped from the Electron window;
+the file scheduled after 90 seconds was absent after 170 seconds. Clean Go
+services from that commit were bundled into the arm64 Tauri app and DMG.
+`npm run package:macos`, the resource verifier and `hdiutil verify` passed;
+the DMG is 54,210,359 bytes with SHA-256
+`40cfe98a4477ae40dbdae420aca63fa6ce279e694659f47447f363a372ca4717`.
+The manifest still reports `releaseEligible: false`, and signing,
+notarization, clean-user installation and a provider run from this package
+remain open.
