@@ -437,6 +437,7 @@ The first cross-surface check slice passes:
 | Tauri renderer/native layer | `npm run check`, `npm test`, `npm run test:ui`, `npm run test:rust`, `npm run build` | Pass on the current branch: 8 domain tests, 86 UI tests and 33 Rust tests. The Rust tests cover explicit Local/Fleet file routing, private credential storage, Fleet URL policy, pairing HTTP contract handling, account identity binding and rejection of replacement pairings for a selected runtime. |
 | Tauri Fleet pairing | Native validation, UI tests, and a loopback HTTP contract fixture; bundled agent/companion built from the Go worktree | The fixture verifies the exact pairing route and payload, accepted credential response, expired-code response, incomplete response and backend failure. TLS policy, Go-compatible private settings format and automatic agent startup code are covered by checks. A real remote Fleet pairing and desktop session are not yet qualified. |
 | Existing native Local install | Managed macOS migration verification and real Jira/Claude/Codex/MCP requests | Pass; details above. |
+| Existing Electron/Go Fleet connection | Read-only calls to the existing workstation agent's authenticated `/desktop/status`, `/desktop/version` and `/desktop/projects` routes | The agent reports v0.7.6, connected, no contract error, and 19 projects (2026-10-29). This verifies the existing connection only; no Tauri mode or server data was changed. |
 | macOS release bundle | `npm run tauri -- build --bundles app --no-sign` | Pass; the unsigned release `.app` is 101.69 MiB versus the recorded 133.1 MiB debug app. It still contains the companion (40 MiB), legacy server (36 MiB) and legacy agent (20 MiB) for migration/recovery. This is an unsigned macOS app bundle, not a release artifact or a cross-platform size comparison. |
 
 The idle Go service process count is now one. At the captured idle sample,
@@ -458,6 +459,12 @@ Stage 5 remains open for explicit old-agent/new-server and new-agent/supported
 server protocol fixtures, a real remote Fleet desktop session, an Electron live
 MCP call after the Tauri migration, and packaged release measurements. Do not
 infer these from unit tests or from the migrated Local installation.
+
+Existing workstation connection qualification (2026-10-29): the saved local
+agent connection was used for read-only authenticated calls. The v0.7.6 agent
+returned `connected: true`, an empty `contractError`, and 19 projects. This is
+not evidence of Tauri Fleet pairing, project setup through the new API route, or
+a live MCP call after Local migration.
 
 Fleet pairing contract qualification (2026-10-29): the Tauri native exchange
 was extracted behind a small HTTP boundary and verified against a loopback

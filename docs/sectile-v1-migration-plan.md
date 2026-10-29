@@ -153,7 +153,7 @@ Electron live MCP call remain unqualified. See
 | Tauri + Local companion + embedded backend from this branch | Existing macOS managed-install migration; disposable Claude Code, Codex, MCP and companion lifecycle checks | Verified on macOS for the recorded prototype; repeat against the current commit before V1 |
 | Tauri + bundled Fleet agent + current Go backend | Pairing HTTP contract fixture, TLS/credential checks, API authorization tests and UI/native setup tests | Contract coverage only; a real remote Fleet pairing and session are still required |
 | Tauri + legacy attached Fleet agent | Attach path validates a live loopback agent and backend identity; no live fixture has been captured for the current commit | Partial; setup without native pairing credentials is intentionally unavailable |
-| Electron + existing Go server/agent | 315 Electron unit tests and prior runtime checks | Post-migration live MCP call and current Electron/server compatibility are not yet qualified |
+| Existing Electron/Go workstation + live backend | The existing v0.7.6 agent returned connected status, no contract error and 19 discovered projects in a read-only live check (2026-10-29); 315 Electron unit tests pass | This qualifies the existing connection only; post-migration MCP and current-branch Electron/server compatibility remain unqualified |
 | Mixed Go agent/server versions | Server/agent protocol V1 documents additive fields and unknown-field handling; dedicated old/new binary fixtures are absent | Unsupported as a V1 compatibility claim until the fixtures pass |
 | Native platforms | macOS live migration and unsigned bundle build; Windows companion cross-build | Windows runtime/migration and Linux native builds remain unqualified |
 
