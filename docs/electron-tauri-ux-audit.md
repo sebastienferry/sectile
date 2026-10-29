@@ -208,6 +208,53 @@ navigation lot.
 
 ## Current source and runtime status
 
+### Current-source visual baseline (source measurements only)
+
+The token and layout comparison below records values from the current source;
+it is not a replacement for the matched screenshots required by lot 1. The
+Electron app's existing UI harness can return stable tracker/task fixtures, but
+it deliberately launches hidden windows. Tauri routes the same views through a
+managed Go companion and native Local/Fleet setup, so the Electron stand-in
+server cannot be reused as its backend. The currently open production windows
+also contain different projects and tracker modes. Therefore no populated
+state has yet been captured from equivalent fixtures, and the visual gate
+remains open.
+
+| Measurement | Electron source | Tauri source | Review note |
+| --- | --- | --- | --- |
+| Base interface font | `14px system-ui` | `13px system-ui, -apple-system` | Tauri is one CSS pixel smaller. Compare rendered text at the same scale before changing it. |
+| Header | `68px` | `54px` after `workspace-polish.css` (58px in base `App.css`) | The Electron native title-bar overlay is part of its 68px header. Compare the full native window chrome, not renderer content alone. |
+| Project rail | `280px` base, no pointer resizing in the old shell | `268px` with keyboard/pointer resizing | Width alone does not describe available work-area width; compare at equal window sizes and rail widths. |
+| Default button radius | `7px` | `8px` after polish (6px in base CSS) | Tauri's polish sheet overrides the base control radius. |
+| Dark accent / selected | `#62d3be` / `#203033` | `#62d3be` / `#203033` | Core dark values match in source. |
+| Light accent / selected | `#0f766e` / `#e3f2ef` | `#167d69` / `#e0eee9` | Values differ; rendered contrast and visual weight still need matched captures. |
+| Light danger | `#b42318` danger, `#a8243d` danger text | `#a8243d` danger, `#fce9ed` danger background | Token names and roles differ, so compare semantic actions rather than matching variable names. |
+
+Lot 1 should next provide a shared fixture contract for project, ticket,
+conversation/tool events, waiting question, run/diff and settings. Keep any
+fixture path test-only and isolated from Local/Fleet user data. Capture the
+available matched states at 800px and 1280px in light and dark mode, then list
+the exact states still blocked by native setup or backend-specific ownership.
+Only close the gate when every required surface is captured or a specific
+surface cannot be represented in both apps without changing product behavior.
+
+The first isolated capture used the same `workspace` name and
+`/private/tmp/sectile-ux-fixture/workspace` path in current Tauri and Electron
+builds, at the same 2560 × 1600 desktop size in dark mode. Tauri reached its
+first-class project composer with the folder context, engine, model and mode
+visible. Electron reached its “Project prompt” dialog with the same folder and
+Codex engine, then offered “Open console”; that path starts an interactive CLI
+session rather than rendering an in-app prompt composer. This is a useful
+pre-dispatch comparison, but it does not imply that the post-dispatch
+conversation or tool views match. The Tauri Local board showed its trackerless
+ready state; Electron had no local tasks and its central execution surface was
+blank. Since task-board content is remote-tracker-owned in Tauri, those two
+empty states are not equivalent ticket fixtures. The isolated app data,
+workspace, mock agent, test bundle and port-52964 companion were removed; the
+production companion on port 52963 remained running. No prompt was submitted,
+provider or tracker was contacted, and no project was created outside the
+disposable test data.
+
 - Trackerless board controls and the duplicate empty-state prompt action are
   corrected in Tauri source and covered by targeted UI regressions, including
   the synthetic local tracker and a pre-provider agent compatibility case. The
