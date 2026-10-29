@@ -215,7 +215,37 @@ def agent_operation_evidence(base_url, session, repo_path, version):
         status = json.loads(response.read())
     if status.get("repoPath") != str(repo_path) or status.get("isGitRepo") is not True:
         raise RuntimeError(f"{version} agent operation returned unexpected workspace status: {status}")
-    return {"agentVersion": version, "operation": "skills_status", "connected": True, "workspaceVerified": True}
+
+    git_directory = repo_path / ".git"
+    backup_directory = repo_path / ".git.compatibility-backup"
+    git_directory.rename(backup_directory)
+    try:
+        init_request = urllib.request.Request(
+            base_url + "/api/projects/default/init-git",
+            data=json.dumps({"projectId": "default"}).encode(),
+            headers={"Cookie": "sectile_session=" + session, "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(init_request, timeout=15) as response:
+            if response.status != 200:
+                raise RuntimeError(f"{version} init-git operation returned HTTP {response.status}")
+            initialized = json.loads(response.read())
+        if initialized.get("repoPath") != str(repo_path) or initialized.get("isGitRepo") is not True or initialized.get("initialized") is not True:
+            raise RuntimeError(f"{version} init-git operation returned unexpected result: {initialized}")
+        top_level = run(["git", "rev-parse", "--show-toplevel"], repo_path).strip()
+        if pathlib.Path(top_level).resolve() != repo_path.resolve():
+            raise RuntimeError(f"{version} init-git initialized an unexpected repository: {top_level}")
+    finally:
+        if git_directory.exists():
+            shutil.rmtree(git_directory)
+        backup_directory.rename(git_directory)
+    return {
+        "agentVersion": version,
+        "readOnlyOperation": "skills_status",
+        "workspaceVerified": True,
+        "mutatingOperation": "init_git",
+        "initializedEmptyWorkspace": True,
+    }
 
 
 def main():
