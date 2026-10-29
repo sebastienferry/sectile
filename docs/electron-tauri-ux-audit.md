@@ -29,6 +29,7 @@ verification record remains the evidence for those flows.
 | Tauri's workspace polish sheet overrode the canonical surface palette. | The dark/light colors for `--bg`, `--surface`, `--sunken` and `--selected` differed from Electron's `desktop/src/style.css` and duplicated the values in `App.css`. | Use `App.css` as the single source for shared background, surface and selection tokens; keep only workspace-specific tokens in the polish sheet. |
 | The Tauri sidebar was fixed width; Electron has a pointer and keyboard resizer. | Electron `desktop/src/main.js` wires `#sidebar-resizer`; Tauri originally rendered a fixed-width `.sidebar`. | Added a bounded, keyboard-accessible divider and persistent width. |
 | Settings are a full native page in Tauri and a categorized dialog in Electron. | Tauri's `LocalSettings` has separate engine, profile, connection, project and service sections; Electron groups workstation/project settings in its dialog. | Keep native Tauri setup, but align section naming, compact spacing and progressive disclosure. Do not force the dialog layout into a native page. |
+| Fleet configuration was labeled as Local in the settings header and service navigation. | `LocalSettings` used “VOTRE ESPACE LOCAL” and “Services locaux” for every mode, despite Fleet profile changes going to `/api/me` and the Fleet agent remaining remotely managed. | Identify Fleet in the settings heading, call the section “Connexion et services” in Fleet mode, and describe the profile according to its backend owner. |
 | A local-only project shows tracker controls even though it has no remote tickets. | In the live Tauri window, `workspace` has a local path and zero tickets, while the board toolbar still says “Statuts du tracker · lecture seule” and offers tracker grouping/search. Go represents a local workspace with a synthetic `local` tracker row, but the desktop board projection omitted the provider, so the renderer could not distinguish it from a remote tracker. | Include tracker providers in the additive desktop board projection. Hide remote controls when a project has no trackers or only the synthetic local tracker; preserve remote controls for GitHub, GitLab and Jira. Keep “Nouveau prompt” as the single primary action. |
 | The local-project empty state repeats the primary prompt action. | The project toolbar already has “Nouveau prompt”; the empty board adds “Commencer une conversation”. The live screenshot shows both at once. | Keep the global project action and remove the duplicate empty-state button; use the empty state to explain that the local project is ready for prompts. |
 | The project toolbar offers navigation to the view already open. | The live board screenshot shows a “Tableau” button beside the current project; `App.tsx` always renders it, and its handler navigates to the same board view. | Hide the current-view action while the board is open. Keep “Tableau” available from prompts and execution views so navigation remains direct. |
@@ -87,6 +88,10 @@ verification record remains the evidence for those flows.
   not own tracker tasks or the web planning surface. Project, prompt, settings,
   orchestration, folder and recent-run navigation remain available. No
   unsupported commands were added.
+- Native settings now name the active Local or Fleet owner. The Fleet services
+  section describes the Fleet agent, while the Local mode retains its local
+  companion wording. UI regressions cover Fleet pairing and the initial
+  unconfigured state.
 - The duplicate workspace color overrides have been removed. Tauri now uses
   the same canonical dark/light background, surface and selection colors as
   Electron; exact appearance still needs review in the rebuilt app once the

@@ -79,23 +79,26 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     event.preventDefault(); void perform(action, message, undefined, hydrateProfile);
   }
   const ready = setup?.ready && setup.signedIn && setup.apiSetupAvailable !== false;
+  const fleetMode = setup?.mode === "fleet";
+  const sectionLabel = (item: typeof sections[number]) => item.id === "services" && fleetMode ? "Connexion et services" : item.label;
+  const activeSection = sections.find(item => item.id === section);
   return <section className="settings local-settings">
-    <header className="settings-heading"><span className="eyebrow">VOTRE ESPACE LOCAL</span><h1>Configuration du poste</h1>
-    <p>Connectez vos outils. Choisissez vos projets. Tout se configure ici.</p></header>
+    <header className="settings-heading"><span className="eyebrow">{fleetMode ? "VOTRE ESPACE FLEET" : setup?.mode === "local" ? "VOTRE ESPACE LOCAL" : "CONNEXION À SECTILE"}</span><h1>{fleetMode ? "Configuration Fleet" : "Configuration du poste"}</h1>
+    <p>{fleetMode ? "Gérez votre profil et vos comptes sur le backend connecté. Les services d’exécution restent sur ce poste." : setup?.mode === "local" ? "Connectez vos outils et configurez vos projets sur ce poste." : "Choisissez le mode Local ou associez ce poste à un backend Fleet."}</p></header>
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
     {pending && <p role="status">Enregistrement en cours…</p>}
     {!setup && !error && <p>Lecture de la configuration…</p>}
     <div className="settings-layout">
     <nav className="settings-navigation" aria-label="Sections des paramètres">
-     {sections.map(item => <button key={item.id} aria-current={section === item.id ? "page" : undefined} disabled={(item.id === "profile" && (!setup?.ready || setup.mode === "fleet" && setup.apiSetupAvailable === false)) || (["connections","projects"].includes(item.id) && !ready)} onClick={() => {navigated.current=true;setSection(item.id);}}><Icon name={item.icon} />{item.label}{section === item.id && <Icon name="chevron" />}</button>)}
+     {sections.map(item => <button key={item.id} aria-current={section === item.id ? "page" : undefined} disabled={(item.id === "profile" && (!setup?.ready || setup.mode === "fleet" && setup.apiSetupAvailable === false)) || (["connections","projects"].includes(item.id) && !ready)} onClick={() => {navigated.current=true;setSection(item.id);}}><Icon name={item.icon} />{sectionLabel(item)}{section === item.id && <Icon name="chevron" />}</button>)}
      <p>{setup?.mode === "fleet" ? "Les comptes et projets sont conservés sur le backend Fleet." : "Configuration conservée sur ce poste."}</p>
     </nav>
     <div className="settings-content">
-    <header className="settings-section-heading"><h2>{sections.find(item=>item.id===section)?.label}</h2><p>{sections.find(item=>item.id===section)?.description}</p></header>
+    <header className="settings-section-heading"><h2>{activeSection ? sectionLabel(activeSection) : ""}</h2><p>{section === "services" && fleetMode ? "État de la connexion et de l’agent Fleet associé à ce poste." : activeSection?.description}</p></header>
     <div hidden={section !== "engines"}><ProviderSettings projects={setup?.projects??[]} /></div>
     <div hidden={section !== "services"}><article>
-      <h2>Services locaux</h2>
+      <h2>{fleetMode ? "Agent Fleet" : "Services locaux"}</h2>
       <p>{setup?.mode === "fleet" ? `Mode Fleet · ${setup.agentReady ? "agent connecté" : "agent déconnecté"}${setup.fleetServer ? ` · ${setup.fleetServer}` : ""}` : !setup?.enabled ? "Choisissez un mode pour connecter ce desktop à Sectile." : setup.ready ? `Mode Local · compagnon prêt · ${setup.agentReady ? "exécution prête" : "en attente du profil"}` : "Le compagnon local ne répond pas."}</p>
       {setup?.mode === "fleet" && setup.apiSetupAvailable === false && <p className="muted">Cet agent a été attaché sans identifiant API du poste. Configurez les comptes et projets sur le backend Fleet.</p>}
       {setup?.dataDirectory && <p className="muted runtime-path">{setup.dataDirectory}</p>}
@@ -116,12 +119,12 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       <button disabled={pending} onClick={() => void perform(async () => {}, "Configuration actualisée.")}>Actualiser</button>
     </article></div>
     <div hidden={section !== "profile"}>{setup?.ready && setup.apiSetupAvailable !== false && (setup.mode !== "fleet" || setup.signedIn) && <article>
-      <h2>Profil local</h2>
+      <h2>{fleetMode ? "Profil Fleet" : "Profil local"}</h2>
       <form onSubmit={e => submit(e, () => api.saveLocalProfile(email, displayName), "Profil enregistré et agent associé.")}>
         <fieldset disabled={pending}>
           <label>Adresse e-mail<input type="email" required value={email} readOnly={setup.signedIn} onChange={e => setEmail(e.target.value)} autoComplete="email" /></label>
           <label>Nom affiché<input required value={displayName} onChange={e => setDisplayName(e.target.value)} autoComplete="name" /></label>
-          <p className="muted">Ce profil identifie vos actions locales. Il ne crée pas de compte chez un fournisseur.</p>
+          <p className="muted">{fleetMode ? "Ce profil identifie vos actions avec votre compte sur le backend Fleet." : "Ce profil identifie vos actions sur ce poste. Il ne crée pas de compte chez un fournisseur."}</p>
           <button className="primary" type="submit">Enregistrer le profil</button>
         </fieldset>
       </form>

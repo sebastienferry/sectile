@@ -13,6 +13,7 @@ test("Local activation waits for the local server before exposing profile setup"
   let finish!: () => void;
   vi.mocked(api.enableLocalRuntime).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   render(<LocalSettings onChanged={vi.fn()} />);
+  expect(await screen.findByText("CONNEXION À SECTILE")).toBeTruthy();
   const enable = await screen.findByRole("button",{name:"Démarrer en mode Local"});
   fireEvent.click(enable); fireEvent.click(enable);
   expect(api.enableLocalRuntime).toHaveBeenCalledOnce();
@@ -26,9 +27,18 @@ test("Fleet attachment enables backend setup and hides Local-only controls", asy
   render(<LocalSettings onChanged={vi.fn()} />);
   fireEvent.click(await screen.findByRole("button",{name:"Associer l’agent Fleet existant"}));
   await waitFor(() => expect(api.attachFleetAgent).toHaveBeenCalledOnce());
+  expect(await screen.findByText("VOTRE ESPACE FLEET")).toBeTruthy();
+  expect(screen.getByRole("heading", {name:"Configuration Fleet"})).toBeTruthy();
+  expect(screen.getByRole("heading", {name:"Connexion et services"})).toBeTruthy();
+  expect(screen.getByRole("heading", {name:"Agent Fleet"})).toBeTruthy();
+  expect(screen.getByText(/État de la connexion et de l’agent Fleet associé/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name:"Comptes et trackers"}));
   expect(await screen.findByLabelText("Adresse e-mail")).toBeTruthy();
   expect((screen.getByRole("button",{name:"Comptes et trackers"}) as HTMLButtonElement).disabled).toBe(false);
   expect((screen.getByRole("button",{name:"Projets"}) as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(screen.getByRole("button",{name:"Profil"}));
+  expect(await screen.findByRole("heading",{name:"Profil Fleet"})).toBeTruthy();
+  expect(screen.getByText(/Ce profil identifie vos actions avec votre compte sur le backend Fleet/)).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("button",{name:"Associer l’agent Fleet existant"})).toBeNull());
 });
 test("Fleet pairing sends the one-time code to native code and clears it after failure", async () => {

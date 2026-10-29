@@ -17,6 +17,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Distinguish Fleet-backed settings and agent status from settings kept on the local workstation.
 - Label prompt folder selection as a project-wide attachment so its scope is clear before adding it.
 - Choose an existing project's local folder with the native picker instead of entering an absolute path manually.
 - Match the Electron dark and light workspace surface palette and remove duplicate Tauri color overrides.
