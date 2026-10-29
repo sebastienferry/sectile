@@ -88,6 +88,8 @@ Open **Paramètres**, then:
 4. Add a **Source de tickets**, naming the repository or project key. Credentials
    are personal and shared by sources of the same provider; saving replaces that
    provider's stored access. Account confirmation failures do not undo a saved token.
+   GitLab website addresses entered in either form are converted to its `/api/v4`
+   endpoint before they are saved.
 5. Create a project from a registered tracker, then associate an existing local
    Git repository by absolute path. These are separate operations: a failed path
    association can be retried without duplicating the project.
@@ -417,6 +419,15 @@ an active 90-second shell tool, and checks after 95 seconds that the delayed
 file is absent. It restarts the agent and verifies history, model, mode,
 contextual response, a new tool call, and no replay of the interrupted tool.
 The test requires a Unix host and removes its temporary runtime data afterward.
+
+For an opt-in external write smoke on the authorized GitHub `sebastienferry/sectile`
+and GitLab `smartadserver/private/shared-platform/taskativ` projects, provide an
+authenticated `gh` CLI, `GITLAB_TOKEN`, and `SECTILE_TEST_SERVER_BINARY` pointing
+to a disposable Go server built with an unused Local runtime port. Run
+`npm run test:live-trackers`. It creates a uniquely named issue on each forge,
+updates its title through Sectile, waits for the queued tracker activity,
+verifies the remote result, and deletes the issue. Do not use the regular
+52963 companion binary or data directory for this test.
 
 ## Read conversation output
 

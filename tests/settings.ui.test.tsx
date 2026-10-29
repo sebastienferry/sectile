@@ -192,7 +192,7 @@ test("tracker source and personal credential keep independent provider and site 
   fireEvent.change(screen.getByLabelText("Nom du tracker"), {target:{value:"Engineering"}});
   fireEvent.change(screen.getByLabelText("Dépôt ou clé du projet"), {target:{value:"team/engineering"}});
   fireEvent.click(screen.getByRole("button", {name:"Ajouter le tracker"}));
-  await waitFor(() => expect(api.createLocalTracker).toHaveBeenCalledWith({name:"Engineering",provider:"gitlab",site:"https://gitlab.example.invalid",scope:"team/engineering"}));
+  await waitFor(() => expect(api.createLocalTracker).toHaveBeenCalledWith({name:"Engineering",provider:"gitlab",site:"https://gitlab.example.invalid/api/v4",scope:"team/engineering"}));
   expect(api.saveLocalCredential).not.toHaveBeenCalled();
 });
 test("existing projects use the native folder picker for repository mapping", async () => {

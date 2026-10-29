@@ -3,6 +3,7 @@ import { ProviderSettings } from "./ProviderSettings";
 import { OAuthConnections } from "./OAuthConnections";
 import { Icon } from "./Icon";
 import * as api from "../lib/local";
+import { trackerApiSite } from "../tracker-site";
 
 type SettingsSection = "engines" | "profile" | "connections" | "projects" | "services";
 const sections = [
@@ -159,7 +160,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       <article>
         <details><summary>Accès manuel par jeton · option avancée</summary>
         <form onSubmit={e => submit(e, async () => {
-          try { await api.saveLocalCredential({ tracker: credentialProvider, siteUrl: credentialSite, email: trackerEmail, token }); }
+          try { await api.saveLocalCredential({ tracker: credentialProvider, siteUrl: trackerApiSite(credentialProvider, credentialSite), email: trackerEmail, token }); }
           finally { setToken(""); }
         }, "Accès personnel enregistré. Lancez une synchronisation pour vérifier l’accès aux tickets.")}>
           <fieldset disabled={pending}>
@@ -176,7 +177,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       </article>
       <article>
         <h2>Sources de tickets</h2>
-        {setup.mode !== "fleet" || setup.profile?.role === "admin" ? <form onSubmit={e => submit(e, async () => { await api.createLocalTracker({ name: trackerName, provider: sourceProvider, site: sourceSite, scope }); setTrackerName(""); setScope(""); }, "Tracker ajouté.")}>
+        {setup.mode !== "fleet" || setup.profile?.role === "admin" ? <form onSubmit={e => submit(e, async () => { await api.createLocalTracker({ name: trackerName, provider: sourceProvider, site: trackerApiSite(sourceProvider, sourceSite), scope }); setTrackerName(""); setScope(""); }, "Tracker ajouté.")}>
           <fieldset disabled={pending}>
             <label>Fournisseur de la source<select value={sourceProvider} onChange={e => {setSourceProvider(e.target.value);setSourceSite("");}}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
             <label>Adresse de la source<input type="url" required={sourceProvider==="jira"} placeholder={sourceProvider==="jira"?"https://votre-site.atlassian.net":"URL facultative pour l’instance publique"} value={sourceSite} onChange={e=>setSourceSite(e.target.value)} /></label>
