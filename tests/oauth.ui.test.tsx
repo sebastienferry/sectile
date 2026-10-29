@@ -19,6 +19,12 @@ test("denied consent is not reported as connected",async()=>{
  fireEvent.click(await screen.findByRole("button",{name:"Se connecter à GitHub"}));
  await screen.findByText("Connexion annulée.");expect(done).not.toHaveBeenCalled();
 });
+test("a disconnected OAuth account remains visible with a reconnect action",async()=>{
+ render(<OAuthConnections onConnected={vi.fn()} credentials={[{tracker:"github",kind:"oauth",account:"Fixture",disconnected:true}]}/>);
+ expect(await screen.findByRole("alert")).toHaveProperty("textContent","Connexion GitHub interrompue pour Fixture. Reconnectez-vous pour accéder à vos tickets.");
+ expect(screen.queryByText("Compte connecté : Fixture")).toBeNull();
+ expect((screen.getByRole("button",{name:"Se connecter à GitHub"}) as HTMLButtonElement).disabled).toBe(false);
+});
 test("leaving the view cancels a browser flow even if initiation resolves later",async()=>{
  let resolve!:(id:string)=>void;vi.mocked(api.beginOAuth).mockImplementation(()=>new Promise(done=>{resolve=done;}));
  const view=render(<OAuthConnections onConnected={vi.fn()}/>);

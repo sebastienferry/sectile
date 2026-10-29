@@ -632,3 +632,7 @@ could submit a source under the wrong provider. Their drafts are now separate,
 with a UI regression covering both forms. The Fleet service copy now describes
 the backend-owned profile and project controls exposed on this page instead of
 claiming that the page only changes the Local companion.
+OAuth settings also used to hide a grant entirely when Go marked it
+disconnected, leaving no explanation for a subsequent sync failure. The
+provider row now identifies the disconnected account and gives a reconnect
+instruction while retaining the existing sign-in action.
