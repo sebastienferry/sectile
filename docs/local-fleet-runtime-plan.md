@@ -462,12 +462,14 @@ but its fixed port reservation failed because port 52963 was occupied. The
 existing service was left running. The test must be repeated after that service
 stops.
 
-Stage 5 now has one binary handshake direction qualified: a released v0.7.6
-agent connected to the current Go server handler. It remains open for the reverse
-current-agent/supported-server binary path, a live Fleet pairing/setup session,
-an Electron live MCP call after the Tauri migration, signed-package
-qualification and repeated true cold-start measurements. The qualification host
-currently has zero valid macOS code-signing identities. Do not infer these from unit tests or
+Both Go binary handshake directions now pass: a released v0.7.6 agent connected
+to the current handler, and the current agent connected to a server built from
+the v0.7.6 tag. These tests cover startup, WebSocket negotiation and operation
+announcements, not tracker/MCP/workflow API parity. Stage 5 remains open for a
+live Fleet pairing/setup session, an Electron live MCP call after the Tauri
+migration, signed-package qualification and repeated true cold-start
+measurements. The qualification host currently has zero valid macOS
+code-signing identities. Do not infer these from unit tests or
 from the migrated Local installation.
 
 Existing workstation connection qualification (2026-10-29): the saved local
@@ -500,6 +502,9 @@ v0.7.6 agent connection query, and a parser copied from the v0.7.6 server
 source accepts the current agent announcement. Separately, a real v0.7.6 agent
 binary connected to the current server WebSocket handler in an isolated test
 with a temporary database and HOME; the server accepted its version and complete
-operation list. The reverse binary direction and full Fleet API compatibility
-remain open. Windows cross-compilation also passed for the Go companion and
-handler test binary; Windows runtime and Linux native execution remain untested.
+operation list. In the reverse test, the v0.7.6 server started from an isolated
+SQLite database and accepted a current `dev` agent with all 27 operations and
+`outdated=false`. Both results qualify handshake compatibility only; tracker,
+MCP and workflow API parity remain open. Windows cross-compilation also passed
+for the Go companion and handler test binary; Windows runtime and Linux native
+execution remain untested.
