@@ -920,11 +920,13 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 		conversationWrite(run.trace, "notice", "Interrupted", "Claude Code stopped this answer. Send a message to continue the conversation.")
 	} else if run.canceled {
 		run.desktop.Status = conversationStoppedStatus(run)
-		notice := "Conversation stopped"
-		if run.resumeAfterShutdown {
-			notice = "Conversation paused for agent restart"
+		if !run.resumeAfterShutdown || run.pausedTurnOnShutdown {
+			notice := "Conversation stopped"
+			if run.resumeAfterShutdown {
+				notice = "Conversation paused for agent restart"
+			}
+			conversationWrite(run.trace, "notice", notice, "")
 		}
-		conversationWrite(run.trace, "notice", notice, "")
 		run.trace.close()
 		d.updateConversationJournalLocked(run)
 		run.once.Do(func() { close(run.exited) })
@@ -973,6 +975,7 @@ func (d *agentDaemon) stopConversationsChecked() error {
 			continue
 		}
 		run.resumeAfterShutdown = !run.canceled
+		run.pausedTurnOnShutdown = run.resumeAfterShutdown && run.conversation.busy
 		run.canceled = true
 		if !run.conversation.busy && run.conversation.codex == nil {
 			run.desktop.Status = "canceled"

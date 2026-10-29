@@ -93,8 +93,10 @@ type controlledRun struct {
 	canceled bool
 	// resumeAfterShutdown distinguishes daemon cleanup from an explicit user stop.
 	resumeAfterShutdown bool
-	exited              chan struct{}
-	once                sync.Once
+	// Only an unfinished turn should report that shutdown paused the conversation.
+	pausedTurnOnShutdown bool
+	exited               chan struct{}
+	once                 sync.Once
 	// trace is what a headless run showed while it worked, for the desktop to
 	// attach to. It is nil for a run whose engine was not asked for its
 	// reasoning stream, which is every interactive run and every engine whose

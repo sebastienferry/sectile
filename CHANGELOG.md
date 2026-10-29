@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- Reopening an idle Codex conversation after a desktop or agent restart no longer says its finished response was paused.
 - Local tracker synchronization now uses the connected installation account, including its Jira OAuth grant or personal API token, without requiring a separate server credential.
 - Stopping a built-in local console or tracked task now terminates its delegated tools before they can continue in the background; Codex consoles use a private provider server for cancellation.
 - A failed Codex task launch no longer leaves its terminal supervisor suspended before the provider starts.

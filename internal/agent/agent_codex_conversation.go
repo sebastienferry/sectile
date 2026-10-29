@@ -477,11 +477,13 @@ func (d *agentDaemon) endCodexConversation(run *controlledRun, state *codexConve
 	}
 	if run.canceled {
 		run.desktop.Status = conversationStoppedStatus(run)
-		notice := "Conversation stopped"
-		if run.resumeAfterShutdown {
-			notice = "Conversation paused for agent restart"
+		if !run.resumeAfterShutdown || run.pausedTurnOnShutdown {
+			notice := "Conversation stopped"
+			if run.resumeAfterShutdown {
+				notice = "Conversation paused for agent restart"
+			}
+			conversationWrite(run.trace, "notice", notice, "")
 		}
-		conversationWrite(run.trace, "notice", notice, "")
 		run.trace.close()
 		d.updateConversationJournalLocked(run)
 		run.once.Do(func() { close(run.exited) })
