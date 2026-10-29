@@ -309,6 +309,15 @@ readiness-card detail or copy. Tauri runtime strings remain French and
 Electron's remain English; this is a product-localization difference, not a
 reason to translate one app during a styling change.
 
+The matched 800px captures also showed Tauri wrapping “Comptes et trackers”
+inside its narrow settings index. The layout now gives the index 205px below
+1100px and uses a 22px column gap. At an 800px window this leaves 517px for
+the main settings pane. A fresh isolated `ux-fixture` preview at 800 × 820 in
+light and dark themes showed all five section names on one line, with the
+assistant settings card and its controls still visible. The preview used
+mocked desktop commands; no provider or production companion was contacted.
+The production build passed after the change.
+
 The pre-dispatch project prompt was also captured from current builds at both
 sizes and in both themes. Electron's “Project prompt” is an engine-selection
 dialog that names the local repository and opens an interactive CLI console;
