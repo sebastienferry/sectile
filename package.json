@@ -17,7 +17,8 @@
     "test:ui": "vitest run",
     "prepare:services": "node scripts/build-services.mjs",
     "licenses:javascript": "node scripts/generate-js-notices.mjs",
-    "test:services": "node scripts/test-local-services.mjs"
+    "test:services": "node scripts/test-local-services.mjs",
+    "test:fleet-crash": "node scripts/test-fleet-crash.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

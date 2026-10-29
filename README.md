@@ -407,6 +407,17 @@ start marker before interruption, absence of the delayed file after 95 seconds,
 and resumption of the same conversation. Any required Bash approval is granted
 only once and only when the requested command exactly matches the test command.
 
+For a Fleet agent crash test with either or both signed-in CLIs, run
+`npm run test:fleet-crash` with `SECTILE_TEST_REAL_CODEX=1` and/or
+`SECTILE_TEST_REAL_CLAUDE=1`. Set `SECTILE_TEST_SERVER_BINARY` to a disposable
+Go server build whose `internal/localruntime.Port` and `Origin` use an unused
+loopback port; keep the shipped fixed-port binaries unchanged. The test creates
+an isolated server, account, agent and Git folder, kills only that agent during
+an active 90-second shell tool, and checks after 95 seconds that the delayed
+file is absent. It restarts the agent and verifies history, model, mode,
+contextual response, a new tool call, and no replay of the interrupted tool.
+The test requires a Unix host and removes its temporary runtime data afterward.
+
 ## Read conversation output
 
 The conversation follows new output while you stay near the bottom. Scroll up
