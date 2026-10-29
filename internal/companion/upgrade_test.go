@@ -1,6 +1,7 @@
 package companion
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -35,6 +36,14 @@ func TestUpgradeRecoversEveryDurableBoundaryAndPreservesIdentity(t *testing.T) {
 			if err = writeDurable(root, "installation.json", Installation{Port: 59999, Key: "01234567890123456789012345678901", Token: token, DeviceID: credential.ID, UserID: user}); err != nil {
 				t.Fatal(err)
 			}
+			originalDatabase, err := os.ReadFile(filepath.Join(root, "server", "tasks.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			originalInstallation, err := os.ReadFile(filepath.Join(root, "installation.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
 			originalKey, err := os.ReadFile(filepath.Join(root, "server", "secret.key"))
 			if err != nil {
 				t.Fatal(err)
@@ -48,6 +57,28 @@ func TestUpgradeRecoversEveryDurableBoundaryAndPreservesIdentity(t *testing.T) {
 			})
 			if !errors.Is(err, simulated) {
 				t.Fatalf("checkpoint %s returned %v", stage, err)
+			}
+			selectionPath := filepath.Join(root, "runtime-selection.json")
+			if stage == "prepared" || stage == "source_stopped" || stage == "backup_verified" || stage == "validated" {
+				if _, statErr := os.Stat(selectionPath); !os.IsNotExist(statErr) {
+					t.Fatalf("pre-commit checkpoint %s unexpectedly committed runtime selection: %v", stage, statErr)
+				}
+				sourceDatabase, readErr := os.ReadFile(filepath.Join(root, "server", "tasks.db"))
+				if readErr != nil || !bytes.Equal(sourceDatabase, originalDatabase) {
+					t.Fatalf("pre-commit source database changed at %s: %v", stage, readErr)
+				}
+				sourceInstallation, readErr := os.ReadFile(filepath.Join(root, "installation.json"))
+				if readErr != nil || !bytes.Equal(sourceInstallation, originalInstallation) {
+					t.Fatalf("pre-commit source installation changed at %s: %v", stage, readErr)
+				}
+			} else {
+				if _, statErr := os.Stat(selectionPath); statErr != nil {
+					t.Fatalf("post-commit checkpoint %s lost runtime selection: %v", stage, statErr)
+				}
+				selected, readErr := readInstallation(filepath.Join(root, generation))
+				if readErr != nil || selected.Token != token || selected.UserID != user {
+					t.Fatalf("post-commit candidate unavailable at %s: %v", stage, readErr)
+				}
 			}
 			if err = Upgrade(context.Background(), root, "", ""); err != nil {
 				t.Fatal(err)
