@@ -372,3 +372,7 @@ unchanged. Free conversation titles persist with local run histories. See
 [ADR 0065](docs/adrs/0065-desktop-project-profiles-and-conversation-titles.md).
 
 The isolated desktop companion uses the Go-owned loopback origin `http://127.0.0.1:52963`. Register `http://127.0.0.1:52963/auth/jira/callback` in the Atlassian OAuth application. `sectile-server --local-runtime-info` exposes the public transport contract without opening the database; ordinary web and Electron deployments keep their configured ports and callbacks. See [desktop OAuth](docs/desktop-oauth.md).
+
+## Local/Fleet runtime evolution
+
+[Phase 0 runtime contracts](docs/desktop-runtime-contracts.md) and [ADR 0066](docs/adrs/0066-compose-a-local-companion-without-changing-fleet.md) record the approved separate Local companion, shared backend extraction and Fleet compatibility boundaries. This is an implementation plan: the current server/agent topology and configured OAuth remain functional. The product-level V1 roadmap is maintained in the Tauri repository at `docs/sectile-v1-migration-plan.md`.

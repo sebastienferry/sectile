@@ -311,3 +311,7 @@
 
 ### Jira OAuth must discover tracker sources (2026-10-29)
 - `ConfiguredJiraSites` must read `trackers.site` as well as legacy `projects.tracker_url`. Native onboarding can configure a source before linking it to a project; checking only legacy project fields accepts the OAuth exchange but rejects a valid grant with `no_site`. Forge OAuth already reads the tracker table.
+
+### Approved Local/Fleet composition (2026-10-29)
+- Phase 0 records contracts in `docs/desktop-runtime-contracts.md` and ADR 0066. Keep `cmd/agent` free of DB/handlers/SQLite; compose backend and agent in a separate Local executable, initially retaining HTTP/WebSocket. Do not weaken dependency tests to merge the binaries.
+- Current OAuth must remain functional through migration, including reconnect/refresh. Local/Fleet topology and tracker auth are separate choices. Lifetime ownership precedes DB open/recovery; migration snapshots cannot be automatically restored after commit/external effects. These are design gates, not implemented guarantees.
