@@ -149,10 +149,13 @@ about 40.7 MiB RSS against 55.7 MiB combined server/agent phase 0 medians. The
 Tauri desktop process is excluded, so this is not a total application memory
 claim. The debug `.app` measured 133.1 MiB versus 92.9 MiB at phase 0, mainly
 because the upgrade build still bundles both legacy migration executables. An
-unsigned release app measures 101.70 MiB and includes the companion and both
-legacy binaries. Cold native startup, signed release artifact size, explicit
+unsigned release app measures 101.72 MiB and includes the companion and both
+legacy binaries. One isolated cold-start sample is recorded in the runtime plan;
+repeated startup and a signed release artifact remain unqualified. Explicit
 old/new Fleet protocol fixtures, a remote Fleet session, and a post-migration
-Electron live MCP call remain unqualified. See
+Electron live MCP call remain unqualified. The Sectile MCP connector was retried
+read-only on 2026-10-29 and returned `connection closed: client is closing`; this
+does not qualify the post-migration MCP call. See
 [the runtime plan](local-fleet-runtime-plan.md) for the scope of this evidence.
 
 ### Stage 5 compatibility evidence
