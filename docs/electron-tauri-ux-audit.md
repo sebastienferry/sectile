@@ -672,4 +672,8 @@ paused for agent restart” after the companion was stopped. Go commit
 `554374b2` records whether a turn was actually in progress at shutdown and
 emits that notice only for an interrupted turn. Focused restart tests and the
 full agent/companion package suites pass. The observed bundle predates this
-fix; the corrected native transcript has not yet been retaken.
+fix. A fresh isolated native bundle with Go `554374b2` then completed a Codex
+turn with `IDLE_FIRST_OK`. After quitting the desktop and stopping its
+companion, reopening restored the project folder, completed answer,
+`gpt-6-astra` model and Execution mode. The transcript remained Ready and
+contained no false restart-pause notice.

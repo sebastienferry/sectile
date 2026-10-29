@@ -231,8 +231,13 @@ Latest unsigned package check (2026-10-29): the Tauri application code from
 fixed port 52963, 52 license files, `goDirty: false` and
 `releaseEligible: false`. DMG SHA-256:
 `25c65d90105d064b114daa16877647017ad2e694a0135d62f74173014481809b`.
-The transcript correction passes the full Go agent and companion package
-suites; this refreshed bundle has not had a native transcript retake.
+An isolated native app using the same Go commit completed an idle Codex turn,
+then restored its project folder, answer, `gpt-6-astra` model and Execution
+mode after the desktop and companion were stopped. No false pause notice
+appeared in the restored transcript. This checks the restart UX fix; it is
+not a signed installation or an upgrade from a released version. The
+transcript correction also passes the full Go agent and companion package
+suites.
 
 Electron source regression refresh (2026-10-29): Go branch `fe3a98c8`
 remained clean while the Electron source passed its 315 unit tests, 137 UI
