@@ -125,7 +125,7 @@ attachment path that could replace an already selected Fleet identity. Stage 5 r
 Fleet/Electron compatibility matrix,
 supported versions, other-platform migration and measured process/memory/startup
 and package behavior. An unsigned optimized macOS `.app` has now been measured
-at 101.69 MiB; cold startup and signed release artifact measurements remain
+at 101.70 MiB on a fresh optimized build of the current Tauri commit; cold startup and signed release artifact measurements remain
 open. Do not claim stages 6-8 complete or infer that this branch constitutes a
 V1 release.
 
@@ -140,7 +140,7 @@ about 40.7 MiB RSS against 55.7 MiB combined server/agent phase 0 medians. The
 Tauri desktop process is excluded, so this is not a total application memory
 claim. The debug `.app` measured 133.1 MiB versus 92.9 MiB at phase 0, mainly
 because the upgrade build still bundles both legacy migration executables. An
-unsigned release app measures 101.69 MiB and includes the companion and both
+unsigned release app measures 101.70 MiB and includes the companion and both
 legacy binaries. Cold native startup, signed release artifact size, explicit
 old/new Fleet protocol fixtures, a remote Fleet session, and a post-migration
 Electron live MCP call remain unqualified. See

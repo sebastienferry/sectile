@@ -438,7 +438,7 @@ The first cross-surface check slice passes:
 | Tauri Fleet pairing | Native validation, UI tests, and a loopback HTTP contract fixture; bundled agent/companion built from the Go worktree | The fixture verifies the exact pairing route and payload, accepted credential response, expired-code response, incomplete response and backend failure. TLS policy, Go-compatible private settings format and automatic agent startup code are covered by checks. A real remote Fleet pairing and desktop session are not yet qualified. |
 | Existing native Local install | Managed macOS migration verification and real Jira/Claude/Codex/MCP requests | Pass; details above. |
 | Existing Electron/Go Fleet connection | Read-only calls to the existing workstation agent's authenticated `/desktop/status`, `/desktop/version` and `/desktop/projects` routes | The agent reports v0.7.6, connected, no contract error, and 19 projects (2026-10-29). This verifies the existing connection only; no Tauri mode or server data was changed. |
-| macOS release bundle | `npm run tauri -- build --bundles app --no-sign` | Pass; the unsigned release `.app` is 101.69 MiB versus the recorded 133.1 MiB debug app. It still contains the companion (40 MiB), legacy server (36 MiB) and legacy agent (20 MiB) for migration/recovery. This is an unsigned macOS app bundle, not a release artifact or a cross-platform size comparison. |
+| macOS release bundle | `npm run tauri -- build --bundles app --no-sign` | Pass on the current commit (2026-10-29); the unsigned release `.app` is 101.70 MiB versus the recorded 133.1 MiB debug app. It contains about 95 MiB of Go binaries: companion (40 MiB), legacy server (36 MiB) and legacy agent (20 MiB) for migration/recovery. This is an unsigned macOS app bundle, not a release artifact or a cross-platform size comparison. |
 
 The idle Go service process count is now one. At the captured idle sample,
 `sectile-companion` used about 40.7 MiB RSS, compared with the phase 0 server and
@@ -474,7 +474,7 @@ error. They do not redeem a real Fleet code, validate remote TLS deployment, or
 prove a paired workstation's reconnection behavior.
 
 Release bundle measurement (2026-10-29): a clean optimized Tauri build completed
-with signing disabled and produced a 101.69 MiB macOS `.app`. The bundle still
+with signing disabled and produced a 101.70 MiB macOS `.app`. The bundle still
 contains all three Go executables, including the previous two-service pair, so
 the measurement quantifies the current migration-capable package and does not
 claim the final Fleet or V1 distribution size. The active desktop remained open;
