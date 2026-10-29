@@ -2,12 +2,14 @@
 
 Date: 2026-10-29
 Status: product direction and V1 ownership are confirmed. Stages 0-3 are
-delivered on dedicated branches; Stage 4 implementation is present, with Fleet
-setup qualification still open. Stages 5 and 8 are not complete. Stages 6-7
-are complete as product decisions and artifacts. macOS is the V1 target, Linux
-is experimental and Windows is deferred. Web planning remains the V1 owner and
-is unchanged in this release. The scoped UX convergence audit is complete;
-current qualification gaps are listed below. This is not a V1 release.
+delivered on dedicated branches. Stage 4 implementation is complete; managed
+migration recovery qualification remains open. Current-source Fleet pairing
+and native fake-tracker setup are now qualified. Stages 5 and 8 are not
+complete. Stages 6-7 are complete as product decisions and artifacts. macOS is
+the V1 target, Linux is experimental and Windows is deferred. Web planning
+remains the V1 owner and is unchanged in this release. The scoped UX
+convergence audit is complete; current qualification gaps are listed below.
+This is not a V1 release.
 
 ## 1. Product destination
 
@@ -263,8 +265,9 @@ legacy binaries. One initial launch and three process relaunch samples are
 recorded in the runtime plan; repeated true cold-start measurements and a signed
 release artifact remain unqualified; this host has zero valid macOS code-signing
 identities. Real Fleet one-time pairing and a live Electron MCP list-projects
-call have since passed for the tested server/agent combination; native setup
-screens remain unqualified. On Go commit `5f809481`, the full Go suite and
+call have since passed for the tested server/agent combination. A current-source
+Tauri Fleet UI qualification is now recorded in the Stage 5 table below. On Go
+commit `5f809481`, the full Go suite and
 Electron unit/UI suites pass. These are source-level regressions checks, not a
 live current-branch Electron/server session. Cross-version
 tracker/workflow API behavior has passed against an isolated mock; live external
@@ -354,6 +357,7 @@ domain and workspace UI regressions cover the idle-session case.
 | Current Go branch and Electron client suites | On Go commit `df1d846c`, `go test ./...` passes across all packages; `npm --prefix desktop run build`, `npm --prefix desktop test` (315 tests) and `npm --prefix desktop run test:ui` (137 tests) pass on 2026-10-29. The Electron renderer build reports 1.39 MB uncompressed JavaScript (427.72 kB gzip) and a Vite chunk-size warning. | Current-source Go and Electron regression suites pass. Electron UI tests use isolated fixtures and do not qualify a live Electron session against the current Go server or external tracker mutations. The bundle warning is a follow-up optimization candidate, not a release blocker by itself. |
 | Electron 0.7.5 UI to current Go server and agent | On 2026-10-29, the current Electron app was launched with a separate `SECTILE_DESKTOP_DATA_DIR` and a current Go server/agent from commit `df1d846c`. The temporary SQLite database contained one local project/task; the Electron board loaded the task as `ELECTR-1` in New. All processes, credentials and data were isolated and removed after the check. | Pass for Electron connection, project discovery and read-only ticket-board loading against the current Go API. This does not qualify Fleet server setup/reconnect, tracker adapters, execution or full workflow behavior. |
 | Local companion binary from Go `df1d846c` | On 2026-10-29, `npm run test:services` built all three services from a disposable worktree with only the Local runtime port changed to 52965 because 52963 and 52964 were occupied. Isolated startup/profile/pairing/credential/tracker/project/mapping/restart checks used a fake tracker endpoint and temporary data. The Tauri binaries were then restored from clean Go commit `df1d846c`, with the default 52963 contract and `dirty: false` manifest. | Pass for current-source Local onboarding/service contracts on isolated data. This is not live OAuth/tracker/provider execution or native Tauri screen qualification. The existing companion on 52963 remained active; the test port was released. |
+| Current Tauri Fleet UI and current Go backend | Tauri source commit `a75b140` (application code unchanged from `239d7c1`) was packaged with a unique bundle ID and temporary Cargo target. Go commit `df1d846c` ran on port 55460 with a disposable database/account; a loopback fake GitLab endpoint returned a fixture identity. Through native Tauri screens, the test paired Fleet, saved a profile name and fake GitLab token, created a GitLab tracker and linked project, then restarted the Go server. The app reconnected and retained both projects and the tracker. The test app, agent, fake endpoint, server, app data and build target were removed. | Pass for native Fleet pairing, profile and personal credential setup, tracker/project creation and reconnect persistence for this exact source pair on macOS. OAuth was not configured; no real tracker, provider or production backend was contacted. |
 | Claude Code and Codex Local conversations | Go commit `408cd909` in the isolated 52964 test worktree ran real signed-in Claude Code and Codex CLIs in a disposable folder. Both returned responses with tracked tool calls. Each ran a command scheduled to write a marker after 90 seconds; stop was acknowledged, the marker remained absent after 95 seconds, and the same conversation resumed with `RESUME_OK`. The onboarding/restart checks then completed and all test services and data were cleaned up. | Pass for current-source Local provider responses, tool tracking, interruption, surviving-child prevention, same-conversation resume and state retention on this macOS host. This does not exercise a Tauri GUI window or remote tracker writes. |
 | Tauri + Local companion + embedded backend from this branch | Existing macOS managed-install migration; fresh isolated Tauri Local launch from Go `7dea9140` source with a test-only alternate port; native profile, fake tracker/project, folder association, Codex and Claude Code prompts, tool events and MCP connection. An isolated bundle from Go `560f1f4a` plus Tauri `bc48a02` then cold-started on 52964, connected a Local profile, created a folder project with the synthetic `local` tracker and displayed its prompt-ready board without remote tracker controls. Current-source Tauri UI also reattached to the existing Local workspace on the default port. On 2026-10-29, release-bundle inspection found Go resources from dirty test build `c2f38222` configured for 52964 while saved Local installation state expected 52963. The app rejected the mismatch. Restoring all three packaged services and manifest from clean Go commit `df1d846c` made the open UI report the Local companion and execution ready, then reload 12 projects; all service hashes matched. Neither running companion was restarted. | Isolated macOS startup and provider projection pass; default-port app reattachment and artifact mismatch recovery pass. This does not verify a clean default-port cold start or provider execution. The fixed port contract is also covered by Go tests. |
 | Tauri current agent + live Fleet backend | Agent `dev` from Go commit `7dea9140` paired through a temporary one-time code to live server `660-main` (`b8fabf44aa7a`); the local gateway reported connected, `/api/me` matched the pairing owner, and `/api/projects` succeeded. The visual check confirmed Fleet-backed project listing and local-folder/project-link controls. OAuth setup reports unsupported by this Fleet backend version. The workstation page remained at four devices and did not identify a distinct test record, so no existing device was revoked. | Real pairing and authenticated project access pass. The newer isolated visual pairing test verifies Fleet profile email/name hydration in current Tauri; live-backend OAuth support and safe cleanup of a uniquely identified live test device remain open. No tracker writes were attempted |
