@@ -604,3 +604,18 @@ branded icon. Reuse Electron's existing MIT-licensed vector and native icon
 assets for Tauri's bundle and preview, and generate the Tauri platform PNGs
 from the same source. This changes the app identity in the dock and package
 without altering its bundle identifier or user-data path.
+
+The tracker setup screen previously said only that synchronization was
+requested, then dropped the Go activity ID. A live Jira read on the existing
+desktop accepted the request but left an empty board with no completion or
+failure indication. Preserve the activity ID across the Tauri command boundary,
+read its status until terminal, show the result beside its tracker and refresh
+the board after completion. The same path works for Local and Fleet because
+both use the selected Go backend's activity API. The observed desktop used an
+older companion; this UI correction still needs a current-source native run.
+The observed Jira failure was also a credential-policy mismatch: the Local
+companion applied Fleet's server-credential sync rule despite its connected
+installation account having a Jira OAuth grant. Go ADR 0068 now makes Local
+sync read with that identity while preserving the Fleet server-credential
+contract. A simulated Jira OAuth sync and a personal-token GitHub sync pass
+without server credentials; a live Jira recheck remains necessary.

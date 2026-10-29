@@ -780,6 +780,7 @@ body.resizing-sidebar {
 .setup-list { padding: 0; list-style: none; }
 .setup-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; }
 .setup-list small { display: block; color: var(--muted); }
+.setup-list .sync-error { color: var(--danger); }
 
 .oauth-provider { border-top: 1px solid var(--border); margin-top: 20px; padding-top: 12px; }
 .oauth-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }

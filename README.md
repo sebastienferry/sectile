@@ -27,6 +27,10 @@ Self-hosted forge OAuth, OS credential-vault storage, provider-app handoff and
 automatic service upgrades are not implemented.
 The Go server owns tracker authentication and synchronization. Board refresh
 rereads its synchronized data; it does not force a remote tracker synchronization.
+In Local mode, synchronization uses the connected installation account's
+personal token or Jira OAuth grant. Fleet synchronization uses its backend's
+provider-level credential. The tracker setup screen shows completion or failure
+for a requested synchronization.
 There is no independent local task store and no fixture data in the application.
 
 ## Requirements
@@ -86,8 +90,10 @@ Open **Paramètres**, then:
 5. Create a project from a registered tracker, then associate an existing local
    Git repository by absolute path. These are separate operations: a failed path
    association can be retried without duplicating the project.
-6. Use **Synchroniser** for the tracker, then refresh the project's board after
-   synchronization completes. Background tracker synchronization is also enabled.
+6. Use **Synchroniser** for the tracker. Settings follows the Go activity and
+   reports its completion or failure below that source; the project's board
+   refreshes when the activity finishes. Background tracker synchronization is
+   also enabled.
 
 The local profile currently has one identity per installation; its display name
 can be changed. Native setup adds sources and projects; advanced editing and

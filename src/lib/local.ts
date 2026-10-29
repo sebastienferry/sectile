@@ -22,7 +22,9 @@ export const saveLocalCredential = (input: { tracker: string; siteUrl: string; e
 export const createLocalTracker = (input: { name: string; provider: string; site: string; scope: string }) => invoke("create_local_tracker", { input });
 export const createLocalProject = (name: string, trackerId: string) => invoke("create_local_project", { name, trackerId });
 export const chooseProjectFolder = (projectId: string) => invoke<string | null>("choose_project_folder", { projectId });
-export const syncLocalTracker = (trackerId: string) => invoke("sync_local_tracker", { trackerId });
+export interface TrackerSyncActivity { id: string; status: string; summary?: string; error?: string }
+export const syncLocalTracker = (trackerId: string) => invoke<{queued:boolean;activity:TrackerSyncActivity}>("sync_local_tracker", { trackerId });
+export const trackerSyncStatus = (activityId: string) => invoke<TrackerSyncActivity>("tracker_sync_status", { activityId });
 export interface OAuthApp { configured: boolean; clientIdSet?: boolean; secretSet?: boolean; redirectUrl?: string; expectedRedirectUrl: string }
 export const oauthApps = () => invoke<Record<string, OAuthApp>>("oauth_apps");
 export const saveOAuthApp = (provider: string, clientId: string, clientSecret: string) => invoke<void>("save_oauth_app", { provider, clientId, clientSecret });

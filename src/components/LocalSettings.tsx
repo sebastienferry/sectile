@@ -32,6 +32,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
   const [projectName, setProjectName] = useState("");
   const [trackerId, setTrackerId] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [trackerSyncs, setTrackerSyncs] = useState<Record<string,{id:string;active:boolean}>>({});
   const busy = useRef(false);
   const mounted = useRef(true);
   async function refresh() {
@@ -160,7 +161,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
             <button type="submit">Ajouter le tracker</button>
           </fieldset>
         </form> : <p className="muted">Les trackers sont partagés dans Fleet. Demandez à un administrateur du serveur d’enregistrer une nouvelle source.</p>}
-        <ul className="setup-list">{setup.trackers?.map(t => <li key={t.id}><span>{t.name} <small>{t.provider} · {t.scope}</small></span><button disabled={pending} onClick={() => void perform(() => api.syncLocalTracker(t.id), "Synchronisation demandée. Les tickets apparaîtront après traitement.")}>Synchroniser</button></li>)}</ul>
+        <ul className="setup-list">{setup.trackers?.map(t => <li key={t.id}><span>{t.name} <small>{t.provider} · {t.scope}</small>{trackerSyncs[t.id]&&<TrackerSyncResult activityId={trackerSyncs[t.id].id} onFinished={()=>{setTrackerSyncs(previous=>({...previous,[t.id]:{...previous[t.id],active:false}}));void refresh();onChanged();}}/>}</span><button disabled={pending||trackerSyncs[t.id]?.active} onClick={() => void perform(async()=>{const result=await api.syncLocalTracker(t.id);if(!result.activity?.id)throw new Error("Le backend n’a pas fourni de suivi pour cette synchronisation.");setTrackerSyncs(previous=>({...previous,[t.id]:{id:result.activity.id,active:true}}));}, "Synchronisation demandée. Son résultat apparaîtra sous le tracker.")}>Synchroniser</button></li>)}</ul>
       </article></div>
       <div hidden={section !== "projects"}>
       {onConfigureProject && !!setup.projects?.length && <article><h2>Vos projets</h2><div className="profile-list">{setup.projects.map(project=><div className="profile-card" key={project.id}><strong>{project.name}</strong><button onClick={()=>onConfigureProject(project.id)}>Configurer {project.name}</button></div>)}</div></article>}
@@ -185,4 +186,35 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     </>}
     </div></div>
   </section>;
+}
+
+function TrackerSyncResult({activityId,onFinished}:{activityId:string;onFinished:()=>void}) {
+ const [activity,setActivity]=useState<api.TrackerSyncActivity>();
+ const [readError,setReadError]=useState(false);
+ const [retry,setRetry]=useState(0);
+ const finished=useRef(onFinished);
+ finished.current=onFinished;
+ useEffect(()=>{
+  let current=true;
+  let timer:ReturnType<typeof setTimeout>|undefined;
+  async function read(){
+   try{
+    const next=await api.trackerSyncStatus(activityId);
+    if(!current)return;
+    setActivity(next);setReadError(false);
+    if(["completed","failed","canceled"].includes(next.status)){finished.current();return;}
+   }catch{if(current)setReadError(true);return;}
+   timer=setTimeout(()=>void read(),2000);
+  }
+  void read();
+  return()=>{current=false;if(timer)clearTimeout(timer);};
+ },[activityId,retry]);
+ if(readError)return <small className="sync-error" role="alert">Suivi de synchronisation indisponible. <button type="button" onClick={()=>setRetry(value=>value+1)}>Réessayer le suivi</button></small>;
+ if(activity?.status==="failed")return <small className="sync-error" role="alert">Synchronisation échouée{activity.error?` : ${activity.error}`:"."}</small>;
+ if(activity?.status==="canceled")return <small role="status">Synchronisation annulée.</small>;
+ if(activity?.status==="completed"){
+  const count=/^(\d+) .* issues synchronized successfully$/.exec(activity.summary??"");
+  return <small role="status">{count?`${count[1]} ${count[1]==="1"?"ticket synchronisé":"tickets synchronisés"}.`:"Synchronisation terminée."}</small>;
+ }
+ return <small role="status">Synchronisation en cours…</small>;
 }

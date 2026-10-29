@@ -37,6 +37,11 @@ Independent review: [findings and disposition](local-fleet-runtime-review.md).
   This does not require hosting its projects or conversations remotely. Jira's
   documented confidential-client flow would need that service for token refresh
   as well as initial exchange. Implementing such a service is outside this plan.
+- Local tracker synchronization uses the persistent installation identity's
+  personal API token or existing Jira OAuth grant for both manual and scheduled
+  reads. Fleet retains its provider-level server credential. This distinction
+  is recorded in Go ADR 0068; the desktop displays the resulting activity
+  status so a missing or revoked credential is visible.
 - Keep tracker state authoritative, local execution local, and business rules
   shared. Free conversations require no tracker configuration.
 - Phase 0 preserved source, created dedicated branches, recorded contracts and

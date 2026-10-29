@@ -1284,7 +1284,7 @@ pub async fn create_local_project(
     selected_request(&root,Method::POST,"/api/projects",Some(json!({"name":name,"trackers":[{"trackerId":tracker_id}],"defaultTrackerId":tracker_id}))).await
 }
 #[tauri::command]
-pub async fn sync_local_tracker(app: tauri::AppHandle, tracker_id: String) -> Result<(), String> {
+pub async fn sync_local_tracker(app: tauri::AppHandle, tracker_id: String) -> Result<Value, String> {
     if uuid::Uuid::parse_str(&tracker_id).is_err() {
         return Err("Identifiant du tracker invalide".into());
     }
@@ -1297,8 +1297,18 @@ pub async fn sync_local_tracker(app: tauri::AppHandle, tracker_id: String) -> Re
         &format!("/api/trackers/{tracker_id}/sync"),
         Some(json!({})),
     )
-    .await?;
-    Ok(())
+    .await
+}
+
+#[tauri::command]
+pub async fn tracker_sync_status(app: tauri::AppHandle, activity_id: String) -> Result<Value, String> {
+    if uuid::Uuid::parse_str(&activity_id).is_err() {
+        return Err("Identifiant de synchronisation invalide".into());
+    }
+    let state = app.state::<LocalRuntime>();
+    let _lock = state.0.lock().await;
+    let root = root(&app)?;
+    selected_request(&root, Method::GET, &format!("/api/activities/{activity_id}"), None).await
 }
 
 #[cfg(test)]
