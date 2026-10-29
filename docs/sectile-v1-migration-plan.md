@@ -1,8 +1,9 @@
 # Sectile V1.0.0 migration plan
 
 Date: 2026-10-29
-Status: product direction confirmed; phase 0 baseline prepared. No V1 release or
-runtime restructuring has been performed.
+Status: product direction confirmed; Local companion runtime and managed upgrade
+are implemented on dedicated branches. This is not a V1 release: compatibility,
+product inventory, UX convergence and release qualification remain open.
 
 ## 1. Product destination
 
@@ -102,12 +103,20 @@ binary. The already configured OAuth prototype remains supported.
 | 7. Roadmapping separation | Ownership inventory and an agreed external-tool contract | Data/links and remaining clients preserved; deprecations reviewed before removal |
 | 8. V1 release qualification | Agreed support/migration/deprecation boundaries and operational documentation | Release checklist and explicit release approval completed |
 
-Stage 0 is complete. Stage 1 is implemented on the dedicated Go branch, with
-the standalone server consuming the extracted backend package. Stage 2 lifecycle
-primitives and the backend startup gate are in progress; the combined process
-still needs to coordinate readiness and shutdown. The
-current desktop still launches the two-service Local prototype, and no
-installation has been upgraded.
+Stage 0 is complete. Stages 1-3 are implemented on the dedicated Go branch: the
+standalone server consumes the extracted backend package, the companion owns
+backend/agent lifecycle, and real Claude Code, Codex and MCP workflows passed on
+disposable data. The Local Tauri launcher now migrates its managed two-service
+installation into a selected companion generation, preserving the database,
+OAuth key, identities, projects, trackers and idle conversation histories. The
+migration was exercised against the existing desktop installation on macOS;
+Jira verification and native Claude/Codex prompts plus MCP reads succeeded after
+the switch. Stage 4 is implemented for Local migration and launcher selection,
+but its full explicit Local/Fleet connection-identity contract is not yet
+complete. Stage 5 remains open: qualify the Fleet/Electron compatibility matrix,
+supported versions, other-platform migration and measured process/memory/startup
+and package behavior. Do not claim stages 6-8 complete or infer that this branch
+constitutes a V1 release.
 
 Stages 6 and 7 are product-direction work, not authorization to remove existing
 web pages, API routes or domain data during stages 0-5. A headless distribution

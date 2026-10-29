@@ -2,7 +2,8 @@
 
 Date: 2026-10-29
 Status: independently reviewed; separate companion and internal HTTP/WebSocket
-accepted. Phase 0 completed; runtime extraction not started.
+accepted. Phases 0-3 completed. Managed Local migration and native launcher
+switch are implemented and verified on macOS; compatibility qualification remains.
 
 Product roadmap: [Sectile V1.0.0 migration](sectile-v1-migration-plan.md).
 Phase 0 evidence: [baseline and contracts](phase0-runtime-baseline.md).
@@ -29,9 +30,9 @@ Independent review: [findings and disposition](local-fleet-runtime-review.md).
   as well as initial exchange. Implementing such a service is outside this plan.
 - Keep tracker state authoritative, local execution local, and business rules
   shared. Free conversations require no tracker configuration.
-- Phase 0 was authorized to preserve source, create dedicated branches, record
-  contracts and measure the baseline. No runtime refactoring, production service
-  restart or credential/data migration has been performed.
+- Phase 0 preserved source, created dedicated branches, recorded contracts and
+  measured the baseline. The Local runtime migration is now implemented; the
+  Fleet/Electron compatibility matrix and broad rollout qualification remain.
 
 ## Findings from the current implementation
 
@@ -362,14 +363,13 @@ primary agentic board; the headless backend retains API/MCP/auth and required
 business logic. Roadmapping separation and web-client deprecations remain
 independent product lots, not part of phases 0-5.
 
-### Experimental phase 3 checkpoint (2026-10-29)
+### Phase 3 qualification (2026-10-29)
 
 The Go branch now builds `cmd/companion`, composing backend and embedded agent
 in one process against an explicit desktop installation manifest. Profile and
 pairing bootstrap, authenticated readiness, SIGTERM shutdown and relaunch passed
-on disposable data. Tauri still launches the existing two services. Provider
-workflow/crash qualification, complete drain admission, packaging and the
-journaled migration remain pending before switching the desktop launcher.
+on disposable data. The Tauri launcher has since switched to the companion
+through the managed, journaled migration described below.
 
 Combined-process provider qualification (2026-10-29): real Claude Code (`haiku`)
 and Codex (`gpt-6-luna`) free conversations passed execution/tool trace,
@@ -377,7 +377,8 @@ interruption, SIGKILL during a tool and explicit resumption on disposable data.
 History prefixes, context, model and mode survived; both 90-second delayed tools
 remained stopped beyond their deadlines and their counters showed no replay.
 The Go repository records details in `docs/companion-provider-qualification.md`.
-Rendered Tauri switching, real ticket/MCP workflows and migration remain pending.
+Real provider MCP calls from native Tauri are now qualified. Full tracker-ticket
+workflow and Fleet/Electron coexistence matrix remain pending.
 
 Combined MCP workflow qualification (2026-10-29): a fixture-scoped Claude pickup
 workflow completed clarification, OpenSpec specification, implementation and
@@ -385,4 +386,34 @@ review using real `sectile_companion` MCP calls, Git commits/push, unittest and
 MR evidence against a disposable GitLab service. An initial forge validation
 failure remained recorded; resumption reused the accepted stages and MR and
 finished successfully. Details and scope limits are in the Go repository's
-`docs/companion-mcp-workflow-qualification.md`. Launcher switching remains pending.
+`docs/companion-mcp-workflow-qualification.md`.
+
+### Managed Local migration and launcher (2026-10-29)
+
+The migration journals `prepared`, `source_stopped`, `backup_verified`,
+`validated` and `committed` stages. It preserves the existing root as a verified
+backup, adapts a separate candidate generation, and atomically selects the
+candidate. Tests inject a failure at every durable boundary, retry, and verify
+the user/device identity, encrypted credential key and legacy database fence.
+The old two-process installation's server and agent are stopped only after
+authenticated ownership checks; active runs and provider turns refuse migration.
+After commit the old launcher cannot reopen the source database. A corrupt or
+unknown selection fails closed.
+
+The actual macOS Tauri installation migrated successfully. Ten original projects,
+two trackers, the user identity and all 25 prior conversation histories were
+retained. Jira account verification returned HTTP 200. Native folder-only Claude
+Code and Codex prompts completed with visible tool events; their conversations
+then each made a successful real `get_project_context` call over MCP. The app
+starts one idle Go companion. The pre-migration files and binaries remain under
+the private data root for recovery. Electron/Fleet migration and behavior were
+not changed by this operation. Live source-process shutdown has only been
+qualified on macOS; Linux and Windows require the old services to be stopped.
+
+Startup serializes migration and service start. It reads only the generation
+named by the committed selection and never falls back to the legacy root.
+Readiness is awaited before API requests and folder prompts; failed requests
+invalidate readiness so the next request can recover the companion. A new
+companion MCP environment passes the embedded daemon's explicit credential to
+provider children, fixing free-conversation tool calls without changing
+standalone Fleet credential lookup.

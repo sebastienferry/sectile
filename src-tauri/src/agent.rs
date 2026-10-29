@@ -67,8 +67,13 @@ pub(crate) async fn request_agent(
     query: &[(&str, &str)],
     body: Option<Value>,
 ) -> Result<Value, String> {
+    crate::local::resume(&app).await?;
     let connection = connection(&app)?;
-    send_request(&connection, method, route, query, body).await
+    let result = send_request(&connection, method, route, query, body).await;
+    if result.is_err() {
+        crate::local::invalidate(&app);
+    }
+    result
 }
 
 async fn send_request(

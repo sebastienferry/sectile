@@ -20,6 +20,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
+- Local desktop now runs one Go companion for the backend and execution agent. Existing managed installations are upgraded through a verified private backup, with prior conversations, tracker setup and Jira OAuth retained.
 - Add project-scoped folders directly from new prompts and existing conversations, inspect actual run context, detach associations, and configure repository and specification-folder roles natively.
 - Guide tracker tickets through their next workflow skill or configured pickup chain, with fresh-state launch checks, server-confirmed skill results, PR access and explicit review declarations.
 - Group the same tracker tickets by remote status or agentic workflow stage, and inspect run-bound Git diffs with folder selection and workstation editor access.

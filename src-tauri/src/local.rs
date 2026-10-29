@@ -12,7 +12,17 @@ use std::{
 use tauri::Manager;
 
 #[derive(Default)]
-pub struct LocalRuntime(pub tokio::sync::Mutex<()>);
+pub struct LocalRuntime(
+    pub tokio::sync::Mutex<()>,
+    pub std::sync::atomic::AtomicBool,
+    pub tokio::sync::Mutex<()>,
+);
+
+pub fn invalidate(app: &tauri::AppHandle) {
+    app.state::<LocalRuntime>()
+        .1
+        .store(false, std::sync::atomic::Ordering::Release);
+}
 
 #[derive(Serialize, Deserialize)]
 struct Installation {
@@ -22,6 +32,8 @@ struct Installation {
     token: String,
     #[serde(default)]
     device_id: String,
+    #[serde(default)]
+    agent_device_id: String,
     #[serde(default)]
     user_id: String,
     #[serde(default)]
@@ -39,8 +51,26 @@ fn root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .map(|p| p.join("local-runtime"))
         .map_err(|_| "Dossier de données indisponible".into())
 }
+// The committed manifest wins over an interrupted progress journal.
+fn active_root(root: &Path) -> Result<PathBuf, String> {
+    let path = root.join("runtime-selection.json");
+    if !path.exists() {
+        return Ok(root.to_path_buf());
+    }
+    let value: Value =
+        serde_json::from_slice(&fs::read(path).map_err(|_| "Sélection du service illisible")?)
+            .map_err(|_| "Sélection du service invalide")?;
+    if value["protocol"] != 1
+        || value["kind"] != "companion"
+        || value["generation"] != "generations/companion-v1"
+    {
+        return Err("Version du service local incompatible".into());
+    }
+    Ok(root.join("generations/companion-v1"))
+}
+
 pub fn discovery_path(app: &tauri::AppHandle) -> Option<PathBuf> {
-    let root = root(app).ok()?;
+    let root = active_root(&root(app).ok()?).ok()?;
     root.join("installation.json")
         .exists()
         .then(|| root.join("agent-connection.json"))
@@ -63,6 +93,7 @@ fn installation_lock(root: &Path) -> Result<fs::File, String> {
     Ok(file)
 }
 fn read_installation(root: &Path) -> Result<Installation, String> {
+    let root = active_root(root)?;
     let bytes = fs::read(root.join("installation.json"))
         .map_err(|_| "Activez d’abord l’installation locale")?;
     let installation: Installation =
@@ -83,6 +114,7 @@ fn private_dir(path: &Path) -> Result<(), String> {
     Ok(())
 }
 fn save(root: &Path, value: &Installation) -> Result<(), String> {
+    let root = active_root(root)?;
     let path = root.join("installation.next.json");
     let mut options = fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
@@ -180,7 +212,7 @@ fn command(app: &tauri::AppHandle, root: &Path, service: &str) -> Result<Command
 }
 // Discover the fixed transport contract from Go without starting a server or DB.
 fn runtime_info(app: &tauri::AppHandle, root: &Path) -> Result<Value, String> {
-    let output = command(app, root, "server")?
+    let output = command(app, root, "companion")?
         .arg("--local-runtime-info")
         .stdout(Stdio::piped())
         .output()
@@ -212,7 +244,7 @@ async fn probe(installation: &Installation) -> bool {
             .json::<Value>()
             .await
             .ok()
-            .is_some_and(|v| v["protocol"] == 1 && v["ready"] == true),
+            .is_some_and(|v| v["protocol"] == 1 && v["ready"] == true && v["companion"] == true),
         _ => false,
     }
 }
@@ -223,25 +255,41 @@ async fn ensure_server(
 ) -> Result<(), String> {
     let info = runtime_info(app, root)?;
     if info["port"].as_u64() != Some(u64::from(installation.port)) {
-        return Err("Cette installation utilise un ancien port. Une migration du service local est nécessaire avant de démarrer OAuth.".into());
+        return Err("Port local incompatible avec le rappel OAuth enregistré".into());
+    }
+    {
+        let mut upgrade = command(app, root, "companion")?;
+        upgrade
+            .arg("--upgrade")
+            .arg("--data-dir")
+            .arg(root)
+            .arg("--legacy-server")
+            .arg(binary(app, "server")?)
+            .arg("--legacy-agent")
+            .arg(binary(app, "agent")?);
+        let result = tauri::async_runtime::spawn_blocking(move || upgrade.status())
+            .await
+            .map_err(|_| "Migration locale interrompue")?
+            .map_err(|_| "Impossible de préparer la migration locale")?;
+        if !result.success() {
+            return Err("Migration locale suspendue. Terminez les exécutions actives, puis réessayez. Les données d’origine sont conservées ; consultez companion.log.".into());
+        }
     }
     if probe(installation).await {
         return Ok(());
     }
-    // Never attach to an unrelated listener or silently change the agent's server URL.
-    let reservation = TcpListener::bind(("127.0.0.1", installation.port)).map_err(|_| "Le port local est occupé par une autre instance. Redémarrez le service ou l’application.")?;
-    let data = root.join("server");
-    private_dir(&data)?;
-    let mut cmd = command(app, root, "server")?;
-    cmd.env("PORT", installation.port.to_string())
-        .env("SECTILE_SERVER_HOST", "127.0.0.1")
-        .env("SECTILE_SERVER_DATA_DIR", &data)
-        .env("DB_PATH", data.join("tasks.db"))
-        .env("SECTILE_LOCAL_RUNTIME_KEY", &installation.key);
+    let data = active_root(root)?;
+    let reservation = TcpListener::bind(("127.0.0.1", installation.port))
+        .map_err(|_| "Le port local est occupé par un autre service")?;
+    let mut cmd = command(app, root, "companion")?;
+    cmd.arg("--data-dir")
+        .arg(&data)
+        .env("SECTILE_LOCAL_RUNTIME_KEY", &installation.key)
+        .env("SECTILE_COMPANION_MCP_URL", installation.url());
     drop(reservation);
     let mut child = cmd
         .spawn()
-        .map_err(|_| "Impossible de démarrer le serveur Go")?;
+        .map_err(|_| "Impossible de démarrer le compagnon Go")?;
     for _ in 0..120 {
         if probe(installation).await {
             std::thread::spawn(move || {
@@ -251,23 +299,21 @@ async fn ensure_server(
         }
         if child
             .try_wait()
-            .map_err(|_| "État du serveur indisponible")?
+            .map_err(|_| "État du compagnon indisponible")?
             .is_some()
         {
-            return Err(
-                "Le serveur Go s’est arrêté. Consultez server.log dans le dossier local.".into(),
-            );
+            return Err("Le compagnon Go s’est arrêté. Consultez companion.log.".into());
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
     let _ = child.kill();
     let _ = child.wait();
-    Err(
-        "Le serveur local ne répond pas au protocole attendu. Vérifiez la version des services Go."
-            .into(),
-    )
+    Err("Le compagnon local ne répond pas. Consultez companion.log.".into())
 }
 async fn agent_ready(root: &Path, installation: &Installation) -> bool {
+    let Ok(root) = active_root(root) else {
+        return false;
+    };
     let Ok(bytes) = fs::read(root.join("agent-connection.json")) else {
         return false;
     };
@@ -300,51 +346,27 @@ async fn agent_ready(root: &Path, installation: &Installation) -> bool {
     }
 }
 async fn ensure_agent(
-    app: &tauri::AppHandle,
+    _app: &tauri::AppHandle,
     root: &Path,
     installation: &Installation,
 ) -> Result<(), String> {
-    if installation.token.is_empty() || agent_ready(root, installation).await {
+    if installation.token.is_empty() {
         return Ok(());
     }
-    let data = root.join("agent");
-    private_dir(&data)?;
-    let mut cmd = command(app, root, "agent")?;
-    cmd.args([
-        "--url",
-        &installation.url(),
-        "--project",
-        "all",
-        "--desktop-info",
-    ])
-    .arg(root.join("agent-connection.json"))
-    .env("TOKEN", &installation.token)
-    .env("SECTILE_PAIRED_DEVICE_ID", &installation.device_id)
-    .env("SECTILE_DESKTOP_DATA_DIR", &data)
-    .env("SECTILE_DISABLE_MCP_REFRESH", "1")
-    .env("SECTILE_COMPANION_MCP_URL", installation.url());
-    let mut child = cmd
-        .spawn()
-        .map_err(|_| "Impossible de démarrer l’agent Go")?;
-    for _ in 0..100 {
+    for _ in 0..150 {
         if agent_ready(root, installation).await {
-            std::thread::spawn(move || {
-                let _ = child.wait();
-            });
-            return Ok(());
-        }
-        if child
-            .try_wait()
-            .map_err(|_| "État de l’agent indisponible")?
-            .is_some()
-        {
-            return Err("L’agent Go s’est arrêté. Consultez agent.log.".into());
+            let ready = client()?
+                .get(format!("{}/api/ready", installation.url()))
+                .timeout(Duration::from_secs(2))
+                .send()
+                .await;
+            if ready.is_ok_and(|response| response.status().is_success()) {
+                return Ok(());
+            }
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    let _ = child.kill();
-    let _ = child.wait();
-    Err("L’agent local n’est pas prêt. Vérifiez agent.log.".into())
+    Err("L’agent intégré n’est pas prêt. Consultez companion.log.".into())
 }
 async fn request(
     installation: &Installation,
@@ -382,7 +404,10 @@ async fn request(
 
 pub async fn resume(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<LocalRuntime>();
-    let _lock = state.0.lock().await;
+    let _lock = state.2.lock().await;
+    if state.1.load(std::sync::atomic::Ordering::Acquire) {
+        return Ok(());
+    }
     let root = root(app)?;
     if !root.join("installation.json").exists() {
         return Ok(());
@@ -390,7 +415,9 @@ pub async fn resume(app: &tauri::AppHandle) -> Result<(), String> {
     let _installation_lock = installation_lock(&root)?;
     let installation = read_installation(&root)?;
     ensure_server(app, &root, &installation).await?;
-    ensure_agent(app, &root, &installation).await
+    ensure_agent(app, &root, &installation).await?;
+    state.1.store(true, std::sync::atomic::Ordering::Release);
+    Ok(())
 }
 #[tauri::command]
 pub async fn enable_local_runtime(app: tauri::AppHandle) -> Result<(), String> {
@@ -399,7 +426,8 @@ pub async fn enable_local_runtime(app: tauri::AppHandle) -> Result<(), String> {
     let root = root(&app)?;
     private_dir(&root)?;
     let _installation_lock = installation_lock(&root)?;
-    // Check both resources before activating a new installation.
+    // Keep legacy resources available for verified migration and recovery.
+    binary(&app, "companion")?;
     binary(&app, "server")?;
     binary(&app, "agent")?;
     if !root.join("installation.json").exists() {
@@ -412,6 +440,7 @@ pub async fn enable_local_runtime(app: tauri::AppHandle) -> Result<(), String> {
                 key: uuid::Uuid::new_v4().to_string(),
                 token: String::new(),
                 device_id: String::new(),
+                agent_device_id: String::new(),
                 user_id: String::new(),
                 email: String::new(),
             },
@@ -431,14 +460,18 @@ pub async fn local_setup_status(app: tauri::AppHandle) -> Result<Value, String> 
     }
     let installation = read_installation(&root)?;
     if !probe(&installation).await {
-        return Ok(json!({"enabled":true,"ready":false,"dataDirectory":root}));
+        let _installation_lock = installation_lock(&root)?;
+        ensure_server(&app, &root, &installation).await?;
+        ensure_agent(&app, &root, &installation).await?;
     }
     if installation.token.is_empty() {
-        return Ok(json!({"enabled":true,"ready":true,"signedIn":false,"dataDirectory":root}));
+        return Ok(
+            json!({"enabled":true,"ready":true,"signedIn":false,"dataDirectory":active_root(&root)?}),
+        );
     }
     Ok(
         json!({"enabled":true,"ready":true,"signedIn":true,"agentReady":agent_ready(&root,&installation).await,
-        "dataDirectory":root,
+        "dataDirectory":active_root(&root)?,
         "profile":request(&installation,Method::GET,"/api/me",None).await?,
         "credentials":request(&installation,Method::GET,"/api/me/tracker-credentials",None).await?,
         "trackers":request(&installation,Method::GET,"/api/trackers",None).await?,
@@ -618,6 +651,7 @@ mod tests {
             key: uuid::Uuid::new_v4().to_string(),
             token: "private-test-token".into(),
             device_id: "device".into(),
+            agent_device_id: String::new(),
             user_id: "user".into(),
             email: "test@example.invalid".into(),
         };
@@ -833,6 +867,7 @@ mod oauth_url_tests {
             key: uuid::Uuid::new_v4().to_string(),
             token: String::new(),
             device_id: String::new(),
+            agent_device_id: String::new(),
             user_id: String::new(),
             email: String::new(),
         };
@@ -901,6 +936,7 @@ pub async fn choose_project_folder(
 
 #[tauri::command]
 pub async fn open_folder_project(app: tauri::AppHandle) -> Result<Option<Value>, String> {
+    resume(&app).await?;
     let Some(path) = pick_project_folder(&app).await? else {
         return Ok(None);
     };
@@ -972,5 +1008,53 @@ mod oauth_privacy_tests {
         assert!(state.get("clientId").is_none());
         assert!(!state.to_string().contains("private-client-id"));
         assert!(!state.to_string().contains("must-never-cross-ipc"));
+    }
+}
+
+#[cfg(test)]
+mod generation_tests {
+    use super::*;
+
+    #[test]
+    fn committed_generation_owns_reads_and_profile_writes() {
+        let root = std::env::temp_dir().join(format!("sectile-selection-{}", uuid::Uuid::new_v4()));
+        private_dir(&root).unwrap();
+        let mut installation = Installation {
+            port: 52963,
+            key: "01234567890123456789012345678901".into(),
+            token: "old-token".into(),
+            device_id: "device".into(),
+            agent_device_id: String::new(),
+            user_id: "user".into(),
+            email: "owner@example.com".into(),
+        };
+        save(&root, &installation).unwrap();
+        let original = fs::read(root.join("installation.json")).unwrap();
+        let candidate = root.join("generations/companion-v1");
+        private_dir(&candidate).unwrap();
+        fs::write(candidate.join("installation.json"), &original).unwrap();
+        fs::write(
+            root.join("runtime-selection.json"),
+            r#"{"protocol":1,"kind":"companion","generation":"generations/companion-v1"}"#,
+        )
+        .unwrap();
+        installation.token = "new-token".into();
+        save(&root, &installation).unwrap();
+        assert_eq!(read_installation(&root).unwrap().token, "new-token");
+        assert_eq!(fs::read(root.join("installation.json")).unwrap(), original);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_selection_never_falls_back_to_the_source() {
+        let root = std::env::temp_dir().join(format!("sectile-selection-{}", uuid::Uuid::new_v4()));
+        private_dir(&root).unwrap();
+        fs::write(
+            root.join("runtime-selection.json"),
+            r#"{"protocol":1,"kind":"companion","generation":"../../other"}"#,
+        )
+        .unwrap();
+        assert!(active_root(&root).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 }

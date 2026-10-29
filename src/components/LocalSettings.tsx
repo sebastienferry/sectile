@@ -85,10 +85,10 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     <div hidden={section !== "engines"}><ProviderSettings projects={setup?.projects??[]} /></div>
     <div hidden={section !== "services"}><article>
       <h2>Services locaux</h2>
-      <p>{!setup?.enabled ? "Vous utilisez actuellement l’agent Sectile existant. Activez une installation distincte pour tout configurer depuis ce desktop." : setup.ready ? `Serveur prêt · ${setup.agentReady ? "agent prêt" : "agent en attente du profil ou à redémarrer"}` : "Le serveur local ne répond pas."}</p>
+      <p>{!setup?.enabled ? "Vous utilisez actuellement l’agent Sectile existant. Activez une installation distincte pour tout configurer depuis ce desktop." : setup.ready ? `Compagnon prêt · ${setup.agentReady ? "exécution prête" : "en attente du profil"}` : "Le compagnon local ne répond pas."}</p>
       {setup?.dataDirectory && <p className="muted runtime-path">{setup.dataDirectory}</p>}
-      <p className="muted">Les services démarrent automatiquement après activation. Ils continuent en arrière-plan lorsque vous fermez le desktop, pour laisser les tâches se terminer.</p>
-      <button disabled={pending} onClick={() => void perform(api.enableLocalRuntime, "Démarrage local vérifié.")}>{setup?.enabled ? "Vérifier / démarrer les services" : "Activer l’installation locale"}</button>
+      <p className="muted">Le compagnon démarre automatiquement. Il continue en arrière-plan lorsque vous fermez le desktop, pour laisser les tâches se terminer.</p>
+      <button disabled={pending} onClick={() => void perform(api.enableLocalRuntime, "Démarrage local vérifié.")}>{setup?.enabled ? "Vérifier / démarrer le compagnon" : "Activer l’installation locale"}</button>
       <button disabled={pending} onClick={() => void perform(async () => {}, "Configuration actualisée.")}>Actualiser</button>
     </article></div>
     <div hidden={section !== "profile"}>{setup?.ready && <article>
