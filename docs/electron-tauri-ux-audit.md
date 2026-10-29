@@ -952,3 +952,20 @@ through local launch/dispatch correlation, while preserving rejection of other
 connections and legacy Electron behavior. Do not enable approval buttons by
 dropping the connection check. Verify approvals and tool activity with the
 real native fixture after fixing this path.
+
+Go `fdffed9a` added race-safe correlation in either arrival order. Its first
+native retake exposed a response-contract mistake: `activity.id` is the launch
+activity, not the dispatched execution. Go `920e313f` adds an explicit `runId`
+to the server response and uses only that field for correlation. A handler test
+compares it with the real websocket dispatch and proves that the launch activity
+has a different ID. Agent tests cover both arrival orders, mismatched project,
+task or run, expiry, another desktop connection and legacy Electron access;
+the targeted tests also pass with the race detector. The full agent suite passed
+before the response-field correction; targeted agent and handler tests pass
+after it. An older Fleet server without this response field does not qualify
+for interactive Tauri tracker workflows.
+
+The next native run on the same issue had a connection-bound conversation and
+enabled **Allow once**. The test approved `get_project_context`, `get_task` and
+`start_run` from the desktop, and each completed in the grouped tool transcript.
+The skill's final result and stage transition are still under verification.
