@@ -984,3 +984,13 @@ implementation and review chain. Follow-up lifecycle guidance should avoid
 restarting a completed run after an owner-confirmation round.
 The fixture issue was deleted and GitHub returned HTTP 410. The isolated app,
 companion, worktrees and private data were removed after qualification.
+
+Go `84e19b1b` corrects that later-round guidance in both the launch prompt and
+the MCP `start_run` description: reuse the launcher's ID only while queued or
+running; a later invocation after completion omits `runId` and reports with the
+newly returned ID, even if the inherited `SECTILE_RUN_ID` still names the first
+run. The terminal-run refusal remains in force. A database regression proves
+that the suggested new invocation gets a distinct running ID while its earlier
+canceled run stays canceled. Targeted agent command/conversation, database
+lifecycle and MCP start/finish tests pass. This is a source guidance correction;
+provider compliance in a new native continuation remains to be retaken.
