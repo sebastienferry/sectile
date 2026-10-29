@@ -19,7 +19,15 @@ func StopTree(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return fmt.Errorf("provider has no process")
 	}
-	root := cmd.Process.Pid
+	return StopProcessTree(cmd.Process.Pid)
+}
+
+// StopProcessTree terminates a process and every descendant, including tools
+// that leave the process group their parent started in.
+func StopProcessTree(root int) error {
+	if root <= 0 {
+		return fmt.Errorf("process has no valid ID")
+	}
 	if err := syscall.Kill(root, syscall.SIGSTOP); err != nil {
 		return err
 	}

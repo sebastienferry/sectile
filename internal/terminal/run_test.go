@@ -2,10 +2,33 @@ package terminal
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestCloseSessionStopsCommandDescendants(t *testing.T) {
+	requirePosixShell(t)
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "marker")
+	m := NewManager()
+	if _, err := m.GetOrCreateSession("stop-tree", dir, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.InjectLine("stop-tree", "sleep 2; printf escaped > "+marker); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if err := m.CloseSession("stop-tree"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2200 * time.Millisecond)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("a command descendant wrote after its session closed: %v", err)
+	}
+}
 
 // Un pas du workflow doit vraiment tourner dans la session, et son code de
 // sortie doit remonter : c'est lui qui décide si l'étape a réussi.

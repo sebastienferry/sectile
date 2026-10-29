@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"tasks/internal/agentexec"
 	"tasks/internal/runner"
 
 	xpty "github.com/aymanbagabas/go-pty"
@@ -276,7 +277,10 @@ func (m *Manager) CloseSession(sessionID string) error {
 		_ = sess.Pty.Close()
 	}
 	if sess.Cmd != nil && sess.Cmd.Process != nil {
-		_ = sess.Cmd.Process.Kill()
+		if err := agentexec.StopProcessTree(sess.Cmd.Process.Pid); err != nil {
+			_ = sess.Cmd.Process.Kill()
+		}
+		go func() { _ = sess.Cmd.Wait() }()
 	}
 
 	sess.clientsMu.Lock()

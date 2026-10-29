@@ -5,6 +5,7 @@ package agentexec
 import (
 	"io"
 	"os/exec"
+	"reflect"
 	"testing"
 	"time"
 
@@ -46,6 +47,17 @@ func TestHiddenKeepsAnExistingProcessGroup(t *testing.T) {
 	flags := cmd.SysProcAttr.CreationFlags
 	if flags&windows.CREATE_NEW_PROCESS_GROUP == 0 || flags&windows.CREATE_NO_WINDOW == 0 {
 		t.Fatalf("hidden detached child lost a flag: %#x", flags)
+	}
+}
+
+func TestStopProcessTreeCommandHidesItsConsole(t *testing.T) {
+	cmd := stopProcessTreeCommand(42)
+	if cmd.SysProcAttr == nil || cmd.SysProcAttr.CreationFlags&windows.CREATE_NO_WINDOW == 0 {
+		t.Fatal("stopping a PTY process tree would open a console window")
+	}
+	want := []string{"taskkill", "/PID", "42", "/T", "/F"}
+	if !reflect.DeepEqual(cmd.Args, want) {
+		t.Fatalf("stop command args = %#v, want %#v", cmd.Args, want)
 	}
 }
 
