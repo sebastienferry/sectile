@@ -1,7 +1,7 @@
 # V1 desktop support matrix (candidate)
 
 This matrix records what the migration branch has demonstrated as of
-2026-10-29. It is not a release announcement. A V1 release must name its exact
+2026-10-30. It is not a release announcement. A V1 release must name its exact
 Tauri and Go commits, publish signed macOS artifacts, and repeat the release
 binary checks in the [release checklist](v1-release-checklist.md).
 
@@ -25,6 +25,16 @@ binary checks in the [release checklist](v1-release-checklist.md).
 | Existing MCP clients with the tested current/v0.7.6 server-agent pairings | The binary harness passed its 21-tool contract and read-only STDIO bridge call in both directions. | This does not qualify every MCP client registration, provider-specific consent or remote mutation. |
 
 ## Product ownership and updates
+
+Interactive Tauri tracker conversations require Go server/agent `920e313f` or
+a separately qualified successor: the task launch response must expose the
+dispatched `runId`, and the agent must correlate that run with the initiating
+desktop connection in either dispatch/response order. Older Fleet servers
+without this field do not qualify for this interaction. The isolated native
+retake on Tauri `0711eb8` approved real project/ticket reads, run registration
+and a clarification comment on GitHub `sectile` issue `#899`. The final workflow
+stage and full chain are still under verification; this is not a general
+tracker-workflow support claim.
 
 Tauri is the intended V1 desktop for operational boards, prompts and agentic
 execution. The current web app remains the V1 owner of product planning and is
