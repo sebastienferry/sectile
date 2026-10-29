@@ -118,6 +118,17 @@ and live service/provider qualifications are recorded in the migration plan;
 they cover only the named source pairings and operations, not every Fleet,
 Electron, OAuth or external tracker combination.
 
+The 2026-10-29 source refresh at Go `45940914` and Tauri `c08db18` passes
+`go test ./...`, Electron build, 315 unit tests and 137 UI tests, and Tauri
+TypeScript check, production build, 15 domain tests, 127 UI tests and 36 Rust
+tests. The v0.7.6/current binary harness also passes in both directions:
+27 agent operations, 21 MCP tools, STDIO bridge reads, task/run lifecycle,
+task-spec worktrees and mocked personal-token tracker creation and transition.
+The Electron renderer build is 1,392.14 kB JavaScript (428.06 kB gzip) and
+retains its chunk-size warning. These are source and fixture checks; the
+release-binary, external OAuth, live native tracker write and signing gates
+remain open.
+
 Current-source Local provider qualification (2026-10-29): Tauri commit
 `ecac630` ran `npm run test:services` with all three services built from Go
 commit `5274a160` in a disposable worktree whose only source difference was a
