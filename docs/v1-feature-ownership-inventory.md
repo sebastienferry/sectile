@@ -39,6 +39,20 @@ delete an API, page, database field, or client.
 - An external roadmap tool is not selected. No planning data is to be deleted,
   copied unidirectionally, or made inaccessible while this decision is open.
 
+## Client transition paths
+
+| Current consumer | Transition path | Exit gate before removal or default change |
+| --- | --- | --- |
+| Sectile web application | Continue using the regular Go server, which keeps serving the current web UI and its planning views. The optional headless build is a separate artifact and does not replace this server. | Choose the roadmap destination and data/link contract; publish a support window; verify web users can reach or export every retained planning object. |
+| Sectile Electron desktop | Keep its current backend, agent and MCP registrations working while Tauri becomes the primary desktop for operational work. Do not copy credentials or switch a shared MCP registration during Tauri onboarding. | Pass the supported Electron/server/agent matrix, verify a live Electron MCP call after the Tauri migration, then announce a deprecation and support window. |
+| Sectile Tauri Local | Run the Go companion as the local API/MCP/backend and execution service. Keep the project database, OAuth records, identity and conversations in the selected Local installation. | Complete upgrade recovery, provider interruption/resume, local tracker/OAuth and packaged platform qualification. |
+| Sectile Tauri Fleet | Use the explicitly selected Fleet server through its paired or already-paired local agent. Keep remote API/MCP/auth and business state on that backend. | Complete real one-time pairing, native profile/project setup and supported remote Fleet reconnect/outage checks. |
+| Third-party MCP clients | Continue using the current Go MCP/API contracts. The new headless server omits the browser surface only; it does not remove tools or alter caller authorization. | Publish a version compatibility matrix and prove every retained tool against the supported server versions before changing a contract. |
+
+These paths keep current clients usable while the product destination is
+implemented. They do not select the external roadmap product or set final
+deprecation dates; those remain Stage 7/8 decisions.
+
 ## Incoherences to resolve in Tauri
 
 These are concrete UI ownership or information-architecture issues found in the

@@ -4,7 +4,8 @@ Date: 2026-10-29
 Status: product direction confirmed; Local companion runtime and managed upgrade
 are implemented on dedicated branches. Stage 5 compatibility qualification is
 underway. The Stage 6 headless server build is implemented, and the Stage 6/7
-feature ownership inventory is recorded. Client migration, roadmapping and UX
+feature ownership inventory and interim client transition paths are recorded.
+Compatibility gates, final client support windows, roadmapping and UX
 convergence decisions remain open. This is not a V1 release.
 
 ## 1. Product destination
@@ -224,9 +225,11 @@ web pages, API routes or domain data during stages 0-5. The current client and
 feature ownership evidence is recorded in
 [the V1 feature ownership inventory](v1-feature-ownership-inventory.md). It
 identifies the existing web/Electron planning and operational capabilities and
-the current Tauri components, but does not select a replacement roadmapping
-tool or grant authority to deprecate any client. A headless distribution can
-omit website assets without immediately deleting the current web server.
+the current Tauri components, and documents interim transition paths for web,
+Electron, Tauri Local/Fleet and MCP clients. It does not select a replacement
+roadmapping tool or grant authority to deprecate any client. A headless
+distribution can omit website assets without immediately deleting the current
+web server.
 
 Stage 6 headless server slice (2026-10-29): Go commit `7dea9140` adds the
 `sectile_headless` build tag and `make build-server-headless`. The default Fleet
@@ -234,9 +237,10 @@ server build still embeds the web application. Default and headless server/UI
 tests pass; the headless binary passed an isolated runtime smoke and Linux and
 Windows amd64 cross-builds. A second isolated smoke confirmed `POST /mcp`
 remains registered and rejects an unauthenticated initialization with JSON 401.
-This completes the headless-artifact portion of Stage 6 only. Explicit
-migration paths for web/Electron consumers and a V1-supported server
-distribution remain open.
+The inventory now records explicit interim migration paths for existing
+consumers. The headless artifact and transition-path definition are complete;
+Stage 6 still needs the live compatibility gates and final supported server
+distribution decision.
 
 The post-change default-server smoke also passed with disposable SQLite: the
 default binary returned a healthy `/api/health` response and retained its
