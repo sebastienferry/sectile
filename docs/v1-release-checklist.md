@@ -255,6 +255,17 @@ and port 52963 released. This verifies the current native sync/result/board
 path with an existing Local grant; fresh OAuth consent, Fleet and signed
 distribution remain open.
 
+Native Claude Code replacement check (2026-10-29): an isolated app built from
+clean Tauri `3ae07ab` and Go `554374b2` created a folder-backed Local project
+and completed a Claude Code turn with `claude-sonnet-5` in Execution mode.
+Rebuilding the same test bundle identifier from version 0.1.0 to 0.1.1, with
+both app and companion stopped between launches, retained the project folder,
+history, model and mode. A resumed turn recalled a marker supplied only in the
+first prompt. Test app/data/folder were removed and port 52963 released. This
+qualifies the same-source Claude conversation replacement slice, alongside the
+earlier Codex slice; released-version migration, credentials and signed DMG
+installation remain open.
+
 Electron source regression refresh (2026-10-29): Go branch `fe3a98c8`
 remained clean while the Electron source passed its 315 unit tests, 137 UI
 tests and production Vite build. The UI tests cover board, console, workflow,
