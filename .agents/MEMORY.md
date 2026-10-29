@@ -341,3 +341,6 @@
 
 ### Backend shutdown and SQLite callback race (2026-10-29)
 - `TestTryPullLocalAgentTasks` could pass alone but fail in the full handlers suite when `t.TempDir` removed SQLite files. `SyncRemoteRunStatusFor` spawned postback listeners that accessed SQL after `DB.Close`; waiting only for queue jobs did not prevent WAL/SHM recreation. Count asynchronous postback/wait callbacks before launch, join them with queued jobs, stop auto-sync and timers, then close SQL. A timed-out close must leave SQL and the Local lifetime lock held for retry.
+
+### PTY supervisor foreground race (2026-10-29)
+- A fast Codex task launch failure left `agent-exec` alive with a stopped `stty` child. The shell could change the PTY foreground group between a group check and spawning `stty -g`, so checking the group before that external command did not solve it. `StartControlled` now captures and restores terminal settings in process with `term.GetState` and `term.Restore`, and skips the snapshot when it is already outside the foreground group. The isolated read-only Codex failure then left no `agent-exec` process; a workspace-write rerun showed skill tool activity and Electron Stop recorded a canceled run with no supervisor left behind.

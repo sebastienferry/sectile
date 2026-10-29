@@ -6,10 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"golang.org/x/sys/unix"
+	"golang.org/x/term"
 )
 
 // The native client owns a separate foreground process group in the terminal.
@@ -21,19 +21,21 @@ func StartControlled(cmd *exec.Cmd) (func(), error) {
 	attrs := &syscall.SysProcAttr{Setpgid: true}
 	restore := func() {}
 	if err == nil {
-		snapshot := exec.Command("stty", "-g")
-		snapshot.Stdin = os.Stdin
-		terminalState, _ := snapshot.Output()
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, syscall.SIGTTOU)
 		attrs.Foreground = true
 		attrs.Ctty = fd
+		// The shell can change the PTY foreground group as this process starts.
+		// An external stty child may then be suspended by SIGTTIN before the
+		// provider launches. Capture and restore settings in this process.
+		var terminalState *term.State
+		if group == syscall.Getpgrp() {
+			terminalState, _ = term.GetState(fd)
+		}
 		restore = func() {
 			_ = unix.IoctlSetPointerInt(fd, unix.TIOCSPGRP, group)
-			if state := strings.TrimSpace(string(terminalState)); state != "" {
-				reset := exec.Command("stty", state)
-				reset.Stdin = os.Stdin
-				_ = reset.Run()
+			if terminalState != nil {
+				_ = term.Restore(fd, terminalState)
 			}
 			signal.Stop(signals)
 		}

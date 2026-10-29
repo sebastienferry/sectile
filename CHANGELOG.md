@@ -16,6 +16,7 @@ test fixtures or internal plumbing.
 ### Fixed
 
 - Stopping a built-in local console now closes its supervised shell process tree; Codex consoles also use a private provider server so their delegated tools can be canceled before teardown.
+- A failed Codex task launch no longer leaves its terminal supervisor suspended before the provider starts.
 - Free Codex project consoles no longer pass the working directory as an extra writable folder, avoiding a launch failure under workspace-write sandboxing.
 - Jira OAuth recognizes configured tracker sources before they are linked to a project, avoiding a false “no site authorized” failure during desktop onboarding.
 - The standalone desktop companion now gets its fixed local OAuth port and callback URLs from Go, keeping Jira sign-in aligned with the registered callback across restarts.
