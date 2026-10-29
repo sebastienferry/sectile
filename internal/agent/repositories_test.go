@@ -155,6 +155,19 @@ func TestContextFoldersReachClaudeAndCodex(t *testing.T) {
 	}
 }
 
+func TestFolderMapDirsExcludeWorkingDirectory(t *testing.T) {
+	root := t.TempDir()
+	other := t.TempDir()
+	entries := []models.FolderMapEntry{
+		{Role: models.FolderRoleLocal, Path: root},
+		{Role: models.FolderRoleContext, Path: other},
+	}
+	dirs := folderMapDirsExcept(entries, root)
+	if len(dirs) != 1 || dirs[0] != other {
+		t.Fatalf("folderMapDirsExcept() = %v, want only %q", dirs, other)
+	}
+}
+
 func TestRepositoryWorktreeReusesTheTaskBranch(t *testing.T) {
 	ctx := context.Background()
 	projectRoot := checkoutOf(t, "git@github.com:o/a.git")

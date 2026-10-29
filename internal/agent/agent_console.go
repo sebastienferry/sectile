@@ -108,7 +108,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	if input.EngineID != "" {
 		template = config.AICommandTemplate
 	}
-	command, err := consoleLaunch(provider, agentconfig.ResolveModel(config, ""), template, config.AIModel, root, folderMapDirs(folders))
+	command, err := consoleLaunch(provider, agentconfig.ResolveModel(config, ""), template, config.AIModel, root, folderMapDirsExcept(folders, root))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

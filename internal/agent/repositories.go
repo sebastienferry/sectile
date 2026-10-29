@@ -239,6 +239,21 @@ func folderMapDirs(entries []models.FolderMapEntry) []string {
 	return dirs
 }
 
+// folderMapDirsExcept returns folders beside the CLI's working directory.
+// Passing the working directory itself as Codex's --add-dir is rejected by
+// workspace-write sandboxing and is unnecessary for every provider.
+func folderMapDirsExcept(entries []models.FolderMapEntry, workingDirectory string) []string {
+	dirs := folderMapDirs(entries)
+	filtered := dirs[:0]
+	for _, dir := range dirs {
+		if filepath.Clean(dir) == filepath.Clean(workingDirectory) || sameDirectory(dir, workingDirectory) {
+			continue
+		}
+		filtered = append(filtered, dir)
+	}
+	return filtered
+}
+
 // folderKindLabels says what an attached folder is, in the prompt.
 var folderKindLabels = map[string]string{
 	folderKindGit:     "attached Git repository",

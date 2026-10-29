@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- Free Codex project consoles no longer pass the working directory as an extra writable folder, avoiding a launch failure under workspace-write sandboxing.
 - Jira OAuth recognizes configured tracker sources before they are linked to a project, avoiding a false “no site authorized” failure during desktop onboarding.
 - The standalone desktop companion now gets its fixed local OAuth port and callback URLs from Go, keeping Jira sign-in aligned with the registered callback across restarts.
 - Standalone companions can isolate Claude Code and Codex MCP per launch without replacing another desktop's registration; Codex MCP consent is answered directly in conversations.
