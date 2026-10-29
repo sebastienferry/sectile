@@ -81,6 +81,12 @@ verification record remains the evidence for those flows.
 - The prompt action now names its project-wide scope before opening the native
   picker, and the disclosure says attached folders are shared across project
   conversations. Focused UI tests verify the label and scope copy.
+- The Electron/Tauri command inventory was compared. Tauri keeps one project
+  board action for both Electron's task-list and project-board destinations;
+  it omits task creation and web-interface actions because the desktop does
+  not own tracker tasks or the web planning surface. Project, prompt, settings,
+  orchestration, folder and recent-run navigation remain available. No
+  unsupported commands were added.
 - The duplicate workspace color overrides have been removed. Tauri now uses
   the same canonical dark/light background, surface and selection colors as
   Electron; exact appearance still needs review in the rebuilt app once the
@@ -110,8 +116,9 @@ verification record remains the evidence for those flows.
    evidence, not from a wholesale restyle.
 3. Reduce settings page density and align labels, section names and primary
    actions with Electron while retaining native OAuth and filesystem flows.
-4. Audit each Electron command-palette action and shortcut against Tauri's
-   command inventory; only expose actions Tauri can actually perform.
+4. Complete the command-palette audit by comparing shortcuts and keyboard
+   focus behavior in matched live windows; the action inventory and unsupported
+   Electron-only actions have been reviewed.
 5. Recheck prompt, workflow and conversation layouts at narrow and normal window
    sizes, including empty, active, error and waiting states.
 
