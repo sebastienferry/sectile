@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     fs,
-    io::Write,
+    io::{Read, Seek, SeekFrom, Write},
     net::TcpListener,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -81,6 +81,112 @@ fn root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .app_data_dir()
         .map(|p| p.join("local-runtime"))
         .map_err(|_| "Dossier de données indisponible".into())
+}
+
+const MAX_SERVICE_LOG_BYTES: u64 = 256 * 1024;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceLog {
+    path: String,
+    text: String,
+    missing: bool,
+    truncated: bool,
+}
+
+fn read_service_log_file(path: &Path) -> Result<ServiceLog, String> {
+    let display_path = path.to_string_lossy().into_owned();
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(ServiceLog {
+                path: display_path,
+                text: String::new(),
+                missing: true,
+                truncated: false,
+            });
+        }
+        Err(_) => return Err("Journal du service illisible".into()),
+    };
+    if !metadata.file_type().is_file() {
+        return Err("Le journal du service n’est pas un fichier ordinaire".into());
+    }
+    let mut file = fs::File::open(path).map_err(|_| "Journal du service illisible")?;
+    let length = file
+        .metadata()
+        .map_err(|_| "Journal du service illisible")?
+        .len();
+    let start = length.saturating_sub(MAX_SERVICE_LOG_BYTES);
+    file.seek(SeekFrom::Start(start))
+        .map_err(|_| "Journal du service illisible")?;
+    let mut bytes = Vec::new();
+    file.take(MAX_SERVICE_LOG_BYTES)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "Journal du service illisible")?;
+    if start > 0 {
+        while bytes.first().is_some_and(|byte| byte & 0xc0 == 0x80) {
+            bytes.remove(0);
+        }
+    }
+    Ok(ServiceLog {
+        path: display_path,
+        text: String::from_utf8_lossy(&bytes).into_owned(),
+        missing: false,
+        truncated: start > 0,
+    })
+}
+
+fn service_log_path(root: &Path, mode: Option<RuntimeMode>) -> Result<PathBuf, String> {
+    if mode == Some(RuntimeMode::Fleet) {
+        Ok(fleet_root(root)?.join("agent.log"))
+    } else {
+        Ok(root.join("companion.log"))
+    }
+}
+
+#[tauri::command]
+pub fn local_service_log(app: tauri::AppHandle) -> Result<ServiceLog, String> {
+    let root = root(&app)?;
+    read_service_log_file(&service_log_path(&root, runtime_mode_from_root(&root)?)?)
+}
+
+#[cfg(test)]
+mod service_log_tests {
+    use super::*;
+
+    #[test]
+    fn reads_only_the_tail_of_a_regular_service_log() {
+        let dir =
+            std::env::temp_dir().join(format!("sectile-service-log-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&dir).unwrap();
+        let path = dir.join("companion.log");
+        assert_eq!(
+            service_log_path(&dir, Some(RuntimeMode::Local)).unwrap(),
+            path
+        );
+        assert_eq!(
+            service_log_path(&dir, Some(RuntimeMode::Fleet)).unwrap(),
+            dir.join("fleet/agent.log")
+        );
+        assert!(read_service_log_file(&path).unwrap().missing);
+        let mut content = b"OLD_MARKER\n".to_vec();
+        content.extend(vec![b'x'; MAX_SERVICE_LOG_BYTES as usize]);
+        content.extend(b"\nLATEST_MARKER\n");
+        fs::write(&path, content).unwrap();
+        let result = read_service_log_file(&path).unwrap();
+        assert!(result.truncated);
+        assert!(!result.missing);
+        assert!(result.text.ends_with("LATEST_MARKER\n"));
+        assert!(!result.text.contains("OLD_MARKER"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let link = dir.join("agent.log");
+            symlink(&path, &link).unwrap();
+            assert!(read_service_log_file(&link).is_err());
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
 }
 
 fn mode_path(root: &Path) -> PathBuf {
@@ -1284,7 +1390,10 @@ pub async fn create_local_project(
     selected_request(&root,Method::POST,"/api/projects",Some(json!({"name":name,"trackers":[{"trackerId":tracker_id}],"defaultTrackerId":tracker_id}))).await
 }
 #[tauri::command]
-pub async fn sync_local_tracker(app: tauri::AppHandle, tracker_id: String) -> Result<Value, String> {
+pub async fn sync_local_tracker(
+    app: tauri::AppHandle,
+    tracker_id: String,
+) -> Result<Value, String> {
     if uuid::Uuid::parse_str(&tracker_id).is_err() {
         return Err("Identifiant du tracker invalide".into());
     }
@@ -1301,14 +1410,23 @@ pub async fn sync_local_tracker(app: tauri::AppHandle, tracker_id: String) -> Re
 }
 
 #[tauri::command]
-pub async fn tracker_sync_status(app: tauri::AppHandle, activity_id: String) -> Result<Value, String> {
+pub async fn tracker_sync_status(
+    app: tauri::AppHandle,
+    activity_id: String,
+) -> Result<Value, String> {
     if uuid::Uuid::parse_str(&activity_id).is_err() {
         return Err("Identifiant de synchronisation invalide".into());
     }
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
     let root = root(&app)?;
-    selected_request(&root, Method::GET, &format!("/api/activities/{activity_id}"), None).await
+    selected_request(
+        &root,
+        Method::GET,
+        &format!("/api/activities/{activity_id}"),
+        None,
+    )
+    .await
 }
 
 #[cfg(test)]

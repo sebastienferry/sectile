@@ -4,9 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { LocalSettings } from "../src/components/LocalSettings";
 import * as api from "../src/lib/local";
 vi.mock("../src/components/OAuthConnections", () => ({ OAuthConnections: ({serverManaged}:{serverManaged?:boolean}) => <div data-server-managed={String(serverManaged??false)}>OAuth connections</div> }));
-vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), enableLocalRuntime: vi.fn(), attachFleetAgent: vi.fn(), pairFleetAgent: vi.fn(), saveLocalProfile: vi.fn(), saveLocalCredential: vi.fn(), createLocalTracker: vi.fn(), createLocalProject: vi.fn(), chooseProjectFolder: vi.fn(), syncLocalTracker: vi.fn(), trackerSyncStatus: vi.fn() }));
+vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), localServiceLog: vi.fn(), enableLocalRuntime: vi.fn(), attachFleetAgent: vi.fn(), pairFleetAgent: vi.fn(), saveLocalProfile: vi.fn(), saveLocalCredential: vi.fn(), createLocalTracker: vi.fn(), createLocalProject: vi.fn(), chooseProjectFolder: vi.fn(), syncLocalTracker: vi.fn(), trackerSyncStatus: vi.fn() }));
 const ready = { enabled: true, ready: true, signedIn: true, agentReady: true, profile: { email: "fixture@example.invalid", displayName: "Fixture" }, trackers: [{id:"t",name:"Tracker",provider:"github",scope:"fixture/repo"}], projects: [{id:"p",name:"Project"}] };
-beforeEach(() => { vi.resetAllMocks(); });
+beforeEach(() => { vi.resetAllMocks(); vi.mocked(api.localServiceLog).mockResolvedValue({path:"/test/companion.log",text:"service ready",missing:false,truncated:false}); });
 afterEach(() => cleanup());
 test("Local activation waits for the local server before exposing profile setup", async () => {
   vi.mocked(api.localSetupStatus).mockResolvedValueOnce({ enabled: false }).mockResolvedValue({enabled:true,ready:true,signedIn:false});
@@ -21,8 +21,20 @@ test("Local activation waits for the local server before exposing profile setup"
   finish();
   await screen.findByLabelText("Adresse e-mail");
 });
+test("service diagnostics can be read even when the Local companion is not ready", async () => {
+ vi.mocked(api.localSetupStatus).mockResolvedValue({enabled:true,mode:"local",ready:false,signedIn:false,agentReady:false});
+ render(<LocalSettings onChanged={vi.fn()} />);
+ expect(await screen.findByRole("heading",{name:"Journal du compagnon local"})).toBeTruthy();
+ expect(await screen.findByText("service ready")).toBeTruthy();
+ expect(screen.getByLabelText("Contenu du journal du service").textContent).toBe("service ready");
+ vi.mocked(api.localServiceLog).mockResolvedValue({path:"/test/companion.log",text:"latest line",missing:false,truncated:true});
+ fireEvent.click(screen.getByRole("button",{name:"Actualiser le journal"}));
+ await screen.findByText("latest line");
+ expect(screen.getByText("Affichage des 256 derniers Kio du journal.")).toBeTruthy();
+});
 test("Fleet attachment enables backend setup and hides Local-only controls", async () => {
   vi.mocked(api.localSetupStatus).mockResolvedValueOnce({ enabled: false, mode: "unconfigured" }).mockResolvedValue({ enabled: true, ready: true, signedIn: true, agentReady: true, mode: "fleet", fleetServer: "https://fleet.example.invalid" });
+  vi.mocked(api.localServiceLog).mockResolvedValue({path:"/test/fleet/agent.log",text:"fleet ready",missing:false,truncated:false});
   vi.mocked(api.attachFleetAgent).mockResolvedValue();
   render(<LocalSettings onChanged={vi.fn()} />);
   fireEvent.click(await screen.findByRole("button",{name:"Associer l’agent Fleet existant"}));
@@ -31,6 +43,8 @@ test("Fleet attachment enables backend setup and hides Local-only controls", asy
   expect(screen.getByRole("heading", {name:"Configuration Fleet"})).toBeTruthy();
   expect(screen.getByRole("heading", {name:"Connexion et services"})).toBeTruthy();
   expect(screen.getByRole("heading", {name:"Agent Fleet"})).toBeTruthy();
+  expect(await screen.findByRole("heading", {name:"Journal de l’agent Fleet"})).toBeTruthy();
+  expect(await screen.findByText("fleet ready")).toBeTruthy();
   expect(screen.getByText(/État de la connexion et de l’agent Fleet associé/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", {name:"Comptes et trackers"}));
   expect(await screen.findByLabelText("Adresse e-mail")).toBeTruthy();

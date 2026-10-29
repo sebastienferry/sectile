@@ -14,6 +14,8 @@ export interface LocalSetup {
   projects?: { id: string; name: string }[];
 }
 export const localSetupStatus = () => invoke<LocalSetup>("local_setup_status");
+export interface ServiceLog { path: string; text: string; missing: boolean; truncated: boolean }
+export const localServiceLog = () => invoke<ServiceLog>("local_service_log");
 export const enableLocalRuntime = () => invoke<void>("enable_local_runtime");
 export const attachFleetAgent = () => invoke<void>("attach_fleet_agent");
 export const pairFleetAgent = (serverUrl: string, pairingCode: string) => invoke<void>("pair_fleet_agent", { serverUrl, pairingCode });

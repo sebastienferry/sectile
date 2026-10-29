@@ -722,3 +722,19 @@ the new-prompt composer was already open. Project settings similarly linked to
 itself. The current-view shortcuts are now omitted, while an existing
 conversation retains its new-prompt action. Workspace UI regressions cover the
 three states.
+
+Electron exposes its desktop agent log in Settings, while Tauri's Services
+screen previously told users to inspect `companion.log` without opening it.
+Services now reads the current Local companion or Fleet agent log directly,
+including when startup failed. It shows the source path, empty/missing state
+and a bounded 256 KiB tail; Fleet attachment explains that an externally
+started agent may write to its original installation instead. The native
+command rejects non-regular files, and Rust/UI regressions cover file bounds,
+mode path selection, offline access and refresh.
+An isolated unsigned macOS app built from the current Tauri source and a
+test-port Go `554374b2` companion opened Services before profile setup. The
+native panel resolved the private `companion.log` path and showed its empty
+state. After a sentinel was appended only to that test log, “Actualiser le
+journal” displayed the new line. The app and companion were stopped and the
+test port was released; this check does not qualify a Fleet log from a native
+bundle.

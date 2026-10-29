@@ -120,7 +120,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       </article>}
       {setup?.mode === "fleet" && <p className="muted">Cette page configure votre profil et vos projets sur le backend Fleet sélectionné. L’agent d’exécution reste sur ce poste.</p>}
       <button disabled={pending} onClick={() => void perform(async () => {}, "Configuration actualisée.")}>Actualiser</button>
-    </article></div>
+    </article>{setup && setup.mode !== "unconfigured" && <ServiceLogPanel active={section === "services"} fleet={fleetMode} />}</div>
     <div hidden={section !== "profile"}>{setup?.ready && setup.apiSetupAvailable !== false && (setup.mode !== "fleet" || setup.signedIn) && <article>
       <h2>{fleetMode ? "Profil Fleet" : "Profil local"}</h2>
       <form onSubmit={e => submit(e, () => api.saveLocalProfile(email, displayName), "Profil enregistré et agent associé.")}>
@@ -188,6 +188,31 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     </>}
     </div></div>
   </section>;
+}
+
+function ServiceLogPanel({active,fleet}:{active:boolean;fleet:boolean}) {
+ const [snapshot,setSnapshot]=useState<api.ServiceLog>();
+ const [error,setError]=useState("");
+ const [loading,setLoading]=useState(false);
+ const [refresh,setRefresh]=useState(0);
+ useEffect(()=>{
+  if(!active)return;
+  let current=true;
+  setSnapshot(undefined);setLoading(true);setError("");
+  void api.localServiceLog().then(value=>{if(current)setSnapshot(value);}).catch(cause=>{if(current)setError(String(cause));}).finally(()=>{if(current)setLoading(false);});
+  return()=>{current=false;};
+ },[active,fleet,refresh]);
+ return <article className="service-log">
+  <div className="service-log-heading"><h2>{fleet?"Journal de l’agent Fleet":"Journal du compagnon local"}</h2><button type="button" disabled={loading} onClick={()=>setRefresh(value=>value+1)}>Actualiser le journal</button></div>
+  <p className="muted">{fleet?"L’agent Fleet associé peut écrire dans le journal de son installation d’origine.":"Diagnostic du compagnon démarré par ce desktop."}</p>
+  {snapshot && <p className="service-log-path" title={snapshot.path}><code>{snapshot.path}</code></p>}
+  {loading && <p role="status">Lecture du journal…</p>}
+  {error && <p role="alert" className="error">Impossible de lire le journal : {error}</p>}
+  {!loading && !error && snapshot && <>
+   <p role="status">{snapshot.missing?"Aucun journal disponible pour ce service.":!snapshot.text?"Le journal est vide.":snapshot.truncated?"Affichage des 256 derniers Kio du journal.":"Journal actuel du service."}</p>
+   {!snapshot.missing && !!snapshot.text && <pre className="service-log-output" tabIndex={0} aria-label="Contenu du journal du service">{snapshot.text}</pre>}
+  </>}
+ </article>;
 }
 
 function TrackerSyncResult({activityId,onFinished}:{activityId:string;onFinished:()=>void}) {

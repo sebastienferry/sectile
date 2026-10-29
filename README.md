@@ -19,6 +19,7 @@ existing Sectile Go server, workstation agent and MCP infrastructure.
 - Native setup for a local profile, personal tracker credentials, ticket sources and projects, including folder selection when associating an existing project.
 - Explicit Local or Fleet runtime selection, with native one-time-code Fleet pairing and private workstation credentials.
 - Automatic startup and reconnection of the Go companion in Local mode or the workstation agent in Fleet mode.
+- Service diagnostics in native Settings, with a bounded Local companion or Fleet agent log view that works even when startup fails.
 - French runtime UI; English source documentation.
 
 This is a bootstrap, not feature parity with Sectile Desktop. OAuth is available
@@ -117,6 +118,9 @@ protection, not an OS keychain. `server.log`, `companion.log` and `agent.log`
 provide startup diagnostics. Provider processes do not inherit the desktop
 gateway credential. Existing Sectile databases and global provider registrations
 are not imported.
+The **Services** section reads the latest 256 KiB of the selected mode's
+desktop-managed log directly from disk. An attached Fleet agent started by a
+different installation may keep its log in that installation instead.
 
 ## Connect to Fleet
 

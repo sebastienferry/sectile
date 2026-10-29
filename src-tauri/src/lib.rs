@@ -27,6 +27,7 @@ pub fn run() {
             local::pair_fleet_agent,
             local::attach_fleet_agent,
             local::local_setup_status,
+            local::local_service_log,
             local::save_local_profile,
             local::save_local_credential,
             local::create_local_tracker,
