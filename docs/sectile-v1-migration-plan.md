@@ -145,8 +145,21 @@ run journal; a mismatched Tauri connection cannot read or resume them. Legacy
 histories remain readable and Tauri requires an explicit association before
 resuming an unbound history. Rust, Go and UI fixtures cover UUID migration,
 journal persistence, wrong-connection refusal and legacy-client compatibility.
-A separate-ID Tauri bundle has now
-connected read-only to the existing Fleet workstation agent and loaded its 19
+An additional route-level smoke used the current Go branch with a disposable
+SQLite database, isolated `HOME` and `XDG_CONFIG_HOME`, and an ephemeral local
+account. Authenticated `/api/me` returned that account's email,
+`/api/desktop-oauth/apps` returned GitHub, GitLab and Jira without exposing
+client secrets, and `/api/projects` returned the initial workspace. OAuth apps
+were unconfigured, and no tracker, project or profile writes were made. A
+separate-ID Tauri release bundle built successfully, but CUA could not bind its
+custom bundle identifier, so this smoke does not verify those screens visually.
+An initial server launch omitted the isolated home and made one read-only
+`/desktop/runs` request to the already-running local agent; two entries were
+copied only into the disposable test database. That server was stopped, the
+database removed, and the successful route smoke was repeated with isolated
+home/config paths, which did not contact the existing agent.
+An earlier separate-ID Tauri bundle connected read-only to the existing Fleet
+workstation agent and loaded its 19
 projects; new one-time-code pairings also verify the backend user's ID against
 the identity recorded at pairing. Runtime switching is deliberately
 unsupported: selecting a second mode requires a future explicit migration flow.
