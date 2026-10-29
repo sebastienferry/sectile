@@ -204,14 +204,30 @@ def tracker_evidence(requests, server_version):
     return {"server": server_version, "createdIssues": len(creates), "stageUpdates": len(updates), "personalTokenUsed": True}
 
 
+def agent_operation_evidence(base_url, session, repo_path, version):
+    request = urllib.request.Request(
+        base_url + "/api/projects/default/skills-status",
+        headers={"Cookie": "sectile_session=" + session},
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        if response.status != 200:
+            raise RuntimeError(f"{version} agent operation returned HTTP {response.status}")
+        status = json.loads(response.read())
+    if status.get("repoPath") != str(repo_path) or status.get("isGitRepo") is not True:
+        raise RuntimeError(f"{version} agent operation returned unexpected workspace status: {status}")
+    return {"agentVersion": version, "operation": "skills_status", "connected": True, "workspaceVerified": True}
+
+
 def main():
     repo = pathlib.Path(__file__).resolve().parents[2]
     work = pathlib.Path(tempfile.mkdtemp(prefix="sectile-current-agent-v076-server-"))
     old_source = work / "old-source"
     home_server = work / "server-home"
     home_agent = work / "agent-home"
+    agent_root = work / "agent-repository"
     for path in (old_source, home_server, home_agent):
         path.mkdir(parents=True, exist_ok=True)
+    agent_root.mkdir()
     FakeGitHubHandler.requests = []
     fake_tracker = ThreadingHTTPServer(("127.0.0.1", 0), FakeGitHubHandler)
     fake_tracker_thread = threading.Thread(target=fake_tracker.serve_forever, daemon=True)
@@ -222,9 +238,11 @@ def main():
     agent_log_path = work / "agent.log"
     server_log = None
     agent_log = None
+    v076_agent_log_handle = None
     server_process = None
     agent_process = None
     try:
+        run(["git", "init", "-q", str(agent_root)], repo)
         archive = work / "v076.zip"
         run(
             ["git", "archive", "--format=zip", f"--output={archive}", "v0.7.6"],
@@ -336,7 +354,7 @@ func main() {
                 str(current_agent), "--url", base_url, "--token", credentials["apiKey"],
                 "--project", "default", "--device", "current-agent-integration",
                 "--desktop-info", str(home_agent / "agent-connection.json"),
-                "--repo", str(work),
+                "--repo", str(agent_root),
             ],
             cwd=work, env=agent_env, stdin=subprocess.DEVNULL, stdout=agent_log,
             stderr=subprocess.STDOUT, creationflags=creationflags,
@@ -383,6 +401,7 @@ func main() {
         ], work))
         old_mcp["client"] = "current"
         old_mcp["server"] = "v0.7.6"
+        old_agent_operation = agent_operation_evidence(base_url, credentials["session"], agent_root, "current")
 
         stop(agent_process)
         agent_process = None
@@ -403,7 +422,7 @@ func main() {
         (current_seed_dir / "main.go").write_text(
             '''package main
 import ("encoding/json"; "os"; "tasks/internal/db"; "tasks/internal/models")
-func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err != nil { panic(err) }; defer d.Close(); if err = d.EnsureUser(db.ImplicitUserID); err != nil { panic(err) }; project, err := d.CreateProject(models.CreateProjectRequest{Name:"Compatibility", IssueTracker:"local"}); if err != nil { panic(err) }; task, err := d.CreateTask(models.CreateTaskRequest{ProjectID:project.ID, Title:"Cross-version MCP run", Status:models.StatusToClarify}); if err != nil { panic(err) }; githubProject, err := d.CreateProject(models.CreateProjectRequest{Name:"GitHub compatibility", IssueTracker:"github", GithubRepo:"acme/app", GithubApiUrl:os.Getenv("COMPAT_GITHUB_API_URL")}); if err != nil { panic(err) }; if err = d.SetUserTrackerCredential(db.ImplicitUserID, "github", "", "", "compatibility-token", ""); err != nil { panic(err) }; key, _, err := d.CreateAPIKey(db.ImplicitUserID, "binary-compatibility-test", db.DefaultAPIKeyTTL); if err != nil { panic(err) }; if err = json.NewEncoder(os.Stdout).Encode(map[string]string{"apiKey":key,"taskID":task.ID,"githubProjectID":githubProject.ID}); err != nil { panic(err) } }
+func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err != nil { panic(err) }; defer d.Close(); if err = d.EnsureUser(db.ImplicitUserID); err != nil { panic(err) }; project, err := d.CreateProject(models.CreateProjectRequest{Name:"Compatibility", IssueTracker:"local"}); if err != nil { panic(err) }; task, err := d.CreateTask(models.CreateTaskRequest{ProjectID:project.ID, Title:"Cross-version MCP run", Status:models.StatusToClarify}); if err != nil { panic(err) }; githubProject, err := d.CreateProject(models.CreateProjectRequest{Name:"GitHub compatibility", IssueTracker:"github", GithubRepo:"acme/app", GithubApiUrl:os.Getenv("COMPAT_GITHUB_API_URL")}); if err != nil { panic(err) }; if err = d.SetUserTrackerCredential(db.ImplicitUserID, "github", "", "", "compatibility-token", ""); err != nil { panic(err) }; key, _, err := d.CreateAPIKey(db.ImplicitUserID, "binary-compatibility-test", db.DefaultAPIKeyTTL); if err != nil { panic(err) }; session, _, err := d.CreateWebSession(db.ImplicitUserID); if err != nil { panic(err) }; if err = json.NewEncoder(os.Stdout).Encode(map[string]string{"apiKey":key,"session":session,"taskID":task.ID,"githubProjectID":githubProject.ID}); err != nil { panic(err) } }
 ''', encoding="utf-8")
         try:
             current_seed_binary = work / "compat-seed-current"
@@ -437,6 +456,37 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
             time.sleep(0.1)
         else:
             raise RuntimeError("The current Go server did not become healthy.")
+        v076_agent_log = work / "v076-agent.log"
+        v076_agent_home = work / "v076-agent-home"
+        v076_agent_home.mkdir()
+        v076_agent_log_handle = v076_agent_log.open("w", encoding="utf-8")
+        agent_process = subprocess.Popen(
+            [
+                str(old_agent), "--url", current_url, "--token", current_credentials["apiKey"],
+                "--project", "default", "--device", "v076-agent-integration",
+                "--desktop-info", str(v076_agent_home / "agent-connection.json"),
+                "--repo", str(agent_root),
+            ],
+            cwd=work, env=isolated_environment(v076_agent_home), stdin=subprocess.DEVNULL,
+            stdout=v076_agent_log_handle, stderr=subprocess.STDOUT, creationflags=creationflags,
+        )
+        for _ in range(200):
+            if agent_process.poll() is not None:
+                raise RuntimeError("The v0.7.6 agent exited before connecting to the current server.")
+            status_request = urllib.request.Request(
+                current_url + "/api/agent/status",
+                headers={"Cookie": "sectile_session=" + current_credentials["session"]},
+            )
+            try:
+                with urllib.request.urlopen(status_request, timeout=1) as response:
+                    status = json.loads(response.read())
+            except Exception:
+                status = {}
+            if any(item.get("deviceId") == "v076-agent-integration" for item in status.get("agents", [])):
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("The current server did not register the v0.7.6 agent.")
         current_mcp_result = json.loads(
             run([
                 str(old_mcp_client), current_url, current_credentials["apiKey"],
@@ -445,6 +495,11 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
         )
         current_mcp_result["client"] = "v0.7.6"
         current_mcp_result["server"] = "current"
+        v076_agent_operation = agent_operation_evidence(current_url, current_credentials["session"], agent_root, "v0.7.6")
+        stop(agent_process)
+        agent_process = None
+        v076_agent_log_handle.close()
+        v076_agent_log_handle = None
         stop(server_process)
         server_process = None
         current_tracker_evidence = tracker_evidence(list(FakeGitHubHandler.requests), "current")
@@ -468,6 +523,7 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
                     "v076AgentToCurrentServer": {"connected": True},
                     "mcpCompatibility": [old_mcp, current_mcp_result],
                     "trackerWrites": [old_tracker_evidence, current_tracker_evidence],
+                    "agentOperations": [old_agent_operation, v076_agent_operation],
                 }
             )
         )
@@ -475,7 +531,7 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
         for log in (agent_log, server_log):
             if log:
                 log.flush()
-        for path in (agent_log_path, server_log_path):
+        for path in (agent_log_path, server_log_path, work / "v076-agent.log"):
             if path.exists():
                 print(f"--- {path.name} ---")
                 print(path.read_text(encoding="utf-8", errors="replace"))
@@ -485,6 +541,8 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
         stop(server_process)
         if agent_log:
             agent_log.close()
+        if v076_agent_log_handle:
+            v076_agent_log_handle.close()
         if server_log:
             server_log.close()
         fake_tracker.shutdown()
