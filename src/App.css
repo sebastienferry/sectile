@@ -459,6 +459,10 @@ body.resizing-sidebar {
   padding: 0 22px 22px;
   min-height: 0;
 }
+.board:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .column {
   width: 290px;
   flex-shrink: 0;

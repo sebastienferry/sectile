@@ -661,3 +661,7 @@ title, stage, assignee and active workflow state visible. The board control
 restores the detailed layout and saves the choice for the next launch. A
 focused UI test checks the default and persisted choice; an isolated browser
 preview of the 1,988-ticket fixture checked the compact layout at 1280 × 720.
+At 800 × 820, the board had 530 px of viewport width for 942 px of columns,
+but its scroll container had no keyboard focus target or accessible name. The
+board is now a named, focusable region with a visible focus indicator so users
+can move through columns with the keyboard as well as a pointer or trackpad.

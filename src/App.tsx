@@ -519,7 +519,7 @@ function ProjectPane({
               Actualisation des tickets…
             </p>
           )}
-          <div className="board">
+          <div className="board" role="region" aria-label="Colonnes de tickets, défilement horizontal" tabIndex={0}>
             {columns.map((column) => (
               <section className="column" key={column.name}>
                 <h2>

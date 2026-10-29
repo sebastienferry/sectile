@@ -142,6 +142,7 @@ test("tracker-backed projects retain board search, grouping and ticket status",a
  expect(screen.getByRole("combobox",{name:"Regrouper les tickets"})).toBeTruthy();
  expect(screen.getByText("Statuts du tracker · lecture seule")).toBeTruthy();
  expect(screen.getByText("Remote issue")).toBeTruthy();
+ expect(screen.getByRole("region",{name:"Colonnes de tickets, défilement horizontal"}).getAttribute("tabindex")).toBe("0");
 });
 test("board density defaults to compact and remembers the detailed choice",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue([{id:"t",key:"APP-2",title:"A long remote issue title",source:"jira",trackerStatus:"To Do",status:"to_clarify"}]);

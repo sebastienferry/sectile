@@ -32,6 +32,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 ### Changed
 
 - Tracker boards open with compact ticket cards, with a saved control to restore the detailed layout.
+- Ticket columns can receive keyboard focus and scroll horizontally in narrow desktop windows.
 - Large tracker boards now show tickets progressively within each status column; search still covers every ticket and active workflow tickets stay in the first visible batch.
 - OAuth settings now identify disconnected accounts and offer reconnection instead of silently hiding them.
 - Personal credential and ticket-source forms now keep separate provider and site drafts, so configuring one cannot silently change the other.
