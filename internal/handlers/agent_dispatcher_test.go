@@ -388,11 +388,15 @@ func TestHandleTaskDetail_RunSkill_DispatchesToAgent(t *testing.T) {
 	if err := conn.WriteJSON(handlers.AgentMessage{MsgID: agentMsg.MsgID, TaskID: task.ID, Type: "step_status", Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
+	var accepted models.RunSkillResponse
 	select {
 	case resp := <-responses:
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("run-skill status %d", resp.StatusCode)
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&accepted); err != nil {
+			t.Fatal(err)
 		}
 	case err := <-requestErrors:
 		t.Fatal(err)
@@ -405,6 +409,9 @@ func TestHandleTaskDetail_RunSkill_DispatchesToAgent(t *testing.T) {
 	}
 	if err := json.Unmarshal(agentMsg.Payload, &dispatch); err != nil || dispatch.RunID == "" {
 		t.Fatalf("missing remote run identity: %s %v", agentMsg.Payload, err)
+	}
+	if accepted.RunID != dispatch.RunID || accepted.Activity.ID == dispatch.RunID {
+		t.Fatalf("launch response must identify the dispatched run separately from its launch activity: %+v", accepted)
 	}
 	active, err := database.GetActivityByID(dispatch.RunID)
 	if err != nil || active.Status != "running" || active.SkillID != "remote_run" {

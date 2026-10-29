@@ -1418,6 +1418,7 @@ type TaskBatch struct {
 }
 
 type RunSkillResponse struct {
+	RunID    string       `json:"runId,omitempty"`
 	Task     Task         `json:"task"`
 	Activity TaskActivity `json:"activity"`
 	Message  string       `json:"message"`

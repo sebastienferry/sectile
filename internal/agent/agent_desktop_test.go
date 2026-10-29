@@ -1436,7 +1436,7 @@ func TestDesktopLaunchForwardsTheProjectOfTheBoard(t *testing.T) {
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"activity":{"id":"a1"}}`))
+			_, _ = w.Write([]byte(`{"runId":"run-1","activity":{"id":"a1"}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -1509,7 +1509,7 @@ func TestDesktopLaunchForwardsTheProjectOfTheBoard(t *testing.T) {
 	if w := launch(map[string]any{"taskID": "task-1", "skillID": "custom", "prompt": "go"}); w.Code != http.StatusOK {
 		t.Fatalf("connection-bound launch: %d %s", w.Code, w.Body.String())
 	}
-	if binding := d.desktopLaunchConnections["a1"]; binding.connectionID != connectionHeader || binding.projectID != "p" || binding.taskID != "task-1" {
+	if binding := d.desktopLaunchConnections["run-1"]; binding.connectionID != connectionHeader || binding.projectID != "p" || binding.taskID != "task-1" {
 		t.Fatalf("accepted server run lost its launch identity: %+v", binding)
 	}
 	connectionHeader = "invalid"

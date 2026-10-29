@@ -2,7 +2,7 @@
 
 ### Desktop Tracker Launch Connection Identity (2026-10-30)
 
-- Tracker skills return through server dispatch, independently of the HTTP launch response. Bind the initiating desktop connection to the accepted activity/run ID in either arrival order; ticket-only correlation can attach an unrelated dispatch.
+- Tracker skills return through server dispatch, independently of the HTTP launch response. Bind the initiating desktop connection to the response's explicit `runId` in either arrival order; ticket-only correlation can attach an unrelated dispatch. `activity.id` identifies a separate launch activity and must never be used as the execution ID. Older servers without `runId` cannot qualify this connection-bound interactive path.
 - Preserve project/task matching and bounded pending entries. Do not bypass conversation identity checks or allow generic adoption of tracker runs to fix disabled MCP approvals. Legacy Electron launches without a connection header keep their prior behavior.
 
 ### GitLab Website URLs and the REST API Root (2026-10-29)

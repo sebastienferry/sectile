@@ -1254,12 +1254,10 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var accepted struct {
-			Activity struct {
-				ID string `json:"id"`
-			} `json:"activity"`
+			RunID string `json:"runId"`
 		}
-		if json.Unmarshal(raw, &accepted) == nil && safeRunID.MatchString(accepted.Activity.ID) {
-			d.bindDesktopLaunchConnection(accepted.Activity.ID, projectID, task.ID, connectionID)
+		if json.Unmarshal(raw, &accepted) == nil && safeRunID.MatchString(accepted.RunID) {
+			d.bindDesktopLaunchConnection(accepted.RunID, projectID, task.ID, connectionID)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(response.StatusCode)

@@ -361,6 +361,8 @@ Desktop OAuth integration is described in [the companion API contract](docs/desk
 Tracker workflows launched by a desktop retain its connection identity when the
 server dispatch arrives. Provider questions and MCP approvals stay interactive
 for that connection; another selected connection cannot control the run.
+This requires the server's launch response to expose `runId`; the launch
+activity's `id` identifies a separate record and cannot substitute for it.
 
 Free Claude Code and Codex conversations retain their provider session, transcript,
 model and mode across agent restarts. They resume on the next explicit message;

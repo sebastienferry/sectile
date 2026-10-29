@@ -2759,6 +2759,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 
 			writeJSON(w, http.StatusOK, models.RunSkillResponse{
+				RunID:    remoteRunID,
 				Task:     *task,
 				Activity: act,
 				Message:  fmt.Sprintf("Skill %s déléguée à l'agent local (%s)", req.SkillID, ac.DeviceID),
