@@ -45,6 +45,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Local tracker setup now shows personal-token access first and places the retained local OAuth application flow in a secondary disclosure; Fleet keeps backend-managed OAuth first.
 - Keep section names readable on one line in the desktop settings index at compact window widths.
 - Tracker boards open with compact ticket cards, with a saved control to restore the detailed layout.
 - Ticket columns can receive keyboard focus and scroll horizontally in narrow desktop windows.

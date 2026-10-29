@@ -128,6 +128,22 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
   const fleetMode = setup?.mode === "fleet";
   const sectionLabel = (item: typeof sections[number]) => item.id === "services" && fleetMode ? "Connexion et services" : item.label;
   const activeSection = sections.find(item => item.id === section);
+  const personalAccess = <>
+    <form className="personal-access-form" onSubmit={e => submit(e, async () => {
+      try { await api.saveLocalCredential({ tracker: credentialProvider, siteUrl: trackerApiSite(credentialProvider, credentialSite), email: trackerEmail, token }); }
+      finally { setToken(""); }
+    }, "Accès personnel enregistré. Lancez une synchronisation pour vérifier l’accès aux tickets.")}>
+      <fieldset disabled={pending}>
+        <label>Fournisseur<select value={credentialProvider} onChange={e => { setCredentialProvider(e.target.value); setCredentialSite(e.target.value === "gitlab" ? "https://gitlab.com" : ""); setToken(""); }}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
+        {credentialProvider !== "github" && <label>URL du site ou de l’API<input type="url" required placeholder={credentialProvider === "jira" ? "https://votre-site.atlassian.net" : "https://gitlab.com"} value={credentialSite} onChange={e => setCredentialSite(e.target.value)} /></label>}
+        {credentialProvider === "jira" && <label>E-mail du compte<input type="email" required value={trackerEmail} onChange={e => setTrackerEmail(e.target.value)} /></label>}
+        <label>Jeton personnel<input type="password" required autoComplete="off" value={token} onChange={e => setToken(e.target.value)} /></label>
+        <p className="muted">Le jeton est chiffré par {fleetMode ? "le backend Fleet" : "le serveur local"}. L’enregistrement remplace l’accès personnel de ce fournisseur.</p>
+        <button type="submit">Enregistrer l’accès</button>
+      </fieldset>
+    </form>
+    <ul className="setup-list">{setup?.credentials?.credentials.map(c => <li key={c.tracker}><span>{c.tracker} <small>{c.kind === "oauth" ? "OAuth" : "Jeton"} · {c.disconnected ? "Connexion interrompue" : c.account || "Accès enregistré · compte non confirmé"}{c.siteUrl && ` · ${c.siteUrl}`}</small></span></li>)}</ul>
+  </>;
   return <section className="settings local-settings">
     <header className="settings-heading"><span className="eyebrow">{fleetMode ? "VOTRE ESPACE FLEET" : setup?.mode === "local" ? "VOTRE ESPACE LOCAL" : "CONNEXION À SECTILE"}</span><h1>{fleetMode ? "Configuration Fleet" : "Configuration du poste"}</h1>
     <p>{fleetMode ? "Gérez votre profil et vos comptes sur le backend connecté. Les services d’exécution restent sur ce poste." : setup?.mode === "local" ? "Connectez vos outils et configurez vos projets sur ce poste." : "Choisissez le mode Local ou associez ce poste à un backend Fleet."}</p></header>
@@ -180,25 +196,14 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       </form>
     </article>}</div>
     {ready && <>
-      <div hidden={section !== "connections"}><OAuthConnections serverManaged={setup.mode === "fleet"} canManageTrackers={setup.mode !== "fleet" || setup.profile?.role === "admin"} credentials={setup.credentials?.credentials} onConnected={() => { void refresh(); onChanged(); }} />
-      <article>
-        <details><summary>Accès manuel par jeton · option avancée</summary>
-        <form onSubmit={e => submit(e, async () => {
-          try { await api.saveLocalCredential({ tracker: credentialProvider, siteUrl: trackerApiSite(credentialProvider, credentialSite), email: trackerEmail, token }); }
-          finally { setToken(""); }
-        }, "Accès personnel enregistré. Lancez une synchronisation pour vérifier l’accès aux tickets.")}>
-          <fieldset disabled={pending}>
-            <label>Fournisseur<select value={credentialProvider} onChange={e => { setCredentialProvider(e.target.value); setCredentialSite(""); setToken(""); }}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
-            <label>URL du site ou de l’API<input type="url" required={credentialProvider !== "github"} placeholder={credentialProvider === "jira" ? "https://votre-site.atlassian.net" : credentialProvider === "gitlab" ? "https://gitlab.com" : "https://api.github.com"} value={credentialSite} onChange={e => setCredentialSite(e.target.value)} /></label>
-            <label>E-mail du compte<input type="email" required={credentialProvider === "jira"} value={trackerEmail} onChange={e => setTrackerEmail(e.target.value)} /></label>
-            <label>Jeton personnel<input type="password" required autoComplete="off" value={token} onChange={e => setToken(e.target.value)} /></label>
-            <p className="muted">Le jeton est chiffré par {setup.mode === "fleet" ? "le backend Fleet" : "le serveur local"}. L’enregistrement remplace l’accès personnel de ce fournisseur.</p>
-            <button type="submit">Enregistrer l’accès</button>
-          </fieldset>
-        </form>
-        <ul className="setup-list">{setup.credentials?.credentials.map(c => <li key={c.tracker}><span>{c.tracker} <small>{c.account || "Accès enregistré · compte non confirmé"}{c.siteUrl && ` · ${c.siteUrl}`}</small></span></li>)}</ul>
-        </details>
-      </article>
+      <div hidden={section !== "connections"}>
+      {fleetMode ? <>
+        <OAuthConnections serverManaged canManageTrackers={setup.profile?.role === "admin"} credentials={setup.credentials?.credentials} onConnected={() => { void refresh(); onChanged(); }} />
+        <article><details><summary>Accès manuel par jeton · option avancée</summary>{personalAccess}</details></article>
+      </> : <>
+        <article><h2>Accès personnel aux trackers</h2><p className="muted">Pour une nouvelle installation Local, enregistrez un jeton personnel du fournisseur. Vos tickets restent gérés par le compagnon sur ce poste.</p>{personalAccess}</article>
+        <details><summary>Connexion OAuth locale existante</summary><OAuthConnections credentials={setup.credentials?.credentials} onConnected={() => { void refresh(); onChanged(); }} /></details>
+      </>}
       <article>
         <h2>Sources de tickets</h2>
         {setup.mode !== "fleet" || setup.profile?.role === "admin" ? <form onSubmit={e => submit(e, async () => { await api.createLocalTracker({ name: trackerName, provider: sourceProvider, site: trackerApiSite(sourceProvider, sourceSite), scope }); setTrackerName(""); setScope(""); }, "Tracker ajouté.")}>

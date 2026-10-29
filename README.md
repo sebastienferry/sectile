@@ -22,8 +22,10 @@ existing Sectile Go server, workstation agent and MCP infrastructure.
 - Service diagnostics in native Settings, with a bounded Local companion or Fleet agent log view that works even when startup fails.
 - French runtime UI; English source documentation.
 
-This is a bootstrap, not feature parity with Sectile Desktop. OAuth is available
-for GitHub.com, GitLab.com and Jira Cloud through locally configured OAuth apps.
+This is a bootstrap, not feature parity with Sectile Desktop. Supported Fleet
+backends can provide OAuth for GitHub.com, GitLab.com and Jira Cloud through
+backend-managed applications. Existing Local installations can keep their
+configured OAuth apps.
 Self-hosted forge OAuth, OS credential-vault storage, provider-app handoff and
 automatic service upgrades are not implemented.
 The Go server owns tracker authentication and synchronization. Board refresh
@@ -79,12 +81,11 @@ Open **Paramètres**, then:
 1. Choose **Démarrer en mode Local** to create separate local storage and start the companion. For Fleet setup, see [Connect to Fleet](#connect-to-fleet) below.
 2. Save an email and display name under **Profil local**. This creates the local
    identity, pairs this workstation and starts its agent. It is not a provider login.
-3. Under **Connexion aux comptes**, configure each provider's OAuth application
-   once, then use **Se connecter**. Complete consent in the system browser and
-   leave Settings open until confirmation. No personal token needs copying.
-   See [OAuth setup](docs/oauth-setup.md) for registration and required scopes.
-   Manual tokens remain available under the advanced section, including for
-   self-hosted forges.
+3. Under **Comptes et trackers**, save a personal provider API token in Local
+   mode. Existing Local OAuth applications remain available in the secondary
+   disclosure. Fleet uses OAuth applications configured by its backend; sign in
+   through the system browser, or expand the advanced manual-token option.
+   See [OAuth setup](docs/oauth-setup.md) for application registration and scopes.
 4. Add a **Source de tickets**, naming the repository or project key. Credentials
    are personal and shared by sources of the same provider; saving replaces that
    provider's stored access. Account confirmation failures do not undo a saved token.

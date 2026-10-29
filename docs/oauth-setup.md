@@ -1,9 +1,18 @@
 # OAuth from the desktop
 
+Fleet uses OAuth applications configured by its backend. New Local installations
+start with personal provider API tokens; the desktop keeps the existing Local
+OAuth application flow available under **Connexion OAuth locale existante** so
+an already configured installation can reconnect and refresh its grants. The
+registration procedure below applies when an operator explicitly configures a
+Local OAuth application.
+
 OAuth login is implemented for GitHub.com, GitLab.com and Jira Cloud. The system
-browser handles login and consent; the local Go server exchanges codes, encrypts
-grants and refreshes tokens through Sectile's existing provider integrations.
-The desktop reports connected only after the server confirms a saved grant.
+browser handles login and consent; the selected Go backend exchanges codes,
+encrypts grants and refreshes tokens through Sectile's existing provider
+integrations. The desktop reports connected only after that backend confirms a
+saved grant. Fleet administrators configure their backend's applications;
+members use the connection buttons in Desktop when that backend supports them.
 
 ## One-time application registration
 
@@ -16,7 +25,7 @@ Never distribute one shared client secret inside the desktop binary.
 2. Copy the exact callback URL shown for the provider. The local installation
    retains its port across restarts. Register that URL with the provider.
 3. Enter the application client ID and secret in its native configuration panel.
-   The secret is encrypted in the local database; leaving the field empty on a
+   The secret is encrypted in the Local database; leaving the field empty on a
    later save retains it. No API response returns the secret.
 4. Click **Se connecter**, grant access in your browser, then return to Desktop.
    Leave Settings open during the flow. Leaving it cancels the pending attempt.

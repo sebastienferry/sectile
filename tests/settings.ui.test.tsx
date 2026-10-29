@@ -156,6 +156,8 @@ test("paired Fleet enables native setup while keeping shared tracker creation ad
   render(<LocalSettings onChanged={vi.fn()} />);
   fireEvent.click(await screen.findByRole("button",{name:"Comptes et trackers"}));
   expect(screen.getByText("OAuth connections").getAttribute("data-server-managed")).toBe("true");
+  expect(screen.getByText("OAuth connections").closest("details")).toBeNull();
+  expect(screen.getByText("Accès manuel par jeton · option avancée").closest("details")?.open).toBe(false);
   expect(screen.getByText(/Les trackers sont partagés dans Fleet/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button",{name:"Projets"}));
   fireEvent.change(await screen.findByLabelText("Nom du projet"),{target:{value:"New Fleet project"}});
@@ -168,8 +170,12 @@ test("a credential is sent only on submission and its input is cleared after fai
   vi.mocked(api.saveLocalCredential).mockRejectedValue(new Error("Connection unavailable"));
   render(<LocalSettings onChanged={vi.fn()} />);
   fireEvent.click(await screen.findByRole("button",{name:"Comptes et trackers"}));
-  fireEvent.click(await screen.findByText("Accès manuel par jeton · option avancée"));
+  expect(screen.getByText("Accès personnel aux trackers")).toBeTruthy();
+  expect(screen.getByText("Connexion OAuth locale existante").closest("details")?.open).toBe(false);
   const token = await screen.findByLabelText("Jeton personnel");
+  expect(token.closest("details")).toBeNull();
+  expect(screen.queryByLabelText("URL du site ou de l’API")).toBeNull();
+  expect(screen.queryByLabelText("E-mail du compte")).toBeNull();
   fireEvent.change(token,{target:{value:"fixture-secret"}});
   expect(api.saveLocalCredential).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button",{name:"Enregistrer l’accès"}));
@@ -177,12 +183,23 @@ test("a credential is sent only on submission and its input is cleared after fai
   expect((token as HTMLInputElement).value).toBe("");
   expect(api.saveLocalCredential).toHaveBeenCalledWith({tracker:"github",siteUrl:"",email:"",token:"fixture-secret"});
 });
+test("Local personal access shows only provider-specific fields and labels an existing OAuth grant", async () => {
+  vi.mocked(api.localSetupStatus).mockResolvedValue({ ...ready, mode:"local", credentials:{credentials:[{tracker:"jira",kind:"oauth",account:"Fixture",siteUrl:"https://example.atlassian.net"}]} });
+  render(<LocalSettings onChanged={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button",{name:"Comptes et trackers"}));
+  expect(screen.getByText(/OAuth · Fixture · https:\/\/example.atlassian.net/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Fournisseur"),{target:{value:"gitlab"}});
+  expect((screen.getByLabelText("URL du site ou de l’API") as HTMLInputElement).value).toBe("https://gitlab.com");
+  expect(screen.queryByLabelText("E-mail du compte")).toBeNull();
+  fireEvent.change(screen.getByLabelText("Fournisseur"),{target:{value:"jira"}});
+  expect(screen.getByLabelText("E-mail du compte")).toBeTruthy();
+  expect((screen.getByLabelText("URL du site ou de l’API") as HTMLInputElement).value).toBe("");
+});
 test("tracker source and personal credential keep independent provider and site drafts", async () => {
   vi.mocked(api.localSetupStatus).mockResolvedValue(ready);
   vi.mocked(api.createLocalTracker).mockResolvedValue({});
   render(<LocalSettings onChanged={vi.fn()} />);
   fireEvent.click(await screen.findByRole("button", {name:"Comptes et trackers"}));
-  fireEvent.click(screen.getByText("Accès manuel par jeton · option avancée"));
   fireEvent.change(screen.getByLabelText("Fournisseur"), {target:{value:"jira"}});
   fireEvent.change(screen.getByLabelText("URL du site ou de l’API"), {target:{value:"https://personal.atlassian.net"}});
   fireEvent.change(screen.getByLabelText("Fournisseur de la source"), {target:{value:"gitlab"}});

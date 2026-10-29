@@ -850,3 +850,10 @@ until that activity finishes. The click handler checks again just before
 requesting a manual read, covering an activity that started after the last
 settings poll. This is a desktop interaction fix; it does not serialize sync
 requests from other clients at the backend.
+
+The approved Local/Fleet contract starts fresh Local tracker access with a
+personal provider token and keeps the previously configured OAuth application
+flow for compatibility. Native Settings had inverted that priority by placing
+OAuth first and hiding the token form as an advanced option. Local now shows
+personal access directly and retains OAuth in a secondary disclosure; Fleet
+continues to show backend-managed OAuth first and keeps token entry advanced.
