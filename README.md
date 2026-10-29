@@ -55,7 +55,9 @@ npm run tauri dev
 
 Without `SECTILE_SOURCE_DIR`, the build script uses `../sectile`. Services are
 compiled for the current host into ignored `src-tauri/binaries/` and included as
-application resources when packaging. Go code remains an external dependency;
+application resources when packaging. The script also checks that the Go
+third-party notices match that source's `go.mod`, then bundles the notice and
+license files beside the executables. Go code remains an external dependency;
 this repository does not contain or relicense it. Source compatibility is required:
 an older server without the authenticated probe cannot be used as a managed service.
 
@@ -220,7 +222,10 @@ npm run tauri build
 
 `tauri build` creates an application and platform bundles under `src-tauri/target/release/bundle`.
 Bundles include Go services when prepared locally and currently use Tauri's starter icons. Signing, notarization, automatic updates,
-and production release workflows remain future work.
+and production release workflows remain future work. Bundles include the
+MIT license and third-party dependency notices in the application resources;
+see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the
+[notice maintenance guide](docs/third-party-notices.md).
 
 ## Layout
 
@@ -247,9 +252,10 @@ See [the supervisor architecture](docs/adrs/0001-local-desktop-supervisor.md) an
 
 ## License
 
-New code in this repository is licensed under [MIT](LICENSE). The original Sectile
-services are external dependencies and retain their own licensing status. This
-repository does not relicense or redistribute the original Go code.
+New code in this repository is licensed under [MIT](LICENSE). The Go services
+remain maintained in the separate Sectile repository, which is also MIT-licensed.
+Tauri packages their built executables and includes the corresponding dependency
+notices; it does not relicense the Go source.
 
 ## Try the project prompt prototype
 

@@ -328,7 +328,7 @@ domain and workspace UI regressions cover the idle-session case.
 | Local workspace board metadata | A live Tauri review found that Local projects carry a synthetic `local` tracker row; the older desktop projection dropped provider identity, leaving remote-only ticket filters visible. Go commit `560f1f4a` includes provider per selected tracker; Tauri commit `bc48a02` hides remote controls for Local-only projects and includes a bounded older-agent fallback. An isolated macOS Tauri bundle with a separate app identifier and port started the current Go companion, saved a synthetic Local profile, created a folder-backed project whose DB tracker provider was `local`, and rendered “Votre projet local est prêt” without remote search, grouping or status controls. | End-to-end Local behavior passes in isolation. The production companion and its data were not touched; disposable app data and the 52964 process were removed after the check. |
 | Native platforms | User-selected V1 support is macOS-first; Linux is experimental; Windows is deferred. macOS Local/Fleet migration and isolated Local startup/provider paths have live desktop evidence. Linux ARM64 `.deb` was built and installed with a visible X11 window under Xvfb/DBus at Tauri `446285c`/Go `7dea9140`; Windows and Linux Go services cross-build. | macOS runtime behavior is qualified except for a clean default-port cold-start/provider rerun and signed/notarized distribution. Linux remains experimental: real user desktop/provider/migration and distro breadth are unqualified. Windows remains deferred after cross-build only. |
 | macOS signing | `security find-identity -v -p codesigning` returned zero valid identities on the qualification host (2026-10-29) | No signed macOS artifact can be qualified on this host; a valid signing identity is required |
-| Open-source package provenance | The user selected MIT for both repositories. Tauri has an MIT `LICENSE`; Go commit `5f809481` adds the MIT grant to the services repository and updates its README. | Repository licensing is resolved. Keep third-party notices and signed macOS distribution in the release checklist. |
+| Open-source package provenance | The user selected MIT for both repositories. Tauri has an MIT `LICENSE`; Go commit `5f809481` adds the MIT grant to the services repository and updates its README. Go and Tauri packages now include inventories and license texts for their Go, Rust, and JavaScript dependency sets. The Go notice records the `go.mod` hash; Tauri verifies that hash before bundling the selected Go source. | Repository licensing and package notices are implemented and verified in the Go release archive and macOS app bundle. Keep notice regeneration and dependency-graph validation in the release process; signed macOS distribution remains open. |
 
 Cross-version harness re-run (2026-10-29, Go commit `7dea9140`):
 `python3 scripts/compatibility/test-v076-server-current-agent.py` passed. It
@@ -456,9 +456,10 @@ client migration are separate qualifications.
 Stage 7's ownership decision is complete. Before V1 release, finish the exact
 operational feature inventory, publish the tested backend compatibility range,
 define packaging/update behavior, qualify macOS signing/notarization, complete
-remaining Fleet/Electron compatibility checks, record third-party notices and
-finish the UX convergence plan. These gates do not authorize changes to the
-existing web application.
+remaining Fleet/Electron compatibility checks and finish the UX convergence
+plan. Third-party notices are included in the Go release archive and Tauri
+bundle; keep them synchronized with dependency changes. These gates do not
+authorize changes to the existing web application.
 
 ## 8. Release meaning
 

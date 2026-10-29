@@ -35,7 +35,12 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "binaries/": "binaries/"
+      "binaries/": "binaries/",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../THIRD_PARTY_NOTICES_GO.md": "THIRD_PARTY_NOTICES_GO.md",
+      "../THIRD_PARTY_NOTICES_JS.md": "THIRD_PARTY_NOTICES_JS.md",
+      "../THIRD_PARTY_NOTICES_RUST.html": "THIRD_PARTY_NOTICES_RUST.html",
+      "../third_party_licenses/": "third_party_licenses/"
     }
   }
 }

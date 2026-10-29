@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, copyFileSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,6 +17,16 @@ function git(args) {
 
 function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+function makeTreeWritable(path) {
+  const info = statSync(path);
+  if (info.isDirectory()) {
+    chmodSync(path, 0o755);
+    for (const entry of readdirSync(path)) makeTreeWritable(join(path, entry));
+  } else {
+    chmodSync(path, 0o644);
+  }
 }
 
 function run(command, args, options = {}) {
@@ -42,6 +52,29 @@ if (expectedCommit && !commit.startsWith(expectedCommit)) {
 if (process.env.SECTILE_REQUIRE_CLEAN_SOURCE === '1' && dirty) {
   throw new Error('Go source tree is dirty; refusing the requested clean-source build.');
 }
+
+const goNoticesPath = join(source, 'THIRD_PARTY_NOTICES.md');
+const goLicensePath = join(source, 'third_party_licenses');
+const goNotices = readFileSync(goNoticesPath, 'utf8');
+const expectedGoModHash = goNotices.match(/`go\.mod` SHA-256 is `([a-f0-9]{64})`/)?.[1];
+const actualGoModHash = createHash('sha256').update(readFileSync(join(source, 'go.mod'))).digest('hex');
+if (!expectedGoModHash || expectedGoModHash !== actualGoModHash) {
+  throw new Error('Go third-party notices do not match the selected source go.mod dependency graph.');
+}
+
+const goNoticesForTauri = goNotices
+  .replaceAll('third_party_licenses/', 'third_party_licenses/go/')
+  .replace('Sectile source code in this repository is licensed under MIT; see [`LICENSE`](LICENSE).', 'Sectile Go source code is licensed under MIT; see [`third_party_licenses/go/sectile/LICENSE`](third_party_licenses/go/sectile/LICENSE).');
+const localGoNoticesPath = join(root, 'THIRD_PARTY_NOTICES_GO.md');
+if (readFileSync(localGoNoticesPath, 'utf8') !== goNoticesForTauri) {
+  writeFileSync(localGoNoticesPath, goNoticesForTauri);
+}
+const localGoLicensePath = join(root, 'third_party_licenses/go');
+rmSync(localGoLicensePath, { recursive: true, force: true });
+cpSync(goLicensePath, localGoLicensePath, { recursive: true });
+mkdirSync(join(localGoLicensePath, 'sectile'), { recursive: true });
+copyFileSync(join(source, 'LICENSE'), join(localGoLicensePath, 'sectile/LICENSE'));
+makeTreeWritable(localGoLicensePath);
 
 const version = tag || 'dev';
 const releaseEligible = Boolean(tag) && !dirty;
@@ -75,6 +108,11 @@ try {
     });
   }
 
+  copyFileSync(goNoticesPath, join(staging, 'THIRD_PARTY_NOTICES.md'));
+  cpSync(goLicensePath, join(staging, 'third_party_licenses'), { recursive: true });
+  makeTreeWritable(join(staging, 'THIRD_PARTY_NOTICES.md'));
+  makeTreeWritable(join(staging, 'third_party_licenses'));
+
   const manifest = {
     schemaVersion: 1,
     source: { commit, date, tag: tag || null, dirty },
@@ -84,7 +122,7 @@ try {
   writeFileSync(join(staging, 'build-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
   mkdirSync(output, { recursive: true });
-  const names = [...artifacts.map(({ name }) => name), 'build-manifest.json'];
+  const names = [...artifacts.map(({ name }) => name), 'build-manifest.json', 'THIRD_PARTY_NOTICES.md', 'third_party_licenses'];
   const backedUp = [];
   const installed = [];
   try {

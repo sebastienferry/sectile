@@ -4,6 +4,10 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ## [Unreleased]
 
+### Added
+
+- Include MIT and third-party dependency notices in packaged Tauri applications, with Go notices checked against the selected Go source dependency graph.
+
 ### Fixed
 
 - Identify retained tracker tickets as coming from the previous successful read after a refresh fails.

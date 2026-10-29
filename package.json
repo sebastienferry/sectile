@@ -14,6 +14,7 @@
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "test:ui": "vitest run",
     "prepare:services": "node scripts/build-services.mjs",
+    "licenses:javascript": "node scripts/generate-js-notices.mjs",
     "test:services": "node scripts/test-local-services.mjs"
   },
   "dependencies": {
