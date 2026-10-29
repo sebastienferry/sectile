@@ -462,9 +462,10 @@ but its fixed port reservation failed because port 52963 was occupied. The
 existing service was left running. The test must be repeated after that service
 stops.
 
-Both Go binary handshake directions now pass: a released v0.7.6 agent connected
-to the current handler, and the current agent connected to a server built from
-the v0.7.6 tag. These tests cover startup, WebSocket negotiation and operation
+Both Go binary handshake directions now pass using the reproducible harness
+`python3 scripts/compatibility/test-v076-server-current-agent.py` from the Go
+repository: the released v0.7.6 agent connects to the current handler, and the
+current agent connects to a server built from the v0.7.6 tag. These tests cover startup, WebSocket negotiation and operation
 announcements, not tracker/MCP/workflow API parity. Stage 5 remains open for a
 live Fleet pairing/setup session, an Electron live MCP call after the Tauri
 migration, signed-package qualification and repeated true cold-start
@@ -502,9 +503,9 @@ v0.7.6 agent connection query, and a parser copied from the v0.7.6 server
 source accepts the current agent announcement. Separately, a real v0.7.6 agent
 binary connected to the current server WebSocket handler in an isolated test
 with a temporary database and HOME; the server accepted its version and complete
-operation list. In the reverse test, the v0.7.6 server started from an isolated
-SQLite database and accepted a current `dev` agent with all 27 operations and
-`outdated=false`. Both results qualify handshake compatibility only; tracker,
+operation list. The reproducible Go harness also starts a v0.7.6 server from an
+isolated SQLite database and accepts a current `dev` agent with all 27 operations
+and `outdated=false`. Both results qualify handshake compatibility only; tracker,
 MCP and workflow API parity remain open. Windows cross-compilation also passed
 for the Go companion and handler test binary; Windows runtime and Linux native
 execution remain untested.
