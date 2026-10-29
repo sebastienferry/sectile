@@ -108,7 +108,8 @@ type agentDaemon struct {
 	// conversationViews holds the task launches Desktop explicitly asked to
 	// open as a conversation, until their dispatch arrives. A dispatch without
 	// a mark falls back to the workstation console view.
-	conversationViews pendingDiscussionViews
+	conversationViews        pendingDiscussionViews
+	desktopLaunchConnections map[string]desktopLaunchConnection
 }
 
 // serverLink is the agent's attachment to the server: the identity it presents
@@ -1426,6 +1427,7 @@ func (d *agentDaemon) startLaunchConversation(run *controlledRun, entry desktopR
 	}
 	d.queue.mu.Lock()
 	entry.CreatedAt, entry.Prompt = run.desktop.CreatedAt, run.desktop.Prompt
+	entry.ConnectionID = d.takeDesktopLaunchConnectionLocked(entry)
 	run.desktop = entry
 	startConversationLocked(run, model, mode, origin, provider...)
 	run.conversation.env, run.conversation.extraDirs = env, extraDirs

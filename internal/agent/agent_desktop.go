@@ -1113,6 +1113,11 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 
 // desktopTasks browses server tasks and reuses the web dispatch path.
 func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
+	connectionID, err := desktopConnectionID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	projectID := r.URL.Query().Get("projectId")
 	if projectID == "" {
 		http.Error(w, "Project required", 400)
@@ -1242,6 +1247,25 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer response.Body.Close()
+	if connectionID != "" && response.StatusCode >= 200 && response.StatusCode < 300 {
+		raw, readErr := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+		if readErr != nil {
+			http.Error(w, "Réponse de lancement incomplète. Actualisez le suivi avant de réessayer.", http.StatusBadGateway)
+			return
+		}
+		var accepted struct {
+			Activity struct {
+				ID string `json:"id"`
+			} `json:"activity"`
+		}
+		if json.Unmarshal(raw, &accepted) == nil && safeRunID.MatchString(accepted.Activity.ID) {
+			d.bindDesktopLaunchConnection(accepted.Activity.ID, projectID, task.ID, connectionID)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(response.StatusCode)
+		_, _ = w.Write(raw)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(response.StatusCode)
 	_, _ = io.Copy(w, io.LimitReader(response.Body, 1<<20))

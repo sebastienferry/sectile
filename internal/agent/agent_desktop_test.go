@@ -1447,10 +1447,12 @@ func TestDesktopLaunchForwardsTheProjectOfTheBoard(t *testing.T) {
 		loopback: loopbackServer{desktopToken: "private"},
 		link:     serverLink{serverURL: srv.URL, projectID: "p", deviceID: "local-desktop"},
 	}
+	connectionHeader := ""
 	launch := func(input map[string]any) *httptest.ResponseRecorder {
 		raw, _ := json.Marshal(input)
 		req := httptest.NewRequest(http.MethodPost, "/desktop/tasks?projectId=p", bytes.NewReader(raw))
 		req.Header.Set("Authorization", "Bearer private")
+		req.Header.Set("X-Sectile-Connection-ID", connectionHeader)
 		w := httptest.NewRecorder()
 		d.desktopHandler(w, req)
 		return w
@@ -1497,6 +1499,22 @@ func TestDesktopLaunchForwardsTheProjectOfTheBoard(t *testing.T) {
 	}
 	if len(forwarded) != 4 {
 		t.Fatalf("a refused launch reached the server: %+v", forwarded)
+	}
+	if len(d.desktopLaunchConnections) != 0 {
+		t.Fatal("legacy launches acquired a connection identity")
+	}
+	refuseBatch = false
+	d.link.deviceID = "local-desktop"
+	connectionHeader = "11111111-1111-4111-8111-111111111111"
+	if w := launch(map[string]any{"taskID": "task-1", "skillID": "custom", "prompt": "go"}); w.Code != http.StatusOK {
+		t.Fatalf("connection-bound launch: %d %s", w.Code, w.Body.String())
+	}
+	if binding := d.desktopLaunchConnections["a1"]; binding.connectionID != connectionHeader || binding.projectID != "p" || binding.taskID != "task-1" {
+		t.Fatalf("accepted server run lost its launch identity: %+v", binding)
+	}
+	connectionHeader = "invalid"
+	if w := launch(map[string]any{"taskID": "task-1", "skillID": "custom", "prompt": "go"}); w.Code != http.StatusBadRequest || len(forwarded) != 5 {
+		t.Fatalf("invalid connection reached the server: %d", w.Code)
 	}
 }
 

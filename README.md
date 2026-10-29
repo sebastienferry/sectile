@@ -358,6 +358,10 @@ requests. Browser origins and unknown keys receive 404.
 
 Desktop OAuth integration is described in [the companion API contract](docs/desktop-oauth.md).
 
+Tracker workflows launched by a desktop retain its connection identity when the
+server dispatch arrives. Provider questions and MCP approvals stay interactive
+for that connection; another selected connection cannot control the run.
+
 Free Claude Code and Codex conversations retain their provider session, transcript,
 model and mode across agent restarts. They resume on the next explicit message;
 previous prompts and tools are not replayed. Older histories without saved session
