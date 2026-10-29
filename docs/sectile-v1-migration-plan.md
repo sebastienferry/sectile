@@ -236,6 +236,12 @@ Windows amd64 cross-builds. This completes the headless-artifact portion of
 Stage 6 only. Explicit migration paths for web/Electron consumers and a
 V1-supported server distribution remain open.
 
+The post-change default-server smoke also passed with disposable SQLite: the
+default binary returned a healthy `/api/health` response and retained its
+existing fallback landing page when no web bundle was present. The web-bundled
+default path remains unchanged in code; native Fleet pairing and web/Electron
+client migration are separate qualifications.
+
 ## 5. Non-regression and upgrade gates
 
 - A lifetime store lock precedes DB open/recovery; duplicate starters cannot
