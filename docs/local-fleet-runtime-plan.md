@@ -203,8 +203,12 @@ The agent has a context-owned `RunEmbedded` entry point with explicit private
 paths and an owner restart callback; explicit settings operations and generated
 Claude settings stay within the Local root. A restart test confirms its gateway stops
 first. The Fleet internal listener also has a stop/join path. The Local
-composition root and its authenticated self-connection/readiness barrier are
-still pending, so this is not yet the phase 2 acceptance result.
+backend now gates work and auto-sync until the expected authenticated agent
+WebSocket connects and the embedded agent reports its connection setup. The
+gate closes again if that connection disappears; a real embedded-agent test
+covers startup without deadlock. The Local composition root still must own
+listener drain, process failure and restart, so this is not yet the phase 2
+acceptance result.
 
 - Separate agent flag parsing, signals and process restart from construction and
   execution. Keep `agent.Run` as the Fleet CLI adapter with existing defaults.

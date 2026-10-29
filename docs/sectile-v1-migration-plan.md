@@ -104,7 +104,8 @@ binary. The already configured OAuth prototype remains supported.
 
 Stage 0 is complete. Stage 1 is implemented on the dedicated Go branch, with
 the standalone server consuming the extracted backend package. Stage 2 lifecycle
-primitives are in progress; the combined startup/readiness gate is pending. The
+primitives and the backend startup gate are in progress; the combined process
+still needs to coordinate readiness and shutdown. The
 current desktop still launches the two-service Local prototype, and no
 installation has been upgraded.
 
