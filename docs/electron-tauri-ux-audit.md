@@ -1,10 +1,10 @@
 # Electron and Tauri desktop UX audit
 
 Date: 2026-10-29
-Status: source corrections and the matched current-source visual baseline for
-shared surfaces are complete. The convergence plan has passed an independent
-design challenge; post-dispatch conversation and execution surfaces are
-documented as product-specific rather than visual-parity targets.
+Status: all seven UX convergence lots are complete for the agreed Tauri scope.
+The matched current-source baseline covers shared surfaces; post-dispatch
+conversation and execution surfaces are documented as product-specific rather
+than visual-parity targets.
 
 ## Reference and scope
 
@@ -496,14 +496,27 @@ disposable test data.
 - Added a pointer- and keyboard-resizable sidebar, bounded between 200 and 480
   pixels, with its width retained locally.
 
-## Remaining convergence work
+## Convergence closure
 
-The plan above follows the source audit and tested parity changes. Current
-source has matched populated-board, pre-dispatch prompt and settings captures
-at normal and narrow widths in both themes. Production windows remain
-unsuitable for comparison because their projects and tracker modes differ.
-Conversation and execution surfaces remain Tauri-only by product design.
-Continue in plan order,
-preserving tracker-authoritative ticket state, existing Go execution/MCP
-contracts, accessible focus behavior, the no-tabs decision and the fast
-standalone Local path.
+All seven implementation lots are complete for the agreed scope. Evidence is
+recorded above and in the parity delivery plan. The work preserves the single
+workspace, tracker-authoritative ticket state, native project folders, Local
+and Fleet ownership, and existing Go execution/MCP contracts.
+
+| Lot | Outcome |
+| --- | --- |
+| Matched baseline | Board, pre-dispatch prompt and settings captured at normal and narrow sizes in light and dark themes. Product-specific post-dispatch surfaces have documented reasons they cannot be matched. |
+| Workbench navigation | Restore and fallback rules, one navigation row per ticket/conversation, execution history, resizable rail and command palette are implemented and covered by regression evidence. |
+| Board and workflow | Remote status remains tracker-owned; workflow stage, next action, current run and review state stay distinct and truthful. Local-only projects do not imply tracker setup. |
+| Prompt and execution | Project context, folder attachments, provider/model/mode selection, Markdown, grouped tools, questions, streaming and stop/review controls remain available. Short-window prompt and question layouts keep their primary actions reachable. |
+| Orchestration and supervision | Run rows retain identified view/stop actions; workstation activity and server-shared capacity are labeled separately; board refresh appears only on the board. |
+| Native settings | Local/Fleet ownership, profile, tracker, project, provider and service responsibilities remain explicit. Advanced token, permission and execution controls stay available in their scoped sections. |
+| Visual system | Matched theme captures, semantic color roles, AA text contrast, visible focus and reduced-motion behavior are recorded. No broad token change was justified by the captures. |
+
+The Tauri desktop UI and domain suites pass (101 UI tests and 14 unit tests),
+and `npm run check` passes. Matched screenshots are evidence for hierarchy and
+behavior, not pixel-approval. Production Electron and Tauri windows still use
+different project and tracker modes, so they are not valid content-comparison
+fixtures. Conversation transcripts, questions and execution/diff surfaces
+remain intentionally Tauri-specific because Electron continues provider CLI
+sessions in its console/terminal.
