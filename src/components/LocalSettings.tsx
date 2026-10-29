@@ -159,7 +159,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     </nav>
     <div className="settings-content">
     <header className="settings-section-heading"><h2>{activeSection ? sectionLabel(activeSection) : ""}</h2><p>{section === "services" && fleetMode ? "État de la connexion et de l’agent Fleet associé à ce poste." : activeSection?.description}</p></header>
-    <div hidden={section !== "engines"}><ProviderSettings projects={setup?.projects??[]} /></div>
+    <div hidden={section !== "engines"}>{setup?.agentReady ? <ProviderSettings key={`${setup.mode}:${setup.fleetServer??""}`} projects={setup.projects??[]} /> : <article><p>Connectez un agent Local ou Fleet pour vérifier vos moteurs IA.</p><button onClick={()=>setSection("services")}>Configurer la connexion</button></article>}</div>
     <div hidden={section !== "services"}><article>
       <h2>{fleetMode ? "Agent Fleet" : "Services locaux"}</h2>
       <p>{setup?.mode === "fleet" ? `Mode Fleet · ${setup.agentReady ? "agent connecté" : "agent déconnecté"}${setup.fleetServer ? ` · ${setup.fleetServer}` : ""}` : !setup ? "Lecture de la configuration du poste…" : !setup.enabled ? "Choisissez un mode pour connecter ce desktop à Sectile." : setup.ready ? `Mode Local · compagnon prêt · ${setup.agentReady ? "exécution prête" : "en attente du profil"}` : "Le compagnon local ne répond pas."}</p>

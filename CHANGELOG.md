@@ -13,6 +13,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- AI provider detection now starts after the Local or Fleet agent is available, avoiding stale connection errors after first-time setup.
 - Project tracker setup now shows a completed state after all available sources are linked and follows the project settings form layout.
 - Tracker setup now follows an active background synchronization and disables the manual sync button until it finishes, avoiding a second request from that screen.
 - GitLab website addresses entered in native tracker and manual credential setup now resolve to the API endpoint required for ticket operations.

@@ -1,4 +1,4 @@
-vi.mock("../src/components/ProviderSettings", () => ({ ProviderSettings: () => null }));
+vi.mock("../src/components/ProviderSettings", () => ({ ProviderSettings: () => <div>Provider settings ready</div> }));
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { LocalSettings } from "../src/components/LocalSettings";
@@ -8,6 +8,15 @@ vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), localServiceLog:
 const ready = { enabled: true, ready: true, signedIn: true, agentReady: true, profile: { email: "fixture@example.invalid", displayName: "Fixture" }, trackers: [{id:"t",name:"Tracker",provider:"github",scope:"fixture/repo"}], projects: [{id:"p",name:"Project"}] };
 beforeEach(() => { vi.resetAllMocks(); vi.mocked(api.localServiceLog).mockResolvedValue({path:"/test/companion.log",text:"service ready",missing:false,truncated:false}); vi.mocked(api.activeTrackerSyncs).mockResolvedValue([]); });
 afterEach(() => cleanup());
+test("provider detection starts only after the agent becomes available", async () => {
+ vi.mocked(api.localSetupStatus).mockResolvedValueOnce({enabled:true,mode:"local",ready:true,signedIn:false,agentReady:false}).mockResolvedValue({...ready,mode:"local"});
+ render(<LocalSettings onChanged={vi.fn()} />);
+ await screen.findByLabelText("Adresse e-mail");
+ expect(screen.queryByText("Provider settings ready")).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Services locaux"}));
+ fireEvent.click(screen.getByRole("button",{name:"Actualiser",exact:true}));
+ await waitFor(()=>expect(screen.getByText("Provider settings ready")).toBeTruthy());
+});
 test("Local activation waits for the local server before exposing profile setup", async () => {
   vi.mocked(api.localSetupStatus).mockResolvedValueOnce({ enabled: false }).mockResolvedValue({enabled:true,ready:true,signedIn:false});
   let finish!: () => void;

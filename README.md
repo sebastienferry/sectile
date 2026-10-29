@@ -359,7 +359,8 @@ first user message and can also be renamed.
 
 Open **Paramètres → Moteurs IA** to detect Claude Code and Codex using the Go
 agent's executable lookup. Each card reports CLI presence and the official
-authentication status command's exit status. **Se connecter** opens the official
+authentication status command's exit status. Detection starts once the Local or
+Fleet agent is available, including after first-time setup. **Se connecter** opens the official
 CLI login in a visible terminal (and its browser flow). The desktop checks status
 every five seconds for two minutes; **Détecter / vérifier les connexions** retries
 after installation or a longer login. Opening a terminal never counts as a

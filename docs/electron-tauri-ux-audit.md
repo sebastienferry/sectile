@@ -896,3 +896,11 @@ read “Prêt pour votre prochain message.” The provider replies were unchange
 The app, companion, provider children and temporary data were removed after
 the check. This qualifies the localized start/ready copy on the native Local
 path; interrupt/error copy was covered by Go tests rather than this retake.
+
+That native first-start path also exposed stale provider detection: the hidden
+AI settings panel queried the agent before a mode was selected, then retained
+those errors after Local profile setup. Settings now mounts provider detection
+only once the agent is available and scopes it to the selected connection.
+An onboarding UI regression verifies that detection appears after agent
+readiness. TypeScript, 15 domain tests, 131 UI tests, the production build and
+38 Rust tests pass; this follow-up has not had a separate native retake.
