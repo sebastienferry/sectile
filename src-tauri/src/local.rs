@@ -1465,6 +1465,43 @@ pub async fn tracker_sync_status(
     .await
 }
 
+#[tauri::command]
+pub async fn active_tracker_syncs(app: tauri::AppHandle) -> Result<Vec<Value>, String> {
+    let state = app.state::<LocalRuntime>();
+    let _lock = state.0.lock().await;
+    let root = root(&app)?;
+    let mut active = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for status in ["queued", "running"] {
+        let activities = selected_request(
+            &root,
+            Method::GET,
+            &format!("/api/activities?status={status}&limit=200"),
+            None,
+        )
+        .await?;
+        if let Some(items) = activities.as_array() {
+            for item in items {
+                let id = item["id"].as_str().unwrap_or_default();
+                let tracker_id = item["trackerId"].as_str().unwrap_or_default();
+                let skill = item["skillId"].as_str().unwrap_or_default();
+                if !id.is_empty()
+                    && !tracker_id.is_empty()
+                    && skill.starts_with("sync_")
+                    && seen.insert(id.to_owned())
+                {
+                    active.push(json!({
+                        "id": id,
+                        "trackerId": tracker_id,
+                        "status": item["status"],
+                    }));
+                }
+            }
+        }
+    }
+    Ok(active)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

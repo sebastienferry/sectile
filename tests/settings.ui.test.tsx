@@ -4,9 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { LocalSettings } from "../src/components/LocalSettings";
 import * as api from "../src/lib/local";
 vi.mock("../src/components/OAuthConnections", () => ({ OAuthConnections: ({serverManaged}:{serverManaged?:boolean}) => <div data-server-managed={String(serverManaged??false)}>OAuth connections</div> }));
-vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), localServiceLog: vi.fn(), enableLocalRuntime: vi.fn(), attachFleetAgent: vi.fn(), pairFleetAgent: vi.fn(), saveLocalProfile: vi.fn(), saveLocalCredential: vi.fn(), createLocalTracker: vi.fn(), createLocalProject: vi.fn(), chooseProjectFolder: vi.fn(), syncLocalTracker: vi.fn(), trackerSyncStatus: vi.fn() }));
+vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), localServiceLog: vi.fn(), enableLocalRuntime: vi.fn(), attachFleetAgent: vi.fn(), pairFleetAgent: vi.fn(), saveLocalProfile: vi.fn(), saveLocalCredential: vi.fn(), createLocalTracker: vi.fn(), createLocalProject: vi.fn(), chooseProjectFolder: vi.fn(), syncLocalTracker: vi.fn(), trackerSyncStatus: vi.fn(), activeTrackerSyncs: vi.fn() }));
 const ready = { enabled: true, ready: true, signedIn: true, agentReady: true, profile: { email: "fixture@example.invalid", displayName: "Fixture" }, trackers: [{id:"t",name:"Tracker",provider:"github",scope:"fixture/repo"}], projects: [{id:"p",name:"Project"}] };
-beforeEach(() => { vi.resetAllMocks(); vi.mocked(api.localServiceLog).mockResolvedValue({path:"/test/companion.log",text:"service ready",missing:false,truncated:false}); });
+beforeEach(() => { vi.resetAllMocks(); vi.mocked(api.localServiceLog).mockResolvedValue({path:"/test/companion.log",text:"service ready",missing:false,truncated:false}); vi.mocked(api.activeTrackerSyncs).mockResolvedValue([]); });
 afterEach(() => cleanup());
 test("Local activation waits for the local server before exposing profile setup", async () => {
   vi.mocked(api.localSetupStatus).mockResolvedValueOnce({ enabled: false }).mockResolvedValue({enabled:true,ready:true,signedIn:false});
@@ -249,6 +249,35 @@ test("tracker sync distinguishes queued work from a completed read",async()=>{
  expect(await screen.findByText("2 tickets synchronisés.")).toBeTruthy();
  await waitFor(()=>expect(screen.getByRole("button",{name:"Synchroniser"}).hasAttribute("disabled")).toBe(false));
  expect(api.trackerSyncStatus).toHaveBeenCalledWith("sync-1");
+});
+test("an automatic tracker sync is followed instead of queued a second time",async()=>{
+ vi.mocked(api.localSetupStatus).mockResolvedValue(ready);
+ const running={id:"auto-sync",trackerId:"t",status:"running"};
+ vi.mocked(api.activeTrackerSyncs).mockResolvedValue([running]);
+ let complete!:(value:api.TrackerSyncActivity)=>void;
+ vi.mocked(api.trackerSyncStatus).mockReturnValue(new Promise(resolve=>{complete=resolve;}));
+ render(<LocalSettings onChanged={vi.fn()}/>);
+ fireEvent.click(await screen.findByRole("button",{name:"Comptes et trackers"}));
+ expect(await screen.findByText("Synchronisation en cours…")).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Synchroniser"}).hasAttribute("disabled")).toBe(true);
+ expect(api.syncLocalTracker).not.toHaveBeenCalled();
+ complete({id:"auto-sync",trackerId:"t",status:"completed",summary:"106 GitLab issues synchronized successfully"});
+ expect(await screen.findByText("106 tickets synchronisés.")).toBeTruthy();
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Synchroniser"}).hasAttribute("disabled")).toBe(false));
+});
+test("manual sync checks for an automatic activity that appeared after the last poll",async()=>{
+ vi.mocked(api.localSetupStatus).mockResolvedValue(ready);
+ vi.mocked(api.activeTrackerSyncs)
+  .mockResolvedValueOnce([])
+  .mockResolvedValue([{id:"auto-sync",trackerId:"t",status:"queued"}]);
+ vi.mocked(api.trackerSyncStatus).mockResolvedValue({id:"auto-sync",status:"running"});
+ render(<LocalSettings onChanged={vi.fn()}/>);
+ fireEvent.click(await screen.findByRole("button",{name:"Comptes et trackers"}));
+ await waitFor(()=>expect(api.activeTrackerSyncs).toHaveBeenCalledTimes(1));
+ fireEvent.click(screen.getByRole("button",{name:"Synchroniser"}));
+ expect(await screen.findByText("Synchronisation en cours…")).toBeTruthy();
+ expect(api.syncLocalTracker).not.toHaveBeenCalled();
+ expect(api.trackerSyncStatus).toHaveBeenCalledWith("auto-sync");
 });
 test("tracker sync reports a backend failure instead of claiming tickets arrived",async()=>{
  vi.mocked(api.localSetupStatus).mockResolvedValue(ready);

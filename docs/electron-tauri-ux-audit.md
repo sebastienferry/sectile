@@ -841,3 +841,12 @@ the original prompt and marker were not replayed, and model/mode remained
 unchanged. This qualifies Fleet native execution controls for those CLI
 versions on this host; signed distribution and tracker-backed execution remain
 separate gates.
+
+The isolated native Local GitLab setup test found that opening tracker settings
+and clicking **Synchroniser** immediately could queue a second read while the
+automatic read was already running. Settings now discovers queued and running
+tracker sync activities, follows the existing activity, and disables its button
+until that activity finishes. The click handler checks again just before
+requesting a manual read, covering an activity that started after the last
+settings poll. This is a desktop interaction fix; it does not serialize sync
+requests from other clients at the backend.

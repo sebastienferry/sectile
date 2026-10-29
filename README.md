@@ -96,7 +96,8 @@ Open **Paramètres**, then:
 6. Use **Synchroniser** for the tracker. Settings follows the Go activity and
    reports its completion or failure below that source; the project's board
    refreshes when the activity finishes. Background tracker synchronization is
-   also enabled.
+   also enabled. When Settings detects an active background synchronization, it
+   follows that activity and disables the manual button until it finishes.
 
 The local profile currently has one identity per installation; its display name
 can be changed. Native setup adds sources and projects; advanced editing and

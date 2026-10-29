@@ -12,6 +12,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Tracker setup now follows an active background synchronization and disables the manual sync button until it finishes, avoiding a second request from that screen.
 - GitLab website addresses entered in native tracker and manual credential setup now resolve to the API endpoint required for ticket operations.
 - Fleet Services now distinguishes the desktop-managed agent from an agent attached from another installation.
 - Fleet Jira connection guidance now directs members to an administrator when adding a ticket source requires one.

@@ -34,6 +34,7 @@ pub fn run() {
             local::create_local_project,
             local::sync_local_tracker,
             local::tracker_sync_status,
+            local::active_tracker_syncs,
             agent::retry_folder_project,
             agent::open_conversation_link,
             agent::provider_models,

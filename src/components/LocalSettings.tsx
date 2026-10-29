@@ -101,6 +101,30 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     finally { busy.current = false; if (mounted.current) setPending(false); }
   }
   const ready = setup?.ready && setup.signedIn && setup.apiSetupAvailable !== false;
+  useEffect(() => {
+    if (!ready || section !== "connections") return;
+    let current = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function read() {
+      try {
+        const active = await api.activeTrackerSyncs();
+        if (current) setTrackerSyncs(previous => {
+          const next = { ...previous };
+          let changed = false;
+          for (const activity of active) {
+            if (activity.trackerId && !next[activity.trackerId]?.active) {
+              next[activity.trackerId] = { id: activity.id, active: true };
+              changed = true;
+            }
+          }
+          return changed ? next : previous;
+        });
+      } catch { /* Older Fleet backends can still use explicit sync. */ }
+      if (current) timer = setTimeout(() => void read(), 3000);
+    }
+    void read();
+    return () => { current = false; if (timer) clearTimeout(timer); };
+  }, [ready, section]);
   const fleetMode = setup?.mode === "fleet";
   const sectionLabel = (item: typeof sections[number]) => item.id === "services" && fleetMode ? "Connexion et services" : item.label;
   const activeSection = sections.find(item => item.id === section);
@@ -186,7 +210,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
             <button type="submit">Ajouter le tracker</button>
           </fieldset>
         </form> : <p className="muted">Les trackers sont partagés dans Fleet. Demandez à un administrateur du serveur d’enregistrer une nouvelle source.</p>}
-        <ul className="setup-list">{setup.trackers?.map(t => <li key={t.id}><span>{t.name} <small>{t.provider} · {t.scope}</small>{trackerSyncs[t.id]&&<TrackerSyncResult activityId={trackerSyncs[t.id].id} onFinished={()=>{setTrackerSyncs(previous=>({...previous,[t.id]:{...previous[t.id],active:false}}));void refresh();onChanged();}}/>}</span><button disabled={pending||trackerSyncs[t.id]?.active} onClick={() => void perform(async()=>{const result=await api.syncLocalTracker(t.id);if(!result.activity?.id)throw new Error("Le backend n’a pas fourni de suivi pour cette synchronisation.");setTrackerSyncs(previous=>({...previous,[t.id]:{id:result.activity.id,active:true}}));}, "Synchronisation demandée. Son résultat apparaîtra sous le tracker.")}>Synchroniser</button></li>)}</ul>
+        <ul className="setup-list">{setup.trackers?.map(t => <li key={t.id}><span>{t.name} <small>{t.provider} · {t.scope}</small>{trackerSyncs[t.id]&&<TrackerSyncResult activityId={trackerSyncs[t.id].id} onFinished={()=>{setTrackerSyncs(previous=>({...previous,[t.id]:{...previous[t.id],active:false}}));void refresh();onChanged();}}/>}</span><button disabled={pending||trackerSyncs[t.id]?.active} onClick={() => void perform(async()=>{const active=await api.activeTrackerSyncs().catch(()=>[]);const existing=active.find(activity=>activity.trackerId===t.id);const result=existing?{activity:existing}:await api.syncLocalTracker(t.id);if(!result.activity?.id)throw new Error("Le backend n’a pas fourni de suivi pour cette synchronisation.");setTrackerSyncs(previous=>({...previous,[t.id]:{id:result.activity.id,active:true}}));}, "Synchronisation suivie. Son résultat apparaîtra sous le tracker.")}>Synchroniser</button></li>)}</ul>
       </article></div>
       <div hidden={section !== "projects"}>
       {onConfigureProject && !!setup.projects?.length && <article><h2>Vos projets</h2><div className="profile-list">{setup.projects.map(project=><div className="profile-card" key={project.id}><strong>{project.name}</strong><button onClick={()=>onConfigureProject(project.id)}>Configurer {project.name}</button></div>)}</div></article>}
