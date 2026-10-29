@@ -21,11 +21,17 @@ or Go pairing behavior.
 - Local mode uses only the managed companion's discovery file. An existing
   managed installation without a mode record is treated as Local because its
   installation manifest is unambiguous.
-- Fleet mode is entered only after the user selects **Associer l’agent Fleet
-  existant**. The desktop reads the shared legacy connection file only in that
-  command, validates a loopback agent, verifies `/desktop/status` reports an
-  authenticated connection, and copies the credential to a private Tauri-owned
-  Fleet file.
+- Fleet mode is entered only through an explicit native onboarding action.
+  Selecting **Associer l’agent Fleet existant** reads the shared legacy
+  connection file only in that command, validates a loopback agent, verifies
+  `/desktop/status` reports an authenticated connection, and copies the
+  credential to a private Tauri-owned Fleet file.
+- Fleet mode can also pair this workstation directly through the backend's
+  one-time `/api/v1/agent/pair` code. Native code stores the returned API key
+  in the Go agent's private settings file, starts the bundled lightweight Go
+  agent, and keeps its loopback desktop credential in a separate private
+  runtime file and the discovery file. No durable API key reaches the renderer,
+  process arguments or child-process environment.
 - Ordinary requests use only the selected mode's private connection file. An
   absent or failed connection is an error; it never triggers a fallback.
 - The native Local profile, tracker, OAuth and project bootstrap screens remain
@@ -34,12 +40,12 @@ or Go pairing behavior.
 
 ## Consequences
 
-This closes silent Electron/Tauri connection reuse and provides a migration
-path for a workstation that already has a connected Fleet agent. It does not
-yet implement first-time Fleet pairing from Tauri, Fleet backend URL setup,
-active-work-safe mode switching, or a full Fleet setup UI. Those remain stage 4
-work under the [runtime plan](../local-fleet-runtime-plan.md). Local and Fleet
-connections are not merged, and the Go/Electron behavior remains unchanged.
+This closes silent Electron/Tauri connection reuse and supports both first-time
+Fleet pairing and migration from an already paired workstation. Active-work-safe
+mode switching, conversation/backend identity adoption and a full native Fleet
+profile/tracker/project setup remain stage 4 work under the [runtime
+plan](../local-fleet-runtime-plan.md). Local and Fleet connections are not
+merged, and the Go/Electron behavior remains unchanged.
 
 ## Security
 

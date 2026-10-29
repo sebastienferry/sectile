@@ -21,6 +21,8 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
   const [notice, setNotice] = useState("");
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [fleetUrl, setFleetUrl] = useState("");
+  const [fleetCode, setFleetCode] = useState("");
   const [provider, setProvider] = useState("github");
   const [site, setSite] = useState("");
   const [trackerEmail, setTrackerEmail] = useState("");
@@ -89,7 +91,17 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       {setup?.dataDirectory && <p className="muted runtime-path">{setup.dataDirectory}</p>}
       <p className="muted">{setup?.mode === "fleet" ? "L’agent Fleet reste géré par son installation habituelle." : "Le compagnon démarre automatiquement. Il continue en arrière-plan lorsque vous fermez le desktop, pour laisser les tâches se terminer."}</p>
       {setup?.mode !== "fleet" && <button disabled={pending} onClick={() => void perform(api.enableLocalRuntime, "Compagnon local démarré et mode Local sélectionné.")}>{setup?.enabled ? "Vérifier / démarrer le compagnon local" : "Démarrer en mode Local"}</button>}
-      {(!setup?.mode || setup.mode === "unconfigured") && <article><h3>Mode Fleet</h3><p className="muted">Utilise l’agent Sectile déjà associé sur ce poste et son backend Fleet. L’association est copiée dans l’espace privé de Tauri; elle n’est jamais lue implicitement.</p><button disabled={pending} onClick={() => void perform(api.attachFleetAgent, "Agent Fleet associé à ce desktop.")}>Associer l’agent Fleet existant</button></article>}
+      {(!setup?.mode || setup.mode === "unconfigured") && <article><h3>Mode Fleet</h3>
+        <p className="muted">Associez ce poste avec un code à usage unique depuis votre profil sur le backend Fleet. Le jeton durable reste dans le stockage privé natif et n’est jamais affiché.</p>
+        <form onSubmit={e => submit(e, async () => { try { await api.pairFleetAgent(fleetUrl, fleetCode); } finally { setFleetCode(""); } }, "Poste associé au backend Fleet.")}>
+          <fieldset disabled={pending}>
+            <label>Adresse du backend Fleet<input type="url" required placeholder="https://sectile.example.com" value={fleetUrl} onChange={e => setFleetUrl(e.target.value)} autoComplete="url" /></label>
+            <label>Code de jumelage<input type="password" required autoComplete="off" value={fleetCode} onChange={e => setFleetCode(e.target.value)} /></label>
+            <button className="primary" type="submit">Associer ce poste à Fleet</button>
+          </fieldset>
+        </form>
+        <details><summary>J’ai déjà associé un agent sur ce poste</summary><p className="muted">Tauri peut reprendre explicitement l’agent existant sans modifier son installation partagée.</p><button disabled={pending} onClick={() => void perform(api.attachFleetAgent, "Agent Fleet associé à ce desktop.")}>Associer l’agent Fleet existant</button></details>
+      </article>}
       {setup?.mode === "fleet" && <p className="muted">Les profils, trackers et projets Fleet se configurent sur le backend Sectile. Cette page ne modifie que le compagnon Local.</p>}
       <button disabled={pending} onClick={() => void perform(async () => {}, "Configuration actualisée.")}>Actualiser</button>
     </article></div>

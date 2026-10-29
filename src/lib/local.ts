@@ -15,6 +15,7 @@ export interface LocalSetup {
 export const localSetupStatus = () => invoke<LocalSetup>("local_setup_status");
 export const enableLocalRuntime = () => invoke<void>("enable_local_runtime");
 export const attachFleetAgent = () => invoke<void>("attach_fleet_agent");
+export const pairFleetAgent = (serverUrl: string, pairingCode: string) => invoke<void>("pair_fleet_agent", { serverUrl, pairingCode });
 export const saveLocalProfile = (email: string, displayName: string) => invoke<void>("save_local_profile", { email, displayName });
 export const saveLocalCredential = (input: { tracker: string; siteUrl: string; email: string; token: string }) => invoke<void>("save_local_credential", { input });
 export const createLocalTracker = (input: { name: string; provider: string; site: string; scope: string }) => invoke("create_local_tracker", { input });

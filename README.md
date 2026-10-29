@@ -17,7 +17,8 @@ existing Sectile Go server, workstation agent and MCP infrastructure.
 - Read-only streamed console output with bounded scrollback and reconnect controls.
 - Launch of saved named orchestration agents with launched/skipped ticket reports.
 - Native setup for a local profile, personal tracker credentials, ticket sources and projects.
-- Automatic startup and reconnection of isolated Go services after local activation.
+- Explicit Local or Fleet runtime selection, with native one-time-code Fleet pairing and private workstation credentials.
+- Automatic startup and reconnection of the Go companion in Local mode or the workstation agent in Fleet mode.
 - French runtime UI; English source documentation.
 
 This is a bootstrap, not feature parity with Sectile Desktop. OAuth is available
@@ -60,7 +61,7 @@ an older server without the authenticated probe cannot be used as a managed serv
 
 Open **Paramètres**, then:
 
-1. **Activer l’installation locale** creates separate local storage and starts the server.
+1. Choose **Démarrer en mode Local** to create separate local storage and start the companion. For Fleet setup, see [Connect to Fleet](#connect-to-fleet) below.
 2. Save an email and display name under **Profil local**. This creates the local
    identity, pairs this workstation and starts its agent. It is not a provider login.
 3. Under **Connexion aux comptes**, configure each provider's OAuth application
@@ -84,28 +85,37 @@ self-hosted forge OAuth are not part of this setup screen.
 
 After activation, every app launch checks the private local server and starts
 missing services. Closing the desktop leaves Go services and executions running;
-reopening reconnects to them. This is not an OS login service or a continuous
-crash-restart watchdog. **Vérifier / démarrer les services** retries startup.
-An occupied port belonging to another process is refused, not taken over.
+reopening reconnects to them. Fleet pairing starts its managed workstation agent
+and reconnects it on later launches; an attached pre-existing Fleet agent remains
+managed by its original installation. This is not an OS login service or a
+continuous crash-restart watchdog. **Vérifier / démarrer le compagnon local**
+retries Local startup. An occupied port belonging to another process is refused,
+not taken over.
 
 Data lives under Tauri's application data directory in `local-runtime/`, shown
-in Settings. The installation credential and discovery files stay in native code;
-tracker credentials are encrypted in the server database. On Unix the directory
-uses mode 0700 and the installation credential mode 0600. This is file-based
-credential protection, not an OS keychain. `server.log` and `agent.log` in this
-directory provide startup diagnostics. Services receive an explicit environment
-allowlist, separate configuration directories and disabled automatic MCP refresh;
-existing Sectile databases and global provider registrations are not imported.
+in Settings. The Local installation and Fleet workstation credentials stay in
+private native files; tracker credentials are encrypted in the Local server
+database or managed by the selected Fleet backend. On Unix the directory uses
+mode 0700 and credential files use mode 0600. This is file-based credential
+protection, not an OS keychain. `server.log`, `companion.log` and `agent.log`
+provide startup diagnostics. Provider processes do not inherit the desktop
+gateway credential. Existing Sectile databases and global provider registrations
+are not imported.
 
-## Use an existing installation
+## Connect to Fleet
 
-Until local setup is activated, the native layer reads
-`~/.taskflow/agent-connection.json`, as the existing Electron app does. Existing
-Go services must already be paired and running. `SECTILE_AGENT_CONNECTION_FILE`
-can override this discovery path before local activation. Once local setup is
-activated, the companion's own discovery file takes precedence and there is no
-silent fallback to the old installation. Only `http://127.0.0.1:<port>` agent
-origins are accepted; redirects and proxies are disabled.
+Choose **Services locaux**, enter the backend HTTPS URL and a one-time pairing
+code generated from the signed-in Fleet profile, then select **Associer ce poste
+à Fleet**. Tauri redeems the code with the Go backend, stores the workstation key
+in its private data directory and starts the lightweight agent. No API token
+needs to be copied into the form. For an agent already paired through another
+Sectile installation, use **Associer l’agent Fleet existant** to copy its local
+connection into Tauri's private directory without modifying that installation.
+The normal request path only reads the selected mode's private connection; it
+never falls back to the shared Electron connection file. Fleet profile, tracker
+and project administration remains on the selected backend in this iteration.
+Only `http://127.0.0.1:<port>` workstation-agent origins are accepted by Tauri;
+redirects and proxies are disabled.
 
 `npm run dev` starts a browser preview of the shell. Native integration is intentionally
 unavailable there and displays an explanatory message. Use `npm run tauri dev` for live data.
@@ -433,4 +443,4 @@ Saved OAuth application credentials are not prefilled in the desktop. Both editi
 
 ## Sectile V1 migration
 
-The [V1.0.0 migration plan](docs/sectile-v1-migration-plan.md) defines Tauri as the future primary agentic board, a headless Go API/MCP/auth backend, Local/Fleet runtime modes and a separate roadmap-integration workstream. [Phase 0](docs/phase0-runtime-baseline.md) records the preserved prototypes, dedicated branches, contracts and tests. The current two-service runtime and configured OAuth remain unchanged until the reviewed migration is implemented.
+The [V1.0.0 migration plan](docs/sectile-v1-migration-plan.md) defines Tauri as the future primary agentic board, a headless Go API/MCP/auth backend, Local/Fleet runtime modes and a separate roadmap-integration workstream. The Local companion migration and explicit Fleet pairing are implemented on dedicated branches. Safe mode switching, full Fleet setup, compatibility qualification and later product migration stages remain open.

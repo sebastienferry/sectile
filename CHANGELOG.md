@@ -71,7 +71,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
-- Make Local and Fleet runtime selection explicit; Fleet connections are copied into Tauri's private data directory only after the user attaches an existing connected workstation agent. Tauri no longer falls back to the shared Electron connection file.
+- Make Local and Fleet runtime selection explicit; Fleet supports one-time-code pairing or deliberate attachment of an existing workstation agent, stores credentials in Tauri's private data directory, and never falls back to the shared Electron connection file.
 
 - Keep agent connectivity in one labelled status location and remove the unrelated global project refresh control.
 - Project conversations now use a lightweight React controller instead of CopilotKit, retaining prompts, tool details, approvals, interruption and history while reducing the lazy conversation bundle by about 99%.

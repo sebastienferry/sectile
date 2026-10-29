@@ -111,12 +111,13 @@ installation into a selected companion generation, preserving the database,
 OAuth key, identities, projects, trackers and idle conversation histories. The
 migration was exercised against the existing desktop installation on macOS;
 Jira verification and native Claude/Codex prompts plus MCP reads succeeded after
-the switch. Stage 4 has explicit Local/Fleet selection and Tauri can privately
-attach an existing, already paired Fleet agent after validating its live
-connection. The shared Electron discovery file is no longer a silent fallback.
-Stage 4 remains open for first-time Fleet pairing, backend URL setup, active-work-
-safe mode switching, conversation/backend identity adoption and full Fleet-native
-setup. Stage 5 remains open: qualify the Fleet/Electron compatibility matrix,
+the switch. Stage 4 has explicit Local/Fleet selection; Tauri can pair Fleet with
+a one-time code or privately attach an existing, already paired agent after
+validating its live connection. The shared Electron discovery file is no longer
+a silent fallback. Stage 4 remains open for live Fleet qualification,
+active-work-safe mode switching, conversation/backend identity adoption and full
+Fleet-native profile/tracker/project setup. Stage 5 remains open: qualify the
+Fleet/Electron compatibility matrix,
 supported versions, other-platform migration and measured process/memory/startup
 and package behavior. Do not claim stages 6-8 complete or infer that this branch
 constitutes a V1 release.

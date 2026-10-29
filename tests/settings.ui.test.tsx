@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { LocalSettings } from "../src/components/LocalSettings";
 import * as api from "../src/lib/local";
 vi.mock("../src/components/OAuthConnections", () => ({ OAuthConnections: () => <div>OAuth connections</div> }));
-vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), enableLocalRuntime: vi.fn(), attachFleetAgent: vi.fn(), saveLocalProfile: vi.fn(), saveLocalCredential: vi.fn(), createLocalTracker: vi.fn(), createLocalProject: vi.fn(), mapLocalProject: vi.fn(), syncLocalTracker: vi.fn() }));
+vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), enableLocalRuntime: vi.fn(), attachFleetAgent: vi.fn(), pairFleetAgent: vi.fn(), saveLocalProfile: vi.fn(), saveLocalCredential: vi.fn(), createLocalTracker: vi.fn(), createLocalProject: vi.fn(), mapLocalProject: vi.fn(), syncLocalTracker: vi.fn() }));
 const ready = { enabled: true, ready: true, signedIn: true, agentReady: true, profile: { email: "fixture@example.invalid", displayName: "Fixture" }, trackers: [{id:"t",name:"Tracker",provider:"github",scope:"fixture/repo"}], projects: [{id:"p",name:"Project"}] };
 beforeEach(() => { vi.resetAllMocks(); });
 afterEach(() => cleanup());
@@ -28,6 +28,18 @@ test("Fleet is attached explicitly and hides Local-only setup", async () => {
   await waitFor(() => expect(api.attachFleetAgent).toHaveBeenCalledOnce());
   expect(screen.queryByLabelText("Adresse e-mail")).toBeNull();
   await waitFor(() => expect(screen.queryByRole("button",{name:"Associer l’agent Fleet existant"})).toBeNull());
+});
+test("Fleet pairing sends the one-time code to native code and clears it after failure", async () => {
+  vi.mocked(api.localSetupStatus).mockResolvedValue({ enabled: false, mode: "unconfigured" });
+  vi.mocked(api.pairFleetAgent).mockRejectedValue(new Error("Invalid pairing code"));
+  render(<LocalSettings onChanged={vi.fn()} />);
+  fireEvent.change(await screen.findByLabelText("Adresse du backend Fleet"),{target:{value:"https://fleet.example.invalid"}});
+  const code=screen.getByLabelText("Code de jumelage");
+  fireEvent.change(code,{target:{value:"one-time-code"}});
+  fireEvent.click(screen.getByRole("button",{name:"Associer ce poste à Fleet"}));
+  await waitFor(() => expect(api.pairFleetAgent).toHaveBeenCalledWith("https://fleet.example.invalid","one-time-code"));
+  await screen.findByRole("alert");
+  await waitFor(() => expect((code as HTMLInputElement).value).toBe(""));
 });
 test("a credential is sent only on submission and its input is cleared after failure", async () => {
   vi.mocked(api.localSetupStatus).mockResolvedValue(ready);

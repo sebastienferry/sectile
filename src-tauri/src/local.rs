@@ -46,6 +46,24 @@ struct Installation {
     #[serde(default)]
     email: String,
 }
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FleetCredentials {
+    server: String,
+    #[serde(rename = "apiKey")]
+    api_key: String,
+    #[serde(rename = "deviceId")]
+    device_id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FleetRuntime {
+    server: String,
+    desktop_token: String,
+    user_id: String,
+}
 impl Installation {
     fn url(&self) -> String {
         format!("http://127.0.0.1:{}", self.port)
@@ -117,6 +135,41 @@ fn save_mode(root: &Path, mode: RuntimeMode, server: Option<&str>) -> Result<(),
     fs::rename(next, path).map_err(|_| "Enregistrement du mode refusé".into())
 }
 
+fn selected_fleet_server(root: &Path) -> Result<String, String> {
+    let value: Value =
+        serde_json::from_slice(&fs::read(mode_path(root)).map_err(|_| "Mode Fleet introuvable")?)
+            .map_err(|_| "Mode Fleet illisible")?;
+    value["server"]
+        .as_str()
+        .filter(|server| !server.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| "Serveur Fleet absent".into())
+}
+
+fn normalize_fleet_server_url(input: &str) -> Result<String, String> {
+    let parsed =
+        reqwest::Url::parse(input.trim()).map_err(|_| "Adresse du serveur Fleet invalide")?;
+    let is_loopback = parsed.host_str().is_some_and(|host| {
+        host == "localhost"
+            || host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback())
+    });
+    if (parsed.scheme() != "https" && !(parsed.scheme() == "http" && is_loopback))
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || (parsed.path() != "/" && !parsed.path().is_empty())
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(
+            "Utilisez l’adresse HTTPS du backend Fleet, sans identifiants ni chemin.".into(),
+        );
+    }
+    Ok(parsed.as_str().trim_end_matches('/').to_owned())
+}
+
 pub fn connection_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     let root = active_root(&root(app).ok()?).ok()?;
     connection_file(&root, runtime_mode(app).ok().flatten()?)
@@ -148,6 +201,10 @@ fn active_root(root: &Path) -> Result<PathBuf, String> {
         return Err("Version du service local incompatible".into());
     }
     Ok(root.join("generations/companion-v1"))
+}
+
+fn fleet_root(root: &Path) -> Result<PathBuf, String> {
+    Ok(active_root(root)?.join("fleet"))
 }
 
 pub fn discovery_path(app: &tauri::AppHandle) -> Option<PathBuf> {
@@ -426,6 +483,139 @@ async fn agent_ready(root: &Path, installation: &Installation) -> bool {
         _ => false,
     }
 }
+
+async fn fleet_status(fleet_root: &Path) -> Option<Value> {
+    let connection: Value =
+        serde_json::from_slice(&fs::read(fleet_root.join("agent-connection.json")).ok()?).ok()?;
+    let (url, token) = (connection["url"].as_str()?, connection["token"].as_str()?);
+    let parsed = reqwest::Url::parse(url).ok()?;
+    if parsed.scheme() != "http" || parsed.host_str() != Some("127.0.0.1") || parsed.path() != "/" {
+        return None;
+    }
+    let response = client()
+        .ok()?
+        .get(format!("{}/desktop/status", url.trim_end_matches('/')))
+        .bearer_auth(token)
+        .timeout(Duration::from_secs(2))
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    response.json().await.ok()
+}
+
+async fn ensure_fleet_agent(
+    app: &tauri::AppHandle,
+    root: &Path,
+    expected_server: &str,
+) -> Result<(), String> {
+    let fleet_root = fleet_root(root)?;
+    if let Some(status) = fleet_status(&fleet_root).await {
+        if status["server"] == expected_server {
+            return Ok(());
+        }
+        return Err("L’agent Fleet répond avec une autre identité de serveur".into());
+    }
+    let bytes = fs::read(fleet_root.join("settings.json")).map_err(
+        |_| "L’agent Fleet associé est arrêté. Redémarrez-le depuis son installation habituelle.",
+    )?;
+    let credentials: FleetCredentials =
+        serde_json::from_slice(&bytes).map_err(|_| "Configuration de l’agent Fleet illisible")?;
+    let runtime: FleetRuntime = serde_json::from_slice(
+        &fs::read(fleet_root.join("fleet-runtime.json"))
+            .map_err(|_| "Configuration d’exécution Fleet absente")?,
+    )
+    .map_err(|_| "Configuration d’exécution Fleet illisible")?;
+    if credentials.server != expected_server
+        || runtime.server != expected_server
+        || credentials.api_key.is_empty()
+        || runtime.desktop_token.is_empty()
+        || runtime.user_id.is_empty()
+        || credentials.device_id.is_empty()
+    {
+        return Err("Configuration de l’agent Fleet incompatible".into());
+    }
+    private_dir(&fleet_root)?;
+    let _installation_lock = installation_lock(root)?;
+    if let Some(status) = fleet_status(&fleet_root).await {
+        if status["server"] == expected_server {
+            return Ok(());
+        }
+        return Err("L’agent Fleet répond avec une autre identité de serveur".into());
+    }
+    let discovery = fleet_root.join("agent-connection.json");
+    let mut cmd = command(app, &fleet_root, "agent")?;
+    cmd.arg("--url")
+        .arg(&credentials.server)
+        .arg("--device")
+        .arg(&credentials.device_id)
+        .arg("--desktop-info")
+        .arg(&discovery)
+        .env("SECTILE_DESKTOP_TOKEN", &runtime.desktop_token)
+        .env("SECTILE_DESKTOP_DATA_DIR", &fleet_root);
+    let mut child = cmd
+        .spawn()
+        .map_err(|_| "Impossible de démarrer l’agent Fleet")?;
+    for _ in 0..240 {
+        if let Some(status) = fleet_status(&fleet_root).await {
+            if status["server"] == expected_server && status["connected"] == true {
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+                return Ok(());
+            }
+        }
+        if child
+            .try_wait()
+            .map_err(|_| "État de l’agent Fleet indisponible")?
+            .is_some()
+        {
+            return Err("L’agent Fleet s’est arrêté. Consultez agent.log.".into());
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    Err("L’agent Fleet ne s’est pas connecté au serveur. Consultez agent.log.".into())
+}
+
+fn write_private_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
+    let parent = path.parent().ok_or("Dossier de configuration absent")?;
+    private_dir(parent)?;
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config");
+    let next = parent.join(format!("{name}.{}.next", uuid::Uuid::new_v4()));
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&next)
+        .map_err(|_| "Écriture de la configuration refusée")?;
+    file.write_all(&serde_json::to_vec(value).map_err(|_| "Configuration invalide")?)
+        .map_err(|_| "Enregistrement de la configuration interrompu")?;
+    file.sync_all()
+        .map_err(|_| "Enregistrement de la configuration interrompu")?;
+    fs::rename(next, path).map_err(|_| "Enregistrement de la configuration refusé".into())
+}
+
+fn write_fleet_credentials(
+    root: &Path,
+    credentials: &FleetCredentials,
+    runtime: &FleetRuntime,
+) -> Result<(), String> {
+    let fleet_root = fleet_root(root)?;
+    write_private_json(&fleet_root.join("settings.json"), credentials)?;
+    write_private_json(&fleet_root.join("fleet-runtime.json"), runtime)
+}
+
 async fn ensure_agent(
     _app: &tauri::AppHandle,
     root: &Path,
@@ -489,11 +679,14 @@ pub async fn resume(app: &tauri::AppHandle) -> Result<(), String> {
     if state.1.load(std::sync::atomic::Ordering::Acquire) {
         return Ok(());
     }
+    let root = root(app)?;
     if runtime_mode(app)? == Some(RuntimeMode::Fleet) {
+        let server = selected_fleet_server(&root)?;
+        ensure_fleet_agent(app, &root, &server).await?;
+        state.1.store(true, std::sync::atomic::Ordering::Release);
         return Ok(());
     }
-    let root = root(app)?;
-    if !root.join("installation.json").exists() {
+    if !active_root(&root)?.join("installation.json").exists() {
         return Ok(());
     }
     let _installation_lock = installation_lock(&root)?;
@@ -543,6 +736,7 @@ pub async fn enable_local_runtime(app: tauri::AppHandle) -> Result<(), String> {
 }
 #[tauri::command]
 pub async fn local_setup_status(app: tauri::AppHandle) -> Result<Value, String> {
+    resume(&app).await?;
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
     let root = root(&app)?;
@@ -566,6 +760,9 @@ pub async fn local_setup_status(app: tauri::AppHandle) -> Result<Value, String> 
             return Err("L’agent Fleet associé a refusé la connexion.".into());
         }
         let value: Value = status.json().await.map_err(|_| "État Fleet illisible")?;
+        if value["server"] != selected_fleet_server(&root)? {
+            return Err("L’agent Fleet répond avec une autre identité de serveur".into());
+        }
         return Ok(
             json!({"enabled":true,"ready":true,"signedIn":true,"agentReady":value["connected"],"mode":"fleet","fleetServer":value["server"]}),
         );
@@ -592,6 +789,76 @@ pub async fn local_setup_status(app: tauri::AppHandle) -> Result<Value, String> 
         "trackers":request(&installation,Method::GET,"/api/trackers",None).await?,
         "projects":request(&installation,Method::GET,"/api/projects",None).await?}),
     )
+}
+
+#[tauri::command]
+pub async fn pair_fleet_agent(
+    app: tauri::AppHandle,
+    server_url: String,
+    pairing_code: String,
+) -> Result<(), String> {
+    let state = app.state::<LocalRuntime>();
+    let settings_lock = state.0.lock().await;
+    let root = root(&app)?;
+    if runtime_mode(&app)?.is_some() {
+        return Err("Un mode d’exécution est déjà sélectionné. Sa migration doit être effectuée explicitement.".into());
+    }
+    let pairing_code = pairing_code.trim();
+    if pairing_code.is_empty() || pairing_code.len() > 256 {
+        return Err("Code de jumelage requis.".into());
+    }
+    let server = normalize_fleet_server_url(&server_url)?;
+    let endpoint = reqwest::Url::parse(&server)
+        .map_err(|_| "Adresse du serveur Fleet invalide")?
+        .join("/api/v1/agent/pair")
+        .map_err(|_| "Adresse du serveur Fleet invalide")?;
+    let response = client()?
+        .post(endpoint)
+        .json(&json!({"code":pairing_code,"label":"Sectile Desktop"}))
+        .timeout(Duration::from_secs(12))
+        .send()
+        .await
+        .map_err(|_| "Impossible de joindre le serveur Fleet")?;
+    if response.status() != reqwest::StatusCode::CREATED {
+        return Err(if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            "Code de jumelage invalide ou expiré. Générez-en un nouveau depuis votre profil Fleet."
+                .into()
+        } else {
+            format!(
+                "Le serveur Fleet a refusé l’association (HTTP {}).",
+                response.status().as_u16()
+            )
+        });
+    }
+    let payload: Value = response
+        .json()
+        .await
+        .map_err(|_| "Réponse de jumelage Fleet illisible")?;
+    let (Some(api_token), Some(device_id), Some(user_id)) = (
+        payload["token"].as_str(),
+        payload["deviceId"].as_str(),
+        payload["userId"].as_str(),
+    ) else {
+        return Err("Le serveur Fleet n’a pas renvoyé une association valide.".into());
+    };
+    if api_token.is_empty() || device_id.is_empty() || user_id.is_empty() {
+        return Err("Le serveur Fleet n’a pas renvoyé une association complète.".into());
+    }
+    let desktop_token = uuid::Uuid::new_v4().to_string();
+    let credentials = FleetCredentials {
+        server: server.clone(),
+        api_key: api_token.to_owned(),
+        device_id: device_id.to_owned(),
+    };
+    let runtime = FleetRuntime {
+        server: server.clone(),
+        desktop_token,
+        user_id: user_id.to_owned(),
+    };
+    write_fleet_credentials(&root, &credentials, &runtime)?;
+    save_mode(&root, RuntimeMode::Fleet, Some(&server))?;
+    drop(settings_lock);
+    resume(&app).await
 }
 
 #[tauri::command]
@@ -639,7 +906,7 @@ pub async fn attach_fleet_agent(app: tauri::AppHandle) -> Result<(), String> {
     if value["connected"] != true || value["server"].as_str().is_none_or(str::is_empty) {
         return Err("L’agent Fleet n’est pas connecté à son serveur".into());
     }
-    let fleet_root = root.join("fleet");
+    let fleet_root = fleet_root(&root)?;
     private_dir(&fleet_root)?;
     let _installation_lock = installation_lock(&root)?;
     let path = fleet_root.join("agent-connection.json");
@@ -1252,6 +1519,71 @@ mod generation_tests {
             assert_eq!(
                 fs::metadata(&path).unwrap().permissions().mode() & 0o777,
                 0o600
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn fleet_pairing_requires_tls_except_for_loopback() {
+        assert_eq!(
+            normalize_fleet_server_url(" https://fleet.example.invalid/ ").unwrap(),
+            "https://fleet.example.invalid"
+        );
+        assert_eq!(
+            normalize_fleet_server_url("http://127.0.0.1:8080").unwrap(),
+            "http://127.0.0.1:8080"
+        );
+        for invalid in [
+            "http://fleet.example.invalid",
+            "https://user:password@fleet.example.invalid",
+            "https://fleet.example.invalid/prefix",
+            "https://fleet.example.invalid/?next=https://attacker.invalid",
+        ] {
+            assert!(
+                normalize_fleet_server_url(invalid).is_err(),
+                "accepted {invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn fleet_credentials_use_the_agent_settings_contract_and_private_files() {
+        let root = std::env::temp_dir().join(format!("sectile-fleet-{}", uuid::Uuid::new_v4()));
+        let fleet_root = root.join("fleet");
+        let credentials = FleetCredentials {
+            server: "https://fleet.example.invalid".into(),
+            api_key: "private-api-key".into(),
+            device_id: "device-1".into(),
+        };
+        let runtime = FleetRuntime {
+            server: credentials.server.clone(),
+            desktop_token: "private-desktop-token".into(),
+            user_id: "user-1".into(),
+        };
+        write_fleet_credentials(&root, &credentials, &runtime).unwrap();
+        let settings: Value =
+            serde_json::from_slice(&fs::read(fleet_root.join("settings.json")).unwrap()).unwrap();
+        assert_eq!(settings["apiKey"], "private-api-key");
+        assert!(settings.get("apiToken").is_none());
+        let runtime_value: Value =
+            serde_json::from_slice(&fs::read(fleet_root.join("fleet-runtime.json")).unwrap())
+                .unwrap();
+        assert_eq!(runtime_value["desktopToken"], "private-desktop-token");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(fleet_root.join("settings.json"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(fleet_root).unwrap().permissions().mode() & 0o777,
+                0o700
             );
         }
         fs::remove_dir_all(root).unwrap();
