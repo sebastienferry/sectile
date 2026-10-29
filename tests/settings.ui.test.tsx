@@ -26,11 +26,22 @@ test("service diagnostics can be read even when the Local companion is not ready
  render(<LocalSettings onChanged={vi.fn()} />);
  expect(await screen.findByRole("heading",{name:"Journal du compagnon local"})).toBeTruthy();
  expect(await screen.findByText("service ready")).toBeTruthy();
+ expect(api.localServiceLog).toHaveBeenCalledWith("companion");
  expect(screen.getByLabelText("Contenu du journal du service").textContent).toBe("service ready");
  vi.mocked(api.localServiceLog).mockResolvedValue({path:"/test/companion.log",text:"latest line",missing:false,truncated:true});
  fireEvent.click(screen.getByRole("button",{name:"Actualiser le journal"}));
  await screen.findByText("latest line");
  expect(screen.getByText("Affichage des 256 derniers Kio du journal.")).toBeTruthy();
+});
+test("first-start failure exposes both Local and Fleet diagnostics", async () => {
+ vi.mocked(api.localSetupStatus).mockRejectedValue(new Error("Startup failed"));
+ vi.mocked(api.localServiceLog).mockImplementation(async service=>({path:`/test/${service}.log`,text:`${service} diagnostic`,missing:false,truncated:false}));
+ render(<LocalSettings onChanged={vi.fn()} />);
+ expect((await screen.findByRole("alert")).textContent).toContain("Startup failed");
+ expect(await screen.findByText("companion diagnostic")).toBeTruthy();
+ expect(await screen.findByText("agent diagnostic")).toBeTruthy();
+ expect(api.localServiceLog).toHaveBeenCalledWith("companion");
+ expect(api.localServiceLog).toHaveBeenCalledWith("agent");
 });
 test("Fleet attachment enables backend setup and hides Local-only controls", async () => {
   vi.mocked(api.localSetupStatus).mockResolvedValueOnce({ enabled: false, mode: "unconfigured" }).mockResolvedValue({ enabled: true, ready: true, signedIn: true, agentReady: true, mode: "fleet", fleetServer: "https://fleet.example.invalid" });
@@ -45,6 +56,7 @@ test("Fleet attachment enables backend setup and hides Local-only controls", asy
   expect(screen.getByRole("heading", {name:"Agent Fleet"})).toBeTruthy();
   expect(await screen.findByRole("heading", {name:"Journal de l’agent Fleet"})).toBeTruthy();
   expect(await screen.findByText("fleet ready")).toBeTruthy();
+  expect(api.localServiceLog).toHaveBeenCalledWith("agent");
   expect(screen.getByText(/État de la connexion et de l’agent Fleet associé/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", {name:"Comptes et trackers"}));
   expect(await screen.findByLabelText("Adresse e-mail")).toBeTruthy();

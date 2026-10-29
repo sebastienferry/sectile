@@ -49,7 +49,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       if (!navigated.current) setSection(!next.enabled || !next.ready ? "services" : next.mode === "fleet" && next.apiSetupAvailable === false ? "engines" : !next.signedIn ? "profile" : "engines");
       setEmail(next.profile?.email ?? "");
       setDisplayName(next.profile?.displayName ?? "");
-    }).catch(cause => { if (mounted.current) setError(String(cause)); });
+    }).catch(cause => { if (mounted.current) { setError(String(cause)); setSection("services"); } });
     return () => { mounted.current = false; };
   }, []);
   async function perform(
@@ -120,7 +120,10 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       </article>}
       {setup?.mode === "fleet" && <p className="muted">Cette page configure votre profil et vos projets sur le backend Fleet sélectionné. L’agent d’exécution reste sur ce poste.</p>}
       <button disabled={pending} onClick={() => void perform(async () => {}, "Configuration actualisée.")}>Actualiser</button>
-    </article>{setup && setup.mode !== "unconfigured" && <ServiceLogPanel active={section === "services"} fleet={fleetMode} />}</div>
+    </article>
+    {setup?.mode !== "fleet" && <ServiceLogPanel active={section === "services"} service="companion" />}
+    {setup?.mode !== "local" && <ServiceLogPanel active={section === "services"} service="agent" />}
+    </div>
     <div hidden={section !== "profile"}>{setup?.ready && setup.apiSetupAvailable !== false && (setup.mode !== "fleet" || setup.signedIn) && <article>
       <h2>{fleetMode ? "Profil Fleet" : "Profil local"}</h2>
       <form onSubmit={e => submit(e, () => api.saveLocalProfile(email, displayName), "Profil enregistré et agent associé.")}>
@@ -190,7 +193,8 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
   </section>;
 }
 
-function ServiceLogPanel({active,fleet}:{active:boolean;fleet:boolean}) {
+function ServiceLogPanel({active,service}:{active:boolean;service:"companion"|"agent"}) {
+ const fleet=service==="agent";
  const [snapshot,setSnapshot]=useState<api.ServiceLog>();
  const [error,setError]=useState("");
  const [loading,setLoading]=useState(false);
@@ -199,12 +203,12 @@ function ServiceLogPanel({active,fleet}:{active:boolean;fleet:boolean}) {
   if(!active)return;
   let current=true;
   setSnapshot(undefined);setLoading(true);setError("");
-  void api.localServiceLog().then(value=>{if(current)setSnapshot(value);}).catch(cause=>{if(current)setError(String(cause));}).finally(()=>{if(current)setLoading(false);});
+  void api.localServiceLog(service).then(value=>{if(current)setSnapshot(value);}).catch(cause=>{if(current)setError(String(cause));}).finally(()=>{if(current)setLoading(false);});
   return()=>{current=false;};
- },[active,fleet,refresh]);
+ },[active,service,refresh]);
  return <article className="service-log">
   <div className="service-log-heading"><h2>{fleet?"Journal de l’agent Fleet":"Journal du compagnon local"}</h2><button type="button" disabled={loading} onClick={()=>setRefresh(value=>value+1)}>Actualiser le journal</button></div>
-  <p className="muted">{fleet?"L’agent Fleet associé peut écrire dans le journal de son installation d’origine.":"Diagnostic du compagnon démarré par ce desktop."}</p>
+  <p className="muted">{fleet?"Un agent Fleet attaché peut écrire dans le journal de son installation d’origine.":"Diagnostic du compagnon démarré par ce desktop."}</p>
   {snapshot && <p className="service-log-path" title={snapshot.path}><code>{snapshot.path}</code></p>}
   {loading && <p role="status">Lecture du journal…</p>}
   {error && <p role="alert" className="error">Impossible de lire le journal : {error}</p>}

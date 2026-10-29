@@ -12,6 +12,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- A failed first Local or Fleet startup now leaves both service logs accessible in Settings.
 - Folderless projects now offer the native folder picker directly on their board, and a board refresh error no longer follows users into the prompt.
 - Workspace headers no longer repeat navigation actions for the already open project settings or blank prompt.
 - Switching projects no longer shows the previous project's tickets or search filter while loading; Local boards keep their correct controls and let users retry a failed context read.

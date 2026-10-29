@@ -307,6 +307,9 @@ test("settings remain reachable with the sidebar collapsed", async () => {
 });
 
 test("settings use one navigation rail and return to the previous workspace", async () => {
+ vi.mocked(invoke).mockImplementation(async command => command === "local_service_log"
+  ? {path:"/test/companion.log",text:"",missing:true,truncated:false}
+  : null);
  render(<App />);
  await screen.findByRole("button", { name: "Example" });
  fireEvent.click(screen.getByRole("button", { name: "Paramètres" }));

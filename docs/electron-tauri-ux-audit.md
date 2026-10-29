@@ -731,10 +731,22 @@ and a bounded 256 KiB tail; Fleet attachment explains that an externally
 started agent may write to its original installation instead. The native
 command rejects non-regular files, and Rust/UI regressions cover file bounds,
 mode path selection, offline access and refresh.
-An isolated unsigned macOS app built from the current Tauri source and a
+An isolated unsigned macOS app built from Tauri `a2698ce` and a
 test-port Go `554374b2` companion opened Services before profile setup. The
 native panel resolved the private `companion.log` path and showed its empty
 state. After a sentinel was appended only to that test log, “Actualiser le
 journal” displayed the new line. The app and companion were stopped and the
 test port was released; this check does not qualify a Fleet log from a native
 bundle.
+The first implementation hid diagnostics while the runtime mode was still
+unconfigured, exactly when an initial Local or Fleet startup might fail. The
+native command now accepts only the two fixed service kinds and Settings shows
+both logs before mode selection or after setup status fails. A UI regression
+checks that a failed first read opens Services and loads both diagnostics; the
+earlier native test does not cover this follow-up source. A second unsigned
+macOS bundle with a unique app identifier opened before mode selection. Its
+Services page displayed separate `PRESTART_COMPANION_MARKER` and
+`PRESTART_FLEET_MARKER` lines from the two isolated log paths, without starting
+either Go service. The app, test logs and bundle were removed afterward. This
+qualifies first-start visibility in a native window, not a real Fleet agent
+failure or a signed release build.

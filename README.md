@@ -119,8 +119,10 @@ provide startup diagnostics. Provider processes do not inherit the desktop
 gateway credential. Existing Sectile databases and global provider registrations
 are not imported.
 The **Services** section reads the latest 256 KiB of the selected mode's
-desktop-managed log directly from disk. An attached Fleet agent started by a
-different installation may keep its log in that installation instead.
+desktop-managed log directly from disk. Before a mode is selected, it offers
+both companion and Fleet-agent logs so a failed first startup can be diagnosed.
+An attached Fleet agent started by a different installation may keep its log
+in that installation instead.
 
 ## Connect to Fleet
 

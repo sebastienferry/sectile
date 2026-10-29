@@ -94,6 +94,13 @@ pub struct ServiceLog {
     truncated: bool,
 }
 
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ServiceLogKind {
+    Companion,
+    Agent,
+}
+
 fn read_service_log_file(path: &Path) -> Result<ServiceLog, String> {
     let display_path = path.to_string_lossy().into_owned();
     let metadata = match fs::symlink_metadata(path) {
@@ -136,8 +143,8 @@ fn read_service_log_file(path: &Path) -> Result<ServiceLog, String> {
     })
 }
 
-fn service_log_path(root: &Path, mode: Option<RuntimeMode>) -> Result<PathBuf, String> {
-    if mode == Some(RuntimeMode::Fleet) {
+fn service_log_path(root: &Path, service: ServiceLogKind) -> Result<PathBuf, String> {
+    if matches!(service, ServiceLogKind::Agent) {
         Ok(fleet_root(root)?.join("agent.log"))
     } else {
         Ok(root.join("companion.log"))
@@ -145,9 +152,12 @@ fn service_log_path(root: &Path, mode: Option<RuntimeMode>) -> Result<PathBuf, S
 }
 
 #[tauri::command]
-pub fn local_service_log(app: tauri::AppHandle) -> Result<ServiceLog, String> {
+pub fn local_service_log(
+    app: tauri::AppHandle,
+    service: ServiceLogKind,
+) -> Result<ServiceLog, String> {
     let root = root(&app)?;
-    read_service_log_file(&service_log_path(&root, runtime_mode_from_root(&root)?)?)
+    read_service_log_file(&service_log_path(&root, service)?)
 }
 
 #[cfg(test)]
@@ -161,11 +171,11 @@ mod service_log_tests {
         fs::create_dir(&dir).unwrap();
         let path = dir.join("companion.log");
         assert_eq!(
-            service_log_path(&dir, Some(RuntimeMode::Local)).unwrap(),
+            service_log_path(&dir, ServiceLogKind::Companion).unwrap(),
             path
         );
         assert_eq!(
-            service_log_path(&dir, Some(RuntimeMode::Fleet)).unwrap(),
+            service_log_path(&dir, ServiceLogKind::Agent).unwrap(),
             dir.join("fleet/agent.log")
         );
         assert!(read_service_log_file(&path).unwrap().missing);
