@@ -153,12 +153,13 @@ Tauri desktop process is excluded, so this is not a total application memory
 claim. The debug `.app` measured 133.1 MiB versus 92.9 MiB at phase 0, mainly
 because the upgrade build still bundles both legacy migration executables. An
 unsigned release app measures 101.72 MiB and includes the companion and both
-legacy binaries. One isolated cold-start sample is recorded in the runtime plan;
-repeated startup and a signed release artifact remain unqualified. Explicit
-old/new Fleet protocol fixtures, a remote Fleet session, and a post-migration
-Electron live MCP call remain unqualified. The Sectile MCP connector was retried
-read-only on 2026-10-29 and returned `connection closed: client is closing`; this
-does not qualify the post-migration MCP call. See
+legacy binaries. One initial launch and three process relaunch samples are
+recorded in the runtime plan; repeated true cold-start measurements and a signed
+release artifact remain unqualified. Real old/new Fleet binary integration, a
+remote Fleet session, and a post-migration Electron live MCP call remain
+unqualified. The Sectile MCP connector was retried read-only on 2026-10-29 and
+returned `connection closed: client is closing`; this does not qualify the
+post-migration MCP call. See
 [the runtime plan](local-fleet-runtime-plan.md) for the scope of this evidence.
 
 ### Stage 5 compatibility evidence
@@ -169,8 +170,8 @@ does not qualify the post-migration MCP call. See
 | Tauri + bundled Fleet agent + current Go backend | Pairing HTTP contract fixture, TLS/credential checks, API authorization tests and UI/native setup tests | Contract coverage only; a real remote one-time-code pairing and native setup are still required |
 | Tauri + legacy attached Fleet agent | Isolated macOS Tauri bundle loaded 19 projects from the existing v0.7.6 Fleet agent and showed `Agent local · backend Fleet` (2026-10-29), with no remote writes | Live dashboard and project discovery verified; the attach button itself, one-time pairing and native API setup remain unqualified |
 | Existing Electron/Go workstation + live backend | The existing v0.7.6 agent returned connected status, no contract error and 19 discovered projects in a read-only live check (2026-10-29); 315 Electron unit tests pass | This qualifies the existing connection only; post-migration MCP and current-branch Electron/server compatibility remain unqualified |
-| Current Go agent protocol behavior | Focused `go test` for agent build announcements, legacy missing announcements, operation dispatch and unsupported-operation handling | Pass on this source revision. These package tests do not execute pinned old/new agent and server binaries; the mixed-version matrix remains unqualified. |
-| Mixed Go agent/server versions | Server/agent protocol V1 documents additive fields and unknown-field handling; dedicated old/new binary fixtures are absent | Unsupported as a V1 compatibility claim until the fixtures pass |
+| Source-level v0.7.6 protocol fixtures | The current server parses a pinned v0.7.6 agent connection query; a parser copied from the v0.7.6 server source parses the current agent announcement. Focused agent/handler tests also cover operation dispatch. | Pass on this source revision. These tests do not execute either released binary. |
+| Mixed Go agent/server binaries | Protocol V1 documents additive fields and unknown-field handling; real old-agent/new-server and new-agent/old-server process fixtures are absent | Unsupported as a V1 compatibility claim until binary-level fixtures pass |
 | Native platforms | macOS live migration and unsigned bundle build; Windows companion cross-build | Windows runtime/migration and Linux native builds remain unqualified |
 
 Until these gates close, compatibility claims are limited to the tested source

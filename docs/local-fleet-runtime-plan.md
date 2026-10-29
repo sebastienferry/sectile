@@ -462,10 +462,11 @@ but its fixed port reservation failed because port 52963 was occupied. The
 existing service was left running. The test must be repeated after that service
 stops.
 
-Stage 5 remains open for explicit old-agent/new-server and new-agent/supported
-server protocol fixtures, a live Fleet pairing/setup session, an Electron live
-MCP call after the Tauri migration, and signed-package/cold-start measurements. Do not
-infer these from unit tests or from the migrated Local installation.
+Stage 5 remains open for old-agent/new-server and new-agent/supported-server
+binary integration fixtures, a live Fleet pairing/setup session, an Electron
+live MCP call after the Tauri migration, signed-package qualification and
+repeated true cold-start measurements. Do not infer these from unit tests or
+from the migrated Local installation.
 
 Existing workstation connection qualification (2026-10-29): the saved local
 agent connection was used for read-only authenticated calls. The v0.7.6 agent
@@ -491,4 +492,8 @@ appeared at 1.09 seconds, and the setup UI was accessible by about 3.5 seconds
 (one manual upper-bound observation). At 33 seconds, process RSS was 94.7 MiB;
 no companion was started. Three subsequent relaunches produced first-window
 times of 207–245 ms with the filesystem cache warm. They do not replace repeated
-true cold-start measurements; a signed artifact also remains open.
+true cold-start measurements; a signed artifact also remains open. Source-level
+protocol fixtures pass in both directions: the current server parses the pinned
+v0.7.6 agent connection query, and a parser copied from the v0.7.6 server
+source accepts the current agent announcement. Real binary integration remains
+open.
