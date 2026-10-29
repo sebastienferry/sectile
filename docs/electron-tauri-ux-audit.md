@@ -1,7 +1,9 @@
 # Electron and Tauri desktop UX audit
 
 Date: 2026-10-29
-Status: source corrections and a current-source visual check are complete; matched visual comparison remains open.
+Status: source corrections and a current-source visual check are complete. The
+convergence plan has passed an independent design challenge; matched
+populated-state screenshots remain a hard gate before UI implementation.
 
 ## Reference and scope
 
@@ -17,6 +19,170 @@ work already carried over: project folders, provider preparation, the complete
 ticket workflow, stage grouping/review and orchestration configuration. Its
 verification record remains the evidence for those flows.
 
+## Electron experience and Tauri direction
+
+The reference is a workbench organized around a compact project/task rail and
+one active work surface. Its project groups expose recent runs, workflow stage,
+run state, execution history and orchestration. The main surface changes with
+the selected item: ticket board/details, workflow action, provider conversation,
+console or diff. The execution toolbar keeps task identity, working directory,
+PR, next workflow action and stop/review controls close to the work. Electron's
+conversation view keeps the transcript readable above a composer, groups tool
+events, and exposes model/mode, questions, approval and folder context. Settings
+are grouped by workstation and project; less frequent permissions, sandbox,
+provider and workflow policy remain available without occupying the normal
+work surface.
+
+Source inspection shows Electron's visual language uses a 68 px header, a
+resizable project/task rail, semantic dark/light tokens, compact task rows and
+restrained card borders. The token set distinguishes surfaces, muted text,
+tracker stage, run state, approval/waiting, diff and provider color. Tauri shares
+some core background and surface colors and has the resizable rail, but its
+light selection/accent values and semantic status-token set differ. Its separate
+project board, prompt, execution, workflow and settings pages create a different
+navigation rhythm. Its large first-run prompt introduction, section headings,
+settings cards and flexible padding also make the same work feel more like a
+set of setup pages than the Electron workbench. The density and hierarchy
+observations are source-based hypotheses until equivalent current-build
+screenshots are captured; they are not instructions to copy Electron's legacy
+CSS literally.
+
+The target is a Tauri-native workbench that keeps the Electron user's fast
+project/task-to-execution mental model while retaining the decisions already
+made for Tauri: one workspace (no tabs), native setup and folder selection,
+free project prompts, explicit Local/Fleet ownership, tracker-authoritative
+ticket state, and the lightweight Go companion. Do not copy Electron's
+launcher process, settings dialog, unsupported task mutations, or web planning
+surfaces into Tauri merely to look alike.
+
+| Journey | Electron reference | Tauri today | Convergence direction |
+| --- | --- | --- | --- |
+| Find work | Project groups contain compact task/run rows, status and stage; orchestration is visible above projects. | Project groups reveal prompt, orchestration, recent conversations and run history; tracker tasks live in the board. | Keep one project/task rail; make tracker tasks and local conversations visually distinct, compact and easy to scan without duplicating a task in multiple navigation groups. |
+| Start work | Task action or project console; engine/profile and folders are selected in the launch flow. | Free prompt is a first-class project surface with provider, model/mode and shared folder context; tracker task workflow has explicit next-step actions. | Preserve two clear starts: a ticket's next workflow step and an unrestricted project prompt. Show project, provider and actual folder context at the composer before submission. |
+| Follow execution | Console/conversation or diff is the main surface; toolbar keeps directory, PR, next step and stop/review actions visible. | Execution list, conversation and workflow task are separate workspace views. | Keep the active run's identity, live/waiting state, folder, stop, question and review actions in one focused surface; avoid parallel status labels and repeated refresh controls. |
+| Configure | Categorized settings dialog spans workstation and project controls, including provider, skills/MCP, execution and sandbox policy. | Native settings page separates engines, profile, trackers, projects and services; project configuration contains advanced workflow/folder settings. | Keep the native page and current capabilities. Make the active Local/Fleet owner explicit, put connection/provider and project essentials first, and collapse advanced controls by scope. |
+| Read visual state | Dense rail and toolbar, consistent status colors, small context labels, expandable tool details and accessible hover/focus actions. | Shared palette is close; density and spacing vary across board, composer, workflow, settings and orchestration. | Use one semantic token system and a small spacing/type scale. Match hierarchy and density from evidence, not by copying stale component rules. |
+
+## UX convergence plan for review
+
+This is the ordered implementation plan. It deliberately separates behavioral
+parity, information hierarchy and styling so a broad restyle cannot conceal a
+broken workflow.
+
+1. **Matched baseline and design-token map.** Build both applications from
+   current source and use equivalent disposable project, tracker, task, run
+   and conversation fixtures. Capture matched light and dark states at the same
+   window sizes: project/task rail, board, prompt, active conversation with
+   tools, waiting question, execution/diff and settings. Normalize language,
+   connection mode and fixture state. Record font, line height, header/rail
+   dimensions, control height, spacing and semantic color differences. This is
+   an evidence-only lot: do not change layout or style until the comparison is
+   reviewable. **Hard gate:** do not begin lot 2 until all required states have
+   matched captures or a documented reason a surface cannot be matched.
+2. **Workbench navigation and density.** Apply explicit launch rules: (a) on a
+   returning launch, restore the last valid project and view; (b) if that
+   project or conversation was removed or is inaccessible, fall back to the
+   project board, then to Local setup if no project remains; (c) on a first
+   launch with no projects, open native setup with the open-folder action
+   immediately available; (d) after creating a folder project, land on its
+   prompt. Do not silently select the first project's board on every launch.
+   Keep the project rail resizable. Use exactly one navigation row for each
+   remote ticket and each local conversation. Inline active/waiting run state
+   on its owning ticket or conversation; put additional run history in the
+   project's Executions view, not in a second copy of the same row. When a
+   conversation snapshot is loaded, show its turn state; otherwise call a
+   surviving provider process “Session active,” never “Working.” Preserve the
+   command palette and one-click project prompt. Acceptance: all active/waiting
+   work is reachable once from its owner; project selection and view are
+   unambiguous; at 800 px and 1280 px, long labels truncate with their complete
+   accessible name and the rail does not obscure primary actions. Verify first,
+   returning, deleted-project and empty-workspace launch cases.
+3. **Ticket board and workflow hierarchy.** Match Electron's task-first scan
+   path using Tauri's tracker-authoritative board and current workflow model.
+   Distinguish remote tickets from local workspace prompts, retain tracker
+   status/stage filters only where meaningful, and put the ticket's true next
+   action, current run and review result together. Acceptance: empty, stale,
+   disconnected, waiting, failed and completed states say what the user can do;
+   Local-only projects never imply a tracker is required.
+4. **Prompt and execution surface.** Tighten first-prompt whitespace and give
+   the composer predictable placement and width. Keep provider/profile/model/
+   mode and the effective working directory visible; show attached folders as
+   shared project context, with detailed paths progressively disclosed. Keep
+   assistant Markdown readable, collapse tool groups, stream without scroll
+   jumps, expose questions/approvals inline, and keep interrupt/review/diff
+   controls close to the active run. Acceptance: first-run, resumed, active,
+   waiting, interrupted, error and read-only conversations remain usable at
+   narrow and normal widths and with keyboard navigation.
+5. **Orchestration and execution supervision.** Align project-level
+   orchestration settings, eligible task selection, shared capacity, launched
+   and skipped reasons, run activity and stop controls into a predictable
+   project scope. Use the same run-status vocabulary and compact row treatment
+   as the project rail. Acceptance: an execution has one authoritative status,
+   every stop targets the identified run/agent, and no UI implies an external
+   tracker transition succeeded before Go confirms it.
+6. **Native settings and advanced configuration.** Define topology in the
+   language shown to users: Local means the Go backend/state and execution
+   agent are on this device, while connected tracker data is still remote;
+   Fleet means the selected backend owns profile, tracker and workflow state,
+   while the paired local agent owns filesystem, CLI and process execution.
+   Show the responsible owner beside the relevant profile, tracker, folder or
+   execution controls rather than implying that one “Local” or “Fleet” label
+   describes every resource in a project. Acceptance includes a Fleet-backed
+   project with a local folder, a remote tracker and a local execution agent,
+   plus connection loss and reconnect. Compare the Electron
+   workstation/project settings inventory with native Local/Fleet sections.
+   Keep one canonical location for each action; put core connection, profile,
+   provider readiness and project folder choices first; group MCP, sandbox,
+   permissions and workflow policy under clearly scoped advanced sections.
+   Preserve OAuth, provider sign-in and native filesystem flows. Acceptance:
+   labels identify which backend owns each setting and advanced details remain
+   searchable and keyboard accessible. Verify that entering Settings,
+   navigating its sections, reopening Settings, changing project/view while
+   Settings is open, and returning after the prior project was removed each
+   produce a truthful header action and restore a valid destination.
+7. **Visual system and cleanup.** After the structural lots pass their
+   acceptance checks, normalize typography, spacing, control sizing, borders,
+   hover/focus/selected states and reduced-motion behavior against the matched
+   captures. Consolidate shared color/spacing/type tokens; remove only CSS
+   overrides proven unused by component and screenshot checks. Acceptance:
+   both themes meet WCAG 2.2 AA text contrast (4.5:1 for normal text and 3:1
+   for large text), focus indicators remain at least 2 px and visible, and no
+   change weakens dense work surfaces. Record bundle size against the current
+   committed baseline; size is tracked, not a visual acceptance criterion.
+
+Every lot also passes these interaction checks: a keyboard-only user can
+complete its primary journey; interactive controls have names and state that
+screen readers can announce; status changes use an appropriate live region;
+dialogs and the command palette expose correct dialog/label semantics; focus
+lands in the opened surface, remains visible and returns to its invoker after
+close/navigation. At the minimum supported window size, content either wraps or
+truncates with a programmatically available full value; no required action is
+reachable only through hover.
+
+Before each implementation lot, review its screenshots and behavioral
+acceptance against this plan. No tab UI, tracker write, provider message, mode
+switch, or web planning change is included in the convergence work. The
+independent design challenge accepted the direction after the launch rules,
+Local/Fleet ownership model, navigation identity, accessibility checks and
+matched-fixture gate were made explicit. Matched fixtures remain a required
+baseline deliverable before lot 2; the review does not substitute for those
+captures.
+
+### Independent design challenge
+
+The plan was reviewed by an independent UX sub-agent before implementation.
+Its initial review found seven gaps: a missing exact launch rule; visual claims
+based on unmatched states; an underspecified mixed Local/Fleet ownership model;
+possible duplicate task/run rows; broad accessibility language; a loose gate
+between fixture capture and navigation work; and untested settings-return
+cases. The plan now defines first/returning launch behavior, labels ownership
+per resource, assigns one navigation row per ticket/conversation, separates
+turn status from process status, gives keyboard/screen-reader/contrast/focus
+checks, makes matched screenshots a hard gate, and covers stale/reopened
+Settings navigation. The reviewer found no reason to stop the UX work and
+recommended completing matched fixture captures before implementing the
+navigation lot.
+
 ## Concrete findings
 
 | Finding | Evidence | Decision |
@@ -26,7 +192,7 @@ verification record remains the evidence for those flows.
 | A global refresh action only refreshed the project list, while the board had a separate refresh for ticket data. | Header called `refreshProjects`; the board toolbar called its own task refresh. | Remove the misleading global refresh. Keep project refresh in project/settings flows and task refresh beside the board it updates. |
 | Electron's searchable command palette is missing from Tauri. | `desktop/src/main.js` indexes actions, projects and executions; Tauri had only direct sidebar/header controls. | Add a small React palette on Cmd/Ctrl+K with actions, projects and runs; do not add a UI dependency. |
 | Styling is split between base rules and a second override sheet. | `App.css` owns foundational controls/layout while `workspace-polish.css` redefines tokens, radii, spacing and component density after it. | Consolidate tokens and component rules after the navigation behavior settles. Avoid broad cosmetic changes before checking light/dark screenshots. |
-| Tauri's workspace polish sheet overrode the canonical surface palette. | The dark/light colors for `--bg`, `--surface`, `--sunken` and `--selected` differed from Electron's `desktop/src/style.css` and duplicated the values in `App.css`. | Use `App.css` as the single source for shared background, surface and selection tokens; keep only workspace-specific tokens in the polish sheet. |
+| Tauri and Electron have related but non-identical theme tokens. | `App.css` and Electron `desktop/src/style.css` share the dark palette and several light background/control values, but light `--sunken`/`--surface-sunken`, accent, selected and danger values differ; Electron also defines more semantic stage, diff and status tokens. `workspace-polish.css` currently derives only the workspace divider instead of redefining the base palette. | Treat `App.css` as the Tauri token source and compare semantic values against matched captures before aligning them. Do not claim palette parity based on similar colors or token names. |
 | The Tauri sidebar was fixed width; Electron has a pointer and keyboard resizer. | Electron `desktop/src/main.js` wires `#sidebar-resizer`; Tauri originally rendered a fixed-width `.sidebar`. | Added a bounded, keyboard-accessible divider and persistent width. |
 | Settings are a full native page in Tauri and a categorized dialog in Electron. | Tauri's `LocalSettings` has separate engine, profile, connection, project and service sections; Electron groups workstation/project settings in its dialog. | Keep native Tauri setup, but align section naming, compact spacing and progressive disclosure. Do not force the dialog layout into a native page. |
 | The project sidebar and settings section navigation competed for attention on the native Settings page. | A same-size, light-theme current-source screenshot showed the Tauri project rail and settings rail taking about 418 CSS pixels before the settings content; Electron's settings view uses one rail. | Hide project navigation when Settings is opened from a workspace, retain the settings section rail, and return to the previous workspace from the header. Keep project navigation available for initial setup when there is no prior workspace. |
@@ -128,10 +294,10 @@ verification record remains the evidence for those flows.
   mappings despite one matching project label; they are not a valid matched
   content comparison. Neither observation changes tracker data or runtime
   configuration.
-- The duplicate workspace color overrides have been removed. Tauri now uses
-  the same canonical dark/light background, surface and selection colors as
-  Electron; exact appearance still needs review in the rebuilt app once the
-  desktop session is available.
+- `workspace-polish.css` no longer duplicates Tauri's root palette; shared
+  Tauri color tokens live in `App.css`. This is stylesheet ownership cleanup,
+  not color parity: the light selection, accent, sunken surface and danger
+  values still differ from Electron and require matched screenshot review.
 
 ## First corrections
 
@@ -145,26 +311,12 @@ verification record remains the evidence for those flows.
 - Added a pointer- and keyboard-resizable sidebar, bounded between 200 and 480
   pixels, with its width retained locally.
 
-## Remaining convergence order
+## Remaining convergence work
 
-1. Recheck the contextual toolbar for a tracker-backed project with no tickets
-   and for failed/stale ticket reads in an isolated app. The Local-only board
-   state is now visually verified against a rebuilt Go bundle, and UI
-   regressions cover Local and Jira-backed projects.
-2. Capture matched light and dark screenshots of Electron and Tauri at the same
-   window size and with equivalent project/activity data. Normalize typography,
-   surface contrast, control height, spacing and selected/hover states from
-   evidence, not from a wholesale restyle.
-3. Reduce settings page density and align labels, section names and primary
-   actions with Electron while retaining native OAuth and filesystem flows.
-   The redundant project rail is now hidden when Settings is entered from a
-   workspace; the section-level hierarchy and density still need comparison.
-4. Complete the command-palette audit by comparing shortcuts and keyboard
-   focus behavior in matched live windows; the action inventory and unsupported
-   Electron-only actions have been reviewed.
-5. Recheck prompt, workflow and conversation layouts at narrow and normal window
-   sizes, including empty, active, error and waiting states.
-
-Each completed item should preserve tracker-authoritative ticket state, the
+The plan above follows the previous source audit and tested parity changes.
+Matched current-source populated screenshots are still required before visual
+normalization; current Electron and Tauri production windows do not contain
+equivalent task/activity state. The work should be reviewed against the
+acceptance criteria in sequence, preserving tracker-authoritative ticket state,
 existing Go execution/MCP contracts, accessible focus behavior, the no-tabs
 decision and the fast standalone Local path.
