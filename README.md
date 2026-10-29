@@ -221,11 +221,13 @@ npm run tauri build
 ```
 
 `tauri build` creates an application and platform bundles under `src-tauri/target/release/bundle`.
-Bundles include Go services when prepared locally and currently use Tauri's starter icons. Signing, notarization, automatic updates,
-and production release workflows remain future work. Bundles include the
+Bundles include Go services when prepared locally and currently use Tauri's starter icons. V1 uses manual DMG updates; code signing, notarization,
+and production release automation remain future work. Bundles include the
 MIT license and third-party dependency notices in the application resources;
 see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the
 [notice maintenance guide](docs/third-party-notices.md).
+The V1 packaging decision is documented in
+[ADR 0018](docs/adrs/0018-v1-desktop-packaging-and-updates.md).
 
 ## Layout
 
