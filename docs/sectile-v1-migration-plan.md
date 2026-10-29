@@ -119,23 +119,26 @@ active-work-safe mode switching, conversation/backend identity adoption and full
 Fleet-native profile/tracker/project setup. Stage 5 remains open: qualify the
 Fleet/Electron compatibility matrix,
 supported versions, other-platform migration and measured process/memory/startup
-and package behavior. Do not claim stages 6-8 complete or infer that this branch
-constitutes a V1 release.
+and package behavior. An unsigned optimized macOS `.app` has now been measured
+at 101.69 MiB; cold startup and signed release artifact measurements remain
+open. Do not claim stages 6-8 complete or infer that this branch constitutes a
+V1 release.
 
 The first compatibility slice passed: standalone `cmd/agent` and `cmd/server`
 tests, race-enabled companion/backend/agent tests, a Windows companion
-cross-build, 315 Electron unit tests, and the Tauri typecheck/build plus 83 UI
-and 24 Rust tests. The migrated macOS install preserved its ten original
+cross-build, 315 Electron unit tests, and the Tauri typecheck/build plus 85 UI
+and 30 Rust tests. The migrated macOS install preserved its ten original
 projects, trackers, OAuth key and 25 conversation histories; live Jira,
 Claude/Codex prompt and embedded MCP calls succeeded. One idle companion used
 about 40.7 MiB RSS against 55.7 MiB combined server/agent phase 0 medians. The
 Tauri desktop process is excluded, so this is not a total application memory
 claim. The debug `.app` measured 133.1 MiB versus 92.9 MiB at phase 0, mainly
-because the upgrade build still bundles both legacy migration executables.
-Cold native startup, release artifact size, explicit old/new Fleet protocol
-fixtures, a remote Fleet session, and a post-migration Electron live MCP call
-remain unqualified. See [the runtime plan](local-fleet-runtime-plan.md) for the
-scope of this evidence.
+because the upgrade build still bundles both legacy migration executables. An
+unsigned release app measures 101.69 MiB and includes the companion and both
+legacy binaries. Cold native startup, signed release artifact size, explicit
+old/new Fleet protocol fixtures, a remote Fleet session, and a post-migration
+Electron live MCP call remain unqualified. See
+[the runtime plan](local-fleet-runtime-plan.md) for the scope of this evidence.
 
 Stages 6 and 7 are product-direction work, not authorization to remove existing
 web pages, API routes or domain data during stages 0-5. A headless distribution
