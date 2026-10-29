@@ -33,6 +33,7 @@ export function PromptFolders({projectId,runId,directory,folders:runFolders,read
  <div className="prompt-context-toolbar"><span className="working-directory" title={directory}><Icon name="folder"/><span>{directory||"Dossier de travail en cours de chargement…"}</span></span>
  <details><summary>Dossiers · {listed.length+ (directory?1:0)}</summary><ul>{directory&&<li><strong>Travail</strong><code>{directory}</code></li>}{listed.map(f=><li key={f.path}><strong>{f.attached?"Attaché au projet":roleNames[f.role]||f.role}</strong><code>{f.path}</code></li>)}</ul><p>Les dossiers attachés sont partagés par les conversations de ce projet. Leur retrait se fait dans sa configuration.</p>{unavailable&&<p>Dossiers du projet indisponibles. <button type="button" onClick={()=>void refresh()}>Réessayer les dossiers</button></p>}</details>
  <button type="button" disabled={pending||readOnly} onClick={()=>void add()}><Icon name="plus"/>{pending?"Ajout en cours…":"Ajouter un dossier"}</button></div>
+ {listed.length>0&&<div className="prompt-context-folders" aria-label="Dossiers supplémentaires utilisés par l’agent">{listed.map(folder=><span key={folder.path} title={folder.path}><Icon name="folder"/><span>{folderName(folder.path)}</span></span>)}</div>}
  {notice&&<p role="status">{notice}</p>}{error&&<p role="alert" className="error">{error}</p>}
  </section>;
 }

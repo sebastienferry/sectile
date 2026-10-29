@@ -16,6 +16,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Show attached workspace folders in the prompt context so users can see what the agent will use without opening the folder details.
 - Project navigation hides the “Tableau” action while the board is already open.
 - Local projects without trackers now show a prompt-ready empty state instead of tracker filters and read-only tracker status; the duplicate prompt button has been removed.
 

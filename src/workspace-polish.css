@@ -206,6 +206,9 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .prompt-folders li { display: grid; grid-template-columns: 140px 1fr; gap: 8px; padding: 6px; }
 .prompt-folders code { overflow-wrap: anywhere; }
 .prompt-folders details p { margin: 10px 16px; color: var(--muted); }
+.prompt-context-folders { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0 26px; }
+.prompt-context-folders > span { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: var(--sunken); }
+.prompt-context-folders > span > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attached-folder-settings { padding: 10px 0 24px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
 .attached-folder-settings ul { list-style: none; padding: 0; }
 .attached-folder-settings li { display: flex; gap: 14px; align-items: center; margin: 10px 0; padding: 14px; border: 1px solid var(--border); border-radius: 10px; }
