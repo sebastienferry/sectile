@@ -11,6 +11,13 @@ use std::{
 };
 use tauri::Manager;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuntimeMode {
+    Local,
+    Fleet,
+}
+
 #[derive(Default)]
 pub struct LocalRuntime(
     pub tokio::sync::Mutex<()>,
@@ -51,6 +58,80 @@ fn root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .map(|p| p.join("local-runtime"))
         .map_err(|_| "Dossier de données indisponible".into())
 }
+
+fn mode_path(root: &Path) -> PathBuf {
+    root.join("runtime-mode.json")
+}
+
+pub fn runtime_mode(app: &tauri::AppHandle) -> Result<Option<RuntimeMode>, String> {
+    let root = root(app)?;
+    let path = mode_path(&root);
+    if !path.exists() {
+        // A previously committed managed installation is unambiguously Local.
+        // Do not infer Fleet from the legacy shared discovery file.
+        let selected = active_root(&root)?;
+        return Ok(selected
+            .join("installation.json")
+            .exists()
+            .then_some(RuntimeMode::Local));
+    }
+    let value: Value =
+        serde_json::from_slice(&fs::read(path).map_err(|_| "Mode d’exécution illisible")?)
+            .map_err(|_| "Mode d’exécution invalide")?;
+    if value["protocol"] != 1
+        || (value["mode"] == "fleet" && value["server"].as_str().is_none_or(str::is_empty))
+    {
+        return Err("Configuration du mode incompatible".into());
+    }
+    serde_json::from_value(value["mode"].clone())
+        .map(Some)
+        .map_err(|_| "Mode d’exécution incompatible".into())
+}
+
+fn save_mode(root: &Path, mode: RuntimeMode, server: Option<&str>) -> Result<(), String> {
+    private_dir(root)?;
+    let path = mode_path(root);
+    let record = json!({"protocol": 1, "mode": mode, "server": server});
+    if fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .is_some_and(|current| current == record)
+    {
+        return Ok(());
+    }
+    let next = root.join(format!("runtime-mode.{}.next.json", uuid::Uuid::new_v4()));
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&next)
+        .map_err(|_| "Écriture du mode refusée")?;
+    file.write_all(&serde_json::to_vec(&record).map_err(|_| "Mode invalide")?)
+        .map_err(|_| "Écriture du mode interrompue")?;
+    file.sync_all()
+        .map_err(|_| "Enregistrement du mode interrompu")?;
+    fs::rename(next, path).map_err(|_| "Enregistrement du mode refusé".into())
+}
+
+pub fn connection_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let root = active_root(&root(app).ok()?).ok()?;
+    connection_file(&root, runtime_mode(app).ok().flatten()?)
+}
+
+fn connection_file(root: &Path, mode: RuntimeMode) -> Option<PathBuf> {
+    let path = match mode {
+        RuntimeMode::Local if root.join("installation.json").exists() => {
+            root.join("agent-connection.json")
+        }
+        RuntimeMode::Fleet => root.join("fleet/agent-connection.json"),
+        RuntimeMode::Local => return None,
+    };
+    path.exists().then_some(path)
+}
 // The committed manifest wins over an interrupted progress journal.
 fn active_root(root: &Path) -> Result<PathBuf, String> {
     let path = root.join("runtime-selection.json");
@@ -70,10 +151,10 @@ fn active_root(root: &Path) -> Result<PathBuf, String> {
 }
 
 pub fn discovery_path(app: &tauri::AppHandle) -> Option<PathBuf> {
-    let root = active_root(&root(app).ok()?).ok()?;
-    root.join("installation.json")
-        .exists()
-        .then(|| root.join("agent-connection.json"))
+    if runtime_mode(app).ok().flatten() != Some(RuntimeMode::Local) {
+        return None;
+    }
+    connection_path(app)
 }
 // Serialize startup and pairing across multiple desktop processes as well as
 // within one webview. The OS releases this lock if the desktop crashes.
@@ -408,6 +489,9 @@ pub async fn resume(app: &tauri::AppHandle) -> Result<(), String> {
     if state.1.load(std::sync::atomic::Ordering::Acquire) {
         return Ok(());
     }
+    if runtime_mode(app)? == Some(RuntimeMode::Fleet) {
+        return Ok(());
+    }
     let root = root(app)?;
     if !root.join("installation.json").exists() {
         return Ok(());
@@ -424,6 +508,12 @@ pub async fn enable_local_runtime(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
     let root = root(&app)?;
+    if runtime_mode(&app)? == Some(RuntimeMode::Fleet) {
+        return Err(
+            "Le mode Fleet est sélectionné. Détachez-le avant d’activer une installation locale."
+                .into(),
+        );
+    }
     private_dir(&root)?;
     let _installation_lock = installation_lock(&root)?;
     // Keep legacy resources available for verified migration and recovery.
@@ -448,15 +538,40 @@ pub async fn enable_local_runtime(app: tauri::AppHandle) -> Result<(), String> {
     }
     let installation = read_installation(&root)?;
     ensure_server(&app, &root, &installation).await?;
-    ensure_agent(&app, &root, &installation).await
+    ensure_agent(&app, &root, &installation).await?;
+    save_mode(&root, RuntimeMode::Local, None)
 }
 #[tauri::command]
 pub async fn local_setup_status(app: tauri::AppHandle) -> Result<Value, String> {
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
     let root = root(&app)?;
+    if runtime_mode(&app)? == Some(RuntimeMode::Fleet) {
+        let path = connection_path(&app).ok_or("Connexion Fleet introuvable")?;
+        let connection: Value =
+            serde_json::from_slice(&fs::read(path).map_err(|_| "Connexion Fleet illisible")?)
+                .map_err(|_| "Connexion Fleet invalide")?;
+        let (Some(url), Some(token)) = (connection["url"].as_str(), connection["token"].as_str())
+        else {
+            return Err("Connexion Fleet incomplète".into());
+        };
+        let status = client()?
+            .get(format!("{}/desktop/status", url.trim_end_matches('/')))
+            .bearer_auth(token)
+            .timeout(Duration::from_secs(3))
+            .send()
+            .await
+            .map_err(|_| "L’agent Fleet associé est inaccessible.")?;
+        if !status.status().is_success() {
+            return Err("L’agent Fleet associé a refusé la connexion.".into());
+        }
+        let value: Value = status.json().await.map_err(|_| "État Fleet illisible")?;
+        return Ok(
+            json!({"enabled":true,"ready":true,"signedIn":true,"agentReady":value["connected"],"mode":"fleet","fleetServer":value["server"]}),
+        );
+    }
     if !root.join("installation.json").exists() {
-        return Ok(json!({"enabled":false}));
+        return Ok(json!({"enabled":false,"mode":"unconfigured"}));
     }
     let installation = read_installation(&root)?;
     if !probe(&installation).await {
@@ -466,17 +581,85 @@ pub async fn local_setup_status(app: tauri::AppHandle) -> Result<Value, String> 
     }
     if installation.token.is_empty() {
         return Ok(
-            json!({"enabled":true,"ready":true,"signedIn":false,"dataDirectory":active_root(&root)?}),
+            json!({"enabled":true,"ready":true,"signedIn":false,"mode":"local","dataDirectory":active_root(&root)?}),
         );
     }
     Ok(
-        json!({"enabled":true,"ready":true,"signedIn":true,"agentReady":agent_ready(&root,&installation).await,
+        json!({"enabled":true,"ready":true,"signedIn":true,"agentReady":agent_ready(&root,&installation).await,"mode":"local",
         "dataDirectory":active_root(&root)?,
         "profile":request(&installation,Method::GET,"/api/me",None).await?,
         "credentials":request(&installation,Method::GET,"/api/me/tracker-credentials",None).await?,
         "trackers":request(&installation,Method::GET,"/api/trackers",None).await?,
         "projects":request(&installation,Method::GET,"/api/projects",None).await?}),
     )
+}
+
+#[tauri::command]
+pub async fn attach_fleet_agent(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<LocalRuntime>();
+    let _lock = state.0.lock().await;
+    let root = root(&app)?;
+    if runtime_mode(&app)? == Some(RuntimeMode::Local) {
+        return Err("Une installation locale est déjà sélectionnée. Le changement de mode demande une migration explicite.".into());
+    }
+    let legacy = app
+        .path()
+        .home_dir()
+        .map_err(|_| "Dossier personnel introuvable")?
+        .join(".taskflow/agent-connection.json");
+    let bytes = fs::read(&legacy).map_err(|_| "Aucun agent Fleet déjà associé n’a été trouvé. Associez d’abord ce poste au serveur depuis l’agent Sectile.")?;
+    let connection: Value =
+        serde_json::from_slice(&bytes).map_err(|_| "Fichier de connexion Fleet invalide")?;
+    let (Some(url), Some(token)) = (connection["url"].as_str(), connection["token"].as_str())
+    else {
+        return Err("Fichier de connexion Fleet incomplet".into());
+    };
+    let parsed = reqwest::Url::parse(url).map_err(|_| "Adresse d’agent invalide")?;
+    if parsed.scheme() != "http"
+        || parsed.host_str() != Some("127.0.0.1")
+        || parsed.path() != "/"
+        || token.trim().is_empty()
+    {
+        return Err("L’agent Fleet doit être un agent local associé à ce poste".into());
+    }
+    let status = client()?
+        .get(format!("{}/desktop/status", url.trim_end_matches('/')))
+        .bearer_auth(token)
+        .timeout(Duration::from_secs(3))
+        .send()
+        .await
+        .map_err(|_| "Impossible de joindre l’agent Fleet associé")?;
+    if !status.status().is_success() {
+        return Err("L’agent Fleet a refusé la vérification de connexion".into());
+    }
+    let value: Value = status
+        .json()
+        .await
+        .map_err(|_| "État de l’agent Fleet illisible")?;
+    if value["connected"] != true || value["server"].as_str().is_none_or(str::is_empty) {
+        return Err("L’agent Fleet n’est pas connecté à son serveur".into());
+    }
+    let fleet_root = root.join("fleet");
+    private_dir(&fleet_root)?;
+    let _installation_lock = installation_lock(&root)?;
+    let path = fleet_root.join("agent-connection.json");
+    let contents = serde_json::to_vec(&json!({"url":url,"token":token}))
+        .map_err(|_| "Connexion Fleet invalide")?;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|_| "Écriture de la connexion Fleet refusée")?;
+    file.write_all(&contents)
+        .map_err(|_| "Enregistrement de la connexion Fleet interrompu")?;
+    file.sync_all()
+        .map_err(|_| "Enregistrement de la connexion Fleet interrompu")?;
+    save_mode(&root, RuntimeMode::Fleet, value["server"].as_str())
 }
 #[tauri::command]
 pub async fn save_local_profile(
@@ -1014,6 +1197,65 @@ mod oauth_privacy_tests {
 #[cfg(test)]
 mod generation_tests {
     use super::*;
+
+    #[test]
+    fn runtime_modes_resolve_only_their_private_connection() {
+        let root = std::env::temp_dir().join(format!("sectile-mode-{}", uuid::Uuid::new_v4()));
+        private_dir(&root).unwrap();
+        fs::write(
+            root.join("agent-connection.json"),
+            r#"{"url":"http://127.0.0.1:1","token":"local"}"#,
+        )
+        .unwrap();
+        assert_eq!(connection_file(&root, RuntimeMode::Local), None);
+        assert_eq!(connection_file(&root, RuntimeMode::Fleet), None);
+
+        fs::write(root.join("installation.json"), "{}").unwrap();
+        assert_eq!(
+            connection_file(&root, RuntimeMode::Local),
+            Some(root.join("agent-connection.json"))
+        );
+        fs::create_dir_all(root.join("fleet")).unwrap();
+        fs::write(
+            root.join("fleet/agent-connection.json"),
+            r#"{"url":"http://127.0.0.1:2","token":"fleet"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            connection_file(&root, RuntimeMode::Fleet),
+            Some(root.join("fleet/agent-connection.json"))
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn runtime_mode_record_is_private_and_idempotent() {
+        let root = std::env::temp_dir().join(format!("sectile-mode-{}", uuid::Uuid::new_v4()));
+        save_mode(
+            &root,
+            RuntimeMode::Fleet,
+            Some("https://fleet.example.invalid"),
+        )
+        .unwrap();
+        let path = mode_path(&root);
+        let original = fs::read(&path).unwrap();
+        save_mode(
+            &root,
+            RuntimeMode::Fleet,
+            Some("https://fleet.example.invalid"),
+        )
+        .unwrap();
+        assert_eq!(fs::read(&path).unwrap(), original);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn committed_generation_owns_reads_and_profile_writes() {

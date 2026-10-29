@@ -3,7 +3,9 @@
 Date: 2026-10-29
 Status: independently reviewed; separate companion and internal HTTP/WebSocket
 accepted. Phases 0-3 completed. Managed Local migration and native launcher
-switch are implemented and verified on macOS; compatibility qualification remains.
+switch are implemented and verified on macOS. Tauri now has explicit Local/Fleet
+selection and private Fleet attachment for an already paired workstation;
+first-time Fleet pairing and mode migration remain open.
 
 Product roadmap: [Sectile V1.0.0 migration](sectile-v1-migration-plan.md).
 Phase 0 evidence: [baseline and contracts](phase0-runtime-baseline.md).
@@ -49,7 +51,7 @@ Independent review: [findings and disposition](local-fleet-runtime-review.md).
 | Build boundary | `cmd/server/runtime_boundary_test.go` prohibits DB/handlers/SQLite in `cmd/agent`, and runner/workspace/terminal in `cmd/server`. | Preserve the lightweight Fleet binary through a separate composition entry point. Do not simply relax both boundaries. |
 | Native launcher | `src-tauri/src/local.rs` launches server then agent, persists installation identity and performs local sign-in/pairing. Native setup calls the server while execution commands use agent discovery. | Introduce explicit runtime mode/configuration and route Local setup through the companion. |
 | Exclusive ownership | `db.Open` performs SQLite interrupted-run recovery before the current server binds its port; native `runtime.lock` covers startup only. | Acquire a companion-owned lifetime store lock before DB open/recovery. A listener collision is too late to protect stored run state. |
-| Connection provenance | `storedConversation` has no backend/user binding; native discovery can fall back to the shared Electron connection file. | Persist and validate connection identity, not only a directory path. Explicit Tauri connections must fail closed. |
+| Connection provenance | `storedConversation` has no backend/user binding; native discovery could fall back to the shared Electron connection file. | Persist and validate connection identity, not only a directory path. Explicit Tauri connections must fail closed. |
 | Credentials and storage | Backend SQLite/key, native installation credentials and agent settings/run journals have separate lifetimes and paths. | Preserve IDs and encryption bindings; combining processes does not justify combining or rewriting stores. |
 
 ## Proposed composition

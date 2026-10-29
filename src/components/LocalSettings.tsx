@@ -67,7 +67,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
   function submit(event: FormEvent, action: () => Promise<unknown>, message: string) {
     event.preventDefault(); void perform(action, message);
   }
-  const ready = setup?.ready && setup.signedIn;
+  const ready = setup?.ready && setup.signedIn && setup.mode !== "fleet";
   return <section className="settings local-settings">
     <header className="settings-heading"><span className="eyebrow">VOTRE ESPACE LOCAL</span><h1>Configuration du poste</h1>
     <p>Connectez vos outils. Choisissez vos projets. Tout se configure ici.</p></header>
@@ -77,7 +77,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     {!setup && !error && <p>Lecture de la configuration…</p>}
     <div className="settings-layout">
     <nav className="settings-navigation" aria-label="Sections des paramètres">
-     {sections.map(item => <button key={item.id} aria-current={section === item.id ? "page" : undefined} disabled={(item.id === "profile" && !setup?.ready) || (["connections","projects"].includes(item.id) && !ready)} onClick={() => {navigated.current=true;setSection(item.id);}}><Icon name={item.icon} />{item.label}{section === item.id && <Icon name="chevron" />}</button>)}
+     {sections.map(item => <button key={item.id} aria-current={section === item.id ? "page" : undefined} disabled={(item.id === "profile" && !setup?.ready) || (["connections","projects"].includes(item.id) && (!ready || setup?.mode === "fleet"))} onClick={() => {navigated.current=true;setSection(item.id);}}><Icon name={item.icon} />{item.label}{section === item.id && <Icon name="chevron" />}</button>)}
      <p>Configuration conservée sur ce poste.</p>
     </nav>
     <div className="settings-content">
@@ -85,13 +85,15 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     <div hidden={section !== "engines"}><ProviderSettings projects={setup?.projects??[]} /></div>
     <div hidden={section !== "services"}><article>
       <h2>Services locaux</h2>
-      <p>{!setup?.enabled ? "Vous utilisez actuellement l’agent Sectile existant. Activez une installation distincte pour tout configurer depuis ce desktop." : setup.ready ? `Compagnon prêt · ${setup.agentReady ? "exécution prête" : "en attente du profil"}` : "Le compagnon local ne répond pas."}</p>
+      <p>{setup?.mode === "fleet" ? `Mode Fleet · ${setup.agentReady ? "agent connecté" : "agent déconnecté"}${setup.fleetServer ? ` · ${setup.fleetServer}` : ""}` : !setup?.enabled ? "Choisissez un mode pour connecter ce desktop à Sectile." : setup.ready ? `Mode Local · compagnon prêt · ${setup.agentReady ? "exécution prête" : "en attente du profil"}` : "Le compagnon local ne répond pas."}</p>
       {setup?.dataDirectory && <p className="muted runtime-path">{setup.dataDirectory}</p>}
-      <p className="muted">Le compagnon démarre automatiquement. Il continue en arrière-plan lorsque vous fermez le desktop, pour laisser les tâches se terminer.</p>
-      <button disabled={pending} onClick={() => void perform(api.enableLocalRuntime, "Démarrage local vérifié.")}>{setup?.enabled ? "Vérifier / démarrer le compagnon" : "Activer l’installation locale"}</button>
+      <p className="muted">{setup?.mode === "fleet" ? "L’agent Fleet reste géré par son installation habituelle." : "Le compagnon démarre automatiquement. Il continue en arrière-plan lorsque vous fermez le desktop, pour laisser les tâches se terminer."}</p>
+      {setup?.mode !== "fleet" && <button disabled={pending} onClick={() => void perform(api.enableLocalRuntime, "Compagnon local démarré et mode Local sélectionné.")}>{setup?.enabled ? "Vérifier / démarrer le compagnon local" : "Démarrer en mode Local"}</button>}
+      {(!setup?.mode || setup.mode === "unconfigured") && <article><h3>Mode Fleet</h3><p className="muted">Utilise l’agent Sectile déjà associé sur ce poste et son backend Fleet. L’association est copiée dans l’espace privé de Tauri; elle n’est jamais lue implicitement.</p><button disabled={pending} onClick={() => void perform(api.attachFleetAgent, "Agent Fleet associé à ce desktop.")}>Associer l’agent Fleet existant</button></article>}
+      {setup?.mode === "fleet" && <p className="muted">Les profils, trackers et projets Fleet se configurent sur le backend Sectile. Cette page ne modifie que le compagnon Local.</p>}
       <button disabled={pending} onClick={() => void perform(async () => {}, "Configuration actualisée.")}>Actualiser</button>
     </article></div>
-    <div hidden={section !== "profile"}>{setup?.ready && <article>
+    <div hidden={section !== "profile"}>{setup?.ready && setup.mode !== "fleet" && <article>
       <h2>Profil local</h2>
       <form onSubmit={e => submit(e, () => api.saveLocalProfile(email, displayName), "Profil enregistré et agent associé.")}>
         <fieldset disabled={pending}>

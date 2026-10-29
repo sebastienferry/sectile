@@ -97,7 +97,7 @@ binary. The already configured OAuth prototype remains supported.
 | 1. Shared backend assembly | Reusable Go package first consumed by the existing standalone server | Fleet contracts unchanged; website assets remain outside the shared package |
 | 2. Lifecycle ownership | Explicit construction, admission, stop/join, restart and store exclusivity | Concurrency, partial startup and crash tests prove stores are not shared unsafely |
 | 3. Fresh Local companion | One Go process combining backend and execution on disposable data | Full prompt/workflow/MCP behavior works before existing data is touched |
-| 4. Managed upgrade and native modes | Connection-bound Local/Fleet configuration; journaled upgrade of the prototype | Histories, folders, identities and current OAuth preserved; precommit rollback tested |
+| 4. Managed upgrade and native modes | Connection-bound Local/Fleet configuration; journaled upgrade of the prototype | Histories, folders, identities and current OAuth preserved; precommit rollback tested; Fleet pairing and safe mode switching qualified |
 | 5. Compatibility and measured delivery | Local/Fleet/Electron test matrix, packaged artifacts and performance comparison | Required behavior and supported versions documented before removing old Local startup |
 | 6. Product/UI transition | Tauri becomes the primary agentic board; a headless backend distribution is defined | Operational features and existing consumers have an explicit migration path |
 | 7. Roadmapping separation | Ownership inventory and an agreed external-tool contract | Data/links and remaining clients preserved; deprecations reviewed before removal |
@@ -111,9 +111,12 @@ installation into a selected companion generation, preserving the database,
 OAuth key, identities, projects, trackers and idle conversation histories. The
 migration was exercised against the existing desktop installation on macOS;
 Jira verification and native Claude/Codex prompts plus MCP reads succeeded after
-the switch. Stage 4 is implemented for Local migration and launcher selection,
-but its full explicit Local/Fleet connection-identity contract is not yet
-complete. Stage 5 remains open: qualify the Fleet/Electron compatibility matrix,
+the switch. Stage 4 has explicit Local/Fleet selection and Tauri can privately
+attach an existing, already paired Fleet agent after validating its live
+connection. The shared Electron discovery file is no longer a silent fallback.
+Stage 4 remains open for first-time Fleet pairing, backend URL setup, active-work-
+safe mode switching, conversation/backend identity adoption and full Fleet-native
+setup. Stage 5 remains open: qualify the Fleet/Electron compatibility matrix,
 supported versions, other-platform migration and measured process/memory/startup
 and package behavior. Do not claim stages 6-8 complete or infer that this branch
 constitutes a V1 release.

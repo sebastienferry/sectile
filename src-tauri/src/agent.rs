@@ -1,7 +1,6 @@
 use serde::Deserialize;
 use serde_json::Value;
 use std::time::Duration;
-use tauri::Manager;
 
 #[derive(Deserialize)]
 struct Connection {
@@ -26,18 +25,20 @@ fn validate_connection(connection: &Connection) -> Result<reqwest::Url, String> 
 }
 
 fn connection(app: &tauri::AppHandle) -> Result<Connection, String> {
-    let path = if let Some(path) = crate::local::discovery_path(app) {
-        path
-    } else {
-        match std::env::var_os("SECTILE_AGENT_CONNECTION_FILE") {
-            Some(path) => std::path::PathBuf::from(path),
-            None => app
-                .path()
-                .home_dir()
-                .map_err(|_| "Dossier personnel introuvable")?
-                .join(".taskflow/agent-connection.json"),
-        }
-    };
+    let path =
+        crate::local::connection_path(app).ok_or_else(|| {
+            match crate::local::runtime_mode(app) {
+                Ok(Some(crate::local::RuntimeMode::Local)) => {
+                    "Connexion au compagnon local introuvable".to_string()
+                }
+                Ok(Some(crate::local::RuntimeMode::Fleet)) => {
+                    "Connexion Fleet introuvable. Associez un agent Fleet depuis les paramètres."
+                        .to_string()
+                }
+                _ => "Choisissez le mode Local ou Fleet dans les paramètres pour continuer."
+                    .to_string(),
+            }
+        })?;
     let contents = std::fs::read(path)
         .map_err(|_| "Agent introuvable. Démarrez et associez l’agent Sectile.")?;
     let connection: Connection =
