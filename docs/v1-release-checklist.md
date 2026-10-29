@@ -103,6 +103,13 @@ provider OAuth consent and native tracker writes remain separate release gates.
 
 ## Current qualification status
 
+The existing-project tracker association was exercised on 2026-10-29 against
+Go `45940914` through an isolated server and agent on port 52965. A folder-only
+project kept its agent folder mapping after joining a registered GitLab fixture
+tracker and after the test server restarted; its tracker selection and default
+also persisted. This qualifies the Go API contract used by the native action,
+not a live tracker import or a packaged Tauri UI interaction.
+
 The binary compatibility harness was re-run on 2026-10-29 against Go commit
 `c2f38222` and the released v0.7.6 server/agent pair. Both directions passed
 21-tool MCP, STDIO bridge, mocked GitHub create/stage update, task/run lifecycle,

@@ -10,12 +10,13 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const binaries = resolve(process.env.SECTILE_TEST_BINARIES_DIR || join(root,'src-tauri/binaries'));
 const data = await mkdtemp(join(tmpdir(), 'sectile-onboarding-'));
 const children = [];
 const api = createServer((req, res) => { res.setHeader('Content-Type','application/json'); res.end(JSON.stringify({ id: 1, login: 'fixture', name: 'Fixture', username: 'fixture' })); });
 await new Promise(resolve => api.listen(0, '127.0.0.1', resolve));
 const trackerSite = `http://127.0.0.1:${api.address().port}`;
-const runtimeBinary = join(root,'src-tauri/binaries', `sectile-server${process.platform==='win32'?'.exe':''}`);
+const runtimeBinary = join(binaries, `sectile-server${process.platform==='win32'?'.exe':''}`);
 const discovery = spawnSync(runtimeBinary,['--local-runtime-info'],{encoding:'utf8',windowsHide:true});
 assert.equal(discovery.status,0,'Build the Go services before testing runtime discovery');
 const runtimeInfo = JSON.parse(discovery.stdout);
@@ -34,7 +35,7 @@ const realClaude = process.env.SECTILE_TEST_REAL_CLAUDE === "1";
 const env = Object.fromEntries(['PATH','SYSTEMROOT','WINDIR','TMP','TEMP'].filter(k => process.env[k]).map(k=>[k,process.env[k]]));
 env.HOME = data; env.USERPROFILE = data;
 function start(name, args, extra) {
-  const child = spawn(join(root,'src-tauri/binaries', `sectile-${name}${process.platform==='win32'?'.exe':''}`), args, {cwd:data,env:{...env,...extra},stdio:'ignore',windowsHide:true});
+  const child = spawn(join(binaries, `sectile-${name}${process.platform==='win32'?'.exe':''}`), args, {cwd:data,env:{...env,...extra},stdio:'ignore',windowsHide:true});
   children.push(child); return child;
 }
 async function until(action) { let last; for(let i=0;i<150;i++){ try{return await action();}catch(e){last=e; await new Promise(r=>setTimeout(r,200));}} throw last; }
@@ -94,6 +95,14 @@ try {
   const plainFolder = join(data,'plain-folder');
   await mkdir(plainFolder,{recursive:true});
   await agent('/desktop/projects','POST',{projectId:folderProject.id,path:plainFolder,folderOnly:true});
+  const beforeAttachment = await request('/api/projects/'+folderProject.id);
+  const attached = await request('/api/projects/'+folderProject.id,'PUT',{
+    trackers:[...beforeAttachment.trackers.map(item=>({trackerId:item.trackerId})),{trackerId:tracker.id}],
+    defaultTrackerId:tracker.id,
+  });
+  assert.equal(attached.defaultTrackerId,tracker.id);
+  assert.deepEqual(attached.trackers.map(item=>item.trackerId),[...beforeAttachment.trackers.map(item=>item.trackerId),tracker.id]);
+  assert.equal((await agent('/desktop/projects')).find(item=>item.id===folderProject.id)?.path,plainFolder);
   const conversation = await agent('/desktop/consoles','POST',{projectId:folderProject.id,provider:'claude',view:'conversation'});
   assert.ok(conversation.id);
   assert.equal(conversation.directory,plainFolder);
@@ -178,7 +187,11 @@ try {
   assert.equal((await request('/api/me')).displayName,'Fixture User');
   await until(async()=>assert.equal((await agent('/desktop/status')).connected,true));
   assert.ok((await request('/api/projects')).some(p=>p.id===project.id));
-  console.log('Passed: isolated startup, authenticated discovery, profile, pairing, credentials, tracker, project, agent connection repository mapping, server restart and persisted profile/projects.');
+  const resumedProject = await request('/api/projects/'+folderProject.id);
+  assert.equal(resumedProject.defaultTrackerId,tracker.id);
+  assert.deepEqual(resumedProject.trackers.map(item=>item.trackerId),attached.trackers.map(item=>item.trackerId));
+  assert.equal((await agent('/desktop/projects')).find(item=>item.id===folderProject.id)?.path,plainFolder);
+  console.log('Passed: isolated startup, authenticated discovery, profile, pairing, credentials, tracker, existing project association, folder retention and server restart.');
 } finally {
   for(const child of children.reverse()) {
     if(child.exitCode===null) { child.kill('SIGTERM'); await Promise.race([new Promise(r=>child.once('exit',r)),new Promise(r=>setTimeout(r,3000))]); if(child.exitCode===null) child.kill('SIGKILL'); }
