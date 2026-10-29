@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"tasks/internal/agentexec"
+	"tasks/internal/atlassian"
 	"tasks/internal/db"
+	"tasks/internal/forgeoauth"
 	"tasks/internal/models"
 )
 
@@ -39,6 +41,12 @@ func TestUpgradeRecoversEveryDurableBoundaryAndPreservesIdentity(t *testing.T) {
 				t.Fatal(err)
 			}
 			if err := database.SaveJiraOAuthApp("fixture-client", "fixture-client-secret", "https://sectile.example.test/auth/jira/callback", user); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.SaveJiraGrant(user, atlassian.Tokens{AccessToken: "fixture-jira-access", RefreshToken: "fixture-jira-refresh", ExpiresAt: time.Now().Add(24 * time.Hour)}, []atlassian.Site{{CloudID: "fixture-cloud", URL: "https://migration.atlassian.net"}}, "Migration Jira"); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.SaveForgeGrant("github", user, forgeoauth.Tokens{AccessToken: "fixture-github-access", RefreshToken: "fixture-github-refresh", ExpiresAt: time.Now().Add(24 * time.Hour)}, "Migration GitHub"); err != nil {
 				t.Fatal(err)
 			}
 			project, err := database.CreateProject(models.CreateProjectRequest{Name: "Migration workspace", IssueTracker: "local"})
@@ -148,6 +156,12 @@ func TestUpgradeRecoversEveryDurableBoundaryAndPreservesIdentity(t *testing.T) {
 			}
 			if app, _, err := reopened.JiraOAuthApp(); err != nil || app.ClientID != "fixture-client" || app.ClientSecret != "fixture-client-secret" {
 				t.Fatal("encrypted OAuth app was not retained")
+			}
+			if grant, err := reopened.ResolvePersonalCredential(user, "jira", "https://migration.atlassian.net"); err != nil || grant.Bearer != "fixture-jira-access" || grant.APIBase == "" {
+				t.Fatalf("encrypted Jira grant was not retained: %v", err)
+			}
+			if grant, err := reopened.ResolvePersonalCredential(user, "github", "https://api.github.com"); err != nil || grant.Token != "fixture-github-access" || !grant.OAuth {
+				t.Fatalf("encrypted GitHub grant was not retained: %v", err)
 			}
 			if restoredProject, err := reopened.GetProjectByID(project.ID); err != nil || restoredProject == nil || restoredProject.Name != "Migration workspace" {
 				t.Fatal("project was not retained")

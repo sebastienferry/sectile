@@ -118,10 +118,13 @@ Each subtest prepares a disposable legacy installation and interrupts the source
 upgrade at one of six durable checkpoints. Recovery then runs the supplied
 binary with `--upgrade --data-dir` and a 30-second timeout. Assertions verify the
 selected generation, API identity, encryption key, personal tracker credential,
-encrypted Jira OAuth application, project, ticket, snapshot/journal bytes,
-verified backup and legacy-database fence. Fixture credentials are synthetic.
+encrypted Jira OAuth application and Jira/GitHub grants, project, ticket,
+snapshot/journal bytes, verified backup and legacy-database fence. Fixture
+credentials are synthetic.
 No backend or provider listener is started, and user installation data is not
-used. This verifies packaged recovery from prepared states; it does not inject
+used. Grant checks resolve unexpired synthetic access tokens without contacting a
+provider; refresh-token rotation is not exercised.
+This verifies packaged recovery from prepared states; it does not inject
 SIGKILL into the packaged process or qualify a native installer, a real OAuth
 grant or provider-session resumption. Without the variable, the source test
 continues to run as before.
