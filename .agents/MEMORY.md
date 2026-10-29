@@ -1,5 +1,16 @@
 # Project Knowledge Base (MEMORY.md)
 
+### GitLab Website URLs and the REST API Root (2026-10-29)
+
+- Earlier native setup accepted a GitLab website address such as
+  `https://gitlab.com` and stored it verbatim. GitLab ticket operations need
+  `/api/v4`, so a valid project and token otherwise produce a misleading 404.
+- Normalize the effective API client URL, including a saved tracker site and
+  personal credential check. The URL stored for source identity remains as it
+  was; changing source identity as a side effect would risk duplicate trackers.
+- `TestEveryGitlabPathHasAScope` scans the source call to `checkAccount` for
+  `/user`. Keep that endpoint visible when changing URL normalization.
+
 ### PTY Stop Must Precede Provider Exit (2026-10-29)
 
 - A tracked Electron Codex run can start a shell tool in its own process group.
