@@ -72,37 +72,27 @@ func TestProjectOrchestrateEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Add an eligible task
-	_, err = database.CreateTask(models.CreateTaskRequest{
-		ProjectID:   project.ID,
-		Title:       "Setup Core Metrics Pipeline",
-		Description: "Configure metric collection endpoints and telemetry exporters.",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	h := NewHandler(database)
 
-	post := func(path, body string) *httptest.ResponseRecorder {
+	do := func(method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		rec := httptest.NewRecorder()
-		h.HandleProjectDetail(rec, httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)))
+		h.HandleProjectDetail(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
 		return rec
 	}
 	path := "/api/projects/" + project.ID + "/orchestrate"
 
 	// A disabled orchestrator is a conflict with the project settings.
-	if rec := post(path, `{}`); rec.Code != http.StatusConflict {
+	if rec := do(http.MethodPost, path, `{}`); rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409 when disabled, got %d: %s", rec.Code, rec.Body.String())
 	}
 	// No caller can force enablement or raise the cap: both are refused, not ignored.
 	for _, body := range []string{`{"force":true}`, `{"maxConcurrent":10}`} {
-		if rec := post(path, body); rec.Code != http.StatusBadRequest {
+		if rec := do(http.MethodPost, path, body); rec.Code != http.StatusBadRequest {
 			t.Fatalf("override %s: expected 400, got %d: %s", body, rec.Code, rec.Body.String())
 		}
 	}
-	if rec := post("/api/projects/missing/orchestrate", `{}`); rec.Code != http.StatusNotFound {
+	if rec := do(http.MethodPost, "/api/projects/missing/orchestrate", `{}`); rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for an unknown project, got %d: %s", rec.Code, rec.Body.String())
 	}
 
@@ -110,20 +100,48 @@ func TestProjectOrchestrateEndpoint(t *testing.T) {
 	if _, err := database.UpdateProject(project.ID, models.UpdateProjectRequest{OrchestratorEnabled: &enabled}); err != nil {
 		t.Fatal(err)
 	}
-	rec := post(path, `{}`)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 once enabled, got %d: %s", rec.Code, rec.Body.String())
+	// Without a connected workstation nothing can run the session.
+	if rec := do(http.MethodPost, path, `{}`); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "no workstation") {
+		t.Fatalf("expected 409 without a workstation, got %d: %s", rec.Code, rec.Body.String())
+	}
+	// The handler installs the real agent hub; the test stands in for a
+	// connected workstation after it.
+	database.SetAgentSelection(func(user, projectID, device string) (string, error) { return "workstation", nil })
+	database.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		return nil, nil
+	})
+	rec := do(http.MethodPost, path, `{}`)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 once enabled, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var started struct {
+		Session models.TaskActivity `json:"session"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &started); err != nil || started.Session.ID == "" || started.Session.RunScope != "orchestrator" {
+		t.Fatalf("start returned no orchestrator session: %s %v", rec.Body.String(), err)
 	}
 
-	var res models.OrchestrationResult
-	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
-		t.Fatal(err)
+	// A second start while the session runs names the running one.
+	if rec := do(http.MethodPost, path, `{}`); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), started.Session.ID) {
+		t.Fatalf("second start: %d %s", rec.Code, rec.Body.String())
 	}
-	if len(res.Launched) != 1 {
-		t.Fatalf("expected 1 launched task, got %d", len(res.Launched))
+
+	rec = do(http.MethodGet, path, "")
+	var state models.OrchestrationState
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &state) != nil {
+		t.Fatalf("state: %d %s", rec.Code, rec.Body.String())
 	}
-	if res.MaxConcurrent != 2 {
-		t.Fatalf("expected max concurrent 2, got %d", res.MaxConcurrent)
+	if state.MaxConcurrent != 2 || state.Armed == nil || state.Session == nil || state.Session.ID != started.Session.ID {
+		t.Fatalf("unexpected state: %+v", state)
+	}
+
+	rec = do(http.MethodPost, path+"/stop", "")
+	var stopped models.OrchestrationState
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &stopped) != nil || stopped.Armed != nil {
+		t.Fatalf("stop: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := do(http.MethodDelete, path, ""); rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("DELETE: expected 405, got %d", rec.Code)
 	}
 }
 
@@ -136,10 +154,6 @@ func TestProjectOrchestrateDispatchesAsSignedInUser(t *testing.T) {
 	h := NewHandler(database)
 	userID, cookie := account(t, database, "orchestrator@example.com")
 	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Signed-in orchestration", IssueTracker: "local", OrchestratorEnabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "Validate requests", Description: "Reject invalid requests with a clear error response."})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,20 +174,20 @@ func TestProjectOrchestrateDispatchesAsSignedInUser(t *testing.T) {
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	h.HandleProjectDetail(rec, req)
-	if rec.Code != http.StatusOK {
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("orchestrate returned %d: %s", rec.Code, rec.Body.String())
 	}
 	select {
 	case op := <-dispatched:
-		if op.UserID != userID || op.TaskID != task.ID || op.DeviceID != "user-workstation" {
+		if op.UserID != userID || op.TaskID != "" || op.Scope != agentprotocol.ScopeOrchestrator || op.SkillID != db.OrchestratorSkillID || op.DeviceID != "user-workstation" {
 			t.Fatalf("unexpected dispatch: %+v", op)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("signed-in user's workstation never received a launch")
+		t.Fatal("signed-in user's workstation never received the orchestrator session")
 	}
 }
 
-func TestDesktopBacklogEvaluationUsesPairedUserAndDevice(t *testing.T) {
+func TestDesktopOrchestrationStartsOnPairedUserAndDevice(t *testing.T) {
 	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
@@ -210,45 +224,48 @@ func TestDesktopBacklogEvaluationUsesPairedUserAndDevice(t *testing.T) {
 	request.Header.Set(agentprotocol.DeviceIDHeader, "forged-device")
 	response := httptest.NewRecorder()
 	h.RequireSession(http.HandlerFunc(h.HandleProjectDetail)).ServeHTTP(response, request)
-	if response.Code != 200 {
-		t.Fatalf("evaluate returned %d: %s", response.Code, response.Body.String())
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("start returned %d: %s", response.Code, response.Body.String())
 	}
 	select {
 	case op := <-dispatched:
-		if op.UserID != userID || op.DeviceID != device.ID {
+		if op.UserID != userID || op.DeviceID != device.ID || op.Scope != agentprotocol.ScopeOrchestrator {
 			t.Fatalf("wrong dispatch: %+v", op)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("paired workstation received no launch")
+		t.Fatal("paired workstation received no orchestrator session")
 	}
 }
 
-func TestProjectOrchestrateValidatesGuidelineSnapshotPayload(t *testing.T) {
+// A desktop that predates ADR 0064 sends its policy text and expects the
+// server to evaluate the backlog. It is told to update rather than having its
+// policy silently ignored.
+func TestProjectOrchestrateRefusesALegacyPolicySnapshot(t *testing.T) {
 	database, err := testsqlite.New(t, filepath.Join(t.TempDir(), "tasks.db"), db.NewDB)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Guideline payload", IssueTracker: "local", OrchestratorEnabled: true})
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Legacy payload", IssueTracker: "local", OrchestratorEnabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	h := NewHandler(database)
 	for _, test := range []struct {
 		body   string
-		status int
 		detail string
 	}{
-		{`{"guidelines":`, http.StatusBadRequest, "Invalid orchestration request"},
-		{`{"guidelines":"` + strings.Repeat("x", models.OrchestratorGuidelinesMaxBytes+1) + `"}`, http.StatusBadRequest, "exceed 32 KiB"},
-		// JSON escaping can make the request larger than the Markdown text.
-		{`{"guidelines":"` + strings.Repeat(`\"`, models.OrchestratorGuidelinesMaxBytes) + `"}`, http.StatusOK, ""},
+		{`{"guidelines":`, "Invalid orchestration request"},
+		{`{"guidelines":"Only small fixes."}`, "update Sectile Desktop"},
 	} {
 		req := httptest.NewRequest(http.MethodPost, "/api/projects/"+project.ID+"/orchestrate", strings.NewReader(test.body))
 		rec := httptest.NewRecorder()
 		h.HandleProjectDetail(rec, req)
-		if rec.Code != test.status || !strings.Contains(rec.Body.String(), test.detail) {
-			t.Fatalf("guideline request: %d %s", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), test.detail) {
+			t.Fatalf("legacy request %s: %d %s", test.body, rec.Code, rec.Body.String())
 		}
+	}
+	if state, err := database.OrchestrationState(project.ID); err != nil || state.Armed != nil {
+		t.Fatalf("a refused request armed the project: %+v %v", state, err)
 	}
 }

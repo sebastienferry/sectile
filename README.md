@@ -30,19 +30,20 @@ It consists of three complementary components:
   (`clarify-issue`, `specify-issue`, `implement-issue`, `create-pr` /
   `adjust-issue`, and `handoff-issue`), plus single-ticket (`pickup-issue`) and
   batch (`pickup-issues`) chains.
-- Offers on-demand [backlog orchestration](./docs/CAPABILITIES.md):
-  autonomous task chains run as the requesting user, assess project eligibility
-  guidelines before changes, share a project concurrency limit, and stop at
+- Offers [backlog orchestration](./docs/CAPABILITIES.md): an orchestrator
+  agent reviews the whole backlog with your policy, launches autonomous chains
+  on the tickets it chooses, explains every launch and deferral, and reviews the
+  backlog again whenever one of its chains ends, until you stop it. Chains run
+  as the user who started it, share a project concurrency limit, and stop at
   **Implemented** for human review.
-  Desktop shows compact agent rows in **ORCHESTRATION**, with an **Agent overview**
-  for task activity, workflow stages, waiting states, sign-in recovery, console
-  access and **Run agent**. Shared project capacity appears above
-  **PROJECTS**, only while a project is enabled or task agents are active.
+  Desktop shows each saved agent in **ORCHESTRATION**, with an **Agent overview**
+  for **Start** / **Stop**, the session console, the decisions and their
+  reasons, and sign-in recovery. Shared project capacity appears above
+  **PROJECTS**, only while a project is enabled or a session is active.
   Configure it in **Settings → project → Orchestration**: enablement, concurrency
   and multiple named agents, each with its own local guidelines file (`AGENTS.md`
-  by default, or another project-local `.md` file). **Add agent** creates another
-  policy; **Run agent** reads that agent's file again before launching. All agents
-  share the project concurrency limit.
+  by default, or another project-local `.md` file), read again at each backlog
+  review. One agent at a time orchestrates a project.
 - Frames and slices multi-ticket initiatives with **Macros** (`refine-macro` and
   `realign-macro`).
 - Scaffolds **Spec Kit** and **OpenSpec** directly inside project repositories.

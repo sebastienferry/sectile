@@ -7687,6 +7687,11 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repositories = ?, default_skill_mode = ?, full_chain_stop_stage = ?, push_stage_commits = ?, pr_creation_stage = ?, spec_artifacts = ?, branch_name_format = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, enabled_views = ?, epic_colors = ?, roadmap_projects = ?, roadmap_axis_writes = ?, epic_axis_prefixes = ?, priority_mapping = ?, epic_axis_fields = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, gitlab_url = ?, gitlab_project = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, owner_user_id = ?, updated_at = ?, orchestrator_enabled = ?, orchestrator_max_concurrent = ?, orchestrator_prompt = ?
 		WHERE id = ?
 	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, encodeRepositoryURLs(projectCodeRemote(p), repositoryURLs), p.DefaultSkillMode, p.FullChainStopStage, boolInt(p.PushStageCommits), p.PRCreationStage, models.NormalizeSpecArtifacts(p.SpecArtifacts), p.BranchNameFormat, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, string(roadmapProjectsBytes), boolInt(p.RoadmapAxisWrites), string(epicAxisPrefixesBytes), string(priorityMappingBytes), string(epicAxisFieldsBytes), p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GitlabUrl, p.GitlabProject, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, strings.TrimSpace(p.OwnerUserID), p.UpdatedAt, boolInt(p.OrchestratorEnabled), models.NormalizeOrchestratorMaxConcurrent(p.OrchestratorMaxConcurrent), p.OrchestratorPrompt, p.ID)
+	if err == nil && !p.OrchestratorEnabled {
+		// Disabling orchestration stops it: nothing wakes a session on a
+		// project that no longer orchestrates (ADR 0064).
+		_, err = tx.Exec(`DELETE FROM orchestrator_arming WHERE project_id = ?`, p.ID)
+	}
 	// The trackers before the write, to tell whether the legacy tracker fields
 	// changed them: a label with a space is then checked as when the trackers
 	// are sent.

@@ -33,7 +33,7 @@ var activeRunStatuses = []string{
 var activeRunSkillIDs = []string{
 	"remote_run", "clarify", "specify", "implement", "adjust", "handoff",
 	"create_pr", "pickup", "rewrite_story", "refine_macro", "pickup_issues",
-	"review", "pick", "realign_macro",
+	"review", "pick", "realign_macro", "orchestrate_backlog",
 }
 
 // activeRunPredicate is the SQL condition selecting the active runs, ordinary or

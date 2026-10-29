@@ -27,6 +27,8 @@ import (
 // web session of the source.
 // auto_sync_trackers too, like auto_sync_projects: the background loop's own
 // record of its passes, which it rebuilds.
+// orchestrator_arming too: it names a workstation connected to the source, and
+// orchestration is started again on the destination.
 var migrationTables = []string{
 	"settings",
 	"users",
@@ -38,6 +40,7 @@ var migrationTables = []string{
 	"task_aliases",
 	"task_activities",
 	"deleted_remote_runs",
+	"orchestrator_decisions",
 	"batch_members",
 	"task_comments",
 	"teams",

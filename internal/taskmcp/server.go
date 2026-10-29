@@ -84,7 +84,7 @@ type startRunInput struct {
 	MacroKey  string `json:"macroKey,omitempty" jsonschema:"macro key of a macro run, with projectId instead of taskKey"`
 }
 type finishRunInput struct {
-	TaskKey   string `json:"taskKey,omitempty" jsonschema:"task key or ID; omit for a macro run"`
+	TaskKey   string `json:"taskKey,omitempty" jsonschema:"task key or ID; omit for a macro run or an orchestrator session"`
 	RunID     string `json:"runId"`
 	Status    string `json:"status" jsonschema:"completed, failed or canceled"`
 	Note      string `json:"note"`
@@ -167,11 +167,40 @@ type macroTodoInput struct {
 	SourceEntry          string `json:"sourceEntry,omitempty" jsonschema:"ignored: an existing todo keeps its origin"`
 }
 
-// orchestrateProjectInput names the project only. Enablement and the
-// concurrency cap are project settings: an agent calling this tool cannot
-// override either.
+// orchestrateProjectInput names the project and, optionally, the caller's
+// orchestration profile. Enablement and the concurrency cap are project
+// settings: an agent calling this tool cannot override either.
 type orchestrateProjectInput struct {
-	ProjectID string `json:"projectId" jsonschema:"the project primary key or slug"`
+	ProjectID   string `json:"projectId" jsonschema:"the project primary key or slug"`
+	ProfileID   string `json:"profileId,omitempty" jsonschema:"the workstation orchestration agent whose Markdown file is the policy; omit to use the project's shared policy"`
+	ProfileName string `json:"profileName,omitempty" jsonschema:"that agent's display name"`
+}
+
+// orchestrationStateInput names the project whose orchestration state to read.
+type orchestrationStateInput struct {
+	ProjectID string `json:"projectId,omitempty" jsonschema:"the project primary key or slug; defaults to the calling orchestrator session's project"`
+}
+
+// launchTaskChainInput is one decision of the orchestrator session to take a
+// ticket.
+type launchTaskChainInput struct {
+	TaskKey   string `json:"taskKey" jsonschema:"task key or ID"`
+	Rationale string `json:"rationale" jsonschema:"why this ticket now, in one or two sentences; every step of its chain reads it"`
+}
+
+// deferTaskInput is one decision of the orchestrator session to leave a
+// ticket for now.
+type deferTaskInput struct {
+	TaskKey string `json:"taskKey" jsonschema:"task key or ID"`
+	Reason  string `json:"reason" jsonschema:"why the ticket is not taken now, written for the people who read the backlog"`
+}
+
+// callRunID is the run a launched console names in its header, "" for none.
+func callRunID(req *mcp.CallToolRequest) string {
+	if req == nil || req.Extra == nil {
+		return ""
+	}
+	return strings.TrimSpace(req.Extra.Header.Get(agentprotocol.RunIDHeader))
 }
 
 // runTarget says whether a run input names a task or a macro, and refuses one
@@ -580,11 +609,20 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 	mcp.AddTool(s, &mcp.Tool{Name: "finish_run", Description: "Finish the specified remote execution with completed, failed or canceled status. Call when the entire invoked skill ends, including when stopping for user input. This is how a run reports its own outcome; a run left open when the session ends is closed as canceled instead, and such a run may still be reported here afterwards by its owner. Does not transition the task."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in finishRunInput) (*mcp.CallToolResult, any, error) {
 			caller := callerOf(resolve, req)
+			actor := db.Actor{ID: caller.UserID, Name: caller.Name}
+			// An orchestrator session has neither a task nor a macro.
+			if strings.TrimSpace(in.TaskKey) == "" && strings.TrimSpace(in.MacroKey) == "" && database.IsOrchestratorSession(in.RunID) {
+				activity, err := database.FinishOrchestratorSession(actor, caller.Role == db.RoleAdmin, in.ProjectID, in.RunID, in.Status, in.Note)
+				if err != nil {
+					return nil, nil, err
+				}
+				sessions.Release(sessionID(req.Session), in.RunID)
+				return nil, activity, nil
+			}
 			macro, err := runTarget(in.TaskKey, in.ProjectID, in.MacroKey)
 			if err != nil {
 				return nil, nil, err
 			}
-			actor := db.Actor{ID: caller.UserID, Name: caller.Name}
 			var activity *models.TaskActivity
 			if macro {
 				activity, err = database.FinishMacroRunAs(actor, caller.Role == db.RoleAdmin, in.ProjectID, in.MacroKey, in.RunID, in.Status, in.Note)
@@ -863,19 +901,54 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 	})
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "orchestrate_project",
-		Description: "Evaluate the project backlog and launch autonomous agentic sessions on eligible tickets up to the project's concurrency limit. The project must have the orchestrator enabled.",
+		Description: "Start backlog orchestration on a project: an orchestrator agent session reviews the whole backlog and launches autonomous chains on the tickets it chooses, up to the project's concurrency limit, and is started again whenever one of those chains ends, until orchestration is stopped. Returns the session run. The project must have the orchestrator enabled.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in orchestrateProjectInput) (*mcp.CallToolResult, any, error) {
 		projectID := in.ProjectID
 		if strings.TrimSpace(projectID) == "" {
 			projectID = callProject(database, sessions, req)
 		}
 		caller := callerOf(resolve, req)
-		actor := db.Actor{ID: caller.UserID, Name: caller.Name}
-		res, err := database.EvaluateAndOrchestrateBacklog(ctx, projectID, actor, models.OrchestrateProjectRequest{})
+		if err := requireCaller(caller); err != nil {
+			return nil, nil, err
+		}
+		run, err := database.StartOrchestration(projectID, db.OrchestrationStart{UserID: caller.UserID, DeviceID: caller.DeviceID, ProfileID: in.ProfileID, ProfileName: in.ProfileName})
 		if err != nil {
 			return nil, nil, err
 		}
-		return nil, res, nil
+		return nil, map[string]any{"session": run}, nil
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_orchestration_state",
+		Description: "Read a project's orchestration state: concurrency cap, orchestrated runs in use, free slots, the blocker labels the server refuses, who started orchestration, the active orchestrator session, and the latest launch or deferral of each ticket with its reason and whether the ticket changed since.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in orchestrationStateInput) (*mcp.CallToolResult, any, error) {
+		projectID := strings.TrimSpace(in.ProjectID)
+		if projectID == "" {
+			projectID = callProject(database, sessions, req)
+		}
+		state, err := database.OrchestrationState(projectID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, state, nil
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "launch_task_chain",
+		Description: "Orchestrator session only: launch the autonomous workflow chain of one ticket, stopping at implemented. The server refuses a ticket over the project's concurrency limit, already being worked on, carrying a blocker label, already implemented, or outside the project; a refusal launches nothing.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in launchTaskChainInput) (*mcp.CallToolResult, any, error) {
+		run, err := database.LaunchTaskChain(ctx, callRunID(req), in.TaskKey, in.Rationale)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"run": run}, nil
+	})
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "defer_task",
+		Description: "Orchestrator session only: record why a ticket is not taken now. The next session skips a deferred ticket that has not changed since.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, in deferTaskInput) (*mcp.CallToolResult, any, error) {
+		if err := database.DeferTask(callRunID(req), in.TaskKey, in.Reason); err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"deferred": in.TaskKey}, nil
 	})
 	return s
 }

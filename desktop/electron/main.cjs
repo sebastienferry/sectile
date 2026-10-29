@@ -639,15 +639,18 @@ ipcMain.handle('update-project',(_,id,changes)=>{
 })
 ipcMain.handle('deploy-project',(_,id,action,provider)=>api('/desktop/project?id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action)+(provider?'&provider='+encodeURIComponent(provider):''),'POST'))
 ipcMain.handle('projects',()=>api('/desktop/projects'))
-async function orchestrationRequest(projectId,method='GET',body){
+// Starting and stopping need an agent that runs orchestration as an agent over
+// the backlog (ADR 0064); an older one would evaluate the backlog itself.
+async function orchestrationRequest(projectId,method='GET',body,capability='orchestration-agents'){
  if(!projectId)throw Error('Choose a project')
  const status=await api('/desktop/status')
- if(!status.capabilities?.includes('orchestration-agents'))throw Error('Update and restart the local agent to set up and launch orchestration from desktop.')
+ if(!status.capabilities?.includes('orchestration-agents')||!status.capabilities?.includes(capability))throw Error('Update and restart the local agent to set up and launch orchestration from desktop.')
  return api('/desktop/orchestration?projectId='+encodeURIComponent(projectId),method,body)
 }
 ipcMain.handle('orchestration',(_,projectId)=>orchestrationRequest(projectId))
 ipcMain.handle('save-orchestration',(_,{projectId,settings})=>orchestrationRequest(projectId,'PUT',settings))
-ipcMain.handle('run-orchestration-agent',(_,{projectId,agentId})=>orchestrationRequest(projectId,'POST',{agentId}))
+ipcMain.handle('run-orchestration-agent',(_,{projectId,agentId})=>orchestrationRequest(projectId,'POST',{agentId},'orchestration-sessions'))
+ipcMain.handle('stop-orchestration',(_,projectId)=>orchestrationRequest(projectId,'DELETE',undefined,'orchestration-sessions'))
 ipcMain.handle('remove-project',async(_,id)=>{
  const status=await api('/desktop/status')
  if(!status.capabilities?.includes('remove-project'))throw Error('The running local agent does not support project removal. Update it, then stop and restart the agent. Closing the desktop alone does not restart it.')

@@ -170,13 +170,17 @@ try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
 const freeConsole=run=>run?.kind==='console'
 // Task runs show the skill and engine; project prompts show their engine name.
 const runLabel=run=>run.conversation&&run.taskId?run.skill+' · Conversation (test)':run.conversation?(run.provider==='codex'?'Codex':run.provider==='agy'?'Antigravity':'Claude Code')+' · Conversation (test)':freeConsole(run)?(run.engineName||run.provider||'AI')+' · Project prompt':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
-// A macro skill run has no task: its executions group under the macro.
-const macroRun=run=>!!run?.macroKey
+// A project's orchestrator session (ADR 0064) has neither a task nor a macro:
+// the Orchestration section shows it, never the project's task list.
+const orchestratorRun=run=>run?.scope==='orchestrator'
+// A macro skill run has no task: its executions group under the macro. An
+// orchestrator session is task-less too, and its executions group per project.
+const macroRun=run=>!!run?.macroKey||orchestratorRun(run)
 // Archiving a ticket task removes its worktrees first (#755); a free console or a macro run has none.
 const archivesWorktree=run=>!freeConsole(run)&&!macroRun(run)&&!!run?.taskId
 // The tasks whose archive is under way, so their button cannot start a second one.
 const archiving=new Set()
-const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:macroRun(run)?'macro:'+run.macroKey:run.taskId])
+const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:macroRun(run)?'macro:'+(run.macroKey||'orchestrator'):run.taskId])
 const activeRun=run=>['running','queued','preparing'].includes(run.status)
 const taskState=run=>localTasks[taskKey(run)]||{}
 function formatTerminalName(term){
@@ -1039,7 +1043,7 @@ function render(options){
   prompt.setAttribute('aria-label','Start project prompt for '+project.name);prompt.title=project.path?'Start a project prompt':'Map a local checkout to start a project prompt';prompt.disabled=!project.path
   prompt.onclick=event=>{event.stopPropagation();openAgentConsole(project.id)}
   projectRow.append(heading,prompt,more,menu);group.append(projectRow)
-  const children=runs.filter(run=>run.projectId===project.id&&!hiddenRun(run))
+  const children=runs.filter(run=>run.projectId===project.id&&!hiddenRun(run)&&!orchestratorRun(run))
   const taskGroups=new Map()
   for(const run of children){const key=taskKey(run);if(!taskGroups.has(key))taskGroups.set(key,[]);taskGroups.get(key).push(run)}
   if(!collapsedProjects.has(project.id)&&queueProjects.has(project.id)){
@@ -1218,7 +1222,7 @@ async function refresh(){
   const current=runs.find(run=>run.id===selected)
   if(followed&&selected)select(followed,true,{deferrable:true})
   else if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current,true,{deferrable:true})
-  if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible,true,{deferrable:true})}
+  if(!selected){const visible=runs.find(run=>!hiddenRun(run)&&!orchestratorRun(run));if(visible)select(visible,true,{deferrable:true})}
   handOverConversations()
   if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
   if(selected&&!changes.active&&(changed||Date.now()-lastDiffChecked>10000)){lastDiffChecked=Date.now();changes.check()}
@@ -2886,7 +2890,7 @@ async function openProject(id,initial='Remove'){
   dialogFooter.prepend(save);syncDialogFooter()
   let orchestrationView
   function selectCategory(name){
-   if(name==='Orchestration'&&!orchestrationView)orchestrationView=orchestrationSettings({container:panels.Orchestration,project:{id,name:config.projectName},api,onChanged:()=>{orchestrationReadAt=0;refreshOrchestration();refresh()}})
+   if(name==='Orchestration'&&!orchestrationView)orchestrationView=orchestrationSettings({container:panels.Orchestration,project:{id,name:config.projectName},api,onChanged:()=>{orchestration.invalidate();orchestrationReadAt=0;refreshOrchestration();refresh()}})
    pageTitle.textContent=PROJECT_SETTINGS_CATEGORIES.find(category=>category.id===name).label
    const stores=PROJECT_SETTINGS_CATEGORIES.find(category=>category.id===name).saves
    for(const [key,value] of Object.entries(panels))value.hidden=key!==name

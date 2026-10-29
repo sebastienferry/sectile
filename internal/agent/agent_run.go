@@ -303,6 +303,10 @@ func (d *agentDaemon) enqueueRunLocked(taskID string, payload agentconfig.Dispat
 	if payload.MacroKey != "" {
 		d.rememberMacroRun(payload.RunID, projectID, payload.MacroKey)
 	}
+	if payload.Scope == agentprotocol.ScopeOrchestrator {
+		run.desktop.Scope = payload.Scope
+		d.rememberOrchestratorRun(payload.RunID, projectID)
+	}
 	return run, nil
 }
 
@@ -333,6 +337,9 @@ func sharesCheckout(other, run *controlledRun) bool {
 // for every pair of them and would serialise two macros that each have their
 // own worktree.
 func sameWork(a, b *controlledRun) bool {
+	if a.desktop.Scope != "" || b.desktop.Scope != "" {
+		return a.desktop.Scope == b.desktop.Scope && a.desktop.ProjectID == b.desktop.ProjectID
+	}
 	if a.desktop.MacroKey != "" || b.desktop.MacroKey != "" {
 		return a.desktop.ProjectID == b.desktop.ProjectID && a.desktop.MacroKey == b.desktop.MacroKey
 	}

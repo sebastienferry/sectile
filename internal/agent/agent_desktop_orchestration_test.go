@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -93,7 +94,7 @@ func TestDesktopOrchestrationSettingsAndEvaluationRelay(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(writes) != 2 || methods[0] != "PUT" || methods[1] != "POST" || len(writes[0]) != 2 || writes[0]["orchestratorPrompt"] != nil || len(writes[1]) != 1 || !strings.Contains(writes[1]["guidelines"].(string), "Fresh local guidelines") {
+	if len(writes) != 2 || methods[0] != "PUT" || methods[1] != "POST" || len(writes[0]) != 2 || writes[0]["orchestratorPrompt"] != nil || len(writes[1]) != 2 || writes[1]["profileId"] != "default" || writes[1]["guidelines"] != nil {
 		t.Fatalf("unexpected upstream writes: %v %v", methods, writes)
 	}
 }
@@ -108,7 +109,7 @@ func TestDesktopOrchestrationReportsUnsupportedServer(t *testing.T) {
 	if response := taskPageRequest(d, "GET", "/desktop/orchestration", ""); response.Code != 400 {
 		t.Fatal("missing project accepted")
 	}
-	if response := taskPageRequest(d, "DELETE", "/desktop/orchestration?projectId=p", ""); response.Code != 405 {
+	if response := taskPageRequest(d, "PATCH", "/desktop/orchestration?projectId=p", ""); response.Code != 405 {
 		t.Fatal("unsupported method accepted")
 	}
 }
@@ -142,18 +143,28 @@ func TestOrchestrationGuidelinesFileBoundaries(t *testing.T) {
 }
 
 func TestDesktopOrchestrationCustomFileAndMissingFileRefusal(t *testing.T) {
-	var guidelines string
+	// The policy text never travels: the server learns which agent to run,
+	// and the workstation reads its file at every session launch.
+	var started models.OrchestrateProjectRequest
+	var stopped bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/api/projects/p/orchestrate" {
-			var request models.OrchestrateProjectRequest
-			_ = json.NewDecoder(r.Body).Decode(&request)
-			if request.Guidelines == nil {
-				t.Error("missing local guideline snapshot")
-			} else {
-				guidelines = *request.Guidelines
+		switch {
+		case r.URL.Path == "/api/projects/p/orchestrate" && r.Method == http.MethodPost:
+			decoder := json.NewDecoder(r.Body)
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&started); err != nil {
+				t.Errorf("start request: %v", err)
 			}
-			_, _ = w.Write([]byte(`{}`))
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"session":{"id":"run-1"}}`))
+			return
+		case r.URL.Path == "/api/projects/p/orchestrate/stop":
+			stopped = true
+			_, _ = w.Write([]byte(`{"projectId":"p"}`))
+			return
+		case r.URL.Path == "/api/projects/p/orchestrate":
+			_, _ = w.Write([]byte(`{"projectId":"p","maxConcurrent":2,"decisions":[]}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{"id":"p","orchestratorEnabled":true,"orchestratorMaxConcurrent":2}`))
@@ -185,8 +196,11 @@ func TestDesktopOrchestrationCustomFileAndMissingFileRefusal(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(d.repoRoot, "policy.md"), []byte("Custom local policy"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if got := taskPageRequest(d, "POST", "/desktop/orchestration?projectId=p", `{}`); got.Code != 200 || !strings.Contains(guidelines, "Custom local policy") {
-		t.Fatalf("custom policy not used: %d %q", got.Code, guidelines)
+	if got := taskPageRequest(d, "POST", "/desktop/orchestration?projectId=p", `{}`); got.Code != http.StatusAccepted || started.ProfileID != "default" || started.ProfileName != "Default agent" {
+		t.Fatalf("start did not name the agent: %d %+v", got.Code, started)
+	}
+	if got := taskPageRequest(d, "DELETE", "/desktop/orchestration?projectId=p", ""); got.Code != 200 || !stopped {
+		t.Fatalf("stop was not relayed: %d", got.Code)
 	}
 	if err := os.Remove(filepath.Join(d.repoRoot, "policy.md")); err != nil {
 		t.Fatal(err)
@@ -198,20 +212,21 @@ func TestDesktopOrchestrationCustomFileAndMissingFileRefusal(t *testing.T) {
 }
 
 func TestDesktopNamedOrchestrationAgentsSelectTheirOwnPolicy(t *testing.T) {
-	var snapshots []string
+	var started []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer paired" {
 			t.Error("paired identity lost")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/api/projects/p/orchestrate" {
+		if r.URL.Path == "/api/projects/p/orchestrate" && r.Method == http.MethodPost {
 			var input map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&input)
-			if len(input) != 1 {
-				t.Errorf("agent selection introduced a capacity or identity override: %v", input)
+			if len(input) != 2 || input["guidelines"] != nil {
+				t.Errorf("agent selection sent more than the agent's identity: %v", input)
 			}
-			snapshots = append(snapshots, input["guidelines"].(string))
-			_, _ = w.Write([]byte(`{"launched":[],"skipped":[]}`))
+			started = append(started, fmt.Sprint(input["profileId"]))
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"session":{"id":"run"}}`))
 			return
 		}
 		if r.Method == "PUT" {
@@ -243,12 +258,24 @@ func TestDesktopNamedOrchestrationAgentsSelectTheirOwnPolicy(t *testing.T) {
 		t.Fatal(got.Body.String())
 	}
 	for _, id := range []string{"docs", "tests"} {
-		if got := taskPageRequest(d, "POST", route, `{"agentId":"`+id+`"}`); got.Code != 200 {
+		if got := taskPageRequest(d, "POST", route, `{"agentId":"`+id+`"}`); got.Code != http.StatusAccepted {
 			t.Fatal(got.Body.String())
 		}
 	}
-	if len(snapshots) != 2 || !strings.Contains(snapshots[0], "Documentation [docs]") || !strings.Contains(snapshots[0], "Documentation policy only") || strings.Contains(snapshots[0], "Regression test policy") || !strings.Contains(snapshots[1], "Tests [tests]") || !strings.Contains(snapshots[1], "Regression test policy only") {
-		t.Fatalf("wrong policy selection: %v", snapshots)
+	if len(started) != 2 || started[0] != "docs" || started[1] != "tests" {
+		t.Fatalf("wrong agent started: %v", started)
+	}
+	// Each session reads its own agent's file when the workstation launches it.
+	docs, err := d.orchestrationProfilePolicy("p", d.repoRoot, "docs")
+	if err != nil || !strings.Contains(docs, "Documentation [docs]") || !strings.Contains(docs, "Documentation policy only") || strings.Contains(docs, "Regression test policy") {
+		t.Fatalf("docs policy: %q %v", docs, err)
+	}
+	tests, err := d.orchestrationProfilePolicy("p", d.repoRoot, "tests")
+	if err != nil || !strings.Contains(tests, "Tests [tests]") || !strings.Contains(tests, "Regression test policy only") {
+		t.Fatalf("tests policy: %q %v", tests, err)
+	}
+	if _, err := d.orchestrationProfilePolicy("p", d.repoRoot, "removed"); err == nil {
+		t.Fatal("a removed agent's session ran without a policy")
 	}
 	for _, body := range []string{`{}`, `{"agentId":"missing"}`, `{"agentId":"docs","force":true}`, `{"agentId":"docs","maxConcurrent":10}`} {
 		if got := taskPageRequest(d, "POST", route, body); got.Code != 400 {
@@ -261,8 +288,11 @@ func TestDesktopNamedOrchestrationAgentsSelectTheirOwnPolicy(t *testing.T) {
 	if err := os.Remove(filepath.Join(d.repoRoot, "tests.md")); err != nil {
 		t.Fatal(err)
 	}
-	if got := taskPageRequest(d, "POST", route, `{"agentId":"docs"}`); got.Code != 200 || !strings.Contains(snapshots[len(snapshots)-1], "Updated documentation policy") {
-		t.Fatal("selected file was not read afresh")
+	if got := taskPageRequest(d, "POST", route, `{"agentId":"docs"}`); got.Code != http.StatusAccepted {
+		t.Fatal(got.Body.String())
+	}
+	if policy, err := d.orchestrationProfilePolicy("p", d.repoRoot, "docs"); err != nil || !strings.Contains(policy, "Updated documentation policy") {
+		t.Fatalf("selected file was not read afresh: %q %v", policy, err)
 	}
 	if got := taskPageRequest(d, "POST", route, `{"agentId":"tests"}`); got.Code != 400 {
 		t.Fatal("missing selected file launched")
@@ -289,5 +319,55 @@ func TestNamedOrchestrationGuidelinesBoundTheIdentityAndFileTogether(t *testing.
 	}
 	if _, _, err := readOrchestrationAgentGuidelines(root, agentconfig.OrchestrationAgent{ID: "docs", Name: "Docs", File: "AGENTS.md"}); err == nil {
 		t.Fatal("agent identity bypassed the snapshot bound")
+	}
+}
+
+// Removing the agent this workstation started stops orchestration; an agent
+// started from another workstation is not this one's to stop.
+func TestRemovingTheStartedAgentStopsOrchestration(t *testing.T) {
+	var armedDevice string
+	var stops int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/projects/p/orchestrate/stop":
+			stops++
+			_, _ = w.Write([]byte(`{"projectId":"p"}`))
+		case r.URL.Path == "/api/projects/p/orchestrate":
+			_, _ = w.Write([]byte(`{"projectId":"p","armed":{"projectId":"p","profileId":"docs","deviceId":"` + armedDevice + `"},"decisions":[]}`))
+		default:
+			_, _ = w.Write([]byte(`{"id":"p","orchestratorEnabled":true,"orchestratorMaxConcurrent":2}`))
+		}
+	}))
+	defer server.Close()
+	d := taskPageDaemon(t, server)
+	d.link.projectID = "p"
+	d.link.deviceID = "this-workstation"
+	if _, err := gitLocal(context.Background(), d.repoRoot, "init"); err != nil {
+		t.Fatal(err)
+	}
+	if err := agentconfig.WriteSettings(agentconfig.Settings{Seeded: agentconfig.Seeded{Defaults: server.URL, Projects: map[string]string{"p": "now"}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []string{"docs.md", "tests.md"} {
+		if err := os.WriteFile(filepath.Join(d.repoRoot, file), []byte("Policy"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	route := "/desktop/orchestration?projectId=p"
+	both := `{"orchestratorEnabled":true,"orchestratorMaxConcurrent":2,"agents":[{"id":"docs","name":"Documentation","file":"docs.md"},{"id":"tests","name":"Tests","file":"tests.md"}]}`
+	onlyTests := `{"orchestratorEnabled":true,"orchestratorMaxConcurrent":2,"agents":[{"id":"tests","name":"Tests","file":"tests.md"}]}`
+
+	armedDevice = "this-workstation"
+	if got := taskPageRequest(d, "PUT", route, both); got.Code != 200 || stops != 0 {
+		t.Fatalf("keeping the started agent stopped it: %d, %d stops", got.Code, stops)
+	}
+	armedDevice = "another-workstation"
+	if got := taskPageRequest(d, "PUT", route, onlyTests); got.Code != 200 || stops != 0 {
+		t.Fatalf("another workstation's agent was stopped: %d, %d stops", got.Code, stops)
+	}
+	armedDevice = "this-workstation"
+	if got := taskPageRequest(d, "PUT", route, onlyTests); got.Code != 200 || stops != 1 {
+		t.Fatalf("removing the started agent did not stop it: %d, %d stops", got.Code, stops)
 	}
 }

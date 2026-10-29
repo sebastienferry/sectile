@@ -813,6 +813,49 @@ var migrations = []migration{
 			"ALTER TABLE projects ADD COLUMN orchestrator_prompt TEXT NOT NULL DEFAULT '';",
 		},
 	},
+	{
+		// The orchestrator as an agent over the backlog (ADR 0064). run_scope
+		// marks the project's orchestrator session, a task-less run of which
+		// one at most is active per project, across server instances.
+		// orchestrator_arming holds who started orchestration, where, with
+		// which profile, and whether a slot freed while a session ran.
+		// orchestrator_decisions keeps why each ticket was taken or left.
+		// orchestrate_backlog joins the catalog, so the one-active-run index is
+		// recreated with it, as activeRunSkillIDs requires; the session has no
+		// task_id, which the index leaves out anyway. Frozen copy of the list.
+		version: 57,
+		name:    "orchestrator_sessions",
+		statements: []string{
+			"DROP INDEX IF EXISTS idx_activities_one_active_run;",
+			`CREATE UNIQUE INDEX idx_activities_one_active_run ON task_activities (task_id)
+			WHERE task_id IS NOT NULL AND concurrent = 0
+			AND status IN ('queued', 'pending', 'running')
+			AND skill_id IN ('remote_run', 'clarify', 'specify', 'implement', 'adjust', 'handoff', 'create_pr', 'pickup', 'rewrite_story', 'refine_macro', 'pickup_issues', 'review', 'pick', 'realign_macro', 'orchestrate_backlog');`,
+			"ALTER TABLE task_activities ADD COLUMN run_scope TEXT NOT NULL DEFAULT '';",
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_task_activities_orchestrator_active ON task_activities (project_id)
+				WHERE run_scope = 'orchestrator' AND status IN ('queued', 'pending', 'running');`,
+			`CREATE TABLE IF NOT EXISTS orchestrator_arming (
+				project_id TEXT PRIMARY KEY,
+				user_id TEXT NOT NULL DEFAULT '',
+				device_id TEXT NOT NULL DEFAULT '',
+				profile_id TEXT NOT NULL DEFAULT '',
+				profile_name TEXT NOT NULL DEFAULT '',
+				wake_pending INTEGER NOT NULL DEFAULT 0,
+				armed_at TIMESTAMP NOT NULL
+			);`,
+			`CREATE TABLE IF NOT EXISTS orchestrator_decisions (
+				id TEXT PRIMARY KEY,
+				project_id TEXT NOT NULL,
+				task_id TEXT NOT NULL,
+				run_id TEXT NOT NULL DEFAULT '',
+				decision TEXT NOT NULL,
+				reason TEXT NOT NULL DEFAULT '',
+				task_updated_at TIMESTAMP NULL,
+				created_at TIMESTAMP NOT NULL
+			);`,
+			"CREATE INDEX IF NOT EXISTS idx_orchestrator_decisions_task ON orchestrator_decisions (project_id, task_id, created_at);",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

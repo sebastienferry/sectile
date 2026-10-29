@@ -940,7 +940,9 @@ dialog.palette-dialog #close-dialog{display:none}
 .orchestration-facts{display:grid;grid-template-columns:100px minmax(0,1fr);font-size:13px;margin:24px 0}
 .orchestration-facts dt,.orchestration-facts dd{margin:0;padding:10px 0;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
 .orchestration-facts dt{color:var(--text-muted)}
-.orchestration-activity{margin:24px 0}
+.orchestration-activity,.orchestration-decisions{margin:24px 0}
+.orchestration-decision{display:flex;flex-direction:column;gap:4px;padding:12px 0;border-bottom:1px solid var(--border);font-size:13px;overflow-wrap:anywhere}
+.orchestration-decision p{margin:0}
 .orchestration-session{display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid var(--border)}
 .orchestration-session button{font-size:12px;padding:6px 10px}
 .orchestration-instructions{margin-top:24px;font-size:13px}

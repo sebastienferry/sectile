@@ -71,6 +71,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  orchestration:projectId=>ipcRenderer.invoke('orchestration',projectId),
  saveOrchestration:(projectId,settings)=>ipcRenderer.invoke('save-orchestration',{projectId,settings}),
  runOrchestrationAgent:(projectId,agentId)=>ipcRenderer.invoke('run-orchestration-agent',{projectId,agentId}),
+ stopOrchestration:projectId=>ipcRenderer.invoke('stop-orchestration',projectId),
  removeProject:id=>ipcRenderer.invoke('remove-project',id),
  mapProject:mapping=>ipcRenderer.invoke('map-project',mapping),
  repositories:projectId=>ipcRenderer.invoke('repositories',projectId),

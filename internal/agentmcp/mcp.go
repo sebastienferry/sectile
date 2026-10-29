@@ -102,7 +102,7 @@ func Run(ctx context.Context, args []string) error {
 			return err
 		}
 		switch tool.Name {
-		case "get_task", "transition_stage", "add_comment", "list_tasks", "get_project_context", "list_projects", "start_run", "finish_run", "create_task", "update_task", "report_waiting", "prepare_macro_worktree", "prepare_repository_worktree", "prepare_task_spec_worktree", "record_pull_request", "get_macro", "update_macro_todos", "list_macros", "create_macro", "update_macro", "orchestrate_project":
+		case "get_task", "transition_stage", "add_comment", "list_tasks", "get_project_context", "list_projects", "start_run", "finish_run", "create_task", "update_task", "report_waiting", "prepare_macro_worktree", "prepare_repository_worktree", "prepare_task_spec_worktree", "record_pull_request", "get_macro", "update_macro_todos", "list_macros", "create_macro", "update_macro", "orchestrate_project", "get_orchestration_state", "launch_task_chain", "defer_task":
 		default:
 			return fmt.Errorf("incompatible Sectile MCP catalog: upgrade server and agent together")
 		}
@@ -114,8 +114,8 @@ func Run(ctx context.Context, args []string) error {
 			return session.CallTool(ctx, &mcp.CallToolParams{Name: req.Params.Name, Arguments: req.Params.Arguments})
 		})
 	}
-	if len(seen) != 21 {
-		return fmt.Errorf("incompatible Sectile MCP catalog: expected twenty-one tools; upgrade server and agent together")
+	if len(seen) != 24 {
+		return fmt.Errorf("incompatible Sectile MCP catalog: expected twenty-four tools; upgrade server and agent together")
 	}
 	return proxy.Run(ctx, &mcp.StdioTransport{})
 }

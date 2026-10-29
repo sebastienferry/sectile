@@ -128,6 +128,15 @@ type Dispatch struct {
 	MacroKey string `json:"macroKey,omitempty"`
 	// MacroTitle is the macro's title, used to name a new macro branch.
 	MacroTitle string `json:"macroTitle,omitempty"`
+	// Scope is "orchestrator" on a project's orchestrator session (ADR 0064).
+	// Like a macro dispatch it has no task. An agent that predates the field
+	// reads it as a task dispatch without a task and refuses it.
+	Scope string `json:"scope,omitempty"`
+	// ProfileID and ProfileName name the orchestration agent whose Markdown
+	// file the workstation reads as the session's policy. Empty runs the
+	// project's shared policy, which the server put in the prompt.
+	ProfileID   string `json:"profileId,omitempty"`
+	ProfileName string `json:"profileName,omitempty"`
 }
 
 // Project is a discovery record. ID is the server primary key, not a display name.

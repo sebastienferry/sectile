@@ -1,0 +1,3 @@
+- The tickets launched, each with its rationale.
+- The tickets deferred, each with its reason.
+- The free slots left, and anything the server refused with its reason.

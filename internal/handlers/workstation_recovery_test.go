@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -375,5 +376,40 @@ func TestQueuedTaskCancellationBothEndpoints(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// An orchestrator session the reconnected workstation no longer holds has no
+// task to finish through: it is closed as a session, so the next one can start.
+func TestReconnectClosesAnOrphanOrchestratorSession(t *testing.T) {
+	h, d, cleanup := setupTestHandler(t)
+	defer cleanup()
+	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Orphan orchestration", IssueTracker: "local", OrchestratorEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.SetAgentSelection(func(user, projectID, device string) (string, error) { return "mac", nil })
+	d.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) { return nil, nil })
+	session, err := d.StartOrchestration(project.ID, db.OrchestrationStart{UserID: "owner", DeviceID: "mac"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for state, _ := d.RunDispatchState(session.ID); state != "dispatched"; state, _ = d.RunDispatchState(session.ID) {
+		if time.Now().After(deadline) {
+			t.Fatalf("session never dispatched: %q", state)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	candidates := h.reconnectCandidates("owner", "mac", time.Now().Add(time.Second))
+	if len(candidates) != 1 || candidates[0].ID != session.ID {
+		t.Fatalf("candidates = %+v", candidates)
+	}
+	h.reconcileAssignedRuns(candidates, nil)
+	if closed, _ := d.GetActivityByID(session.ID); closed == nil || closed.Status != "canceled" {
+		t.Fatalf("orphan session stayed active: %+v", closed)
+	}
+	if active, _ := d.ActiveOrchestratorSession(project.ID); active != nil {
+		t.Fatalf("the orphan still blocks the next session: %+v", active)
 	}
 }

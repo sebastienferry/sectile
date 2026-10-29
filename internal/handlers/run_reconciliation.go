@@ -43,6 +43,17 @@ func (h *Handler) reconcileAssignedRuns(candidates []models.TaskActivity, report
 		if present[run.ID] {
 			continue
 		}
+		// An orchestrator session has no task: it is closed as a session, which
+		// lets the next one start.
+		if h.db.IsOrchestratorSession(run.ID) {
+			if _, err := h.db.FinishOrchestratorSession(db.Actor{}, true, "", run.ID, "canceled", "Exécution fermée : le poste attribué s’est reconnecté et ne détient plus cette exécution"); err != nil {
+				log.Printf("[RemoteRun] Réconciliation de la session d’orchestration orpheline %s refusée : %v", run.ID, err)
+				continue
+			}
+			h.agentDispatcher.ForgetRun(run.ID)
+			h.BroadcastEvent(Event{Type: "agent_step_status"})
+			continue
+		}
 		if _, err := h.db.FinishRemoteRun(run.TaskID, run.ID, "canceled", "Exécution fermée : le poste attribué s’est reconnecté et ne détient plus cette exécution"); err != nil {
 			log.Printf("[RemoteRun] Réconciliation de l’exécution orpheline %s refusée : %v", run.ID, err)
 			continue

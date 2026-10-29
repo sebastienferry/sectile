@@ -3,176 +3,120 @@ package db
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
+	"errors"
 	"testing"
-	"time"
 
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
 )
 
-func orchestratorTask(t *testing.T, d *DB, projectID string) *models.Task {
+// launchAndFail launches a ticket's chain from the session and ends its first
+// step as failed, which stops the chain and frees its slot.
+func launchAndFail(t *testing.T, d *DB, projectID, sessionRunID string, dispatched <-chan agentprotocol.Operation) {
 	t.Helper()
-	task, err := d.CreateTask(models.CreateTaskRequest{
-		ProjectID: projectID, Title: "Implement request validation",
-		Description: "Reject invalid requests and cover the boundary cases with tests.",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return task
-}
-
-func awaitOrchestratorDispatch(t *testing.T, d *DB, dispatched <-chan agentprotocol.Operation) agentprotocol.Operation {
-	t.Helper()
-	select {
-	case op := <-dispatched:
-		if !d.jobs.drain(5 * time.Second) {
-			t.Fatal("launch worker did not finish")
-		}
-		return op
-	case <-time.After(5 * time.Second):
-		t.Fatal("orchestrator did not dispatch the task")
-		return agentprotocol.Operation{}
-	}
-}
-
-func orchestratorDispatches(d *DB) <-chan agentprotocol.Operation {
-	dispatched := make(chan agentprotocol.Operation, 10)
-	d.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
-		if op.Action == "execute_skill" {
-			dispatched <- op
-		}
-		return nil, nil
-	})
-	return dispatched
-}
-
-func TestOrchestratorKeepsCallerAndGuidelinesThroughEveryStep(t *testing.T) {
-	d, project := orchestratorTestDB(t)
-	guidelines := "Only work on request validation. Leave database schema changes to a human."
-	if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{OrchestratorPrompt: &guidelines}); err != nil {
-		t.Fatal(err)
-	}
-	task := orchestratorTask(t, d, project.ID)
-	dispatched := orchestratorDispatches(d)
-	d.SetAgentSelection(func(userID, projectID, deviceID string) (string, error) {
-		if userID != "alice" || projectID != project.ID {
-			return "", fmt.Errorf("unexpected route owner %q or project %q", userID, projectID)
-		}
-		if deviceID != "" && deviceID != "alice-workstation" {
-			return "", fmt.Errorf("unexpected device %q", deviceID)
-		}
-		return "alice-workstation", nil
-	})
-	result, err := d.EvaluateAndOrchestrateBacklog(context.Background(), project.ID, Actor{ID: "alice"}, models.OrchestrateProjectRequest{})
-	if err != nil || len(result.Launched) != 1 {
-		t.Fatalf("orchestrate: %+v, %v", result, err)
-	}
-	launch, err := d.GetActivityByID(result.Launched[0].ActivityID)
-	if err != nil || launch == nil || launch.UserID != "alice" {
-		t.Fatalf("launch lost caller: %+v, %v", launch, err)
-	}
-	for i, skill := range []string{"clarify", "specify", "implement"} {
-		op := awaitOrchestratorDispatch(t, d, dispatched)
-		if op.UserID != "alice" || op.DeviceID != "alice-workstation" || op.SkillID != skill {
-			t.Fatalf("step %d dispatched to wrong owner/device/skill: %+v", i, op)
-		}
-		if !strings.Contains(op.Prompt, guidelines) || !strings.Contains(op.Prompt, "before making changes") || !strings.Contains(op.Prompt, "without making changes or advancing its stage") {
-			t.Fatalf("step %s lost eligibility gate: %q", skill, op.Prompt)
-		}
-		out := d.runOutcomeOf(op.RunID)
-		if out.UserID != "alice" || out.ChainStop != models.FullChainStopImplemented || out.Mode != models.SkillModeAutonomous {
-			t.Fatalf("step %s lost chain metadata: %+v", skill, out)
-		}
-		// Model an agent reporting successful stage work; stage validation itself is
-		// covered by the transition tests, independently of queue hand-back.
-		nextStage := []string{"clarified", "specified", "implemented"}[i]
-		if _, err := d.conn.Exec("UPDATE tasks SET labels = ? WHERE id = ?", `["#`+nextStage+`"]`, task.ID); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := d.FinishRemoteRunAs(Actor{ID: "alice"}, false, task.ID, op.RunID, "completed", "Stage completed"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if !d.jobs.drain(5 * time.Second) {
-		t.Fatal("chain did not drain")
-	}
-	select {
-	case op := <-dispatched:
-		t.Fatalf("chain continued past implemented: %+v", op)
-	default:
-	}
-	count, err := d.ActiveRunsCountForProject(project.ID)
-	if err != nil || count != 0 {
-		t.Fatalf("completed chain still active: %d, %v", count, err)
-	}
-}
-
-func TestOrchestratorLeavesImplementedTicketsForHumanReview(t *testing.T) {
-	d, project := orchestratorTestDB(t)
-	task := orchestratorTask(t, d, project.ID)
-	if project.FullChainStopStage != models.FullChainStopReviewed {
-		t.Fatalf("fixture should default to reviewed, got %s", project.FullChainStopStage)
-	}
-	if _, err := d.conn.Exec("UPDATE tasks SET labels = ? WHERE id = ?", `["#implemented"]`, task.ID); err != nil {
-		t.Fatal(err)
-	}
-	result, err := d.EvaluateAndOrchestrateBacklog(context.Background(), project.ID, Actor{ID: "alice"}, models.OrchestrateProjectRequest{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Launched) != 0 || result.EvaluatedCount != 0 {
-		t.Fatalf("implemented ticket entered backlog orchestration: %+v", result)
-	}
-	if activities := mustActivities(t, d, task.ID); len(activities) != 0 {
-		t.Fatalf("implemented ticket was touched: %+v", activities)
-	}
-}
-
-func TestOrchestratorGuidelineRefusalDoesNotAdvanceOrContinue(t *testing.T) {
-	d, project := orchestratorTestDB(t)
-	guidelines := "Do not work on database schema changes."
-	if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{OrchestratorPrompt: &guidelines}); err != nil {
-		t.Fatal(err)
-	}
-	task, err := d.CreateTask(models.CreateTaskRequest{
-		ProjectID: project.ID, Title: "Add an audit column",
-		Description: "Add an audit timestamp column to the database schema and migrate existing rows.",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	dispatched := orchestratorDispatches(d)
-	if _, err := d.EvaluateAndOrchestrateBacklog(context.Background(), project.ID, Actor{ID: "alice"}, models.OrchestrateProjectRequest{}); err != nil {
+	task := orchestratorTask(t, d, projectID)
+	if _, err := d.LaunchTaskChain(context.Background(), sessionRunID, task.ID, "why"); err != nil {
 		t.Fatal(err)
 	}
 	op := awaitOrchestratorDispatch(t, d, dispatched)
-	if !strings.Contains(op.Prompt, guidelines) {
-		t.Fatalf("agent never received project restrictions: %q", op.Prompt)
-	}
-	// An agent refuses the ticket without reporting a stage transition. Even a
-	// zero-exit completion must not allow the chain to start the following skill.
-	if _, err := d.FinishRemoteRun(task.ID, op.RunID, "completed", "Project guidelines exclude this task"); err != nil {
+	if _, err := d.FinishRemoteRunAs(Actor{ID: "alice"}, false, task.ID, op.RunID, "failed", "Tests failed"); err != nil {
 		t.Fatal(err)
-	}
-	fresh, err := d.GetTaskByID(task.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.StageOfTask(fresh) != "new" {
-		t.Fatalf("refused ticket advanced: %+v", fresh)
-	}
-	if !strings.Contains(runSummary(t, d, op.RunID), "full chain stops here") {
-		t.Fatal("refused chain did not record its stop")
-	}
-	if count := countSkillActivities(t, d, task.ID, skillName(t, d, "specify")); count != 0 {
-		t.Fatalf("refused ticket started %d specification activities", count)
 	}
 }
 
-func checkConcurrentOrchestratorCapacity(t *testing.T, a, b *DB) {
+func finishSession(t *testing.T, d *DB, projectID, runID string) {
+	t.Helper()
+	if _, err := d.FinishOrchestratorSession(Actor{ID: "alice"}, false, projectID, runID, "completed", "Launched one, deferred none"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFreedSlotWakesAnArmedOrchestrator(t *testing.T) {
+	d, project := orchestratorTestDB(t)
+	dispatched := orchestratorDispatches(d)
+	session := startSession(t, d, project.ID, dispatched)
+	task := orchestratorTask(t, d, project.ID)
+	if _, err := d.LaunchTaskChain(context.Background(), session.RunID, task.ID, "why"); err != nil {
+		t.Fatal(err)
+	}
+	step := awaitOrchestratorDispatch(t, d, dispatched)
+	finishSession(t, d, project.ID, session.RunID)
+	expectNoDispatch(t, d, dispatched, "a session that freed no slot ended")
+
+	if _, err := d.FinishRemoteRunAs(Actor{ID: "alice"}, false, task.ID, step.RunID, "failed", "Tests failed"); err != nil {
+		t.Fatal(err)
+	}
+	next := awaitOrchestratorDispatch(t, d, dispatched)
+	if next.Scope != agentprotocol.ScopeOrchestrator || next.RunID == session.RunID || next.ProfileID != "docs" || next.DeviceID != "alice-workstation" {
+		t.Fatalf("the freed slot did not wake a new session on the armed workstation: %+v", next)
+	}
+}
+
+func TestChainEndingDuringASessionWakesOneSessionAfterIt(t *testing.T) {
+	d, project := orchestratorTestDB(t)
+	dispatched := orchestratorDispatches(d)
+	session := startSession(t, d, project.ID, dispatched)
+	launchAndFail(t, d, project.ID, session.RunID, dispatched)
+	launchAndFail(t, d, project.ID, session.RunID, dispatched)
+	expectNoDispatch(t, d, dispatched, "the session is still running")
+
+	finishSession(t, d, project.ID, session.RunID)
+	next := awaitOrchestratorDispatch(t, d, dispatched)
+	if next.Scope != agentprotocol.ScopeOrchestrator {
+		t.Fatalf("expected one follow-up session, got %+v", next)
+	}
+	expectNoDispatch(t, d, dispatched, "two chain ends coalesce into one follow-up session")
+	if armed, _ := d.OrchestratorArming(project.ID); armed == nil || armed.WakePending {
+		t.Fatalf("the pending wake-up was not consumed: %+v", armed)
+	}
+}
+
+func TestSessionThatLaunchesNothingWakesNothing(t *testing.T) {
+	d, project := orchestratorTestDB(t)
+	dispatched := orchestratorDispatches(d)
+	session := startSession(t, d, project.ID, dispatched)
+	if err := d.DeferTask(session.RunID, orchestratorTask(t, d, project.ID).ID, "Lacks acceptance criteria."); err != nil {
+		t.Fatal(err)
+	}
+	finishSession(t, d, project.ID, session.RunID)
+	expectNoDispatch(t, d, dispatched, "an exhausted backlog stays quiet")
+}
+
+func TestStoppedOrDisabledOrchestrationWakesNothing(t *testing.T) {
+	for _, stop := range []string{"stop", "disable"} {
+		t.Run(stop, func(t *testing.T) {
+			d, project := orchestratorTestDB(t)
+			dispatched := orchestratorDispatches(d)
+			session := startSession(t, d, project.ID, dispatched)
+			task := orchestratorTask(t, d, project.ID)
+			if _, err := d.LaunchTaskChain(context.Background(), session.RunID, task.ID, "why"); err != nil {
+				t.Fatal(err)
+			}
+			step := awaitOrchestratorDispatch(t, d, dispatched)
+			finishSession(t, d, project.ID, session.RunID)
+			if stop == "stop" {
+				if err := d.StopOrchestration(project.ID); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				disabled := false
+				if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{OrchestratorEnabled: &disabled}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if armed, _ := d.OrchestratorArming(project.ID); armed != nil {
+				t.Fatalf("orchestration still started after %s: %+v", stop, armed)
+			}
+			// The running chain continues; its end wakes nothing.
+			if _, err := d.FinishRemoteRunAs(Actor{ID: "alice"}, false, task.ID, step.RunID, "failed", "Tests failed"); err != nil {
+				t.Fatal(err)
+			}
+			expectNoDispatch(t, d, dispatched, "orchestration was stopped")
+		})
+	}
+}
+
+func checkConcurrentOrchestratorStarts(t *testing.T, a, b *DB) {
 	t.Helper()
 	project, err := a.CreateProject(models.CreateProjectRequest{Name: "Concurrent orchestration", IssueTracker: "local", OrchestratorEnabled: true, OrchestratorMaxConcurrent: 2})
 	if err != nil {
@@ -181,42 +125,71 @@ func checkConcurrentOrchestratorCapacity(t *testing.T, a, b *DB) {
 	noop := func(context.Context, agentprotocol.Operation) (json.RawMessage, error) { return nil, nil }
 	a.SetAgentOperations(noop)
 	b.SetAgentOperations(noop)
-	for i := 0; i < 12; i++ {
-		orchestratorTask(t, a, project.ID)
+	started := make(chan string, 16)
+	race(16, a, b, func(i int, d *DB) {
+		run, err := d.StartOrchestration(project.ID, aliceStart)
+		if err == nil {
+			started <- run.ID
+		} else if !errors.Is(err, ErrOrchestratorSessionActive) {
+			t.Errorf("start %d: %v", i, err)
+		}
+	})
+	close(started)
+	if count := len(started); count != 1 {
+		t.Fatalf("concurrent starts created %d orchestrator sessions, want one", count)
+	}
+}
+
+func checkConcurrentOrchestratorCapacity(t *testing.T, a, b *DB) {
+	t.Helper()
+	project, err := a.CreateProject(models.CreateProjectRequest{Name: "Concurrent launches", IssueTracker: "local", OrchestratorEnabled: true, OrchestratorMaxConcurrent: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	noop := func(context.Context, agentprotocol.Operation) (json.RawMessage, error) { return nil, nil }
+	a.SetAgentOperations(noop)
+	b.SetAgentOperations(noop)
+	session, err := a.StartOrchestration(project.ID, aliceStart)
+	if err != nil {
+		t.Fatal(err)
 	}
 	// An orchestrated run already holds a slot; exactly one new task may enter.
 	existing := orchestratorTask(t, a, project.ID)
-	if _, err := a.StartAgentRun(existing.ID, "clarify", RunLaunch{ProjectID: project.ID, Prompt: orchestratorLaunchPrompt("")}); err != nil {
+	if _, err := a.StartAgentRun(existing.ID, "clarify", RunLaunch{ProjectID: project.ID, Prompt: orchestratedChainPrompt("", "", "")}); err != nil {
 		t.Fatal(err)
 	}
-	results := make(chan *models.OrchestrationResult, 16)
+	var tasks []string
+	for i := 0; i < 16; i++ {
+		tasks = append(tasks, orchestratorTask(t, a, project.ID).ID)
+	}
+	launched := make(chan struct{}, 16)
 	race(16, a, b, func(i int, d *DB) {
-		projectID := project.ID
-		if i%2 == 1 {
-			projectID = project.Slug
+		if _, err := d.LaunchTaskChain(context.Background(), session.ID, tasks[i], "why"); err == nil {
+			launched <- struct{}{}
+		} else if !errors.Is(err, errOrchestratorCapacity) {
+			t.Errorf("launch %d: %v", i, err)
 		}
-		result, err := d.EvaluateAndOrchestrateBacklog(context.Background(), projectID, Actor{ID: "alice"}, models.OrchestrateProjectRequest{})
-		if err != nil {
-			t.Errorf("request %d: %v", i, err)
-			return
-		}
-		results <- result
 	})
-	close(results)
-	launched := 0
-	for result := range results {
-		launched += len(result.Launched)
+	close(launched)
+	if count := len(launched); count != 1 {
+		t.Fatalf("concurrent launches admitted %d tickets with one remaining slot", count)
 	}
-	if launched != 1 {
-		t.Fatalf("concurrent requests launched %d tasks with one remaining slot", launched)
-	}
-	count, err := a.ActiveRunsCountForProject(project.ID)
-	if err != nil || count != 2 {
+	if count, err := a.ActiveRunsCountForProject(project.ID); err != nil || count != 2 {
 		t.Fatalf("project cap is 2, active count = %d, err = %v", count, err)
 	}
 }
 
-func TestOrchestratorConcurrentRequestsRespectCapacity(t *testing.T) {
+func TestOrchestratorConcurrentStartsCreateOneSession(t *testing.T) {
+	d, _ := orchestratorTestDB(t)
+	checkConcurrentOrchestratorStarts(t, d, d)
+}
+
+func TestPostgresOrchestratorConcurrentStartsCreateOneSession(t *testing.T) {
+	a, b := openPostgresPair(t)
+	checkConcurrentOrchestratorStarts(t, a, b)
+}
+
+func TestOrchestratorConcurrentLaunchesRespectCapacity(t *testing.T) {
 	d, _ := orchestratorTestDB(t)
 	checkConcurrentOrchestratorCapacity(t, d, d)
 }
@@ -224,130 +197,4 @@ func TestOrchestratorConcurrentRequestsRespectCapacity(t *testing.T) {
 func TestPostgresOrchestratorConcurrentInstancesRespectCapacity(t *testing.T) {
 	a, b := openPostgresPair(t)
 	checkConcurrentOrchestratorCapacity(t, a, b)
-}
-
-func TestAgentProjectDiscoveryReportsOrchestrationCapacity(t *testing.T) {
-	d, project := orchestratorTestDB(t)
-	task := orchestratorTask(t, d, project.ID)
-	if _, err := d.StartAgentRun(task.ID, "clarify", RunLaunch{ProjectID: project.ID, Prompt: orchestratorLaunchPrompt("")}); err != nil {
-		t.Fatal(err)
-	}
-	discovered, err := d.AgentProjects()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range discovered.Projects {
-		if entry.ID != project.ID {
-			continue
-		}
-		if !entry.OrchestratorEnabled || entry.OrchestratorMaxConcurrent != 2 || entry.OrchestratorActiveRuns == nil || *entry.OrchestratorActiveRuns != 1 {
-			t.Fatalf("incorrect orchestration capacity: %+v", entry)
-		}
-		return
-	}
-	t.Fatal("orchestrated project missing from discovery")
-}
-
-func TestOrchestratorLocalGuidelinesSnapshotDoesNotOverwriteProject(t *testing.T) {
-	d, project := orchestratorTestDB(t)
-	original := "Web project policy"
-	if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{OrchestratorPrompt: &original}); err != nil {
-		t.Fatal(err)
-	}
-	orchestratorTask(t, d, project.ID)
-	dispatched := orchestratorDispatches(d)
-	local := "Local AGENTS.md policy"
-	result, err := d.EvaluateAndOrchestrateBacklog(context.Background(), project.ID, Actor{ID: "alice"}, models.OrchestrateProjectRequest{Guidelines: &local})
-	if err != nil || len(result.Launched) != 1 {
-		t.Fatalf("evaluate: %+v %v", result, err)
-	}
-	op := awaitOrchestratorDispatch(t, d, dispatched)
-	if !strings.Contains(op.Prompt, local) || strings.Contains(op.Prompt, original) {
-		t.Fatalf("wrong guideline snapshot: %s", op.Prompt)
-	}
-	stored, err := d.GetProjectByID(project.ID)
-	if err != nil || stored.OrchestratorPrompt != original {
-		t.Fatal("local snapshot changed shared policy")
-	}
-	oversized := strings.Repeat("x", models.OrchestratorGuidelinesMaxBytes+1)
-	if _, err := d.EvaluateAndOrchestrateBacklog(context.Background(), project.ID, Actor{ID: "alice"}, models.OrchestrateProjectRequest{Guidelines: &oversized}); err == nil {
-		t.Fatal("accepted oversized guidelines")
-	}
-}
-
-func TestNamedAgentPoliciesShareTheProjectConcurrencyLimit(t *testing.T) {
-	d, project := orchestratorTestDB(t)
-	limit := 1
-	if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{OrchestratorMaxConcurrent: &limit}); err != nil {
-		t.Fatal(err)
-	}
-	orchestratorTask(t, d, project.ID)
-	orchestratorTask(t, d, project.ID)
-	dispatched := orchestratorDispatches(d)
-	docs, tests := "Documentation agent policy", "Test agent policy"
-	first, err := d.EvaluateAndOrchestrateBacklog(context.Background(), project.ID, Actor{ID: "alice"}, models.OrchestrateProjectRequest{Guidelines: &docs})
-	if err != nil || len(first.Launched) != 1 {
-		t.Fatalf("first agent: %+v %v", first, err)
-	}
-	op := awaitOrchestratorDispatch(t, d, dispatched)
-	if !strings.Contains(op.Prompt, docs) {
-		t.Fatal("wrong agent policy dispatched")
-	}
-	second, err := d.EvaluateAndOrchestrateBacklog(context.Background(), project.ID, Actor{ID: "alice"}, models.OrchestrateProjectRequest{Guidelines: &tests})
-	if err != nil || len(second.Launched) != 0 || second.ActiveRunsBefore != 1 {
-		t.Fatalf("second agent bypassed shared capacity: %+v %v", second, err)
-	}
-}
-
-func TestOrchestratorAdmissionReadsTheCurrentProjectCap(t *testing.T) {
-	d, project := orchestratorTestDB(t)
-	orchestratorTask(t, d, project.ID)
-	orchestratorTask(t, d, project.ID)
-	dispatched := orchestratorDispatches(d)
-	first, err := d.EvaluateAndOrchestrateBacklog(context.Background(), project.ID, Actor{ID: "alice"}, models.OrchestrateProjectRequest{})
-	if err != nil || len(first.Launched) != 2 {
-		t.Fatalf("cap of two: %+v %v", first, err)
-	}
-	awaitOrchestratorDispatch(t, d, dispatched)
-	awaitOrchestratorDispatch(t, d, dispatched)
-
-	// Lowering the cap applies at the next admission: a third ticket waits for
-	// the active runs to fall below the new limit.
-	limit := 1
-	if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{OrchestratorMaxConcurrent: &limit}); err != nil {
-		t.Fatal(err)
-	}
-	third := orchestratorTask(t, d, project.ID)
-	if _, _, err := d.enqueueSkillWithOptions(third.ID, project.ID, "clarify", orchestratorLaunchPrompt(""), true, models.SkillModeAutonomous, "", queuedSkillOptions{
-		UserID: "alice", ChainStop: models.FullChainStopImplemented, Orchestrated: true,
-	}); err == nil {
-		t.Fatal("admission ignored the lowered project cap")
-	}
-}
-
-func TestManualChainDoesNotRepeatItsLaunchPrompt(t *testing.T) {
-	d, project := orchestratorTestDB(t)
-	task := orchestratorTask(t, d, project.ID)
-	dispatched := orchestratorDispatches(d)
-	manual := "Focus the clarification on the error messages."
-	if _, _, err := d.enqueueSkillWithOptions(task.ID, project.ID, "clarify", manual, true, models.SkillModeAutonomous, "", queuedSkillOptions{UserID: "alice"}); err != nil {
-		t.Fatal(err)
-	}
-	op := awaitOrchestratorDispatch(t, d, dispatched)
-	if !strings.Contains(op.Prompt, manual) {
-		t.Fatalf("first step lost its launch prompt: %q", op.Prompt)
-	}
-	if _, err := d.conn.Exec("UPDATE tasks SET labels = ? WHERE id = ?", `["#clarified"]`, task.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := d.FinishRemoteRunAs(Actor{ID: "alice"}, false, task.ID, op.RunID, "completed", "Stage completed"); err != nil {
-		t.Fatal(err)
-	}
-	next := awaitOrchestratorDispatch(t, d, dispatched)
-	if next.SkillID != "specify" || strings.Contains(next.Prompt, manual) {
-		t.Fatalf("manual prompt leaked into the next step: %+v", next)
-	}
-	if next.UserID != "alice" {
-		t.Fatalf("chained step lost its caller: %+v", next)
-	}
 }

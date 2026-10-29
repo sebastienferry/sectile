@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -17,6 +18,11 @@ import (
 
 const orchestrationControlsCapability = "orchestration-controls"
 const orchestrationAgentsCapability = "orchestration-agents"
+
+// orchestrationSessionsCapability says the agent starts and stops orchestration
+// as an agent over the backlog (ADR 0064): POST names the agent to start,
+// DELETE stops it, and GET carries the server's orchestration state.
+const orchestrationSessionsCapability = "orchestration-sessions"
 
 // desktopOrchestration keeps named agents on this workstation. Every agent
 // launches through the same paired identity and server-owned project capacity.
@@ -47,9 +53,13 @@ func (d *agentDaemon) desktopOrchestration(w http.ResponseWriter, r *http.Reques
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
 		decoder.DisallowUnknownFields()
 		if decoder.Decode(&launch) != nil {
-			http.Error(w, "Run agent accepts only an agent ID", 400)
+			http.Error(w, "Start accepts only an agent ID", 400)
 			return
 		}
+	case http.MethodDelete:
+		// Stop needs nothing local: the server disarms the project.
+		d.relayServer(w, r, http.MethodPost, "/api/projects/"+url.PathEscape(id)+"/orchestrate/stop", "")
+		return
 	default:
 		http.Error(w, "Method not allowed", 405)
 		return
@@ -86,8 +96,18 @@ func (d *agentDaemon) desktopOrchestration(w http.ResponseWriter, r *http.Reques
 			}
 			views = append(views, view)
 		}
+		// The server's state says which agent is started, its session and its
+		// decisions. A server that predates ADR 0064 has none; the agents stay
+		// configurable.
+		var state *models.OrchestrationState
+		if project.OrchestratorEnabled {
+			var read models.OrchestrationState
+			if d.readAPI(r.Context(), path+"/orchestrate", &read) == nil {
+				state = &read
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"orchestratorEnabled": project.OrchestratorEnabled, "orchestratorMaxConcurrent": project.OrchestratorMaxConcurrent, "agents": views, "maxAgents": agentconfig.MaxOrchestrationAgents})
+		_ = json.NewEncoder(w).Encode(map[string]any{"orchestratorEnabled": project.OrchestratorEnabled, "orchestratorMaxConcurrent": project.OrchestratorMaxConcurrent, "agents": views, "maxAgents": agentconfig.MaxOrchestrationAgents, "state": state})
 	case http.MethodPut:
 		agents, err = agentconfig.NormalizeOrchestrationAgents(*input.Agents)
 		if err != nil {
@@ -121,6 +141,16 @@ func (d *agentDaemon) desktopOrchestration(w http.ResponseWriter, r *http.Reques
 			http.Error(w, err.Error(), 500)
 			return
 		}
+		// Removing the agent this workstation started stops orchestration: its
+		// next session would have no policy to read (ADR 0064).
+		var state models.OrchestrationState
+		if d.readAPI(r.Context(), path+"/orchestrate", &state) == nil && state.Armed != nil && state.Armed.DeviceID == d.link.deviceID && state.Armed.ProfileID != "" &&
+			!slices.ContainsFunc(agents, func(agent agentconfig.OrchestrationAgent) bool { return agent.ID == state.Armed.ProfileID }) {
+			if err := d.postAPI(r.Context(), path+"/orchestrate/stop", struct{}{}, nil); err != nil {
+				http.Error(w, "Stop the removed agent first: "+err.Error(), 502)
+				return
+			}
+		}
 		d.relayServer(w, r, http.MethodPut, path, mustJSON(models.UpdateProjectRequest{OrchestratorEnabled: input.Enabled, OrchestratorMaxConcurrent: input.Concurrent}))
 	case http.MethodPost:
 		// An omitted ID is unambiguous only for the former single-agent setup.
@@ -138,13 +168,13 @@ func (d *agentDaemon) desktopOrchestration(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "Choose a saved orchestration agent", 400)
 			return
 		}
-		_, guidelines, err := readOrchestrationAgentGuidelines(root, *selected)
-		if err != nil {
+		// The file is read again at every session launch; reading it now
+		// refuses to start an agent whose policy is already unreadable.
+		if _, _, err := readOrchestrationAgentGuidelines(root, *selected); err != nil {
 			http.Error(w, selected.Name+": "+err.Error(), 400)
 			return
 		}
-
-		d.relayServer(w, r, http.MethodPost, path+"/orchestrate", mustJSON(models.OrchestrateProjectRequest{Guidelines: &guidelines}))
+		d.relayServer(w, r, http.MethodPost, path+"/orchestrate", mustJSON(models.OrchestrateProjectRequest{ProfileID: selected.ID, ProfileName: selected.Name}))
 	}
 }
 

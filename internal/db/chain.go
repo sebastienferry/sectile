@@ -51,7 +51,7 @@ func (d *DB) noteRun(runID, note string) {
 func (d *DB) appendToRunSummary(runID, note, restrict string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	_, err := d.conn.Exec("UPDATE task_activities SET summary = CASE WHEN summary = '' THEN ? ELSE summary || ' — ' || ? END WHERE id = ?"+restrict, note, note, runID)
+	_, err := d.conn.Exec("UPDATE task_activities SET summary = CASE WHEN summary = '' THEN ? ELSE summary || ' - ' || ? END WHERE id = ?"+restrict, note, note, runID)
 	return err
 }
 
@@ -68,6 +68,11 @@ func skillOwnsAStage(skill string) bool {
 // run actually moves from running to finished.
 func (d *DB) handBackRun(taskID, runID, status string) {
 	out := d.runOutcomeOf(runID)
+	// Whatever the hand-back decides, an orchestrated chain that does not
+	// continue frees its slot, and an armed orchestrator is woken to fill it.
+	if isOrchestratedPrompt(out.Prompt) {
+		defer d.afterOrchestratedRun(taskID, runID)
+	}
 	// An interactive run is handed back by the user closing the session, and a
 	// run whose launch predates these columns cannot be judged at all.
 	if models.NormalizeSkillMode(out.Mode) != models.SkillModeAutonomous {
@@ -119,8 +124,9 @@ func (d *DB) handBackRun(taskID, runID, status string) {
 func (d *DB) enqueueChainStep(taskID, skillID, projectID string, out runOutcome) (*models.Task, *models.TaskActivity, error) {
 	// A chained step carries no model override: the chain is launched once and
 	// each step resolves the configured model, as it resolves its own stage.
-	// Only an orchestrated chain repeats its prompt: it carries the eligibility
-	// gate every step must apply. A manual launch prompt was written for the
+	// Only an orchestrated chain repeats its prompt: it carries the
+	// orchestrator's reason for the ticket, which every step keeps as context,
+	// and the prefix that counts its slot. A manual launch prompt was written for the
 	// first step, and a later step resolves its own instructions.
 	prompt := ""
 	if isOrchestratedPrompt(out.Prompt) {
