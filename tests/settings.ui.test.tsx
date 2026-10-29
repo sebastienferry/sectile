@@ -42,6 +42,26 @@ test("first-start failure exposes both Local and Fleet diagnostics", async () =>
  expect(await screen.findByText("agent diagnostic")).toBeTruthy();
  expect(api.localServiceLog).toHaveBeenCalledWith("companion");
  expect(api.localServiceLog).toHaveBeenCalledWith("agent");
+ expect(screen.queryByRole("button",{name:"Démarrer en mode Local"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Associer ce poste à Fleet"})).toBeNull();
+});
+test("offline Fleet keeps its selected mode and diagnostics without offering Local setup", async () => {
+ vi.mocked(api.localSetupStatus).mockResolvedValue({enabled:true,mode:"fleet",ready:false,signedIn:false,agentReady:false,apiSetupAvailable:true,fleetServer:"http://127.0.0.1:65534",backendError:"Le backend Fleet est inaccessible. Vérifiez sa connexion."});
+ render(<LocalSettings onChanged={vi.fn()} />);
+ expect(await screen.findByRole("heading",{name:"Configuration Fleet"})).toBeTruthy();
+ expect(await screen.findByRole("heading",{name:"Journal de l’agent Fleet"})).toBeTruthy();
+ expect(screen.getByRole("alert").textContent).toContain("backend Fleet est inaccessible");
+ expect(screen.queryByRole("heading",{name:"Journal du compagnon local"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Démarrer en mode Local"})).toBeNull();
+ expect((screen.getByRole("button",{name:"Profil"}) as HTMLButtonElement).disabled).toBe(true);
+});
+test("manual status refresh makes one retry after startup status failed", async () => {
+ vi.mocked(api.localSetupStatus).mockRejectedValueOnce(new Error("First status failed")).mockResolvedValue({enabled:false,mode:"unconfigured"});
+ render(<LocalSettings onChanged={vi.fn()} />);
+ expect((await screen.findByRole("alert")).textContent).toContain("First status failed");
+ fireEvent.click(screen.getByRole("button",{name:"Actualiser"}));
+ await screen.findByText("État actualisé.");
+ expect(api.localSetupStatus).toHaveBeenCalledTimes(2);
 });
 test("Fleet attachment enables backend setup and hides Local-only controls", async () => {
   vi.mocked(api.localSetupStatus).mockResolvedValueOnce({ enabled: false, mode: "unconfigured" }).mockResolvedValue({ enabled: true, ready: true, signedIn: true, agentReady: true, mode: "fleet", fleetServer: "https://fleet.example.invalid" });

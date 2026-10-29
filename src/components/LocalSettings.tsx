@@ -17,6 +17,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
  const navigated = useRef(false);
   const [setup, setSetup] = useState<api.LocalSetup | null>(null);
   const [pending, setPending] = useState(false);
+  const [pendingMessage, setPendingMessage] = useState("Enregistrement en cours…");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [email, setEmail] = useState("");
@@ -59,7 +60,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     hydrateProfile = false,
   ) {
     if (busy.current) return;
-    busy.current = true; setPending(true); setError(""); setNotice("");
+    busy.current = true; setPendingMessage("Enregistrement en cours…"); setPending(true); setError(""); setNotice("");
     try {
       const result = await action();
       if (isCancelled?.(result)) return;
@@ -81,6 +82,13 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
   function submit(event: FormEvent, action: () => Promise<unknown>, message: string, hydrateProfile = false) {
     event.preventDefault(); void perform(action, message, undefined, hydrateProfile);
   }
+  async function refreshStatus() {
+    if (busy.current) return;
+    busy.current = true; setPendingMessage("Actualisation en cours…"); setPending(true); setError(""); setNotice("");
+    try { await refresh(); if (mounted.current) setNotice("État actualisé."); onChanged(); }
+    catch (cause) { if (mounted.current) setError(String(cause)); }
+    finally { busy.current = false; if (mounted.current) setPending(false); }
+  }
   const ready = setup?.ready && setup.signedIn && setup.apiSetupAvailable !== false;
   const fleetMode = setup?.mode === "fleet";
   const sectionLabel = (item: typeof sections[number]) => item.id === "services" && fleetMode ? "Connexion et services" : item.label;
@@ -90,7 +98,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     <p>{fleetMode ? "Gérez votre profil et vos comptes sur le backend connecté. Les services d’exécution restent sur ce poste." : setup?.mode === "local" ? "Connectez vos outils et configurez vos projets sur ce poste." : "Choisissez le mode Local ou associez ce poste à un backend Fleet."}</p></header>
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
-    {pending && <p role="status">Enregistrement en cours…</p>}
+    {pending && <p role="status">{pendingMessage}</p>}
     {!setup && !error && <p>Lecture de la configuration…</p>}
     <div className="settings-layout">
     <nav className="settings-navigation" aria-label="Sections des paramètres">
@@ -102,12 +110,13 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     <div hidden={section !== "engines"}><ProviderSettings projects={setup?.projects??[]} /></div>
     <div hidden={section !== "services"}><article>
       <h2>{fleetMode ? "Agent Fleet" : "Services locaux"}</h2>
-      <p>{setup?.mode === "fleet" ? `Mode Fleet · ${setup.agentReady ? "agent connecté" : "agent déconnecté"}${setup.fleetServer ? ` · ${setup.fleetServer}` : ""}` : !setup?.enabled ? "Choisissez un mode pour connecter ce desktop à Sectile." : setup.ready ? `Mode Local · compagnon prêt · ${setup.agentReady ? "exécution prête" : "en attente du profil"}` : "Le compagnon local ne répond pas."}</p>
+      <p>{setup?.mode === "fleet" ? `Mode Fleet · ${setup.agentReady ? "agent connecté" : "agent déconnecté"}${setup.fleetServer ? ` · ${setup.fleetServer}` : ""}` : !setup ? "Lecture de la configuration du poste…" : !setup.enabled ? "Choisissez un mode pour connecter ce desktop à Sectile." : setup.ready ? `Mode Local · compagnon prêt · ${setup.agentReady ? "exécution prête" : "en attente du profil"}` : "Le compagnon local ne répond pas."}</p>
+      {setup?.backendError && <p role="alert" className="error">{setup.backendError}</p>}
       {setup?.mode === "fleet" && setup.apiSetupAvailable === false && <p className="muted">Cet agent a été attaché sans identifiant API du poste. Configurez les comptes et projets sur le backend Fleet.</p>}
       {setup?.dataDirectory && <p className="muted runtime-path">{setup.dataDirectory}</p>}
       <p className="muted">{setup?.mode === "fleet" ? "L’agent Fleet reste géré par son installation habituelle." : "Le compagnon démarre automatiquement. Il continue en arrière-plan lorsque vous fermez le desktop, pour laisser les tâches se terminer."}</p>
-      {setup?.mode !== "fleet" && <button disabled={pending} onClick={() => void perform(api.enableLocalRuntime, "Compagnon local démarré et mode Local sélectionné.")}>{setup?.enabled ? "Vérifier / démarrer le compagnon local" : "Démarrer en mode Local"}</button>}
-      {(!setup?.mode || setup.mode === "unconfigured") && <article><h3>Mode Fleet</h3>
+      {setup && setup.mode !== "fleet" && <button disabled={pending} onClick={() => void perform(api.enableLocalRuntime, "Compagnon local démarré et mode Local sélectionné.")}>{setup.enabled ? "Vérifier / démarrer le compagnon local" : "Démarrer en mode Local"}</button>}
+      {setup && (!setup.mode || setup.mode === "unconfigured") && <article><h3>Mode Fleet</h3>
         <p className="muted">Associez ce poste avec un code à usage unique depuis votre profil sur le backend Fleet. Le jeton durable reste dans le stockage privé natif et n’est jamais affiché.</p>
         <form onSubmit={e => submit(e, async () => { try { await api.pairFleetAgent(fleetUrl, fleetCode); } finally { setFleetCode(""); } }, "Poste associé au backend Fleet.", true)}>
           <fieldset disabled={pending}>
@@ -119,7 +128,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
         <details><summary>J’ai déjà associé un agent sur ce poste</summary><p className="muted">Tauri peut reprendre explicitement l’agent existant sans modifier son installation partagée.</p><button disabled={pending} onClick={() => void perform(api.attachFleetAgent, "Agent Fleet associé à ce desktop.", undefined, true)}>Associer l’agent Fleet existant</button></details>
       </article>}
       {setup?.mode === "fleet" && <p className="muted">Cette page configure votre profil et vos projets sur le backend Fleet sélectionné. L’agent d’exécution reste sur ce poste.</p>}
-      <button disabled={pending} onClick={() => void perform(async () => {}, "Configuration actualisée.")}>Actualiser</button>
+      <button disabled={pending || (!setup && !error)} onClick={() => void refreshStatus()}>Actualiser</button>
     </article>
     {setup?.mode !== "fleet" && <ServiceLogPanel active={section === "services"} service="companion" />}
     {setup?.mode !== "local" && <ServiceLogPanel active={section === "services"} service="agent" />}

@@ -750,3 +750,17 @@ Services page displayed separate `PRESTART_COMPANION_MARKER` and
 either Go service. The app, test logs and bundle were removed afterward. This
 qualifies first-start visibility in a native window, not a real Fleet agent
 failure or a signed release build.
+
+An isolated Fleet failure retake used a unique unsigned macOS bundle, Go
+`554374b2`, private synthetic pairing credentials and a closed loopback backend
+at `127.0.0.1:65534`. Before the fix, Settings remained on its loading state
+for over two minutes, offered first-start controls despite a selected Fleet
+connection, and repeatedly restarted the agent while it retried the backend.
+The revised app promptly displayed Fleet as selected, identified the agent as
+disconnected, showed the backend error and the real `agent.log` connection
+failure, and offered no Local activation or Fleet pairing form. A manual
+**Actualiser** completed while the same agent PID remained alive and the
+startup-log count stayed unchanged. The test app, agent and private data were
+removed; the regular companion on port 52963 was untouched. This qualifies
+native failure presentation and stable retry ownership for a closed loopback
+backend. It does not prove recovery after a real Fleet outage or provider OAuth.

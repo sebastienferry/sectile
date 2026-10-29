@@ -123,6 +123,11 @@ desktop-managed log directly from disk. Before a mode is selected, it offers
 both companion and Fleet-agent logs so a failed first startup can be diagnosed.
 An attached Fleet agent started by a different installation may keep its log
 in that installation instead.
+If the selected Fleet backend is unavailable, Settings keeps Fleet selected,
+shows the disconnected agent and backend error, and leaves the Fleet agent log
+available. The workstation agent continues its own reconnection attempts;
+**Actualiser** reads its current status without relaunching it. Backend-owned
+profile, tracker and project controls become available again after reconnection.
 
 ## Connect to Fleet
 

@@ -3,6 +3,7 @@ export interface LocalSetup {
   enabled: boolean;
   mode?: "unconfigured" | "local" | "fleet";
   fleetServer?: string;
+  backendError?: string;
   ready?: boolean;
   signedIn?: boolean;
   agentReady?: boolean;

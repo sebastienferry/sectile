@@ -760,7 +760,7 @@ async fn ensure_fleet_agent(
         .map_err(|_| "Impossible de démarrer l’agent Fleet")?;
     for _ in 0..240 {
         if let Some(status) = fleet_status(&fleet_root).await {
-            if status["server"] == expected_server && status["connected"] == true {
+            if status["server"] == expected_server {
                 std::thread::spawn(move || {
                     let _ = child.wait();
                 });
@@ -1109,13 +1109,25 @@ pub async fn local_setup_status(app: tauri::AppHandle) -> Result<Value, String> 
                 "agentReady":value["connected"],"mode":"fleet","fleetServer":value["server"],
                 "apiSetupAvailable":false}));
         }
-        let profile = fleet_request(&root, Method::GET, "/api/me", None).await?;
-        let runtime = read_fleet_runtime(&root)?;
-        validate_fleet_profile_identity(&profile, &runtime.user_id)?;
-        let credentials =
-            fleet_request(&root, Method::GET, "/api/me/tracker-credentials", None).await?;
-        let trackers = fleet_request(&root, Method::GET, "/api/trackers", None).await?;
-        let projects = fleet_request(&root, Method::GET, "/api/projects", None).await?;
+        let backend = async {
+            let profile = fleet_request(&root, Method::GET, "/api/me", None).await?;
+            let runtime = read_fleet_runtime(&root)?;
+            validate_fleet_profile_identity(&profile, &runtime.user_id)?;
+            let credentials =
+                fleet_request(&root, Method::GET, "/api/me/tracker-credentials", None).await?;
+            let trackers = fleet_request(&root, Method::GET, "/api/trackers", None).await?;
+            let projects = fleet_request(&root, Method::GET, "/api/projects", None).await?;
+            Ok::<_, String>((profile, credentials, trackers, projects))
+        }
+        .await;
+        let (profile, credentials, trackers, projects) = match backend {
+            Ok(backend) => backend,
+            Err(error) => {
+                return Ok(json!({"enabled":true,"ready":false,"signedIn":false,
+                    "agentReady":value["connected"],"mode":"fleet","fleetServer":value["server"],
+                    "apiSetupAvailable":true,"backendError":error}));
+            }
+        };
         return Ok(
             json!({"enabled":true,"ready":true,"signedIn":profile["signedIn"] == true,
             "agentReady":value["connected"],"mode":"fleet","fleetServer":value["server"],
