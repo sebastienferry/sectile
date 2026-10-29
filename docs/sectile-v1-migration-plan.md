@@ -178,6 +178,13 @@ credential, encryption key and database remain usable. The full Go suite
 passes. This exercises the accepted retry/forward-recovery contract; it does
 not implement automatic snapshot rollback.
 
+The recovery fixture was extended on Go commit `b907c42f`: each of the six
+durable-boundary retries now reopens a retained personal GitLab credential,
+encrypted Jira OAuth app, project and ticket, and compares the copied
+conversation snapshot and journal byte for byte. The focused companion test
+passes. Provider conversation resumption after a release-bundle replacement
+still needs an end-to-end check; copied files alone do not prove it.
+
 New conversations persist the selected runtime's private connection UUID in Go's
 run journal; a mismatched Tauri connection cannot read or resume them. Legacy
 histories remain readable and Tauri requires an explicit association before

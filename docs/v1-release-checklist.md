@@ -64,6 +64,11 @@ service-only comparison; release-binary desktop performance remains open.
   with the same identifier and data directory. Credentials, OAuth records,
   conversation history and managed-runtime recovery remain unverified; see the
   migration plan.
+
+  Go commit `b907c42f` now checks migration recovery at every durable boundary
+  with a personal tracker token, encrypted Jira OAuth app, project, ticket and
+  run-store snapshot/journal. This is source-level retention evidence; it does
+  not replace the release-bundle upgrade check or provider conversation resume.
 - [ ] Confirm manual update instructions and release notes identify required
   migration behavior and any incompatible Fleet server/agent combinations.
 
