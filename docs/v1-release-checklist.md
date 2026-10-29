@@ -83,15 +83,13 @@ The binary compatibility harness was re-run on 2026-10-29 against Go commit
 specific protocol slice; it does not close full Electron UI compatibility,
 live tracker/provider behavior or Fleet reconnection.
 
-The migration plan records a valid unsigned arm64 DMG, current-source Local
-onboarding and provider-supervision tests, Go/Electron regression suites,
-current/v0.7.6 agent/server protocol tests, a read-only Electron UI smoke
-against the current Go API, and an isolated Local profile/project
-bundle-replacement smoke. The latest app bundle reports
-`releaseEligible: false`. Signing/notarization, clean-user installation and
-complete upgrade retention, default-port cold start with the current binary,
-and the remaining live Fleet/Electron checks are still open. No V1 release is
-ready to publish. Full Fleet/Electron workflows, live tracker/provider
-qualification, current default-port cold startup and signed/notarized macOS
-installation remain open. Linux remains experimental and Windows is deferred,
-so neither is a V1 qualification gate.
+The migration plan records a fresh unsigned arm64 DMG built from Tauri commit
+`cb72229` and clean Go commit `df1d846c`. `hdiutil verify` passed, all three
+service hashes match the embedded manifest, required notices and license texts
+are present, and the DMG SHA-256 is
+`ad89aa24613982afc0c8428a80feb1514b8bbb7803bd7d1c1ff6b5f49b93e02b`. Its
+manifest reports `releaseEligible: false`. Signing/notarization, clean-user
+installation and complete upgrade retention, default-port cold start with the
+current binary, full Fleet/Electron workflows, and live tracker/provider
+qualification remain open. Linux remains experimental and Windows is deferred,
+so neither is a V1 qualification gate. No V1 release is ready to publish.
