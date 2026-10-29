@@ -38,7 +38,7 @@ verification record remains the evidence for those flows.
 | The local-project empty state repeats the primary prompt action. | The project toolbar already has “Nouveau prompt”; the empty board adds “Commencer une conversation”. The live screenshot shows both at once. | Keep the global project action and remove the duplicate empty-state button; use the empty state to explain that the local project is ready for prompts. |
 | The project toolbar offers navigation to the view already open. | The live board screenshot shows a “Tableau” button beside the current project; `App.tsx` always renders it, and its handler navigates to the same board view. | Hide the current-view action while the board is open. Keep “Tableau” available from prompts and execution views so navigation remains direct. |
 | The prompt folder action obscured its project-wide scope. | `PromptFolders` listed the active directory and project attachments together; its “Ajouter un dossier” action did not explain that the selected folder is shared with every project conversation. | Call the action “Attacher au projet,” label the disclosure “Dossiers du projet,” and state that the attachment is shared across conversations. Keep detailed roles and paths in the disclosure. |
-| The current live Electron/Tauri windows are not a valid populated-state visual comparison. | Both windows were captured at the same desktop size, but Electron was showing a long historical conversation and orchestration sidebar while Tauri showed the empty Local `Documents` board. | Use these captures only for shell/navigation comparison. Before tuning typography, spacing or colors, capture equivalent screens, themes and data states; do not infer style changes from the mismatched content. |
+| The current live Electron/Tauri windows are not a valid populated-state visual comparison. | Both windows were captured at the same desktop size, but Electron was showing a long historical conversation and orchestration sidebar while Tauri showed an empty Local board. A follow-up read-only check opened the same project label in both apps: Electron showed a tracker-backed task list, while Tauri showed a Local project with no tracker mapping. The running Tauri release bundle also predates the current source fixes. | Use these captures only for shell/navigation comparison. A matching project name does not prove matching backend or tracker state. Before tuning typography, spacing or colors, capture equivalent data modes, themes and current-source builds; do not infer visual style changes from mismatched content or stale binaries. |
 
 ## Current source and runtime status
 
@@ -110,6 +110,13 @@ verification record remains the evidence for those flows.
   command palette no longer assigns a potentially stale process status to a
   conversation. UI and domain regressions cover an idle conversation whose
   provider process remains running.
+- A read-only live inspection confirmed that the currently installed Tauri
+  release is older than the current UX source. Its Local project screen still
+  shows tracker controls, while current source has a regression-tested guard.
+  The open Electron and Tauri screens also use different backend/project
+  mappings despite one matching project label; they are not a valid matched
+  content comparison. Neither observation changes tracker data or runtime
+  configuration.
 - The duplicate workspace color overrides have been removed. Tauri now uses
   the same canonical dark/light background, surface and selection colors as
   Electron; exact appearance still needs review in the rebuilt app once the
