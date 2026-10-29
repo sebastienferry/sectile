@@ -7,6 +7,8 @@ or create a Git tag.
 
 The [candidate support matrix](v1-support-matrix.md) lists the exact behavior
 demonstrated so far and the combinations that remain unqualified.
+The [Local runtime measurements](v1-runtime-measurements.md) record an isolated
+service-only comparison; release-binary desktop performance remains open.
 
 - Tauri is the V1 desktop for operational boards, prompts and agentic execution.
 - The existing web application remains the V1 owner for product planning and is

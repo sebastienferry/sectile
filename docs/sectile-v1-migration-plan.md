@@ -381,6 +381,10 @@ domain and workspace UI regressions cover the idle-session case.
 
 ### Stage 5 compatibility evidence
 
+The [Local runtime measurements](v1-runtime-measurements.md) compare startup,
+process count, memory and binary size for the embedded companion and separate
+Go services on disposable data. They do not include the desktop renderer.
+
 | Combination | Evidence now available | Qualification |
 | --- | --- | --- |
 | Current-source regression suites | On Go commit `22c33ec1`, `go test ./...` passes, including the PTY stop regression. Electron `npm test` passes all 315 tests and `npm run test:ui` passes all 137 tests. On Tauri commit `f02e511`, `npm test` passes 14 tests, `npm run test:ui` passes 101 tests, `npm run check`, `npm run test:rust` (35 tests) and `npm run build` pass. Verified on 2026-10-29. | Pass for the source-level Go, Electron and Tauri suites at these revisions. These suites do not replace live tracker/OAuth/provider workflows, tracked-ticket Electron execution or package signing and clean installation gates. |
