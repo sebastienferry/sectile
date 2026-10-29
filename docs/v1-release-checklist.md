@@ -28,8 +28,9 @@ The v0.7.6/current Go binary harness was refreshed on 2026-10-29 against
 clean Go `554374b2`. Both agent/server directions passed the 27-operation
 agent protocol, 21 MCP tools through direct and STDIO clients, run lifecycle,
 task-spec worktree creation and fake GitHub issue/stage writes using a personal
-token. The isolated test left the Go checkout clean. Live provider OAuth and
-tracker writes remain separate release gates.
+token. The isolated test left the Go checkout clean. Later isolated Go API tests
+created, updated, read back and deleted real GitHub and GitLab issues. Fresh
+provider OAuth consent and native tracker writes remain separate release gates.
 
 - [ ] Select and record the exact Go source commit used to build the companion.
 - [ ] Build only from clean, reviewable source commits. Confirm the packaged
@@ -271,3 +272,13 @@ remained clean while the Electron source passed its 315 unit tests, 137 UI
 tests and production Vite build. The UI tests cover board, console, workflow,
 settings and MCP fixtures. This is a source regression check, not a live
 Electron session paired with the current Go binary or a remote tracker write.
+
+Live tracker qualification (2026-10-29): an isolated current Go API server
+created and updated GitHub `sebastienferry/sectile` issue `#896` and GitLab
+`smartadserver/private/shared-platform/taskativ` issue `!110`. It waited for
+the queued tracker activities, and direct forge reads confirmed the titles.
+Both issues were deleted. A second run against Go `e1b80fe8` saved the GitLab
+website address without `/api/v4`, then created and updated GitLab issue `!111`
+and GitHub issue `#897`; both were deleted. The regular companion on 52963 was
+untouched. The native UI, fresh OAuth consent, Jira writes, deployed Fleet
+backend and signed package are not qualified by these API tests.
