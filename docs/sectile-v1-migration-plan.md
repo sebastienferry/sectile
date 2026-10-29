@@ -117,11 +117,13 @@ validating its live connection. The shared Electron discovery file is no longer
 a silent fallback. Paired Fleet connections now expose native profile, personal
 tracker credential, project and OAuth account setup through the selected backend;
 OAuth app secrets and shared tracker administration remain server-admin tasks.
-Stage 4 remains open for live Fleet qualification and conversation-history
-identity adoption. New one-time-code pairings verify the backend user's ID
-against the identity recorded at pairing. Runtime switching is deliberately
-unsupported: selecting a second mode requires a future explicit migration flow, and this turn closes an
-attachment path that could replace an already selected Fleet identity. Stage 5 remains open: qualify the
+Stage 4 remains open for one-time Fleet pairing/setup qualification and
+conversation-history identity adoption. A separate-ID Tauri bundle has now
+connected read-only to the existing Fleet workstation agent and loaded its 19
+projects; new one-time-code pairings also verify the backend user's ID against
+the identity recorded at pairing. Runtime switching is deliberately
+unsupported: selecting a second mode requires a future explicit migration flow.
+Stage 5 remains open: qualify the
 Fleet/Electron compatibility matrix,
 supported versions, other-platform migration and measured process/memory/startup
 and package behavior. An unsigned optimized macOS `.app` has now been measured
@@ -132,7 +134,7 @@ V1 release.
 The first compatibility slice passed: standalone `cmd/agent` and `cmd/server`
 tests, race-enabled companion/backend/agent tests, a Windows companion
 cross-build, 315 Electron unit tests, and the Tauri typecheck/build plus 86 UI
-and 33 Rust tests. Fleet-native setup also passes its Go handler/backend tests;
+and 34 Rust tests. Fleet-native setup also passes its Go handler/backend tests;
 this is contract coverage, not a live remote Fleet qualification. The migrated macOS install preserved its ten original
 projects, trackers, OAuth key and 25 conversation histories; live Jira,
 Claude/Codex prompt and embedded MCP calls succeeded. One idle companion used
@@ -151,8 +153,8 @@ Electron live MCP call remain unqualified. See
 | Combination | Evidence now available | Qualification |
 | --- | --- | --- |
 | Tauri + Local companion + embedded backend from this branch | Existing macOS managed-install migration; disposable Claude Code, Codex, MCP and companion lifecycle checks | Verified on macOS for the recorded prototype; repeat against the current commit before V1 |
-| Tauri + bundled Fleet agent + current Go backend | Pairing HTTP contract fixture, TLS/credential checks, API authorization tests and UI/native setup tests | Contract coverage only; a real remote Fleet pairing and session are still required |
-| Tauri + legacy attached Fleet agent | Attach path validates a live loopback agent and backend identity; no live fixture has been captured for the current commit | Partial; setup without native pairing credentials is intentionally unavailable |
+| Tauri + bundled Fleet agent + current Go backend | Pairing HTTP contract fixture, TLS/credential checks, API authorization tests and UI/native setup tests | Contract coverage only; a real remote one-time-code pairing and native setup are still required |
+| Tauri + legacy attached Fleet agent | Isolated macOS Tauri bundle loaded 19 projects from the existing v0.7.6 Fleet agent and showed `Agent local · backend Fleet` (2026-10-29), with no remote writes | Live dashboard and project discovery verified; the attach button itself, one-time pairing and native API setup remain unqualified |
 | Existing Electron/Go workstation + live backend | The existing v0.7.6 agent returned connected status, no contract error and 19 discovered projects in a read-only live check (2026-10-29); 315 Electron unit tests pass | This qualifies the existing connection only; post-migration MCP and current-branch Electron/server compatibility remain unqualified |
 | Mixed Go agent/server versions | Server/agent protocol V1 documents additive fields and unknown-field handling; dedicated old/new binary fixtures are absent | Unsupported as a V1 compatibility claim until the fixtures pass |
 | Native platforms | macOS live migration and unsigned bundle build; Windows companion cross-build | Windows runtime/migration and Linux native builds remain unqualified |

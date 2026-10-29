@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   canStop,
   canLaunchTask,
+  executionConnectionLabel,
   launchInput,
   projectRuns,
   statusLabel,
@@ -16,6 +17,11 @@ const run: Run = {
   status: "running",
   createdAt: "2026-10-28T12:00:00Z",
 };
+test("connection status names the Fleet backend while execution stays on the workstation", () => {
+  assert.equal(executionConnectionLabel("fleet"), "Agent local · backend Fleet");
+  assert.equal(executionConnectionLabel("local"), "Exécution locale");
+  assert.equal(executionConnectionLabel(undefined), "Exécution locale");
+});
 test("stop requires fresh live state and preserves cancellation acknowledgement", () => {
   assert.equal(canStop(run, true), true);
   for (const item of [

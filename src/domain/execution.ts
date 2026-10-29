@@ -27,10 +27,15 @@ export interface Run {
 export interface Snapshot {
   status: {
     connected: boolean;
+    runtimeMode?: "local" | "fleet" | "unconfigured";
     capabilities?: string[];
     contractError?: string;
   };
   runs: Run[];
+}
+
+export function executionConnectionLabel(runtimeMode?: Snapshot["status"]["runtimeMode"]) {
+  return runtimeMode === "fleet" ? "Agent local · backend Fleet" : "Exécution locale";
 }
 export interface AgentProfile {
   id: string;

@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { invoke } from "@tauri-apps/api/core";
 import { listProjects, listTasks } from "./lib/agent";
 import { trackerColumns, type Project, type Task } from "./domain/board";
-import { isActive, projectRuns, statusLabel, type Run } from "./domain/execution";
+import { executionConnectionLabel, isActive, projectRuns, statusLabel, type Run } from "./domain/execution";
 import {
   ExecutionProvider,
   useExecutionMonitor,
@@ -229,7 +229,7 @@ function Workspace() {
                 <span className={`dot ${connected ? "live" : ""}`} />
                 {connected ? "Agent connecté" : "Agent indisponible"}
                 <small>
-                  {fresh ? "Exécution locale" : "Connexion en cours"}
+                  {fresh ? executionConnectionLabel(snapshot?.status.runtimeMode) : "Connexion en cours"}
                 </small>
               </div>
 

@@ -16,6 +16,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- The connection status distinguishes the Fleet backend from the locally running agent.
+
 - Simplified project configuration to show the working directory and default conversation profile first, with profile management and advanced settings in collapsible sections that retain drafts.
 - Refined workspace spacing, conversation typography and the prompt composer to follow Sectile Desktop, with compact model/mode controls, Enter-to-send and non-executing prompt suggestions.
 - Organized native configuration into AI engines, profile, accounts/trackers, projects and services; drafts survive navigation, installation details stay collapsed, and Projects can open a local folder directly.

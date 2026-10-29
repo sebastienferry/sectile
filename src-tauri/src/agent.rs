@@ -152,7 +152,8 @@ pub async fn list_tasks(app: tauri::AppHandle, project_id: String) -> Result<Val
 }
 #[tauri::command]
 pub async fn execution_snapshot(app: tauri::AppHandle) -> Result<Value, String> {
-    let status = request_agent(
+    let runtime_mode = runtime_mode_key(crate::local::runtime_mode(&app)?);
+    let mut status = request_agent(
         app.clone(),
         reqwest::Method::GET,
         "/desktop/status",
@@ -160,8 +161,17 @@ pub async fn execution_snapshot(app: tauri::AppHandle) -> Result<Value, String> 
         None,
     )
     .await?;
+    status["runtimeMode"] = serde_json::json!(runtime_mode);
     let runs = request_agent(app, reqwest::Method::GET, "/desktop/runs", &[], None).await?;
     Ok(serde_json::json!({"status": status, "runs": runs}))
+}
+
+fn runtime_mode_key(mode: Option<crate::local::RuntimeMode>) -> &'static str {
+    match mode {
+        Some(crate::local::RuntimeMode::Fleet) => "fleet",
+        Some(crate::local::RuntimeMode::Local) => "local",
+        None => "unconfigured",
+    }
 }
 #[tauri::command]
 pub async fn project_skills(app: tauri::AppHandle, project_id: String) -> Result<Value, String> {
@@ -390,6 +400,19 @@ pub fn unwatch_run(state: tauri::State<'_, Streams>, subscription: String) -> Re
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn execution_snapshot_names_the_selected_runtime() {
+        assert_eq!(
+            super::runtime_mode_key(Some(crate::local::RuntimeMode::Fleet)),
+            "fleet"
+        );
+        assert_eq!(
+            super::runtime_mode_key(Some(crate::local::RuntimeMode::Local)),
+            "local"
+        );
+        assert_eq!(super::runtime_mode_key(None), "unconfigured");
+    }
+
     #[test]
     fn orchestration_capacity_never_falls_back_to_local_run_count() {
         let mut view = serde_json::json!({"orchestratorMaxConcurrent":3});
