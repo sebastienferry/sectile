@@ -246,6 +246,13 @@ authenticated Local runtime metadata with protocol 1 and `ready: true` in
 174 ms, then shut down and released the port. This proves only backend
 bootstrap; it did not pair an agent, open a Tauri window, read a tracker or
 measure full desktop readiness. The existing Local data directory was not used.
+The same clean Go companion was then started against the existing Local
+installation after the desktop had closed. Once its embedded agent connected,
+an authenticated PE Jira synchronization completed with 1,988 issues; a
+read-only query found 1,988 tickets attached to that tracker. The companion
+was stopped and port 52963 was released. This qualifies one live Local Jira
+OAuth read and persistence path at Go `fe3a98c8`, not the Tauri Settings
+interaction, fresh OAuth consent, Fleet behavior or release-binary installation.
 The isolated Electron tracked-ticket run below now confirms visible skill tool
 activity and Stop against the current Go agent. A later tracked-ticket run
 verified that its Codex tool cannot write a delayed file after Stop. The

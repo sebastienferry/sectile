@@ -187,3 +187,10 @@ clean Go `fe3a98c8` accepted an authenticated Local runtime probe on 52963 in
 174 ms and released the port after shutdown. It used disposable data and no
 Tauri window or paired execution agent. Full release-binary cold start,
 provider execution and clean-user installation remain open.
+
+Live Local Jira check (2026-10-29): the same Go companion started against the
+existing Local installation and completed an authenticated PE Jira sync with
+1,988 issues. A read-only database query confirmed the same number attached
+to the tracker. The companion was stopped and port 52963 released. This
+qualifies the existing OAuth grant's Local read path with Go `fe3a98c8`, but
+not a fresh consent, the native Tauri interaction, Fleet or signed packaging.

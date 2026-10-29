@@ -618,7 +618,13 @@ companion applied Fleet's server-credential sync rule despite its connected
 installation account having a Jira OAuth grant. Go ADR 0068 now makes Local
 sync read with that identity while preserving the Fleet server-credential
 contract. A simulated Jira OAuth sync and a personal-token GitHub sync pass
-without server credentials; a live Jira recheck remains necessary.
+without server credentials. A subsequent headless run of the current packaged
+companion on the existing Local installation completed the real PE Jira sync:
+the activity reported 1,988 synchronized issues, and a read-only database
+check found 1,988 tickets attached to that tracker. The companion was stopped
+and port 52963 released. This confirms the Go credential path and activity
+outcome; the current-source native Settings screen has not been visually
+rechecked with this result.
 
 The native credential and ticket-source forms used the same React provider and
 site state. Switching one provider silently reset the other's site draft and
