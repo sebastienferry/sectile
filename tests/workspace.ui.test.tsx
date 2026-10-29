@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("../src/components/ProjectPrompt", () => ({ default: ({ projectId }: {projectId: string}) => <div>Free prompt for {projectId}</div> }));
@@ -30,7 +30,9 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); });
 test("sidebar navigation replaces the view without canceling a run", async () => {
   render(<App />);
-  fireEvent.click(await screen.findByRole("button", { name: /APP-1/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /Toutes les exécutions/ }));
+  await screen.findByText("Exécutions de ce poste · 1 actives");
+  fireEvent.click(screen.getByRole("button", { name: /APP-1/ }));
   await screen.findByText("Live output");
   expect(screen.queryByRole("tablist")).toBeNull();
   expect(api.executionSnapshot).toHaveBeenCalledTimes(1);
@@ -38,6 +40,21 @@ test("sidebar navigation replaces the view without canceling a run", async () =>
   await screen.findByRole("textbox", { name: "Rechercher des tickets" });
   expect(screen.queryByText("Live output")).toBeNull();
   expect(api.stopRun).not.toHaveBeenCalled();
+});
+test("workflow run status stays on its ticket instead of duplicating the project rail row", async () => {
+  vi.mocked(api.listProjects).mockResolvedValue([{ id: "p", name: "Example", path: "/work/example" }]);
+  vi.mocked(api.listTasks).mockResolvedValue([{ id: "task", key: "APP-2", title: "Task with active run", status: "to_implement", source: "jira", trackerStatus: "In Progress", labels: ["#specified"] }]);
+  vi.mocked(api.executionSnapshot).mockResolvedValue({
+    status: { connected: true, capabilities: [] },
+    runs: [{ id: "run", projectId: "p", taskId: "task", taskKey: "APP-2", skill: "implement", status: "running", createdAt: "2026-10-28" }],
+  });
+  vi.mocked(workspace.projectContext).mockResolvedValue({ configured: true, path: "/work/example", skills: [], policy: {}, board: { trackers: [{ trackerId: "jira-1", provider: "jira" }] } });
+  render(<App />);
+  await screen.findByText("Task with active run");
+  expect(await screen.findByText("Implémenter · En cours")).toBeTruthy();
+  const sidebar = screen.getByRole("complementary");
+  expect(within(sidebar).queryByText("APP-2")).toBeNull();
+  expect(within(sidebar).getByRole("button", { name: /Toutes les exécutions/ })).toBeTruthy();
 });
 test("launch restores the last project board instead of selecting the first project", async () => {
   vi.mocked(api.listProjects).mockResolvedValue([

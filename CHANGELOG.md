@@ -23,6 +23,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Keep workflow executions on their owning ticket cards, with run history in the project executions view instead of a duplicate project-rail row.
 - Hide project navigation while Settings is open and return to the previous workspace from the header.
 - Show conversation turn readiness in project navigation instead of treating an idle provider session as an active response.
 - Distinguish Fleet-backed settings and agent status from settings kept on the local workstation.

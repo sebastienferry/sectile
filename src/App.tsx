@@ -14,7 +14,7 @@ import { WorkflowSettings } from "./components/WorkflowSettings";
 import { OrchestrationSettings } from "./components/OrchestrationSettings";
 
 import { projectContext, type ProjectContext } from "./lib/workspace";
-import { stages, stageLabels, taskStage } from "./domain/workflow";
+import { skillLabels, stages, stageLabels, taskStage } from "./domain/workflow";
 import { AttachedFolderSettings } from "./components/FolderContext";
 import { ProjectProfiles } from "./components/ProjectProfiles";
 import { LocalSettings } from "./components/LocalSettings";
@@ -254,7 +254,7 @@ function Workspace() {
                             <Icon name="agent" />
                             Orchestration
                           </button>
-                          {runs.slice(0,8).map(run => <RunNavigation key={run.id} run={run} selected={current?.runId===run.id} onClick={()=>navigate(project,run.conversation ? "prompt" : "executions",run.id)} />)}
+                          {runs.filter(run => run.conversation).slice(0,8).map(run => <RunNavigation key={run.id} run={run} selected={current?.runId===run.id} onClick={()=>navigate(project,"prompt",run.id)} />)}
                           <button
                             className="sidebar-link"
                             onClick={() => navigate(project, "executions")}
@@ -400,6 +400,13 @@ function ProjectPane({
 }) {
   const monitor = useExecutionMonitor();
   const currentRun = monitor.snapshot?.runs.find(run=>run.id===selection.runId);
+  const activeTaskRuns = useMemo(() => {
+    const latest = new Map<string, Run>();
+    for (const run of projectRuns(monitor.snapshot?.runs ?? [], selection.projectId)) {
+      if (!run.conversation && run.taskId && !latest.has(run.taskId)) latest.set(run.taskId, run);
+    }
+    return latest;
+  }, [monitor.snapshot?.runs, selection.projectId]);
   const workingDirectory = selection.runId ? currentRun?.directory : project?.path;
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState("");
@@ -517,14 +524,16 @@ function ProjectPane({
                   {column.name}
                   <span>{column.tasks.length}</span>
                 </h2>
-                {column.tasks.map((task) => (
-                  <article className="task" key={task.id}>
+                {column.tasks.map((task) => {
+                  const taskRun = activeTaskRuns.get(task.id);
+                  return <article className="task" key={task.id}>
                     <div className="task-meta">
                       <span>{task.key || task.id}</span>
                       <span>{task.source}</span>
                     </div>
                     <h3><button className="task-open" onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button></h3>
                     <p className="task-stage">{taskStage(task,context?.board)?stageLabels[taskStage(task,context?.board)!]:"Étape non déterminée"}</p>
+                    {taskRun && isActive(taskRun) && <p className="task-run-state" role="status">{skillLabels[taskRun.skill] || taskRun.skill} · {statusLabel(taskRun)}</p>}
                     <footer>
                       <span>{task.assignee || "Non assigné"}</span>
                       {project && (
@@ -541,7 +550,7 @@ function ProjectPane({
                       )}
                     </footer>
                   </article>
-                ))}
+                })}
               </section>
             ))}
           </div>

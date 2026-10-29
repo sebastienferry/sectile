@@ -355,6 +355,11 @@ disposable test data.
   conversation falls back to its project board, and an empty project list
   opens Local setup. Unit and UI regressions cover saved destinations,
   conversation availability and first-project fallback.
+- Workflow executions no longer create a second project-rail row for a
+  ticket already present on the board. Active task-run state is shown on that
+  ticket; conversation rows remain independently navigable, and run history
+  stays in the project's Executions view. A UI regression covers the active
+  ticket state and absence of the duplicate row.
 - An empty remote board now says that the tracker returned no tickets and
   offers the associated local folder as a separate prompt path. A UI regression
   verifies remote board controls remain visible for Jira.

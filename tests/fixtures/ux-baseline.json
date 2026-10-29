@@ -54,8 +54,8 @@
       "title": "Add a health summary to tracker sync",
       "prompt": "Add a health summary to tracker sync",
       "projectId": "project-a",
-      "taskId": "task-2605",
-      "taskKey": "PE-2605",
+      "taskId": "",
+      "taskKey": "",
       "skill": "discuss",
       "status": "running",
       "createdAt": "2026-10-29T09:20:00Z",
@@ -99,6 +99,21 @@
       "status": "completed",
       "createdAt": "2026-10-29T08:40:00Z",
       "startedAt": "2026-10-29T08:40:05Z",
+      "directory": "/tmp/sectile-ux-fixture/workspace"
+    },
+    {
+      "id": "run-implement",
+      "conversation": false,
+      "provider": "codex",
+      "model": "gpt-5.4-codex",
+      "title": "Implement tracker health summary",
+      "projectId": "project-a",
+      "taskId": "task-2605",
+      "taskKey": "PE-2605",
+      "skill": "implement",
+      "status": "running",
+      "createdAt": "2026-10-29T09:26:00Z",
+      "startedAt": "2026-10-29T09:26:02Z",
       "directory": "/tmp/sectile-ux-fixture/workspace"
     }
   ],
