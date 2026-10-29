@@ -646,3 +646,10 @@ batch. The board grouping loop also appends to existing arrays instead of
 copying a growing array for every ticket. A 1,988-ticket UI fixture verifies
 the initial DOM bound, expansion and full-result search; a separate fixture
 verifies an active ticket beyond the initial position stays visible.
+A current-source isolated browser preview at 1280 × 720 in the dark theme
+showed 40 cards in each of three columns containing 1,400, 400 and 188
+tickets. Scrolling the first column exposed its continuation button; clicking
+it displayed 80 cards while retaining the 1,400 total. Searching for the
+last fixture key, `PE-4592`, returned that ticket alone. This preview uses
+the development-only `?fixture=large-board` path and does not substitute for
+a native packaged-window check or a live Jira board screenshot.

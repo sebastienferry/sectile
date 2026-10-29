@@ -10,6 +10,15 @@ const projects = [fixture.project];
 const runs = fixture.runs;
 const conversations: Record<string, unknown> = fixture.conversations;
 
+function boardTasks() {
+  if (new URLSearchParams(window.location.search).get("fixture") !== "large-board") return fixture.tasks;
+  return Array.from({length:1988},(_,index)=>{
+    const template=fixture.tasks[index%fixture.tasks.length];
+    return {...template,id:`task-${2605+index}`,key:`PE-${2605+index}`,title:`${template.title} ${index+1}`,
+      trackerStatus:index<1400?"Open":index<1800?"In Progress":"Done"};
+  });
+}
+
 export function installUXFixture() {
   const target = window as TauriWindow;
   target.isTauri = true;
@@ -19,7 +28,7 @@ export function installUXFixture() {
         case "list_projects":
           return projects;
         case "list_tasks":
-          return fixture.tasks;
+          return boardTasks();
         case "execution_snapshot":
           return {
             status: { connected: true, runtimeMode: "local", capabilities: ["orchestration-agents"] },
