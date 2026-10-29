@@ -25,7 +25,7 @@ export function ProjectFolderSetup({ project, onMapped, variant = "prompt" }: {
         setNotice("Dossier associé au projet.");
       }
     } catch {
-      setError("Impossible d’associer ce dossier. Vérifiez sa disponibilité et les services locaux, puis réessayez.");
+      setError("Impossible d’associer ce dossier. Vérifiez le dossier et la connexion de l’agent, puis réessayez.");
     } finally {
       choosing.current = false;
       setPending(false);

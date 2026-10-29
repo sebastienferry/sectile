@@ -359,12 +359,6 @@ fn fleet_root(root: &Path) -> Result<PathBuf, String> {
     Ok(active_root(root)?.join("fleet"))
 }
 
-pub fn discovery_path(app: &tauri::AppHandle) -> Option<PathBuf> {
-    if runtime_mode(app).ok().flatten() != Some(RuntimeMode::Local) {
-        return None;
-    }
-    connection_path(app)
-}
 // Serialize startup and pairing across multiple desktop processes as well as
 // within one webview. The OS releases this lock if the desktop crashes.
 fn installation_lock(root: &Path) -> Result<fs::File, String> {
@@ -1917,8 +1911,8 @@ pub async fn choose_project_folder(
     if project_id.trim().is_empty() {
         return Err("Projet requis".into());
     }
-    if discovery_path(&app).is_none() {
-        return Err("Activez l’installation locale".into());
+    if connection_path(&app).is_none() {
+        return Err("Connectez l’agent de ce poste avant d’associer un dossier".into());
     }
     let Some(path) = pick_project_folder(&app).await? else {
         return Ok(None);
@@ -1941,7 +1935,7 @@ pub async fn open_folder_project(app: tauri::AppHandle) -> Result<Option<Value>,
         .to_owned();
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
-    let installation = read_installation(&root(&app)?)?;
+    let root = root(&app)?;
     // Reopening a mapped folder selects its existing project.
     let projects = crate::agent::list_projects(app.clone()).await?;
     if let Some(project) = projects.as_array().and_then(|items| {
@@ -1951,13 +1945,17 @@ pub async fn open_folder_project(app: tauri::AppHandle) -> Result<Option<Value>,
     }) {
         return Ok(Some(project.clone()));
     }
-    let project = request(
-        &installation,
-        Method::POST,
-        "/api/projects",
-        Some(json!({"name":name,"trackers":[],"folderOnly":true})),
-    )
-    .await?;
+    let body = Some(json!({"name":name,"trackers":[],"folderOnly":true}));
+    let project = match runtime_mode(&app)? {
+        Some(RuntimeMode::Fleet) => {
+            fleet_request(&root, Method::POST, "/api/projects", body).await?
+        }
+        Some(RuntimeMode::Local) => {
+            let installation = read_installation(&root)?;
+            request(&installation, Method::POST, "/api/projects", body).await?
+        }
+        None => return Err("Choisissez un mode d’exécution avant de créer un projet".into()),
+    };
     let id = project
         .get("id")
         .and_then(Value::as_str)

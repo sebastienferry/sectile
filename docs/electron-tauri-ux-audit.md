@@ -793,3 +793,20 @@ the profile fields and project list. The agent log had one startup entry across
 the outage. This closes the native Fleet backend restart/recovery slice for
 current source and synthetic data; real OAuth and tracker services remain
 separate qualifications.
+
+The Fleet provider native retake exposed a project-folder inconsistency:
+the Fleet board offered **Choisir un dossier**, but the Rust picker and retry
+command rejected any connection except Local before opening the native dialog.
+The global **Ouvrir un dossier** path also created projects only through the
+Local installation. These paths now use the selected Local or Fleet connection;
+a paired Fleet desktop creates a folder-only project on its backend and maps
+the chosen folder through its workstation agent. An isolated app against Go
+`554374b2` on port 55461 changed an existing Fleet project's folder through
+the native macOS picker, launched free prompts in the new folder, and created
+a second Fleet-backed folder-only project from the global picker. Go API reads
+confirmed the second backend project and its local agent mapping. Real signed-in
+Claude Code and Codex CLIs each ran `pwd`; both native conversations showed the
+tool call and the expected path in their answers. The backend, app, agent and
+workspaces were disposable. This qualifies current-source Fleet folder and
+provider response/tool projection on macOS, not external tracker workflows or
+provider interruption in Fleet mode.

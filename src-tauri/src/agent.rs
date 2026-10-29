@@ -896,7 +896,7 @@ pub async fn retry_folder_project(
     path: String,
 ) -> Result<Value, String> {
     required(&project_id)?;
-    if crate::local::discovery_path(&app).is_none()
+    if crate::local::connection_path(&app).is_none()
         || !std::path::Path::new(&path).is_absolute()
         || !std::path::Path::new(&path).is_dir()
     {

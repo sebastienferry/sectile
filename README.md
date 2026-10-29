@@ -150,8 +150,13 @@ Fleet backend. OAuth app credentials and shared tracker administration remain
 server-admin operations. Fleet OAuth browser tickets are opened only on the
 selected backend origin. Tauri keeps the API credential in private native
 storage and does not return it to the renderer. An explicitly attached legacy
-agent that has no native API credential continues to use the backend for
-profile, tracker and project setup. Only `http://127.0.0.1:<port>`
+agent without a native API credential can read projects through the agent, but
+native profile, tracker and project setup requires one-time-code pairing.
+With a paired Fleet agent, **Ouvrir un dossier** creates a folder-only project
+on the selected backend and attaches its folder through the local agent.
+**Choisir un dossier** or **Changer de dossier** associates a folder with an
+existing Fleet project through the native picker; subsequent prompts use the
+new folder. Only `http://127.0.0.1:<port>`
 workstation-agent origins are accepted by Tauri; redirects and proxies are
 disabled.
 
