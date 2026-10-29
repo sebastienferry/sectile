@@ -3,8 +3,8 @@
 Date: 2026-10-29
 Status: product direction confirmed; Local companion runtime and managed upgrade
 are implemented on dedicated branches. Stage 5 compatibility qualification is
-underway. The Stage 6 headless server build is implemented, and the Stage 6/7
-feature ownership inventory and interim client transition paths are recorded.
+underway. Stage 6's product transition, optional headless server distribution,
+feature ownership inventory and interim client transition paths are defined.
 Compatibility gates, final client support windows, roadmapping and UX
 convergence decisions remain open. This is not a V1 release.
 
@@ -273,9 +273,14 @@ tests pass; the headless binary passed an isolated runtime smoke and Linux and
 Windows amd64 cross-builds. A second isolated smoke confirmed `POST /mcp`
 remains registered and rejects an unauthenticated initialization with JSON 401.
 The inventory now records explicit interim migration paths for existing
-consumers. The headless artifact and transition-path definition are complete;
-Stage 6 still needs the live compatibility gates and final supported server
-distribution decision.
+consumers. The final Stage 6 distribution decision is to keep the regular Go
+server (web, API, MCP and authentication) as the default Fleet server and offer
+the optional headless build (API, MCP and authentication) for deployments that
+do not need the web application. Tauri Local continues to use the companion,
+which embeds the backend with the execution agent. This completes the Stage 6
+product-transition definition and headless artifact; Stage 5 still gates
+supported platform packaging, and Stage 7 governs any future web/Electron
+deprecation or roadmapping replacement.
 
 The post-change default-server smoke also passed with disposable SQLite: the
 default binary returned a healthy `/api/health` response and retained its
