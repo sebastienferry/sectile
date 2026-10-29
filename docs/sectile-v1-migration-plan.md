@@ -214,6 +214,15 @@ personal token; this is protocol and compatibility evidence, not a live
 GitHub/Jira/GitLab qualification. The harness cleaned its temporary databases,
 homes and repositories and left the Go worktree clean.
 
+Full Go suite re-run (2026-10-29, Go commit `7dea9140`): `go test ./...`
+passed across the server, companion, agent, backend, handlers, provider runner,
+MCP, tracker and workspace packages after adding the optional headless build.
+Electron verification on the same host: `npm test` passed all 315 unit tests.
+`npm run test:ui` did not qualify: four tests passed, six failed and 66 were
+cancelled after the appearance UI test stalled while the Mac was locked. Rerun
+the Electron UI suite in an unlocked session before treating this as a product
+failure or a compatibility pass.
+
 Until these gates close, compatibility claims are limited to the tested source
 revision and platform evidence above. The versioned server/agent contract is
 additive within V1, but that rule alone does not prove any particular mixed
