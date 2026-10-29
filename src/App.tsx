@@ -478,7 +478,7 @@ function ProjectPane({
               </button>
             </>
           )}
-          {selection.view !== "prompt" && selection.view !== "project-settings" && <button
+          {selection.view === "board" && <button
             className="icon-button"
             title="Actualiser"
             aria-label="Actualiser le tableau"

@@ -380,6 +380,10 @@ body.resizing-sidebar {
   font-size: 15px;
   margin: 0 0 6px;
   font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .workspace-toolbar p {
   font-size: 11px;

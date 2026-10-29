@@ -193,7 +193,7 @@ navigation lot.
 | --- | --- | --- |
 | Connection state was repeated in the header, workspace footer and project sidebar. | `App.tsx` rendered `connection-pill`, `statusbar` and `sidebar-footer` from the same `connected` value. | Keep the persistent, labelled agent status in the sidebar, matching Electron's status placement. Remove the other two copies. |
 | The workspace footer claimed “Données et exécution locales” regardless of which backend supplied tracker state. | The footer was static while the project board reads remote tracker tickets. | Remove the claim instead of presenting topology as business-data ownership. |
-| A global refresh action only refreshed the project list, while the board had a separate refresh for ticket data. | Header called `refreshProjects`; the board toolbar called its own task refresh. | Remove the misleading global refresh. Keep project refresh in project/settings flows and task refresh beside the board it updates. |
+| Refresh actions can obscure which data they update. | The board-refresh control appeared in orchestration and execution views next to the supervisor's separate run refresh. | Show ticket refresh only on the board and execution refresh only in supervision, beside the data each action reloads. |
 | Electron's searchable command palette is missing from Tauri. | `desktop/src/main.js` indexes actions, projects and executions; Tauri had only direct sidebar/header controls. | Add a small React palette on Cmd/Ctrl+K with actions, projects and runs; do not add a UI dependency. |
 | Styling is split between base rules and a second override sheet. | `App.css` owns foundational controls/layout while `workspace-polish.css` redefines tokens, radii, spacing and component density after it. | Consolidate tokens and component rules after the navigation behavior settles. Avoid broad cosmetic changes before checking light/dark screenshots. |
 | Tauri and Electron have related but non-identical theme tokens. | `App.css` and Electron `desktop/src/style.css` share the dark palette and several light background/control values, but light `--sunken`/`--surface-sunken`, accent, selected and danger values differ; Electron also defines more semantic stage, diff and status tokens. `workspace-polish.css` currently derives only the workspace divider instead of redefining the base palette. | Treat `App.css` as the Tauri token source and compare semantic values against matched captures before aligning them. Do not claim palette parity based on similar colors or token names. |
@@ -272,6 +272,15 @@ Electron groups by workflow stage, while Tauri defaults to the remote tracker’
 three statuses and retains workflow stage on each ticket. Do not force those
 column semantics to match. The Tauri fixture is repeatable from
 `tests/fixtures/ux-baseline.json` with `npm run dev:ux-fixture`.
+
+The orchestration surface was reviewed at 800 × 820 with two live executions,
+one waiting for user input, a saved backlog agent and server capacity data.
+Each execution keeps its own view and stop actions when the rows wrap. The
+summary now names activity on this workstation separately from the shared
+server capacity, whose current occupancy may differ from local activity. The
+project header shows its full short name, and the board refresh control is not
+shown beside the separate execution-tracking refresh. The captured view is
+`/tmp/sectile-tauri-orchestration-light-800-refined.png`.
 
 The settings screens were captured at both sizes and in both themes. The
 800px captures are

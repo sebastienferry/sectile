@@ -299,7 +299,7 @@ export function Supervisor({
         hidden={view !== "orchestration"}
       >
         <summary>Orchestration du backlog</summary>
-        <p className="muted">{runs.filter(r=>!!r.taskId&&isActive(r)).length} exécutions locales actives. Les places réellement disponibles sont décidées par le serveur.</p>
+        <p className="muted">{runs.filter(r=>!!r.taskId&&isActive(r)).length} exécutions actives sur ce poste. La capacité d’orchestration partagée est calculée par le serveur.</p>
         {view === "orchestration" && runs.filter(r=>!!r.taskId&&isActive(r)).map(r=><article className="orchestration-live-run" key={r.id}><strong>{tasks.find(t=>t.id===r.taskId)?.title||r.taskKey||r.taskId}</strong><span>{r.skill} · {statusLabel(r)}</span><button onClick={()=>onSelectRun(r.id)}>Voir l’exécution</button><button disabled={!!pending||!canStop(r,fresh)} onClick={()=>void act(`stop:${r.id}`,()=>stopRun(r.id),"Arrêt demandé pour cette exécution.")}>Arrêter cette exécution</button></article>)}
         {!supportsOrchestration ? (
           <p>
@@ -312,9 +312,10 @@ export function Supervisor({
             {orchestration && (
               <>
                 <p>
-                  {orchestration.orchestratorEnabled ? "Activée" : "Désactivée"}{" "}
-                  · limite partagée : {orchestration.orchestratorMaxConcurrent}{" "}
-                  exécutions. {orchestration.orchestratorActiveRuns===undefined?"Occupation serveur non vérifiée.":`${orchestration.orchestratorActiveRuns} / ${orchestration.orchestratorMaxConcurrent} places utilisées sur le serveur.`}
+                  Capacité d’orchestration partagée :{" "}
+                  {orchestration.orchestratorEnabled ? "activée" : "désactivée"}{" "}
+                  · limite du serveur : {orchestration.orchestratorMaxConcurrent}{" "}
+                  exécutions. {orchestration.orchestratorActiveRuns===undefined?"Occupation du serveur non vérifiée.":`${orchestration.orchestratorActiveRuns} / ${orchestration.orchestratorMaxConcurrent} places utilisées.`}
                 </p>
                 <p className="muted">
                   Configurez les agents et l’activation dans « Configurer le projet ». Chaque lancement évalue le backlog une fois
