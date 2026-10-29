@@ -600,6 +600,16 @@ platform support table before release.
 
 ### V1 compatibility claim rule
 
+Compatibility refresh (2026-10-30): the binary harness passed again against
+clean Go `84e19b1b` and released v0.7.6 in both server/agent directions. It
+verified 27 current agent operations, the 21-tool MCP catalogue and run
+lifecycle, direct/STDIO bridge calls, task-spec worktrees, and fake tracker
+creation/stage writes with personal-token attribution. This refresh includes
+the new task-launch response field and connection-correlation source changes.
+It does not qualify interactive Tauri tracker conversations on the old server:
+that path needs the newer explicit `runId` response, as the support matrix
+records.
+
 V1 support is declared per exact Tauri, Go server and Go agent release
 combination; do not infer support for an untested version range from additive
 protocol rules. Local mode is paired to the exact Go companion source commit in

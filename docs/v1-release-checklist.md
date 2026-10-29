@@ -24,6 +24,13 @@ service-only comparison; release-binary desktop performance remains open.
 
 ## Source and compatibility
 
+On 2026-10-30 the current/v0.7.6 binary harness passed again with clean Go
+`84e19b1b`: both agent/server directions, 27 operations, 21 MCP tools,
+direct/STDIO clients, run lifecycle, task-spec worktrees and fake tracker writes.
+The newer interactive Tauri tracker conversation path remains limited to
+servers exposing the explicit launch `runId`; protocol compatibility alone
+does not establish that native feature on v0.7.6.
+
 The v0.7.6/current Go binary harness was refreshed on 2026-10-29 against
 clean Go `554374b2`. Both agent/server directions passed the 27-operation
 agent protocol, 21 MCP tools through direct and STDIO clients, run lifecycle,
@@ -385,3 +392,20 @@ one ready unmerged MR, matching pushed HEAD and a clean worktree were verified.
 The native review displayed all seven changed files. This closes that controlled
 native chain slice; real GitLab, Codex chain and signed-release checks remain
 separate. See the UX audit for exact run/commit identities and retry limitations.
+
+Clean-source candidate refresh (2026-10-30): Tauri `4063b47` with clean Go
+`84e19b1b` passed TypeScript/build, 16 domain tests, 135 UI tests, 38 Rust tests,
+the complete Go suite and the current/v0.7.6 binary compatibility harness.
+An isolated Cargo target produced the arm64 app and DMG without replacing the
+regular running bundle. Package verification confirmed matching Go service
+hashes in app and mounted DMG, fixed port 52963, arm64 executables and 52
+license files. `hdiutil verify` passed. The DMG is 56,346,015 bytes with SHA-256
+`0af7754b9fd2c3e7b946f06eb289dd85a657cd2ce1c83d117084a15f9445a9a5`.
+The retained local artifact directory is
+`src-tauri/target/candidates/2026-10-30-4063b47/`, containing the app, DMG,
+`candidate.json`, `SHA256SUMS` and testing notes. Its signature is ad hoc, with
+no Developer ID or notarization; `releaseEligible` is false. The app was not
+launched against the user's existing installation. A running older companion
+can remain attached, so opening the new UI alone must not be counted as a
+runtime upgrade test. This is a local testing candidate, not a V1 release or
+a closure of the remaining runtime/migration/integration gates.
