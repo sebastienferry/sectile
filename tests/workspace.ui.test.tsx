@@ -84,9 +84,23 @@ test("tracker-backed projects retain board search, grouping and ticket status",a
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
  render(<App />);
  await screen.findByRole("textbox",{name:"Rechercher des tickets"});
+ await screen.findByText("Remote issue");
  expect(screen.getByRole("combobox",{name:"Regrouper les tickets"})).toBeTruthy();
  expect(screen.getByText("Statuts du tracker · lecture seule")).toBeTruthy();
  expect(screen.getByText("Remote issue")).toBeTruthy();
+});
+
+test("a failed ticket refresh identifies the retained board data as stale",async()=>{
+ vi.mocked(api.listTasks)
+  .mockResolvedValueOnce([{id:"t",key:"APP-2",title:"Previous ticket read",source:"jira",trackerStatus:"To Do",status:"to_clarify"}])
+  .mockRejectedValueOnce(new Error("Tracker temporarily unavailable"));
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
+ render(<App />);
+ await screen.findByText("Previous ticket read");
+ fireEvent.click(screen.getByRole("button",{name:"Actualiser le tableau"}));
+ expect((await screen.findByRole("alert")).textContent).toContain("Tracker temporarily unavailable");
+ expect(await screen.findByText("La dernière actualisation a échoué. Les tickets affichés proviennent de la lecture précédente.")).toBeTruthy();
+ expect(screen.getByText("Previous ticket read")).toBeTruthy();
 });
 
 test("opening a folder navigates straight to its free prompt; cancel leaves the board visible", async () => {
