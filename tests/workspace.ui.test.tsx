@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("../src/components/ProjectPrompt", () => ({ default: ({ projectId }: {projectId: string}) => <div>Free prompt for {projectId}</div> }));
 import App from "../src/App";
+import { conversationFor } from "../src/lib/conversation-controller";
 import * as workspace from "../src/lib/workspace";
 vi.mock("../src/lib/workspace",async original=>({...await original<typeof workspace>(),projectContext:vi.fn()}));
 import * as api from "../src/lib/agent";
@@ -166,9 +167,12 @@ test("mapped projects open their prompt directly",async()=>{
 });
 
 test("existing conversations stay readable without a current project folder",async()=>{
- vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true,capabilities:[]},runs:[{id:"saved",projectId:"p",conversation:true,title:"Saved conversation",provider:"claude",status:"completed",createdAt:"2026-10-28"}]});
+ vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true,capabilities:[]},runs:[{id:"saved",projectId:"p",conversation:true,title:"Saved conversation",provider:"claude",status:"running",createdAt:"2026-10-28"}]});
+ vi.mocked(invoke).mockResolvedValue({id:"saved",busy:false,readOnly:false,title:"Saved conversation"});
+ await conversationFor("saved").refresh();
  render(<App />);
  fireEvent.click(await screen.findByRole("button",{name:/Saved conversation/}));
+ expect(screen.getByText(/Claude Code · Prête/)).toBeTruthy();
  await screen.findByText("Free prompt for p");
  expect(screen.queryByRole("button",{name:"Choisir un dossier"})).toBeNull();
 });

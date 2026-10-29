@@ -60,3 +60,11 @@ test("pickup remains autonomous while ordinary skills inherit project mode", () 
 test("canonical pickup remains autonomous even through the advanced skill chooser", () => {
   assert.equal(launchInput("ticket", "pickup", "Instructions", "interactive").mode, "autonomous");
 });
+
+test("an idle conversation session is not labeled as an active response", () => {
+  const conversation: Run = { ...run, conversation: true };
+  assert.equal(statusLabel(conversation), "Session active");
+  assert.equal(statusLabel(run), "En cours");
+  assert.equal(statusLabel({ ...conversation, cancelRequested: true }), "Arrêt demandé…");
+  assert.equal(statusLabel({ ...conversation, waitingSince: "2026-10-29T00:00:00Z" }), "Votre intervention est requise");
+});

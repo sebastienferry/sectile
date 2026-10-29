@@ -18,6 +18,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Show conversation turn readiness in project navigation instead of treating an idle provider session as an active response.
 - Distinguish Fleet-backed settings and agent status from settings kept on the local workstation.
 - Label prompt folder selection as a project-wide attachment so its scope is clear before adding it.
 - Choose an existing project's local folder with the native picker instead of entering an absolute path manually.

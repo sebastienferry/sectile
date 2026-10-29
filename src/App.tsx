@@ -530,14 +530,13 @@ function RunNavigation({run,selected,onClick}:{run:Run;selected:boolean;onClick:
 }
 function ConversationNavigation({run,selected,onClick}:{run:Run;selected:boolean;onClick:()=>void}){
  // Subscribe to already loaded transcripts; navigation never fetches histories.
- const {snapshot}=useConversation(run.id);
+ const {snapshot,loaded,error}=useConversation(run.id);
  const title=useMemo(()=>{
   if(run.title || snapshot.title)return run.title || snapshot.title;
   for(const line of snapshot.events ?? []){try{const event=JSON.parse(line);if(event.kind==="user"&&typeof event.text==="string")return event.text.trim().split("\n")[0].slice(0,100);}catch{/* Keep provider metadata as the fallback. */}}
   return run.prompt?.trim().split("\n")[0] || "Conversation";
  },[snapshot.events,snapshot.title,run.prompt,run.title]);
  const provider=run.provider==="claude"?"Claude Code":run.provider==="codex"?"Codex":run.engineName||"Assistant";
- const date=new Date(run.createdAt);
- const time=Number.isNaN(date.getTime())?"":new Intl.DateTimeFormat("fr",{hour:"2-digit",minute:"2-digit"}).format(date);
- return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={`${provider}${run.model ? ` · ${run.model}` : ""} · ${statusLabel(run)}`}><Icon name="chat" /><span className="conversation-navigation-text"><span>{title}</span><small>{provider}{run.model && ` · ${run.model}`}{time && ` · ${time}`}</small></span></button>;
+ const activity=error?"Suivi interrompu":loaded&&snapshot.id===run.id?snapshot.approvals?.length?"Votre intervention est requise":snapshot.busy?"En cours":snapshot.readOnly?"Lecture seule":"Prête":statusLabel(run);
+ return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={`${provider}${run.model ? ` · ${run.model}` : ""} · ${activity}`}><Icon name="chat" /><span className="conversation-navigation-text"><span>{title}</span><small>{provider}{run.model && ` · ${run.model}`} · {activity}</small></span></button>;
 }

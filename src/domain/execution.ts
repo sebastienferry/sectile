@@ -91,6 +91,9 @@ export function statusLabel(run: Run) {
   if (run.cancelRequested && isActive(run)) return "Arrêt demandé…";
   if (run.waitingSince && !run.waitingSince.startsWith("0001") && isActive(run))
     return "Votre intervention est requise";
+  // A conversation process stays available between turns. Its turn state comes
+  // from the conversation snapshot, not the longer-lived agent process state.
+  if (run.conversation && run.status === "running") return "Session active";
   return (
     (
       {

@@ -80,7 +80,7 @@ export function CommandPalette({
       result.push({
         group: "execution",
         label: run.conversation ? run.title || run.prompt?.trim().split("\n")[0] || "Conversation" : run.taskKey || run.skill || "Exécution",
-        detail: [project.name, run.provider, statusLabel(run)].filter(Boolean).join(" · "),
+        detail: [project.name, run.provider, run.conversation ? "Conversation" : statusLabel(run)].filter(Boolean).join(" · "),
         run: () => onNavigate(project, run.conversation ? "prompt" : "executions", run.id),
       });
     }
