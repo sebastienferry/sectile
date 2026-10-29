@@ -253,6 +253,12 @@ read-only query found 1,988 tickets attached to that tracker. The companion
 was stopped and port 52963 was released. This qualifies one live Local Jira
 OAuth read and persistence path at Go `fe3a98c8`, not the Tauri Settings
 interaction, fresh OAuth consent, Fleet behavior or release-binary installation.
+Clean Tauri `f479b86` and clean Go `fe3a98c8` then produced an unsigned arm64
+app and DMG. Resource verification and `hdiutil verify` passed; the 56,315,588
+byte DMG has SHA-256
+`5961bb4d12a27dbd323b99fd9d2d9b2bfaf3851bcab29c1cf7ebb65943450031`.
+The package manifest reports `releaseEligible: false`. Signing, notarization,
+clean-user installation and a native UI run from this exact package remain open.
 The isolated Electron tracked-ticket run below now confirms visible skill tool
 activity and Stop against the current Go agent. A later tracked-ticket run
 verified that its Codex tool cannot write a delayed file after Stop. The

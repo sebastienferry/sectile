@@ -194,3 +194,12 @@ existing Local installation and completed an authenticated PE Jira sync with
 to the tracker. The companion was stopped and port 52963 released. This
 qualifies the existing OAuth grant's Local read path with Go `fe3a98c8`, but
 not a fresh consent, the native Tauri interaction, Fleet or signed packaging.
+
+Current-source unsigned macOS package (2026-10-29): clean Tauri `f479b86` and
+clean Go `fe3a98c8` produced an arm64 app of 103.30 MiB and a 56,315,588-byte
+DMG. The post-build app/DMG resource verifier and `hdiutil verify` passed;
+the manifest names fixed port 52963, 52 license files, `goDirty: false` and
+`releaseEligible: false`. DMG SHA-256:
+`5961bb4d12a27dbd323b99fd9d2d9b2bfaf3851bcab29c1cf7ebb65943450031`.
+Signing, notarization, Gatekeeper, clean-user installation and native UI
+qualification of the real Jira result remain open.
