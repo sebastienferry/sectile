@@ -168,6 +168,18 @@ behavioral change.
 
 ### 1. Extract backend assembly with the standalone server as its first caller
 
+Implementation status (2026-10-29): Go commit `adce7605` on
+`refactor/embedded-local-backend` adds `internal/backend` for database/handler assembly, API/MCP/auth routes,
+metrics and middleware. `cmd/server` is its first consumer. Website assets,
+deployment configuration, listeners and signals remain in the command. The
+backend runtime closes its instance and event bus and cleans up partial open
+failures. Complete worker joining, Local store exclusivity and embedded agent
+ownership remain phase 2; no current installation is migrated by this change.
+The focused server/backend/MCP tests and a disposable SQLite HTTP smoke test pass.
+The wider Go run still reproduces the known `TestTryPullLocalAgentTasks` cleanup
+race in the handlers suite; it passes in isolation. Resolve that worker-lifecycle
+gap in phase 2 before calling the broad regression gate clean.
+
 - Move shared API route registration and middleware composition from
   `cmd/server/main.go` into an embeddable backend package.
 - Separate explicit configuration from environment/dotenv resolution. Keep

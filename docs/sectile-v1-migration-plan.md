@@ -102,6 +102,11 @@ binary. The already configured OAuth prototype remains supported.
 | 7. Roadmapping separation | Ownership inventory and an agreed external-tool contract | Data/links and remaining clients preserved; deprecations reviewed before removal |
 | 8. V1 release qualification | Agreed support/migration/deprecation boundaries and operational documentation | Release checklist and explicit release approval completed |
 
+Stage 0 is complete. Stage 1 is implemented on the dedicated Go branch, with
+the standalone server consuming the extracted backend package. Its regression
+checks and review must pass before stage 2 begins. The current desktop still
+launches the two-service Local prototype; no installation has been upgraded.
+
 Stages 6 and 7 are product-direction work, not authorization to remove existing
 web pages, API routes or domain data during stages 0-5. A headless distribution
 can omit website assets without immediately deleting the current web server.
