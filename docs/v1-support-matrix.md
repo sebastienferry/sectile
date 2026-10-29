@@ -32,9 +32,11 @@ dispatched `runId`, and the agent must correlate that run with the initiating
 desktop connection in either dispatch/response order. Older Fleet servers
 without this field do not qualify for this interaction. The isolated native
 retake on Tauri `0711eb8` approved real project/ticket reads, run registration
-and a clarification comment on GitHub `sectile` issue `#899`. The final workflow
-stage and full chain are still under verification; this is not a general
-tracker-workflow support claim.
+and a clarification comment on GitHub `sectile` issue `#899`. A conversation
+follow-up then completed the clarified transition, confirmed through the Go API,
+direct GitHub label read and native next-step display. A completed-run restart
+attempt was refused before that successful transition. The full chain remains
+unqualified; this is not a general tracker-workflow support claim.
 
 Tauri is the intended V1 desktop for operational boards, prompts and agentic
 execution. The current web app remains the V1 owner of product planning and is

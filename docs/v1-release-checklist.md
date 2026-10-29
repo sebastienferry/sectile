@@ -366,3 +366,12 @@ the folderless project's prompt offered a native folder picker. The personal
 GitLab token was injected through the isolated backend API, so native account
 connection, OAuth consent and tracker writes remain open. The test app and
 companion were removed without touching the regular 52963 companion.
+
+Native GitHub clarification (2026-10-30): Tauri `0711eb8` with Go `920e313f`
+services and a test-only port `55466` launched Codex from a real fixture ticket.
+The desktop accepted MCP approvals, showed tool activity, sent a confirmation
+follow-up and displayed a server-confirmed clarified result. Direct GitHub
+readback confirmed the `#clarified` label. No repository file changed or PR was
+created. The full specification/implementation/review chain remains open; a
+refused attempt to restart the completed first round is recorded in the UX
+audit. This is an unsigned isolated test, not release-binary qualification.

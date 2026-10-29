@@ -968,4 +968,19 @@ for interactive Tauri tracker workflows.
 The next native run on the same issue had a connection-bound conversation and
 enabled **Allow once**. The test approved `get_project_context`, `get_task` and
 `start_run` from the desktop, and each completed in the grouped tool transcript.
-The skill's final result and stage transition are still under verification.
+That initial slice did not yet prove the skill's final result and stage transition.
+
+The native retake completed one real clarification workflow: the test approved
+the ticket comment, waiting report and finish report, then sent the predefined
+fixture confirmation from the conversation. The provider attempted to reuse
+the already completed run and received a lifecycle refusal, but subsequently
+completed `transition_stage`. Go returned `clarified`; a direct GitHub read
+confirmed `#clarified`; the desktop showed **Result confirmed** and **Specify**
+as the next step. The final `finish_run` was idempotent and retained its earlier
+round summary. No repository files changed, and no push or PR occurred.
+This qualifies native launch, tool consent, response, conversation follow-up
+and one remote stage write. It does not qualify the full specification,
+implementation and review chain. Follow-up lifecycle guidance should avoid
+restarting a completed run after an owner-confirmation round.
+The fixture issue was deleted and GitHub returned HTTP 410. The isolated app,
+companion, worktrees and private data were removed after qualification.
