@@ -874,3 +874,6 @@ ID, one selected tracker, the new default and no duplicate project. The
 screen capture exposed an unstyled native `fieldset` border and an empty
 selector after the last available source was attached. The form now uses the
 project settings layout and shows a completed state instead of empty controls.
+A rebuilt isolated app at `2a1e59e` reopened the same Fleet project and
+visually confirmed that completed state without the redundant form. The
+isolated app, agent, backend and private data were removed after the check.

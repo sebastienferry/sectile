@@ -128,6 +128,11 @@ screen showed the linked tracker, and a backend read confirmed its selection
 and default without creating a second project. This checks the native action
 against a current Go backend; it does not cover a real import, a folder picker
 in that same test or the post-capture layout correction.
+The same isolated application was rebuilt at `2a1e59e`, reopened against the
+same temporary backend, and showed the selected tracker with a completed-state
+message and no empty selector or native fieldset border. The app, its agent,
+backend, private data and test bundle were stopped or removed afterward; the
+regular Local companion remained on port 52963.
 
 The binary compatibility harness was re-run on 2026-10-29 against Go commit
 `c2f38222` and the released v0.7.6 server/agent pair. Both directions passed
