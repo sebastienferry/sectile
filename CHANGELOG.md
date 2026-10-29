@@ -12,6 +12,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 ### Fixed
 
 - Keep waiting-question controls visible in narrow conversation layouts, while the transcript and response area handle their own scrolling.
+- Keep execution launch form styles scoped to the launch panel so a conversation opened from execution history retains its own composer layout.
 - Identify retained tracker tickets as coming from the previous successful read after a refresh fails.
 - Fleet attachment can no longer replace an already selected Local or Fleet runtime without an explicit migration.
 - Paired Fleet setup now verifies the backend account still matches the account that paired this desktop.

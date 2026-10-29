@@ -288,6 +288,13 @@ answer/skip actions, with a 176px transcript viewport and no competing outer
 scrollbar. The composer remains reachable by scrolling the response area after
 answering; the active question is the primary action while it is pending.
 
+The execution-history route had a separate style leak: the launch panel's
+generic form selectors also affected the conversation composer rendered in an
+execution detail. At the 800px fixture width the composer was split into 160px
+and 220px columns; the launch rules are now scoped to that panel, and the
+composer renders as one 390px column. The route still intentionally includes
+execution identity, stop and review controls above the conversation.
+
 The first isolated capture used the same `workspace` name and
 `/private/tmp/sectile-ux-fixture/workspace` path in current Tauri and Electron
 builds, at the same 2560 × 1600 desktop size in dark mode. Tauri reached its
