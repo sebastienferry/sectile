@@ -158,6 +158,17 @@ An initial server launch omitted the isolated home and made one read-only
 copied only into the disposable test database. That server was stopped, the
 database removed, and the successful route smoke was repeated with isolated
 home/config paths, which did not contact the existing agent.
+Onboarding integration re-run (2026-10-29): `npm run test:services` passed
+with an isolated temporary Go worktree configured for loopback port 52964,
+because the existing Local companion correctly retained production port 52963.
+The run used a disposable server database, local account, paired agent, fake
+tracker endpoint and temporary home. It verified profile persistence, pairing,
+personal tracker credentials, GitHub OAuth app configuration and browser
+handoff/cancellation, fake tracker and project creation, project mapping
+through the paired agent, server restart and persisted profile/projects. Real
+provider tests were not enabled; no live tracker or existing database was used.
+The test worktree was removed and the ignored service binaries were restored
+from clean Go commit `7dea9140`.
 An earlier separate-ID Tauri bundle connected read-only to the existing Fleet
 workstation agent and loaded its 19
 projects; new one-time-code pairings also verify the backend user's ID against
@@ -241,6 +252,15 @@ contained arm64 Mach-O `sectile-agent`, `sectile-companion` and `sectile-server`
 resources. `npm run check`, the production frontend build and native release
 compilation passed. The Mac was locked during this check, so the app was not
 launched and no visual or runtime behavior is qualified by this build.
+
+Current-source macOS bundle rebuild (2026-10-29, Tauri commit `15f949f`, clean
+Go commit `7dea9140`): `npm run prepare:services` followed by
+`npm run tauri -- build --bundles app` produced an unsigned 101.48 MiB `.app`.
+The packaged manifest identifies the expected clean Go commit, and the embedded
+companion SHA-256 matches the manifest and reports `dev (7dea91406e8c)`. The
+bundle was not launched: the active Local companion retained fixed port 52963,
+and the existing app was left undisturbed. This qualifies current-source bundle
+provenance, not a fresh Tauri-to-companion runtime launch.
 
 ### Stage 5 compatibility evidence
 
