@@ -105,6 +105,14 @@ remote tracker write was made; the Tauri GUI was not part of this service test.
 Temporary data and services were removed. This closes that current-source Local
 service/provider slice, not release-binary qualification.
 
+Electron Codex Stop qualification (2026-10-29): Electron `0.7.5` connected to a
+disposable server and agent built from Go `22c33ec1` on test port 52965. A
+project prompt launched real Codex `0.165.0`; its shell created the start
+marker, Electron Stop marked the run canceled, and the delayed marker remained
+absent 104.6 seconds after the start. This closes the built-in Electron
+project-prompt cancellation slice; tracked-ticket and Fleet execution remain
+open.
+
 Current-source package verification (2026-10-29): clean Go commit
 `22c33ec19707c400612715e233e4554b77bfb0f2` and Tauri commit `f54571c`
 produced a 102.28 MiB arm64 app and 51.69 MiB DMG.
