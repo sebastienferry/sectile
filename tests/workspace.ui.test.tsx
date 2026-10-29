@@ -60,10 +60,28 @@ test("a trackerless local project shows prompt guidance without tracker controls
  expect(screen.queryByRole("button",{name:"Commencer une conversation"})).toBeNull();
 });
 
+test("the synthetic local tracker does not show remote tracker controls",async()=>{
+ vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"local",provider:"local"}]}});
+ render(<App />);
+ await screen.findByRole("heading",{name:"Votre projet local est prêt"});
+ expect(screen.queryByRole("textbox",{name:"Rechercher des tickets"})).toBeNull();
+ expect(screen.queryByRole("combobox",{name:"Regrouper les tickets"})).toBeNull();
+ expect(screen.queryByText("Statuts du tracker · lecture seule")).toBeNull();
+});
+
+test("an older agent identifies a single local tracker through project settings",async()=>{
+ vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",issueTracker:"local",skills:[],policy:{},board:{trackers:[{trackerId:"local"}]}});
+ render(<App />);
+ await screen.findByRole("heading",{name:"Votre projet local est prêt"});
+ expect(screen.queryByRole("textbox",{name:"Rechercher des tickets"})).toBeNull();
+});
+
 test("tracker-backed projects retain board search, grouping and ticket status",async()=>{
  vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
  vi.mocked(api.listTasks).mockResolvedValue([{id:"t",key:"APP-2",title:"Remote issue",source:"jira",trackerStatus:"To Do",status:"to_clarify"}]);
- vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1"}]}});
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
  render(<App />);
  await screen.findByRole("textbox",{name:"Rechercher des tickets"});
  expect(screen.getByRole("combobox",{name:"Regrouper les tickets"})).toBeTruthy();

@@ -23,6 +23,7 @@ fn project_view(source: &Value) -> Value {
         "issueSpecKind",
         "aiProvider",
         "aiModel",
+        "issueTracker",
         "useWorktrees",
         "parallelism",
         "defaultEngine",
@@ -31,6 +32,9 @@ fn project_view(source: &Value) -> Value {
         if let Some(value) = source.get(field) {
             result[field] = value.clone();
         }
+    }
+    if let Some(value) = source.pointer("/server/issueTracker") {
+        result["issueTracker"] = value.clone();
     }
     result["skills"] = Value::Array(
         source["skills"]
@@ -209,12 +213,13 @@ mod tests {
     #[test]
     fn project_metadata_never_exposes_credentials_or_skill_prompts() {
         let result = project_view(
-            &json!({"path":"/project","configured":true,"skills":[{"id":"clarify","command":"clarify-issue","content":"private instructions"}],"server":{"token":"secret","skills":[{"content":"private instructions"}],"prCreationStage":"implemented","fullChainStopStage":"reviewed"},"aiCommandTemplate":"secret template"}),
+            &json!({"path":"/project","configured":true,"skills":[{"id":"clarify","command":"clarify-issue","content":"private instructions"}],"server":{"token":"secret","issueTracker":"local","skills":[{"content":"private instructions"}],"prCreationStage":"implemented","fullChainStopStage":"reviewed"},"aiCommandTemplate":"secret template"}),
         );
         let text = result.to_string();
         assert!(!text.contains("secret") && !text.contains("private instructions"));
         assert_eq!(result["policy"]["fullChainStopStage"], "reviewed");
         assert_eq!(result["skills"][0]["id"], "clarify");
+        assert_eq!(result["issueTracker"], "local");
     }
     #[test]
     fn provider_preparation_has_a_bounded_target() {

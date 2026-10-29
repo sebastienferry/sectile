@@ -21,7 +21,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 - Match the Electron dark and light workspace surface palette and remove duplicate Tauri color overrides.
 - Show attached workspace folders in the prompt context so users can see what the agent will use without opening the folder details.
 - Project navigation hides the “Tableau” action while the board is already open.
-- Local projects without trackers now show a prompt-ready empty state instead of tracker filters and read-only tracker status; the duplicate prompt button has been removed.
+- Local projects backed only by the synthetic local tracker now show a prompt-ready empty state instead of remote tracker filters and read-only tracker status; the duplicate prompt button has been removed.
 
 - The connection status distinguishes the Fleet backend from the locally running agent.
 

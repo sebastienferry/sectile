@@ -29,7 +29,7 @@ verification record remains the evidence for those flows.
 | Tauri's workspace polish sheet overrode the canonical surface palette. | The dark/light colors for `--bg`, `--surface`, `--sunken` and `--selected` differed from Electron's `desktop/src/style.css` and duplicated the values in `App.css`. | Use `App.css` as the single source for shared background, surface and selection tokens; keep only workspace-specific tokens in the polish sheet. |
 | The Tauri sidebar was fixed width; Electron has a pointer and keyboard resizer. | Electron `desktop/src/main.js` wires `#sidebar-resizer`; Tauri originally rendered a fixed-width `.sidebar`. | Added a bounded, keyboard-accessible divider and persistent width. |
 | Settings are a full native page in Tauri and a categorized dialog in Electron. | Tauri's `LocalSettings` has separate engine, profile, connection, project and service sections; Electron groups workstation/project settings in its dialog. | Keep native Tauri setup, but align section naming, compact spacing and progressive disclosure. Do not force the dialog layout into a native page. |
-| A local-only project shows tracker controls even though it has no remote tickets. | In the live Tauri window, `Documents` has a local path and zero tickets, while the board toolbar still says “Statuts du tracker · lecture seule” and offers tracker grouping/search. `App.tsx` renders this toolbar for every project. | Make the empty local-project state describe local work and hide tracker-specific controls until the project has a tracker-backed ticket collection. Keep “Nouveau prompt” as the single primary action. |
+| A local-only project shows tracker controls even though it has no remote tickets. | In the live Tauri window, `workspace` has a local path and zero tickets, while the board toolbar still says “Statuts du tracker · lecture seule” and offers tracker grouping/search. Go represents a local workspace with a synthetic `local` tracker row, but the desktop board projection omitted the provider, so the renderer could not distinguish it from a remote tracker. | Include tracker providers in the additive desktop board projection. Hide remote controls when a project has no trackers or only the synthetic local tracker; preserve remote controls for GitHub, GitLab and Jira. Keep “Nouveau prompt” as the single primary action. |
 | The local-project empty state repeats the primary prompt action. | The project toolbar already has “Nouveau prompt”; the empty board adds “Commencer une conversation”. The live screenshot shows both at once. | Keep the global project action and remove the duplicate empty-state button; use the empty state to explain that the local project is ready for prompts. |
 | The project toolbar offers navigation to the view already open. | The live board screenshot shows a “Tableau” button beside the current project; `App.tsx` always renders it, and its handler navigates to the same board view. | Hide the current-view action while the board is open. Keep “Tableau” available from prompts and execution views so navigation remains direct. |
 | Attached folders were hidden behind a disclosure in the prompt context. | `PromptFolders` listed the active directory in the toolbar, while the additional project folders were only visible after opening “Dossiers”. | Show attached folder names under the active directory with full paths available on hover; keep detailed roles and paths in the existing disclosure. |
@@ -38,7 +38,9 @@ verification record remains the evidence for those flows.
 ## Current source and runtime status
 
 - Trackerless board controls and the duplicate empty-state prompt action are
-  corrected in Tauri source and covered by targeted UI regressions. The current
+  corrected in Tauri source and covered by targeted UI regressions, including
+  the synthetic local tracker and a pre-provider agent compatibility case. The
+  Go board projection now supplies provider metadata. The current
   board navigation action is hidden while already on the board. These changes
   are in commits `bf4a22a`, `9457e14` and `25f9cac`.
 - On 2026-10-29 the Tauri debug bundle was rebuilt from current source and
@@ -49,6 +51,14 @@ verification record remains the evidence for those flows.
   folder, default prompt profile and primary prompt action before advanced
   options. This is a source verification, not a matched Electron/Tauri visual
   comparison.
+- A live review then selected the `workspace` project: its persisted project
+  mapping contains only a synthetic `local` tracker, while the older running
+  agent does not expose tracker providers in its board metadata. That explains
+  why the existing runtime still showed remote controls despite the earlier
+  source guard. A new UI regression covers both the additive current-agent
+  provider field and fallback through `issueTracker` for an older agent. The
+  production Local companion was left running; its screen has not yet been
+  visually rechecked against a rebuilt Go bundle with provider metadata.
 - Electron's searchable settings dialog and Tauri's native settings page were
   inspected side by side. Electron exposes General, Appearance, Agent
   connection, Execution defaults, AI engines, Skills, Deployment, Agent logs
@@ -83,10 +93,10 @@ verification record remains the evidence for those flows.
 
 ## Remaining convergence order
 
-1. Rebuild/relaunch the current Tauri source and visually verify the contextual
-   toolbar and trackerless board states. Recheck local projects, tracker-backed
-   projects with tickets, tracker-backed projects with no tickets, and
-   failed/stale ticket reads.
+1. Launch an isolated package containing the updated Go provider projection and
+   visually verify the contextual toolbar and local-only board state. The UI
+   regressions cover Local and Jira-backed projects; also recheck a remote
+   project with no tickets and failed/stale ticket reads in the isolated app.
 2. Capture matched light and dark screenshots of Electron and Tauri at the same
    window size and with equivalent project/activity data. Normalize typography,
    surface contrast, control height, spacing and selected/hover states from

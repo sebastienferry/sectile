@@ -37,6 +37,10 @@
 - A non-Git mapped folder is usable for conversations/specifications even when
   `/desktop/project` reports no Git configuration. Fill its path from the mapped
   projects view without promoting `configured` to true.
+- Local-only projects may still have a synthetic `local` tracker row. The Go
+  desktop board projection must carry tracker providers; classify as local only
+  when there are no external providers. For old agents, the legacy
+  `issueTracker=local` fallback is safe only for a single selected tracker.
 - Companion MCP uses process-scoped `sectile_companion` configuration (ADR 0011).
   Never repair its connection by replacing Electron's shared `sectile` entry.
   Codex deep-merges configuration tables; changing a shared entry from STDIO to

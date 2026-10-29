@@ -378,9 +378,14 @@ function ProjectPane({
   }, [selection.projectId, selection.view]);
   const remoteColumns = trackerColumns(tasks, query);
   const hasRemoteTasks = trackerColumns(tasks).some(column => column.tasks.length > 0);
+  const trackers = context?.board?.trackers ?? [];
+  const hasNoExternalTrackers = Boolean(context?.board && (
+    trackers.length === 0 ||
+    trackers.every(tracker=>tracker.provider === "local") ||
+    (trackers.length === 1 && !trackers[0].provider && context.issueTracker === "local")
+  ));
   const localOnlyProject = Boolean(
-    context?.board &&
-    (context.board.trackers?.length ?? 0) === 0 &&
+    hasNoExternalTrackers &&
     !hasRemoteTasks &&
     !error &&
     !busy,
