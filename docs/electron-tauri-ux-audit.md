@@ -1,12 +1,11 @@
 # Electron and Tauri desktop UX audit
 
 Date: 2026-10-29
-Status: implementation evidence exists for all seven UX lots, but closure is
-reopened for a source and artifact audit. The initial closure overstated the
-CSS cleanup while a separate live-window comparison in this audit documented
-unmatched project/tracker state. Revalidate each lot against current source
-before claiming completion. Post-dispatch conversation and execution surfaces
-remain product-specific rather than visual-parity targets.
+Status: all seven scoped UX lots are implemented and revalidated against the
+current source on 2026-10-29. Matched captures cover the shared board,
+pre-dispatch prompt and settings surfaces; post-dispatch conversation and
+execution surfaces remain product-specific rather than visual-parity targets.
+This records hierarchy and behavior convergence, not pixel identity.
 
 ## Reference and scope
 
@@ -190,6 +189,11 @@ recommended completing matched fixture captures before implementing the
 navigation lot.
 
 ## Concrete findings
+
+The findings below preserve the observations and decisions made during the
+review. References to items being open or pending describe their state at that
+point in the audit; the final verification and current disposition appear in
+the convergence status section below.
 
 | Finding | Evidence | Decision |
 | --- | --- | --- |
@@ -503,21 +507,23 @@ disposable test data.
   declarations. The focused narrow-prompt rule is scoped to the initial project
   composer so resumed conversations retain their established controls.
 
-## Convergence status (reopened)
+## Convergence status (verified)
 
-Earlier closure claimed all seven implementation lots complete. Reopening that
-claim because the style rules were split across two imported stylesheets and
-the Electron board artifact was not a valid content match for the Tauri board.
-The matched current-source board, pre-dispatch prompt and settings captures
-remain useful for shared hierarchy review; they do not prove pixel parity or
-validate the Electron execution console against Tauri conversations.
+Earlier closure was reopened because the style rules were split across two
+imported stylesheets and the Electron board artifact was not a valid content
+match for the Tauri board. Both issues have since been addressed: Tauri's
+presentation refinements are consolidated in `App.css`, and the board baseline
+uses equivalent disposable Jira tickets in both applications. A current-source
+review also refreshed the short-window prompt and orchestration captures after
+the final responsive layout changes. These checks support closing the seven
+scoped lots; they do not claim pixel parity or map Electron's CLI console to
+Tauri's provider conversation surface.
 
-The current pass combines the Tauri stylesheets without changing declarations.
-The table below records implementation evidence, not independent UX sign-off;
-each lot remains subject to the listed fixture and behavior gates and the
-source audit in this document. This work preserves the single workspace,
-tracker-authoritative ticket state, native project folders, Local and Fleet
-ownership, and existing Go execution/MCP contracts.
+All seven lots are complete within the approved scope. The table below records
+the implementation evidence and deliberate product differences. This work
+preserves the single workspace, tracker-authoritative ticket state, native
+project folders, Local and Fleet ownership, and existing Go execution/MCP
+contracts.
 
 | Lot | Outcome |
 | --- | --- |
@@ -529,11 +535,16 @@ ownership, and existing Go execution/MCP contracts.
 | Native settings | Local/Fleet ownership, profile, tracker, project, provider and service responsibilities remain explicit. Advanced token, permission and execution controls stay available in their scoped sections. |
 | Visual system | Matched theme captures, semantic color roles, AA text contrast, visible focus and reduced-motion behavior are recorded. No broad token change was justified by the captures. |
 
-Current verification passes: 101 UI tests, 14 domain tests, 35 Rust tests,
-`npm run check` and `npm run build`. The narrow project prompt was retaken at
-800 × 820 and 1280 × 900 in both themes after its responsive control layout
-changed. Matched screenshots are evidence for hierarchy and behavior, not
-pixel-approval. Production Electron and Tauri windows still use
+Current verification passes on Tauri commit `239d7c1`: `npm run check`, 14
+domain tests, 101 UI tests, 35 Rust tests and `npm run build`. The short-window
+prompt and orchestration surfaces were retaken from the current source at
+800 × 820 in light and dark themes. The refreshed captures are
+`/tmp/sectile-tauri-current-prompt-light-800.png`,
+`/tmp/sectile-tauri-current-prompt-dark-800.png`,
+`/tmp/sectile-tauri-current-orchestration-light-800.png` and
+`/tmp/sectile-tauri-current-orchestration-dark-800.png`. Matched screenshots
+are evidence for hierarchy and behavior, not pixel approval. Production
+Electron and Tauri windows still use
 different project and tracker modes, so they are not valid content-comparison
 fixtures. Conversation transcripts, questions and execution/diff surfaces
 remain intentionally Tauri-specific because Electron continues provider CLI
