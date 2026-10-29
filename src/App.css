@@ -505,6 +505,15 @@ body.resizing-sidebar {
 .task footer svg {
   width: 13px;
 }
+.board-show-more {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--accent-text);
+  font-size: 11px;
+  text-align: center;
+}
 .empty,
 .welcome {
   display: flex;

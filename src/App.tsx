@@ -412,6 +412,8 @@ function ProjectPane({
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
   const [grouping,setGrouping] = useState("tracker");
+  const [visibleByColumn,setVisibleByColumn] = useState<Record<string,number>>({});
+  useEffect(()=>setVisibleByColumn({}),[query,grouping]);
   const [contextState,setContextState] = useState<{projectId:string;value:ProjectContext}>();
   const context = contextState?.projectId === selection.projectId ? contextState.value : undefined;
   useEffect(()=>{let current=true;void projectContext(selection.projectId).then(data=>{if(current)setContextState({projectId:selection.projectId,value:data});}).catch(()=>{});return()=>{current=false;};},[selection.projectId]);
@@ -523,7 +525,7 @@ function ProjectPane({
                   {column.name}
                   <span>{column.tasks.length}</span>
                 </h2>
-                {column.tasks.map((task) => {
+                {visibleBoardTasks(column.tasks,activeTaskRuns,visibleByColumn[column.name] ?? 40).map((task) => {
                   const taskRun = activeTaskRuns.get(task.id);
                   return <article className="task" key={task.id}>
                     <div className="task-meta">
@@ -550,6 +552,11 @@ function ProjectPane({
                     </footer>
                   </article>
                 })}
+                {column.tasks.length > (visibleByColumn[column.name] ?? 40) && <button
+                  className="board-show-more"
+                  aria-label={`Afficher les tickets suivants dans ${column.name}`}
+                  onClick={()=>setVisibleByColumn(previous=>({...previous,[column.name]:(previous[column.name]??40)+40}))}
+                >Afficher {Math.min(40,column.tasks.length-(visibleByColumn[column.name]??40))} suivants · {Math.min(visibleByColumn[column.name]??40,column.tasks.length)} sur {column.tasks.length}</button>}
               </section>
             ))}
           </div>
@@ -582,6 +589,16 @@ function ProjectPane({
       )}
     </>
   );
+}
+
+function visibleBoardTasks(tasks:Task[],activeRuns:Map<string,Run>,limit:number):Task[]{
+ const active:Task[]=[];
+ const others:Task[]=[];
+ for(const task of tasks){
+  const run=activeRuns.get(task.id);
+  (run&&isActive(run)?active:others).push(task);
+ }
+ return active.concat(others).slice(0,limit);
 }
 
 function RunNavigation({run,selected,onClick}:{run:Run;selected:boolean;onClick:()=>void}){

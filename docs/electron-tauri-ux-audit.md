@@ -636,3 +636,13 @@ OAuth settings also used to hide a grant entirely when Go marked it
 disconnected, leaving no explanation for a subsequent sync failure. The
 provider row now identifies the disconnected account and gives a reconnect
 instruction while retaining the existing sign-in action.
+
+The live PE Jira sync returned 1,988 tickets. Tauri previously created a full
+card for every ticket in a status column on first render; Electron's task rail
+uses compact rows. Tauri now renders 40 tickets per column initially, with an
+explicit count and continuation control. Search and grouping still operate on
+the full result, and active workflow tickets are moved into the first visible
+batch. The board grouping loop also appends to existing arrays instead of
+copying a growing array for every ticket. A 1,988-ticket UI fixture verifies
+the initial DOM bound, expansion and full-result search; a separate fixture
+verifies an active ticket beyond the initial position stays visible.

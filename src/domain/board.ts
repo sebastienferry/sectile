@@ -30,7 +30,9 @@ export function trackerColumns(tasks: Task[], query = ""): Column[] {
     if (!`${task.key ?? ""} ${task.title}`.toLocaleLowerCase().includes(search))
       continue;
     const name = task.trackerStatus?.trim() || "Statut distant indisponible";
-    groups.set(name, [...(groups.get(name) ?? []), task]);
+    const group = groups.get(name);
+    if (group) group.push(task);
+    else groups.set(name, [task]);
   }
   return [...groups].map(([name, tasks]) => ({ name, tasks }));
 }

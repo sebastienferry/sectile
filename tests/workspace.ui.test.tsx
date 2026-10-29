@@ -144,6 +144,31 @@ test("tracker-backed projects retain board search, grouping and ticket status",a
  expect(screen.getByText("Remote issue")).toBeTruthy();
 });
 
+test("a large tracker board renders tickets progressively while search reaches the full result",async()=>{
+ vi.mocked(api.listTasks).mockResolvedValue(Array.from({length:1988},(_,index)=>({id:`task-${index+1}`,key:`APP-${index+1}`,title:`Ticket ${index+1}`,source:"jira",trackerStatus:"To Do",status:"to_clarify"})));
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
+ render(<App />);
+ await screen.findByText("Ticket 1");
+ expect(screen.getByText("1988 tickets")).toBeTruthy();
+ expect(document.querySelectorAll(".board .task")).toHaveLength(40);
+ fireEvent.click(screen.getByRole("button",{name:"Afficher les tickets suivants dans To Do"}));
+ expect(document.querySelectorAll(".board .task")).toHaveLength(80);
+ fireEvent.change(screen.getByRole("textbox",{name:"Rechercher des tickets"}),{target:{value:"APP-1988"}});
+ await screen.findByText("Ticket 1988");
+ expect(document.querySelectorAll(".board .task")).toHaveLength(1);
+ expect(screen.queryByRole("button",{name:"Afficher les tickets suivants dans To Do"})).toBeNull();
+});
+test("active workflow tickets remain in the first visible board batch",async()=>{
+ vi.mocked(api.listTasks).mockResolvedValue(Array.from({length:100},(_,index)=>({id:`task-${index+1}`,key:`APP-${index+1}`,title:`Ticket ${index+1}`,source:"jira",trackerStatus:"To Do",status:"to_implement"})));
+ vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true,capabilities:[]},runs:[{id:"active",projectId:"p",taskId:"task-100",taskKey:"APP-100",skill:"implement",status:"running",createdAt:"2026-10-29"}]});
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
+ render(<App />);
+ await screen.findByText("Ticket 100");
+ expect(document.querySelectorAll(".board .task")).toHaveLength(40);
+ expect(screen.queryByText("Ticket 40")).toBeNull();
+ expect(screen.getByText("Implémenter · En cours")).toBeTruthy();
+});
+
 test("an empty remote tracker board names the missing tickets and keeps its local prompt path",async()=>{
  vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
  vi.mocked(api.listTasks).mockResolvedValue([]);
