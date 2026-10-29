@@ -78,14 +78,15 @@ test("manual status refresh makes one retry after startup status failed", async 
  await screen.findByText("État actualisé.");
  expect(api.localSetupStatus).toHaveBeenCalledTimes(2);
 });
-test("Fleet attachment enables backend setup and hides Local-only controls", async () => {
-  vi.mocked(api.localSetupStatus).mockResolvedValueOnce({ enabled: false, mode: "unconfigured" }).mockResolvedValue({ enabled: true, ready: true, signedIn: true, agentReady: true, mode: "fleet", fleetServer: "https://fleet.example.invalid" });
+test("legacy Fleet attachment keeps diagnostics available without native backend setup", async () => {
+  vi.mocked(api.localSetupStatus).mockResolvedValueOnce({ enabled: false, mode: "unconfigured" }).mockResolvedValue({ enabled: true, ready: true, signedIn: false, agentReady: true, mode: "fleet", apiSetupAvailable: false, fleetServer: "https://fleet.example.invalid" });
   vi.mocked(api.localServiceLog).mockResolvedValue({path:"/test/fleet/agent.log",text:"fleet ready",missing:false,truncated:false});
   vi.mocked(api.attachFleetAgent).mockResolvedValue();
   render(<LocalSettings onChanged={vi.fn()} />);
   fireEvent.click(await screen.findByRole("button",{name:"Associer l’agent Fleet existant"}));
   await waitFor(() => expect(api.attachFleetAgent).toHaveBeenCalledOnce());
   expect(await screen.findByText("VOTRE ESPACE FLEET")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name:"Connexion et services"}));
   expect(screen.getByRole("heading", {name:"Configuration Fleet"})).toBeTruthy();
   expect(screen.getByRole("heading", {name:"Connexion et services"})).toBeTruthy();
   expect(screen.getByRole("heading", {name:"Agent Fleet"})).toBeTruthy();
@@ -93,13 +94,10 @@ test("Fleet attachment enables backend setup and hides Local-only controls", asy
   expect(await screen.findByText("fleet ready")).toBeTruthy();
   expect(api.localServiceLog).toHaveBeenCalledWith("agent");
   expect(screen.getByText(/État de la connexion et de l’agent Fleet associé/)).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", {name:"Comptes et trackers"}));
-  expect(await screen.findByLabelText("Adresse e-mail")).toBeTruthy();
-  expect((screen.getByRole("button",{name:"Comptes et trackers"}) as HTMLButtonElement).disabled).toBe(false);
-  expect((screen.getByRole("button",{name:"Projets"}) as HTMLButtonElement).disabled).toBe(false);
-  fireEvent.click(screen.getByRole("button",{name:"Profil"}));
-  expect(await screen.findByRole("heading",{name:"Profil Fleet"})).toBeTruthy();
-  expect(screen.getByText(/Ce profil identifie vos actions avec votre compte sur le backend Fleet/)).toBeTruthy();
+  expect(screen.getByText("Cet agent Fleet est géré par son installation d’origine.")).toBeTruthy();
+  expect((screen.getByRole("button",{name:"Comptes et trackers"}) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button",{name:"Projets"}) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button",{name:"Profil"}) as HTMLButtonElement).disabled).toBe(true);
   await waitFor(() => expect(screen.queryByRole("button",{name:"Associer l’agent Fleet existant"})).toBeNull());
 });
 test("Fleet pairing sends the one-time code to native code and clears it after failure", async () => {
@@ -125,6 +123,8 @@ test("Fleet pairing hydrates the signed-in profile returned by the selected back
   fireEvent.change(screen.getByLabelText("Code de jumelage"),{target:{value:"one-time-code"}});
   fireEvent.click(screen.getByRole("button",{name:"Associer ce poste à Fleet"}));
   await screen.findByText("Poste associé au backend Fleet.");
+  fireEvent.click(screen.getByRole("button",{name:"Connexion et services"}));
+  expect(screen.getByText("L’agent Fleet démarre automatiquement sur ce poste et continue en arrière-plan lorsque vous fermez le desktop.")).toBeTruthy();
   fireEvent.click(screen.getByRole("button",{name:"Profil"}));
   await waitFor(() => expect((screen.getByLabelText("Adresse e-mail") as HTMLInputElement).value).toBe(profile.email));
   expect((screen.getByLabelText("Adresse e-mail") as HTMLInputElement).readOnly).toBe(true);

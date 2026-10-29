@@ -124,7 +124,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       {setup?.backendError && <p role="alert" className="error">{setup.backendError}</p>}
       {setup?.mode === "fleet" && setup.apiSetupAvailable === false && <p className="muted">Cet agent a été attaché sans identifiant API du poste. Configurez les comptes et projets sur le backend Fleet.</p>}
       {setup?.dataDirectory && <p className="muted runtime-path">{setup.dataDirectory}</p>}
-      <p className="muted">{setup?.mode === "fleet" ? "L’agent Fleet reste géré par son installation habituelle." : "Le compagnon démarre automatiquement. Il continue en arrière-plan lorsque vous fermez le desktop, pour laisser les tâches se terminer."}</p>
+      <p className="muted">{setup?.mode === "fleet" ? setup.apiSetupAvailable === false ? "Cet agent Fleet est géré par son installation d’origine." : "L’agent Fleet démarre automatiquement sur ce poste et continue en arrière-plan lorsque vous fermez le desktop." : "Le compagnon démarre automatiquement. Il continue en arrière-plan lorsque vous fermez le desktop, pour laisser les tâches se terminer."}</p>
       {setup && setup.mode !== "fleet" && <button disabled={pending} onClick={() => void perform(api.enableLocalRuntime, "Compagnon local démarré et mode Local sélectionné.")}>{setup.enabled ? "Vérifier / démarrer le compagnon local" : "Démarrer en mode Local"}</button>}
       {setup && (!setup.mode || setup.mode === "unconfigured") && <article><h3>Mode Fleet</h3>
         <p className="muted">Associez ce poste avec un code à usage unique depuis votre profil sur le backend Fleet. Le jeton durable reste dans le stockage privé natif et n’est jamais affiché.</p>
@@ -137,7 +137,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
         </form>
         <details><summary>J’ai déjà associé un agent sur ce poste</summary><p className="muted">Tauri peut reprendre explicitement l’agent existant sans modifier son installation partagée.</p><button disabled={pending} onClick={() => void perform(api.attachFleetAgent, "Agent Fleet associé à ce desktop.", undefined, true)}>Associer l’agent Fleet existant</button></details>
       </article>}
-      {setup?.mode === "fleet" && <p className="muted">Cette page configure votre profil et vos projets sur le backend Fleet sélectionné. L’agent d’exécution reste sur ce poste.</p>}
+      {setup?.mode === "fleet" && setup.apiSetupAvailable !== false && <p className="muted">Cette page configure votre profil et vos projets sur le backend Fleet sélectionné. L’agent d’exécution reste sur ce poste.</p>}
       <button disabled={pending || (!setup && !error)} onClick={() => void refreshStatus()}>Actualiser</button>
     </article>
     {setup?.mode !== "fleet" && <ServiceLogPanel active={section === "services"} service="companion" />}
