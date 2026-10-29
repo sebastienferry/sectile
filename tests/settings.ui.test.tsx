@@ -55,6 +55,21 @@ test("offline Fleet keeps its selected mode and diagnostics without offering Loc
  expect(screen.queryByRole("button",{name:"Démarrer en mode Local"})).toBeNull();
  expect((screen.getByRole("button",{name:"Profil"}) as HTMLButtonElement).disabled).toBe(true);
 });
+test("Fleet setup becomes available after an agent or backend reconnects", async () => {
+ vi.mocked(api.localSetupStatus)
+  .mockResolvedValueOnce({enabled:true,mode:"fleet",ready:false,signedIn:false,agentReady:false,apiSetupAvailable:true,fleetServer:"https://fleet.example.invalid",backendError:"L’agent Fleet associé est inaccessible."})
+  .mockResolvedValue({enabled:true,mode:"fleet",ready:true,signedIn:true,agentReady:true,apiSetupAvailable:true,fleetServer:"https://fleet.example.invalid",profile:{email:"fixture@example.invalid",displayName:"Fixture"}});
+ render(<LocalSettings onChanged={vi.fn()} />);
+ expect((await screen.findByRole("alert")).textContent).toContain("agent Fleet associé");
+ expect((screen.getByRole("button",{name:"Profil"}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole("button",{name:"Actualiser"}));
+ await screen.findByText("État actualisé.");
+ await waitFor(() => expect((screen.getByRole("button",{name:"Profil"}) as HTMLButtonElement).disabled).toBe(false));
+ expect(screen.queryByRole("alert")).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Profil"}));
+ expect((await screen.findByLabelText("Adresse e-mail") as HTMLInputElement).value).toBe("fixture@example.invalid");
+ expect(api.localSetupStatus).toHaveBeenCalledTimes(2);
+});
 test("manual status refresh makes one retry after startup status failed", async () => {
  vi.mocked(api.localSetupStatus).mockRejectedValueOnce(new Error("First status failed")).mockResolvedValue({enabled:false,mode:"unconfigured"});
  render(<LocalSettings onChanged={vi.fn()} />);

@@ -764,3 +764,11 @@ startup-log count stayed unchanged. The test app, agent and private data were
 removed; the regular companion on port 52963 was untouched. This qualifies
 native failure presentation and stable retry ownership for a closed loopback
 backend. It does not prove recovery after a real Fleet outage or provider OAuth.
+
+The follow-up source review found that a missing Fleet agent gateway still
+caused `local_setup_status` to fail before returning the selected mode. Native
+Settings now retains Fleet identity and diagnostics for gateway, startup and
+backend failures. A UI recovery regression moves from an unavailable Fleet
+gateway to a ready profile with one manual refresh and confirms the profile
+fields are populated. This source-level check does not replace a native
+gateway-failure and live-backend recovery retake.

@@ -85,7 +85,17 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
   async function refreshStatus() {
     if (busy.current) return;
     busy.current = true; setPendingMessage("Actualisation en cours…"); setPending(true); setError(""); setNotice("");
-    try { await refresh(); if (mounted.current) setNotice("État actualisé."); onChanged(); }
+    try {
+      const next = await refresh();
+      if (mounted.current) {
+        if (!setup?.ready && next.ready) {
+          setEmail(next.profile?.email ?? "");
+          setDisplayName(next.profile?.displayName ?? "");
+        }
+        setNotice("État actualisé.");
+      }
+      onChanged();
+    }
     catch (cause) { if (mounted.current) setError(String(cause)); }
     finally { busy.current = false; if (mounted.current) setPending(false); }
   }

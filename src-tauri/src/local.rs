@@ -1077,33 +1077,52 @@ pub async fn enable_local_runtime(app: tauri::AppHandle) -> Result<(), String> {
 }
 #[tauri::command]
 pub async fn local_setup_status(app: tauri::AppHandle) -> Result<Value, String> {
-    resume(&app).await?;
+    let resumed = resume(&app).await;
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
     let root = root(&app)?;
     if runtime_mode(&app)? == Some(RuntimeMode::Fleet) {
-        let path = connection_path(&app).ok_or("Connexion Fleet introuvable")?;
-        let connection: Value =
-            serde_json::from_slice(&fs::read(path).map_err(|_| "Connexion Fleet illisible")?)
-                .map_err(|_| "Connexion Fleet invalide")?;
-        let (Some(url), Some(token)) = (connection["url"].as_str(), connection["token"].as_str())
-        else {
-            return Err("Connexion Fleet incomplète".into());
+        let server = selected_fleet_server(&root)?;
+        let unavailable = |error: String| {
+            json!({"enabled":true,"ready":false,"signedIn":false,
+                "agentReady":false,"mode":"fleet","fleetServer":server,
+                "apiSetupAvailable":fleet_root(&root).is_ok_and(|path| path.join("settings.json").exists()),
+                "backendError":error})
         };
-        let status = client()?
-            .get(format!("{}/desktop/status", url.trim_end_matches('/')))
-            .bearer_auth(token)
-            .timeout(Duration::from_secs(3))
-            .send()
-            .await
-            .map_err(|_| "L’agent Fleet associé est inaccessible.")?;
-        if !status.status().is_success() {
-            return Err("L’agent Fleet associé a refusé la connexion.".into());
+        if let Err(error) = resumed {
+            return Ok(unavailable(error));
         }
-        let value: Value = status.json().await.map_err(|_| "État Fleet illisible")?;
-        if value["server"] != selected_fleet_server(&root)? {
-            return Err("L’agent Fleet répond avec une autre identité de serveur".into());
+        let status = async {
+            let path = connection_path(&app).ok_or("Connexion Fleet introuvable")?;
+            let connection: Value =
+                serde_json::from_slice(&fs::read(path).map_err(|_| "Connexion Fleet illisible")?)
+                    .map_err(|_| "Connexion Fleet invalide")?;
+            let (Some(url), Some(token)) =
+                (connection["url"].as_str(), connection["token"].as_str())
+            else {
+                return Err("Connexion Fleet incomplète".into());
+            };
+            let status = client()?
+                .get(format!("{}/desktop/status", url.trim_end_matches('/')))
+                .bearer_auth(token)
+                .timeout(Duration::from_secs(3))
+                .send()
+                .await
+                .map_err(|_| "L’agent Fleet associé est inaccessible.")?;
+            if !status.status().is_success() {
+                return Err("L’agent Fleet associé a refusé la connexion.".into());
+            }
+            let value: Value = status.json().await.map_err(|_| "État Fleet illisible")?;
+            if value["server"] != server {
+                return Err("L’agent Fleet répond avec une autre identité de serveur".into());
+            }
+            Ok::<_, String>(value)
         }
+        .await;
+        let value = match status {
+            Ok(value) => value,
+            Err(error) => return Ok(unavailable(error)),
+        };
         if !fleet_root(&root)?.join("settings.json").exists() {
             return Ok(json!({"enabled":true,"ready":true,"signedIn":false,
                 "agentReady":value["connected"],"mode":"fleet","fleetServer":value["server"],
@@ -1135,6 +1154,7 @@ pub async fn local_setup_status(app: tauri::AppHandle) -> Result<Value, String> 
             "profile":profile,"credentials":credentials,"trackers":trackers,"projects":projects}),
         );
     }
+    resumed?;
     if !root.join("installation.json").exists() {
         return Ok(json!({"enabled":false,"mode":"unconfigured"}));
     }

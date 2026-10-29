@@ -12,6 +12,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- A selected Fleet connection remains identifiable when its local agent gateway fails; refreshing after reconnection restores the signed-in profile in native Settings.
 - An unavailable Fleet backend now leaves the selected mode, agent log and connection error visible; refreshing the status no longer restarts the retrying agent.
 - A failed first Local or Fleet startup now leaves both service logs accessible in Settings.
 - Folderless projects now offer the native folder picker directly on their board, and a board refresh error no longer follows users into the prompt.

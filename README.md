@@ -128,6 +128,10 @@ shows the disconnected agent and backend error, and leaves the Fleet agent log
 available. The workstation agent continues its own reconnection attempts;
 **Actualiser** reads its current status without relaunching it. Backend-owned
 profile, tracker and project controls become available again after reconnection.
+If the local Fleet agent gateway itself cannot be read, the selected Fleet mode
+and its log remain visible with the gateway error. Refreshing after it returns
+also reloads the signed-in profile; unsaved profile edits in an already ready
+session are not overwritten by a status refresh.
 
 ## Connect to Fleet
 
