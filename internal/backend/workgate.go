@@ -12,7 +12,8 @@ import (
 // the gate. Fleet never uses this wrapper.
 func (r *Runtime) gateWork(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		if r.readyForWork() || localBootstrapPath(request.URL.Path) {
+		postback := r.workDraining.Load() && (request.URL.Path == "/api/tasks/postback" || (request.URL.Path == "/mcp" && request.Header.Get("Mcp-Session-Id") != ""))
+		if r.readyForWork() || postback || localBootstrapPath(request.URL.Path) {
 			next.ServeHTTP(w, request)
 			return
 		}

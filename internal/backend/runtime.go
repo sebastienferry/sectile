@@ -41,6 +41,7 @@ type Runtime struct {
 	local        bool
 	closing      bool
 	workReady    atomic.Bool
+	workDraining atomic.Bool
 	workAgent    atomic.Pointer[workAgentIdentity]
 	closed       bool
 }
@@ -228,4 +229,11 @@ func (r *Runtime) CloseContext(ctx context.Context) error {
 	}
 	r.closed = true
 	return nil
+}
+
+// BeginDrain closes Local work admission while provider postbacks remain usable.
+func (r *Runtime) BeginDrain() {
+	r.workDraining.Store(true)
+	r.workReady.Store(false)
+	r.Handler.BeginDrain()
 }

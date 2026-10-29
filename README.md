@@ -376,3 +376,5 @@ The isolated desktop companion uses the Go-owned loopback origin `http://127.0.0
 ## Local/Fleet runtime evolution
 
 [Local/Fleet runtime contracts](docs/desktop-runtime-contracts.md) and [ADR 0066](docs/adrs/0066-compose-a-local-companion-without-changing-fleet.md) record the approved companion and Fleet compatibility boundaries. Phase 1 extracts backend assembly into `internal/backend`, first used by the standalone server. Phase 2 adds store ownership, stoppable backend/agent lifecycles and a Local work gate that waits for an authenticated agent connection. The deployed server/agent topology and configured OAuth remain functional; the combined Local executable is a later phase. The product-level V1 roadmap is maintained in the Tauri repository at `docs/sectile-v1-migration-plan.md`.
+
+An experimental combined Local executable can be built with `go build -o sectile-companion ./cmd/companion` and launched with `--data-dir /absolute/private/root`, using a fresh desktop installation manifest. See the [runtime contract](docs/desktop-runtime-contracts.md) for its current qualification limits.

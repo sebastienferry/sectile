@@ -315,3 +315,21 @@ has been migrated.
 | Agent gateway and run journal | Cancel the agent context and close the gateway | Join gateway and persistence loops; provider exit failures are returned |
 | Provider processes | Stop conversations while postback paths remain available | Full deadline and crash-path validation remains pending |
 | HTTP request admission and Local self-connection | Local gate allows health and authenticated agent bootstrap until activation; closes again on agent loss | Real embedded connection test passes; listener drain and startup-failure tests remain for the composition root |
+
+### Experimental combined executable
+
+`go build -o sectile-companion ./cmd/companion` builds the first combined Local
+process. Run it with `--data-dir /absolute/private/root`; the root must contain
+an explicit desktop `installation.json`. The backend starts on that manifest's
+loopback port, permits profile sign-in and pairing, then starts the embedded
+agent when the desktop atomically saves its token, user and device identity.
+The process owns cancellation, agent shutdown, HTTP drain and backend close.
+An agent shutdown failure retains backend store ownership until process exit.
+The executable also dispatches `mcp`, `provider-guard` and `agent-exec` roles
+before opening any store.
+
+A disposable HTTP smoke run passed local profile sign-in, pairing, embedded
+agent readiness, SIGTERM exit and readiness after relaunch with the same data.
+This is an experimental composition target; the Tauri launcher still starts
+its existing two services. Provider workflows, crash recovery, complete drain
+admission and packaging/migration qualification remain acceptance gates.
