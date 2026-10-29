@@ -317,6 +317,10 @@ func (f *Fake) gateway(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case path == "/rest/api/3/myself":
 		_ = json.NewEncoder(w).Encode(map[string]string{"accountId": "acc-" + g.account, "displayName": g.account})
+	case path == "/rest/api/3/field" && r.Method == http.MethodGet:
+		_ = json.NewEncoder(w).Encode([]any{})
+	case path == "/rest/api/3/search/jql" && r.Method == http.MethodGet:
+		_ = json.NewEncoder(w).Encode(map[string]any{"issues": []any{}, "isLast": true})
 	case strings.HasSuffix(path, "/transitions") && r.Method == http.MethodGet:
 		_ = json.NewEncoder(w).Encode(map[string]any{"transitions": []map[string]any{
 			{"id": "31", "name": "Done", "to": map[string]any{"name": "Done", "statusCategory": map[string]string{"key": "done"}}},

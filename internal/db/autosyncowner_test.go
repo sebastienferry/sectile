@@ -96,6 +96,60 @@ func TestASynchronisationAskedForBySomebodyRecordsThemAndReadsAsNobody(t *testin
 	}
 }
 
+func TestLocalSyncUsesInstallationIdentity(t *testing.T) {
+	fake := newFakeTracker()
+	database, project := jiraTestDB(t, fake)
+	if err := database.SetLocalSyncOwner("u-local"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetLocalSyncOwner("u-other"); err == nil {
+		t.Fatal("a Local installation must not switch sync identities")
+	}
+	activity := models.TaskActivity{ID: "local-sync", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	if err := database.AddTaskActivity(activity); err != nil {
+		t.Fatal(err)
+	}
+	settings, _ := database.GetSettings()
+	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID, ActingUser: "u-other"}, settings)
+	if fake.syncedAs != "u-local" || fake.syncedUnattended {
+		t.Fatalf("Local sync must use the installation identity, got user %q, unattended %t", fake.syncedAs, fake.syncedUnattended)
+	}
+}
+
+func TestLocalGithubSyncReadsPersonalTokenWithoutServerCredential(t *testing.T) {
+	var authorization string
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `[]`)
+	}))
+	defer site.Close()
+
+	database := testDB(t)
+	database.trackers.HTTP = site.Client()
+	database.trackers.GithubURL = site.URL
+	database.trackers.GithubToken = ""
+	if err := database.SetLocalSyncOwner("u-local"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetUserTrackerCredential("u-local", "github", "", "", "personal-token", ""); err != nil {
+		t.Fatal(err)
+	}
+	project, err := database.CreateProjectAs("u-local", models.CreateProjectRequest{Name: "Local", IssueTracker: "github", GithubRepo: "acme/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	activity := models.TaskActivity{ID: "local-github-sync", ProjectID: project.ID, SkillID: "sync_github", Status: "running", CreatedAt: time.Now()}
+	if err := database.AddTaskActivity(activity); err != nil {
+		t.Fatal(err)
+	}
+	settings, _ := database.GetSettings()
+	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_github", ActivityID: activity.ID, ProjectID: project.ID}, settings)
+	if authorization != "Bearer personal-token" {
+		t.Fatalf("Local sync used unexpected authorization %q", authorization)
+	}
+}
+
 // The timer's pass is nobody's request, and no longer borrows the owner's
 // account: its activity names nobody.
 func TestTheAutoSyncPassQueuesUnderNobody(t *testing.T) {

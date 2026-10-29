@@ -135,6 +135,10 @@ func (l *ProjectLimiter) Release(projectID string) {
 type DB struct {
 	agentOperations AgentOperations
 	agentSelection  func(userID, projectID, deviceID string) (string, error)
+	// localSyncOwner is the one identity whose tracker credential serves a
+	// standalone Local installation. Fleet leaves it unset and retains its
+	// provider-level server credential for synchronization.
+	localSyncOwner  atomic.Value
 	trackers        *trackerapi.Client
 	trackerRegistry *tracker.Registry
 	// serverKey opens the credentials a user did not seal behind a passphrase.
@@ -215,6 +219,24 @@ type DB struct {
 	// trackerCache caches the trackers the ticket links and the tracker clients are built from (#486, #741). Per DB,
 	// never a package global: tests open several DBs on one file as separate instances. See internal/db/projectcache.go.
 	trackerCache trackerCache
+}
+
+// SetLocalSyncOwner selects the installation identity for tracker reads in a
+// standalone Local runtime. Fleet never calls this method. An installation
+// cannot switch identities while the database is open.
+func (d *DB) SetLocalSyncOwner(userID string) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return fmt.Errorf("Local sync owner is required")
+	}
+	if existing := d.localSyncOwner.Load(); existing != nil {
+		if existing.(string) != userID {
+			return fmt.Errorf("Local sync owner cannot change while the database is open")
+		}
+		return nil
+	}
+	d.localSyncOwner.Store(userID)
+	return nil
 }
 
 // NewDB opens a SQLite database at dbPath. It is the path-shaped entry point the
@@ -5019,12 +5041,16 @@ func (d *DB) legacySyncTracker(trackerName string, proj *models.Project, setting
 }
 
 func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.Settings) {
-	// The context carries no acting user: every call of a synchronisation
-	// authenticates with the server credential of its provider (#464), and is
-	// marked as work nobody asked for, so a write it makes on its own is not
-	// mistaken for one that lost its author (#482). A sync a person asked for
-	// is unattended too: the activity records who asked, not whose credential.
-	ctx = tracker.WithUnattended(ctx)
+	// Fleet synchronization uses the provider's server credential, even when a
+	// person clicked Sync. A Local installation has no server service account:
+	// its single installation identity supplies the personal token or OAuth
+	// grant for manual and background reads. The activity still records who
+	// requested a manual pass separately from the credential used.
+	if owner := d.localSyncOwner.Load(); owner != nil {
+		ctx = tracker.WithActingUser(ctx, owner.(string))
+	} else {
+		ctx = tracker.WithUnattended(ctx)
+	}
 	var steps []string
 	var summary string
 	var outputLines []string

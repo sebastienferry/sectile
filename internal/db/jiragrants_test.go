@@ -107,6 +107,32 @@ func (f *grantFixture) expire(t *testing.T, d *DB, user string) {
 	}
 }
 
+func TestLocalJiraSyncUsesInstallationOAuthGrant(t *testing.T) {
+	f := newGrantFixture(t)
+	if outcome := f.connect(t, f.d, "usr_ada", "Ada", "c-acme"); outcome != JiraOAuthConnected {
+		t.Fatalf("Jira consent outcome: %s", outcome)
+	}
+	if err := f.d.SetLocalSyncOwner("usr_ada"); err != nil {
+		t.Fatal(err)
+	}
+	activity := models.TaskActivity{ID: "local-jira-oauth-sync", ProjectID: f.project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	if err := f.d.AddTaskActivity(activity); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := f.d.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.d.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: f.project.ID}, settings)
+	finished, err := f.d.GetActivityByID(activity.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finished.Status != string(models.ActivityStatusCompleted) {
+		t.Fatalf("Local Jira OAuth sync ended %q: %s", finished.Status, finished.Error)
+	}
+}
+
 func jiraCredential(t *testing.T, d *DB, user string) *UserCredential {
 	t.Helper()
 	list, err := d.UserTrackerCredentials(user)

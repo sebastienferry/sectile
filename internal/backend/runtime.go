@@ -161,6 +161,9 @@ func (r *Runtime) ActivateWork(userID, deviceID string) error {
 		}
 		return nil
 	}
+	if err := r.Database.SetLocalSyncOwner(userID); err != nil {
+		return err
+	}
 	r.Handler.SetPullOnConnect(true)
 	r.workAgent.Store(&workAgentIdentity{userID: userID, deviceID: deviceID})
 	r.workReady.Store(true)

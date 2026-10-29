@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- Local tracker synchronization now uses the connected installation account, including its Jira OAuth grant or personal API token, without requiring a separate server credential.
 - Stopping a built-in local console or tracked task now terminates its delegated tools before they can continue in the background; Codex consoles use a private provider server for cancellation.
 - A failed Codex task launch no longer leaves its terminal supervisor suspended before the provider starts.
 - Free Codex project consoles no longer pass the working directory as an extra writable folder, avoiding a launch failure under workspace-write sandboxing.

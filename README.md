@@ -23,8 +23,8 @@ It consists of three complementary components:
 - Synchronizes work across **GitHub, GitLab, Jira, and local tasks** with
   credential split: every action you take, from the web, the desktop app or an
   agent working for you, uses your own access (a sealed token, or a Jira,
-  GitHub or GitLab OAuth connection); server credentials serve the background
-  sync.
+  GitHub or GitLab OAuth connection); Fleet server credentials serve background
+  sync, while a Local companion uses its installation account.
 - Guides tasks through a six-column SDD lifecycle:
   **New → Clarified → Specified → Implemented → Reviewed → Finished**
   (`clarify-issue`, `specify-issue`, `implement-issue`, `create-pr` /
@@ -225,6 +225,11 @@ store sealed server-side tracker credentials for background synchronization,
 while users connect their accounts, or seal their own personal tokens, in
 **Profile → Tracker Credentials** so everything they do is published under
 their own identity.
+
+The standalone Local companion has one installation identity. Its manual and
+scheduled tracker synchronization uses that identity's OAuth grant or personal
+API token. Fleet synchronization continues to use a provider-level server
+credential; see [ADR 0068](docs/adrs/0068-local-tracker-sync-uses-installation-identity.md).
 
 For headless or local development, copy the sample environment file and set only
 the values you need:
