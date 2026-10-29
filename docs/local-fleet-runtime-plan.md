@@ -378,3 +378,11 @@ History prefixes, context, model and mode survived; both 90-second delayed tools
 remained stopped beyond their deadlines and their counters showed no replay.
 The Go repository records details in `docs/companion-provider-qualification.md`.
 Rendered Tauri switching, real ticket/MCP workflows and migration remain pending.
+
+Combined MCP workflow qualification (2026-10-29): a fixture-scoped Claude pickup
+workflow completed clarification, OpenSpec specification, implementation and
+review using real `sectile_companion` MCP calls, Git commits/push, unittest and
+MR evidence against a disposable GitLab service. An initial forge validation
+failure remained recorded; resumption reused the accepted stages and MR and
+finished successfully. Details and scope limits are in the Go repository's
+`docs/companion-mcp-workflow-qualification.md`. Launcher switching remains pending.
