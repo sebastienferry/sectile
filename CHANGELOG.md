@@ -12,6 +12,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 ### Fixed
 
 - Finished ticket workflows now show their result and history without disabled launch controls or irrelevant provider setup warnings.
+- Historical ticket executions no longer show a disabled stop action; active executions identify an already requested stop.
 - Opening a ticket workflow no longer gets stuck on loading when a previous request is invalidated during navigation or React remounting.
 - Ticket cards now label their workflow shortcut as navigation and use an open arrow, including for completed tickets.
 - In an active Codex conversation, model choices now follow the signed-in CLI's live catalogue while keeping the current model visible.

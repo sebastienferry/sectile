@@ -57,6 +57,17 @@ test("a changed expected next skill is refreshed without launching the stale act
 test("completed process output is not presented as a confirmed skill result",async()=>{
  monitor.snapshot.runs=[{id:"run",projectId:"project",taskId:"task",skill:"implement",status:"completed",createdAt:"2026-10-28",trace:true}];vi.mocked(context.runResult).mockResolvedValue({});
  show();expect(await screen.findByText("Processus terminé · résultat de skill non confirmé")).toBeTruthy();expect(screen.getByText("Task output")).toBeTruthy();
+ expect(screen.queryByRole("button",{name:"Arrêter l’exécution"})).toBeNull();
+});
+test("active workflow runs show an interrupt action and acknowledge a requested stop",async()=>{
+ monitor.snapshot.runs=[{id:"run",projectId:"project",taskId:"task",skill:"implement",status:"running",createdAt:"2026-10-28"}];
+ vi.mocked(context.runResult).mockResolvedValue({});
+ const view=show();
+ expect(await screen.findByRole("button",{name:"Arrêter l’exécution"})).toBeTruthy();
+ monitor.snapshot.runs=[{...monitor.snapshot.runs[0],cancelRequested:true}];
+ view.rerender(<WorkflowTask projectId="project" taskId="task" onBack={()=>{}} onSetup={()=>{}}/>);
+ const requested=await screen.findByRole("button",{name:"Arrêt demandé…"});
+ expect(requested.hasAttribute("disabled")).toBe(true);
 });
 
 test("a known MCP mismatch blocks a workflow launch instead of using another companion",async()=>{

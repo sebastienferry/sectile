@@ -588,3 +588,7 @@ controls plus a provider-preparation warning, despite Go refusing every launch
 for a finished ticket. Show completion, linked PR and execution history without
 those unavailable controls. Keep the preparation warning only on a loaded,
 unfinished workflow so it does not appear while ticket metadata is loading.
+
+Execution history on a ticket retained a disabled stop button for completed
+runs. Keep the stop action on active runs only, and label an active run with a
+pending stop request as such. Historical output and review remain readable.
