@@ -16,6 +16,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Project navigation hides the “Tableau” action while the board is already open.
 - Local projects without trackers now show a prompt-ready empty state instead of tracker filters and read-only tracker status; the duplicate prompt button has been removed.
 
 - The connection status distinguishes the Fleet backend from the locally running agent.

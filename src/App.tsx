@@ -401,10 +401,10 @@ function ProjectPane({
           {project && (
             <>
               <button onClick={() => navigate(project, "project-settings")}><Icon name="settings" />Configurer le projet</button>
-              <button onClick={() => navigate(project, "board")}>
+              {selection.view !== "board" && <button onClick={() => navigate(project, "board")}>
                 <Icon name="board" />
                 Tableau
-              </button>
+              </button>}
               <button
                 className={selection.view === "board" ? "primary" : "subtle"}
                 onClick={() => navigate(project, "prompt")}

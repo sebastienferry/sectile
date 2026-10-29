@@ -41,6 +41,7 @@ test("sidebar navigation replaces the view without canceling a run", async () =>
 test("theme selection remains available without tabs", async () => {
   render(<App />);
   await screen.findByRole("button", { name: "Example" });
+  expect(screen.queryByRole("button", { name: "Tableau" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Thème clair" }));
   expect(document.documentElement.dataset.theme).toBe("light");
   expect(screen.queryByRole("tab")).toBeNull();
