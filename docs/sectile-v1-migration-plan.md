@@ -1,15 +1,13 @@
 # Sectile V1.0.0 migration plan
 
 Date: 2026-10-29
-Status: product direction and V1 ownership are confirmed. Stages 0-3 are
-delivered on dedicated branches. Stage 4 implementation is complete; managed
-migration recovery qualification remains open. Current-source Fleet pairing
-and native fake-tracker setup are now qualified. Stages 5 and 8 are not
-complete. Stages 6-7 are complete as product decisions and artifacts. macOS is
-the V1 target, Linux is experimental and Windows is deferred. Web planning
-remains the V1 owner and is unchanged in this release. The scoped UX
-convergence audit is complete; current qualification gaps are listed below.
-This is not a V1 release.
+Status: product direction and V1 ownership are confirmed. Stages 0-4 are
+delivered on dedicated branches, including current-source Fleet setup and
+managed-migration recovery evidence. Stages 5 and 8 remain open. Stages 6-7
+are complete as product decisions and artifacts. macOS is the V1 target, Linux
+is experimental and Windows is deferred. Web planning remains the V1 owner
+and is unchanged in this release. The scoped UX convergence audit is complete;
+current qualification gaps are listed below. This is not a V1 release.
 
 ## 1. Product destination
 
@@ -104,7 +102,7 @@ binary. The already configured OAuth prototype remains supported.
 | 1. Shared backend assembly | Reusable Go package first consumed by the existing standalone server | Fleet contracts unchanged; website assets remain outside the shared package |
 | 2. Lifecycle ownership | Explicit construction, admission, stop/join, restart and store exclusivity | Concurrency, partial startup and crash tests prove stores are not shared unsafely |
 | 3. Fresh Local companion | One Go process combining backend and execution on disposable data | Full prompt/workflow/MCP behavior works before existing data is touched |
-| 4. Managed upgrade and native modes | Connection-bound Local/Fleet configuration; journaled upgrade of the prototype; native setup in both modes | Histories, folders, identities and current OAuth preserved; precommit rollback tested; Fleet pairing/setup qualified; pairing or attachment cannot silently replace a selected runtime; no implicit transfer |
+| 4. Managed upgrade and native modes | Connection-bound Local/Fleet configuration; journaled upgrade of the prototype; native setup in both modes | Histories, folders, identities and current OAuth preserved; pre-commit source preservation and candidate retry tested at durable boundaries, post-commit recovery selects the committed generation; Fleet pairing/setup qualified; pairing or attachment cannot silently replace a selected runtime; no implicit transfer |
 | 5. Compatibility and measured delivery | Local/Fleet/Electron test matrix, packaged artifacts and performance comparison | Required behavior and supported versions documented before removing old Local startup |
 | 6. Product/UI transition | Tauri becomes the primary agentic board; a headless backend distribution is defined | Operational features and existing consumers have an explicit migration path |
 | 7. Roadmapping ownership | Confirmed V1 owner and coexistence contract for web planning and the operational desktop | Web planning remains V1-owned and unchanged; no data move or deprecation in this release |
@@ -157,6 +155,26 @@ pairing and attaching an existing Fleet agent. The isolated backend, paired
 agent, app data and bundle were removed after the check. This qualifies profile
 hydration on a current backend, while the live Fleet backend's unsupported OAuth
 setup operation and safe test-device cleanup remain open.
+
+Current-source Fleet native setup qualification (2026-10-29): an isolated
+Tauri app built from the current application source paired through the native
+screen to a disposable Go backend from `df1d846c`. The UI saved a Fleet profile,
+validated and stored a fake GitLab credential against a loopback endpoint,
+created a tracker and linked project, then reconnected after the backend
+restarted with the profile, tracker and projects retained. No external service
+or production account was used. This closes the native Fleet setup slice for
+that exact source pair; OAuth app setup and live-provider qualification remain
+open.
+
+Managed-migration recovery qualification (Go `2cb7f75a`, 2026-10-29):
+`TestUpgradeRecoversEveryDurableBoundaryAndPreservesIdentity` now asserts that
+the source database and installation manifest remain byte-identical and no
+runtime selection is committed after injected failures at each pre-commit
+boundary. At post-commit boundaries it verifies the selected generation is
+available. The test then recovers forward and verifies the original identity,
+credential, encryption key and database remain usable. The full Go suite
+passes. This exercises the accepted retry/forward-recovery contract; it does
+not implement automatic snapshot rollback.
 
 New conversations persist the selected runtime's private connection UUID in Go's
 run journal; a mismatched Tauri connection cannot read or resume them. Legacy
