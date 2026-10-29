@@ -226,8 +226,17 @@ service manifest and hashes from `src-tauri/binaries`, include dependency notice
 and license texts, and pass `hdiutil verify`. It refuses dirty Go service
 builds. Use `npm run tauri build` only for development packages that do not need
 this qualification. Bundles currently use Tauri's starter icons. V1 uses manual
-DMG updates; code signing, notarization, and production release automation
-remain future work. Bundles include the
+DMG updates. A release requires a Developer ID Application signing identity in
+the macOS keychain and Apple notarization credentials. Set
+`APPLE_SIGNING_IDENTITY` and either the App Store Connect API key variables
+(`APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PATH`) or Apple's supported
+notarization account variables before `npm run package:macos`. Keep credentials
+outside the repository; see the [Tauri macOS signing guide](https://v2.tauri.app/distribute/sign/macos/).
+After packaging, verify the app and every bundled Go
+executable with `codesign --verify --strict`, assess the app with `spctl`, and
+validate the stapled ticket before testing the DMG on a clean macOS account.
+The full gate is in the [V1 release checklist](docs/v1-release-checklist.md).
+Bundles include the
 MIT license and third-party dependency notices in the application resources;
 see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the
 [notice maintenance guide](docs/third-party-notices.md).

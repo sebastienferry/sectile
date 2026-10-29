@@ -158,3 +158,12 @@ the DMG is 54,210,359 bytes with SHA-256
 The manifest still reports `releaseEligible: false`, and signing,
 notarization, clean-user installation and a provider run from this package
 remain open.
+
+Source and compatibility refresh (2026-10-29): Go `25a8e77d` passed the full
+Go suite; Tauri source at `2bb47fb` passed TypeScript, 14 domain tests, 101 UI
+tests and 35 Rust tests; Electron passed 315 unit tests and 137 UI tests. The
+current/v0.7.6 binary compatibility harness passed both directions with 27
+agent operations, 21 MCP tools, STDIO bridges, run lifecycle and fake tracker
+creation/stage writes. These checks use isolated data. No Developer ID
+Application identity is installed on the test Mac, so signing and notarization
+cannot be qualified until one is provisioned.
