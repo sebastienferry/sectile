@@ -33,6 +33,8 @@ function OAuthProvider({provider,name,configuration,serverManaged,connection,onS
   const [error,setError]=useState("");
   const mounted=useRef(true);
   const busy=useRef(false);
+  const cancelling=useRef(false);
+  const cancelled=useRef(false);
   const settings=useRef<HTMLDetailsElement>(null);
   const connected=useRef(onConnected); connected.current=onConnected;
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
@@ -42,10 +44,12 @@ function OAuthProvider({provider,name,configuration,serverManaged,connection,onS
     let timer:ReturnType<typeof setTimeout>;
     const deadline=Date.now()+10*60*1000;
     async function poll(){
+      if(cancelling.current){timer=setTimeout(()=>void poll(),1500);return;}
       if(Date.now()>=deadline){setFlow("");setMessage(outcome.expired);return;}
       try {
         const value=await api.oauthStatus(flow);
         if(disposed)return;
+        if(cancelling.current){timer=setTimeout(()=>void poll(),1500);return;}
         if(value.status!=="waiting"&&value.status!=="completing") {
           terminal=true; setFlow(""); setMessage(value.status === "connected" && serverManaged ? "Compte connecté. Vos accès sont enregistrés sur le backend Fleet." : outcome[value.status]??outcome.failed);
           if(value.status==="connected")connected.current();
@@ -53,15 +57,15 @@ function OAuthProvider({provider,name,configuration,serverManaged,connection,onS
         }
         setError(""); timer=setTimeout(()=>void poll(),1500);
       } catch(e) {
-        if(!disposed){setError("Suivi de connexion interrompu : "+String(e));timer=setTimeout(()=>void poll(),3000);}
+        if(!disposed){if(!cancelling.current)setError("Suivi de connexion interrompu : "+String(e));timer=setTimeout(()=>void poll(),3000);}
       }
     }
     void poll();
-    return()=>{disposed=true;clearTimeout(timer);if(!terminal)void api.cancelOAuth(flow).catch(()=>{});};
+    return()=>{disposed=true;clearTimeout(timer);if(!terminal&&!cancelled.current)void api.cancelOAuth(flow).catch(()=>{});};
   },[flow]);
   async function begin(){
     if(busy.current||flow)return;
-    busy.current=true;setPending(true);setError("");setMessage("");
+    busy.current=true;cancelled.current=false;setPending(true);setError("");setMessage("");
     try {
       const id=await api.beginOAuth(provider);
       if(!mounted.current){await api.cancelOAuth(id);return;}
@@ -69,13 +73,22 @@ function OAuthProvider({provider,name,configuration,serverManaged,connection,onS
     }catch(e){if(mounted.current)setError(String(e));}
     finally{busy.current=false;if(mounted.current)setPending(false);}
   }
+  async function cancel(){
+    if(!flow||cancelling.current)return;
+    cancelling.current=true;setPending(true);setError("");
+    try {
+      await api.cancelOAuth(flow);
+      if(mounted.current){cancelled.current=true;setFlow("");setMessage(outcome.cancelled);}
+    }catch(e){if(mounted.current)setError(String(e));}
+    finally{cancelling.current=false;if(mounted.current)setPending(false);}
+  }
   const configured=configuration.configured && (serverManaged ? Boolean(configuration.redirectUrl) : configuration.redirectUrl===configuration.expectedRedirectUrl);
   return <section className="oauth-provider">
     <div className="oauth-heading"><h3>{name}</h3><button className="primary" disabled={pending||!!flow||!configured} onClick={()=>void begin()}>Se connecter à {name}</button></div>
     {connection?.disconnected ? <p role="alert" className="error">Connexion {name} interrompue{connection.account?` pour ${connection.account}`:""}. Reconnectez-vous pour accéder à vos tickets.</p> : connection?.account && <p>Compte connecté : {connection.account}</p>}
     {message&&<p role="status">{message}</p>}
     {error&&<p role="alert" className="error">{error}</p>}
-    {flow&&<button onClick={()=>void api.cancelOAuth(flow).then(()=>{setFlow("");setMessage(outcome.cancelled);}).catch(e=>setError(String(e)))}>Annuler la connexion</button>}
+    {flow&&<button disabled={pending} onClick={()=>void cancel()}>Annuler la connexion</button>}
     {serverManaged ? <p className="muted">L’application OAuth et l’URL de rappel sont administrées sur le backend Fleet.</p> : <details ref={settings} onToggle={event=>{if(!event.currentTarget.open){setClientId("");setSecret("");}}}>
       <summary>{configured?"Application OAuth configurée · modifier":"Configurer l’application OAuth"}</summary>
       <p>Enregistrez cette URL de rappel dans l’application {name} :</p>

@@ -702,6 +702,14 @@ Codex now report independent results and errors, and a later refresh clears a
 recovered provider's error. The 124 UI tests, TypeScript check and production
 build pass on 2026-10-29.
 
+The same review found an OAuth cancellation race. A status poll already in
+flight could complete after the user clicked Cancel and present a connected
+outcome; closing the flow could also send a second cancellation. The desktop
+now gives an in-progress cancellation precedence over polling and skips the
+cleanup request after a confirmed cancellation. A focused UI test resolves a
+late connected poll after cancellation and verifies the cancelled state and
+single backend request.
+
 Returning from Settings to a Local project exposed a transient board
 misclassification: while its context or ticket read was pending, Tauri showed
 remote tracker search and an “Aucun ticket distant” empty state. The board now

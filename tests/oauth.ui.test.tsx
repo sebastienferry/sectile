@@ -19,6 +19,21 @@ test("denied consent is not reported as connected",async()=>{
  fireEvent.click(await screen.findByRole("button",{name:"Se connecter à GitHub"}));
  await screen.findByText("Connexion annulée.");expect(done).not.toHaveBeenCalled();
 });
+test("cancelling an in-flight OAuth check keeps the cancelled outcome and cancels once",async()=>{
+ let finishStatus!:(value:{status:string})=>void;
+ const done=vi.fn();
+ vi.mocked(api.beginOAuth).mockResolvedValue("flow");
+ vi.mocked(api.oauthStatus).mockImplementation(()=>new Promise(resolve=>{finishStatus=resolve;}));
+ render(<OAuthConnections onConnected={done}/>);
+ fireEvent.click(await screen.findByRole("button",{name:"Se connecter à GitHub"}));
+ await waitFor(()=>expect(api.oauthStatus).toHaveBeenCalledWith("flow"));
+ fireEvent.click(screen.getByRole("button",{name:"Annuler la connexion"}));
+ await screen.findByText("Connexion annulée.");
+ await act(async()=>finishStatus({status:"connected"}));
+ expect(done).not.toHaveBeenCalled();
+ expect(screen.queryByText("Compte connecté. Vos accès sont enregistrés sur ce poste.")).toBeNull();
+ expect(api.cancelOAuth).toHaveBeenCalledTimes(1);
+});
 test("a disconnected OAuth account remains visible with a reconnect action",async()=>{
  render(<OAuthConnections onConnected={vi.fn()} credentials={[{tracker:"github",kind:"oauth",account:"Fixture",disconnected:true}]}/>);
  expect(await screen.findByRole("alert")).toHaveProperty("textContent","Connexion GitHub interrompue pour Fixture. Reconnectez-vous pour accéder à vos tickets.");
