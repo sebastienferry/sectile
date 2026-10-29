@@ -229,12 +229,28 @@ their project and tracker modes differ.
 | Light accent / selected | `#0f766e` / `#e3f2ef` | `#167d69` / `#e0eee9` | Values differ; rendered contrast and visual weight still need matched captures. |
 | Light danger | `#b42318` danger, `#a8243d` danger text | `#a8243d` danger, `#fce9ed` danger background | Token names and roles differ, so compare semantic actions rather than matching variable names. |
 
-The board and settings hierarchy have been inspected with isolated data in dark
-mode at approximately 1240 CSS pixels wide. A matched board capture was then
-made at 800 × 820 CSS pixels in both light and dark themes using the same three
-Jira tickets. The isolated Electron copy used a fake loopback agent and
-separate user-data directory; Tauri used the development-only fixture. The
-captures are `/tmp/sectile-electron-board-light-800.png`,
+Contrast ratios computed from the current Tauri theme tokens meet AA for the
+core text roles: primary text on a surface is 12.15:1 in dark mode and 18.62:1
+in light mode; muted text is 6.15:1 and 6:1 respectively. Accent text on its
+selected surface is 9.22:1 and 5.92:1, danger text on its danger surface is
+9.02:1 and 6.04:1, and text on the accent button is 8.89:1 and 5.03:1. The
+focus outline is 2px and its accent color contrasts with the surface at 8.91:1
+and 5.03:1. Button transitions are limited to `prefers-reduced-motion:
+no-preference`. The matched captures show no visual reason to change these
+semantic tokens or enlarge the compact Tauri type scale; their small color
+differences from Electron retain AA contrast and preserve the lighter native
+settings hierarchy.
+
+The board and settings hierarchy have been inspected with isolated data at
+1280 × 900 CSS pixels and 800 × 820 CSS pixels, in both light and dark themes.
+The populated board uses the same three Jira tickets in both applications. The
+isolated Electron copy used a fake loopback agent and separate user-data
+directory; Tauri used the development-only fixture. The board captures are
+`/tmp/sectile-electron-board-light-1280.png`,
+`/tmp/sectile-electron-board-dark-1280.png`,
+`/tmp/sectile-tauri-board-light-1280.png`,
+`/tmp/sectile-tauri-board-dark-1280.png`,
+`/tmp/sectile-electron-board-light-800.png`,
 `/tmp/sectile-electron-board-dark-800.png`,
 `/tmp/sectile-tauri-board-light-800.png` and
 `/tmp/sectile-tauri-board-dark-800.png`. They are evidence artifacts, not
@@ -252,12 +268,14 @@ three statuses and retains workflow stage on each ticket. Do not force those
 column semantics to match. The Tauri fixture is repeatable from
 `tests/fixtures/ux-baseline.json` with `npm run dev:ux-fixture`.
 
-The settings screens were also captured at 800 × 820 in both themes as
+The settings screens were captured at both sizes and in both themes. The
+800px captures are
 `/tmp/sectile-electron-settings-light-800.png`,
 `/tmp/sectile-electron-settings-dark-800.png`,
 `/tmp/sectile-tauri-settings-light-800.png` and
-`/tmp/sectile-tauri-settings-dark-800.png`. The matched narrow settings
-captures confirm that both apps use a left-side settings index and a main
+`/tmp/sectile-tauri-settings-dark-800.png`; the 1280px captures use the same
+filenames with `-1280` in place of `-800`. The matched settings captures
+confirm that both apps use a left-side settings index and a main
 content region. Electron gives its index about 250px of the 800px window and
 keeps workstation categories plus a collapsed project group visible; Tauri
 uses a narrower native index and devotes more of the page to the selected
@@ -276,7 +294,7 @@ CLI sessions in its console/terminal, while Tauri hosts the conversation and
 tool transcript in its own renderer. Tauri fixtures capture those surfaces for
 internal consistency, but they are not Electron parity targets. The matched
 shared-surface gate is closed for the populated project board and settings
-hierarchy at normal and narrow widths in both themes. The captures are an
+hierarchy at 1280 × 900 and 800 × 820 in both themes. The captures are an
 evidence baseline, not pixel-approval for styling changes.
 
 A Tauri-only waiting-question fixture at 800 × 820 exposed a third, outer
@@ -423,9 +441,10 @@ disposable test data.
   evidence of a current-source settings defect. The production companion on
   port `52963` remained running and was not changed.
 - `workspace-polish.css` no longer duplicates Tauri's root palette; shared
-  Tauri color tokens live in `App.css`. This is stylesheet ownership cleanup,
-  not color parity: the light selection, accent, sunken surface and danger
-  values still differ from Electron and require matched screenshot review.
+  Tauri color tokens live in `App.css`. The light selection, accent, sunken
+  surface and danger values still differ slightly from Electron. Matched
+  captures and core-token contrast checks support retaining those values and
+  Tauri's more compact native settings hierarchy.
 
 ## First corrections
 
