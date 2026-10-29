@@ -146,6 +146,23 @@ old/new Fleet protocol fixtures, a remote Fleet session, and a post-migration
 Electron live MCP call remain unqualified. See
 [the runtime plan](local-fleet-runtime-plan.md) for the scope of this evidence.
 
+### Stage 5 compatibility evidence
+
+| Combination | Evidence now available | Qualification |
+| --- | --- | --- |
+| Tauri + Local companion + embedded backend from this branch | Existing macOS managed-install migration; disposable Claude Code, Codex, MCP and companion lifecycle checks | Verified on macOS for the recorded prototype; repeat against the current commit before V1 |
+| Tauri + bundled Fleet agent + current Go backend | Pairing HTTP contract fixture, TLS/credential checks, API authorization tests and UI/native setup tests | Contract coverage only; a real remote Fleet pairing and session are still required |
+| Tauri + legacy attached Fleet agent | Attach path validates a live loopback agent and backend identity; no live fixture has been captured for the current commit | Partial; setup without native pairing credentials is intentionally unavailable |
+| Electron + existing Go server/agent | 315 Electron unit tests and prior runtime checks | Post-migration live MCP call and current Electron/server compatibility are not yet qualified |
+| Mixed Go agent/server versions | Server/agent protocol V1 documents additive fields and unknown-field handling; dedicated old/new binary fixtures are absent | Unsupported as a V1 compatibility claim until the fixtures pass |
+| Native platforms | macOS live migration and unsigned bundle build; Windows companion cross-build | Windows runtime/migration and Linux native builds remain unqualified |
+
+Until these gates close, compatibility claims are limited to the tested source
+revision and platform evidence above. The versioned server/agent contract is
+additive within V1, but that rule alone does not prove any particular mixed
+binary pair. V1 must publish a tested server/agent version matrix and desktop
+platform support table before release.
+
 Stages 6 and 7 are product-direction work, not authorization to remove existing
 web pages, API routes or domain data during stages 0-5. A headless distribution
 can omit website assets without immediately deleting the current web server.
