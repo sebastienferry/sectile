@@ -471,18 +471,18 @@ function ProjectPane({
         <div className="toolbar-actions">
           {project && (
             <>
-              <button onClick={() => navigate(project, "project-settings")}><Icon name="settings" />Configurer le projet</button>
+              {selection.view !== "project-settings" && <button onClick={() => navigate(project, "project-settings")}><Icon name="settings" />Configurer le projet</button>}
               {selection.view !== "board" && <button onClick={() => navigate(project, "board")}>
                 <Icon name="board" />
                 Tableau
               </button>}
-              <button
+              {(selection.view !== "prompt" || selection.runId) && <button
                 className={selection.view === "board" ? "primary" : "subtle"}
                 onClick={() => navigate(project, "prompt")}
               >
                 <Icon name="plus" />
                 Nouveau prompt
-              </button>
+              </button>}
             </>
           )}
           {selection.view === "board" && <button

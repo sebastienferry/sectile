@@ -353,6 +353,7 @@ test("mapped projects open their prompt directly",async()=>{
  fireEvent.click(await screen.findByRole("button",{name:"Nouveau prompt dans Example"}));
  await screen.findByText("Free prompt for p");
  expect(screen.queryByRole("button",{name:"Choisir un dossier"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Nouveau prompt"})).toBeNull();
  expect(invoke).not.toHaveBeenCalled();
 });
 
@@ -364,6 +365,7 @@ test("existing conversations stay readable without a current project folder",asy
  fireEvent.click(await screen.findByRole("button",{name:/Saved conversation/}));
  expect(screen.getByText(/Claude Code · Prête/)).toBeTruthy();
  await screen.findByText("Free prompt for p");
+ expect(screen.getByRole("button",{name:"Nouveau prompt"})).toBeTruthy();
  expect(screen.queryByRole("button",{name:"Choisir un dossier"})).toBeNull();
 });
 
@@ -373,6 +375,7 @@ test("project settings change the existing folder and update the toolbar and nex
  render(<App />);
  fireEvent.click(await screen.findByRole("button",{name:"Configurer le projet"}));
  await screen.findByRole("region",{name:"Dossier du projet"});
+ expect(screen.queryByRole("button",{name:"Configurer le projet"})).toBeNull();
  expect(screen.getByText("/work/old",{selector:"code"})).toBeTruthy();
  fireEvent.click(screen.getByRole("button",{name:"Changer de dossier"}));
  await screen.findByText("/work/new",{selector:"code"});

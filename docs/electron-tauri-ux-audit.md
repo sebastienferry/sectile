@@ -716,3 +716,9 @@ existing native folder picker directly and says that no tracker is required.
 A failed board refresh is shown only
 on the board; it no longer follows the user into a new prompt. The focused
 workspace UI suite covers both transitions.
+
+At the compact prompt width, the toolbar repeated “Nouveau prompt” even while
+the new-prompt composer was already open. Project settings similarly linked to
+itself. The current-view shortcuts are now omitted, while an existing
+conversation retains its new-prompt action. Workspace UI regressions cover the
+three states.
