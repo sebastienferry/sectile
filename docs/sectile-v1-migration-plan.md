@@ -1,12 +1,13 @@
 # Sectile V1.0.0 migration plan
 
 Date: 2026-10-29
-Status: product direction and V1 ownership are confirmed; Local companion runtime
-and managed upgrade are implemented on dedicated branches. macOS is the V1
-target, Linux is experimental and Windows is deferred. Stage 5 compatibility
-qualification remains underway. Web planning remains the V1 planning owner and
-is unchanged in this release. Remaining compatibility, signing and UX
-convergence gates are documented below. This is not a V1 release.
+Status: product direction and V1 ownership are confirmed; implementation stages
+0-4 are delivered on dedicated branches, and Stages 6-7 are complete. Stage 5
+compatibility qualification and Stage 8 release gates remain open. macOS is the
+V1 target, Linux is experimental and Windows is deferred. Web planning remains
+the V1 owner and is unchanged in this release. The UX convergence audit is
+complete; current qualification gaps are listed below. This is not a V1
+release.
 
 ## 1. Product destination
 
@@ -198,15 +199,34 @@ project mapping, companion restart and persisted profile/projects. Real-provider
 flags were disabled. The test binaries were replaced afterward by the clean
 Go `df1d846c` default-port build; the manifest reports `dirty: false`, the
 existing companion remained on port 52963, and port 52965 was free.
-Stage 5 remains open: qualify Fleet-native setup and reconnect behavior, real
-tracker/provider behavior, exact supported versions, and remaining measured
-process/memory/startup and macOS package behavior. A current Electron UI smoke
-against the current Go server and agent now passes for read-only project and
-ticket loading on isolated data; full Fleet and execution workflows remain
-unqualified. The v0.7.6/current binary harness uses an isolated fake GitHub
-endpoint; it does not qualify live tracker writes or provider execution. Linux
-is experimental and Windows is deferred, so migration qualification for those
-platforms is outside the V1 release gate. A fresh Linux ARM64 Debian package was built from Tauri
+Stage 5 compatibility is qualified in bounded slices, but the full matrix is
+not closed. On 2026-10-29, the exact current Go commit `df1d846c` passed
+`go test ./...`, the v0.7.6/current binary compatibility harness in both
+directions, and the Electron production build plus 315 unit and 137 UI tests.
+The harness passed the 21-tool MCP catalog, both STDIO bridges, run lifecycle,
+workflow operations and fake tracker create/stage updates. A separate live
+Electron UI smoke against this Go commit loaded projects and tickets read-only
+from isolated data. A disposable current-source Go backend paired with the
+current Tauri Fleet build; the app loaded its profile and default project,
+closed, and reopened with the saved pairing, profile and project restored.
+This verified Fleet reconnect behavior only, with a local fake account and no
+external tracker. Current Local Tauri onboarding, Codex/Claude responses, tool
+tracking, interruption/resume and MCP behavior have passed on isolated data
+with the test-only port override; the current-source package and DMG integrity
+verifier also pass. Exact-source evidence and limitations are in the Stage 5
+table below.
+
+The remaining Stage 5 gaps are end-to-end live OAuth/tracker/provider workflows
+on the release binary, and a broader desktop execution workflow through the
+current Electron UI. The installed live Fleet backend `660-main` is older than
+the current Go branch: pairing and authenticated project reads work, but its
+OAuth administration endpoint is unavailable. Do not infer support for that
+server from the current-source protocol harness. The current release package
+has no valid Developer ID signature, so Gatekeeper, notarization and clean-user
+installation remain Stage 8 gates. A clean default-port cold start is deferred
+while the user's existing companion owns port 52963. Linux is experimental and
+Windows is deferred, so migration qualification for those platforms is outside
+the V1 release gate. A fresh Linux ARM64 Debian package was built from Tauri
 commit `ab8c7a7` and clean Go commit `7dea9140` in a Debian Bookworm ARM64
 container. The 49.11 MiB `.deb` contains an ARM64 Tauri executable and all three
 Go services; each embedded service is an ARM64 ELF binary, its SHA-256 matches
@@ -223,8 +243,9 @@ profile and warm filesystem cache showed 207–245 ms to the first window. The
 React setup screen was manually accessible by about 3.5 seconds on the initial
 launch (an upper bound from a two-second observation interval, not automated UI
 readiness). Repeated true cold-start, signed artifact and cross-platform
-measurements remain open. Do not claim stages 6-8 complete or
-infer that this branch constitutes a V1 release.
+measurements remain open. Stages 6 and 7 are complete as product-transition
+decisions and artifacts; Stage 8 remains open. Do not infer that this branch
+constitutes a V1 release.
 
 The first compatibility slice passed: standalone `cmd/agent` and `cmd/server`
 tests, race-enabled companion/backend/agent tests, a Windows companion
@@ -354,6 +375,17 @@ domain and workspace UI regressions cover the idle-session case.
 | macOS signing | `security find-identity -v -p codesigning` returned zero valid identities on the qualification host (2026-10-29) | No signed macOS artifact can be qualified on this host; a valid signing identity is required |
 | Open-source package provenance | The user selected MIT for both repositories. Tauri has an MIT `LICENSE`; Go commit `5f809481` adds the MIT grant to the services repository and updates its README. Go and Tauri packages now include inventories and license texts for their Go, Rust, and JavaScript dependency sets. The Go notice records the `go.mod` hash; Tauri verifies that hash before bundling the selected Go source. | Repository licensing and package notices are implemented and verified in the Go release archive and macOS app bundle. Keep notice regeneration and dependency-graph validation in the release process; signed macOS distribution remains open. |
 
+Current compatibility refresh (2026-10-29, Go commit `df1d846c`): `go test
+./...`, the v0.7.6/current server-agent harness, Electron's production renderer
+build, all 315 Electron unit tests and all 137 Electron UI tests passed. The
+compatibility harness connected both agent/server directions, listed all 21
+MCP tools through both stdio bridges, completed task/run/workflow checks and
+created/updated fake tracker issues. The Electron UI run used isolated fixtures.
+The live Electron-to-current-Go board smoke remains read-only and isolated.
+These results qualify the named current-source pair and the tested v0.7.6
+mixed pair for those operations; they do not establish a general Fleet version
+range or qualify live external tracker writes.
+
 Cross-version harness re-run (2026-10-29, Go commit `7dea9140`):
 `python3 scripts/compatibility/test-v076-server-current-agent.py` passed. It
 connected current and released agents in both server directions, completed
@@ -452,7 +484,7 @@ and agent pair for the features that release exposes. A pair that passes MCP or
 agent protocol checks alone is compatibility-tested for those operations, not
 qualified for all native Fleet setup.
 
-The current/v0.7.6 mixed pair passes the common 21-tool MCP catalog, selected
+The Go `df1d846c`/v0.7.6 mixed pair passes the common 21-tool MCP catalog, selected
 workflow operations, agent dispatch and the real stdio MCP bridge in both
 directions. That evidence does not qualify the older server's OAuth
 administration or the complete native Tauri setup surface. Until a tagged Go
@@ -538,13 +570,14 @@ client migration are separate qualifications.
 - The separate companion, temporary internal HTTP/WebSocket transport and
   continued support for current OAuth remain confirmed decisions.
 
-Stage 7's ownership decision is complete. Before V1 release, finish the exact
-operational feature inventory, publish the tested backend compatibility range,
-qualify macOS signing/notarization and upgrade installation, complete
-remaining Fleet/Electron compatibility checks and finish the UX convergence
-plan. Third-party notices are included in the Go release archive and Tauri
-bundle; keep them synchronized with dependency changes. These gates do not
-authorize changes to the existing web application.
+Stage 7's ownership decision and the UX convergence plan are complete. Before
+V1 release, publish the exact supported Fleet pair (or list Fleet setup as
+unsupported for unqualified server versions), qualify macOS signing and
+notarization, complete clean-user and full-state upgrade installation, and
+close the remaining Fleet/Electron/live-provider checks. Third-party notices
+are included in the Go release archive and Tauri bundle; keep them synchronized
+with dependency changes. These gates do not authorize changes to the existing
+web application.
 
 ## 8. Release meaning
 

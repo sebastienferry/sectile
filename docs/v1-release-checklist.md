@@ -98,3 +98,13 @@ installation and complete upgrade retention, default-port cold start with the
 current binary, full Fleet/Electron workflows, and live tracker/provider
 qualification remain open. Linux remains experimental and Windows is deferred,
 so neither is a V1 qualification gate. No V1 release is ready to publish.
+
+Current source test refresh (2026-10-29): Go commit `df1d846c` passes `go test
+./...` and the v0.7.6/current compatibility harness in both directions.
+Electron 0.7.5 built against that Go checkout and passed 315 unit tests plus
+137 UI tests. Tauri commit `239d7c1` passes typecheck, 14 domain tests, 101 UI
+tests, 35 Rust tests and its production build. The Electron live UI check is
+read-only on isolated data; the mixed-version harness uses a fake tracker.
+These results qualify the named test combinations and operations only. They do
+not close the listed Fleet setup, live provider/tracker or release-installation
+gates.
