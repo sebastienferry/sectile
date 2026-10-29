@@ -1,7 +1,7 @@
 # Electron and Tauri desktop UX audit
 
 Date: 2026-10-29
-Status: source corrections are in progress; matched visual comparison and installed-app refresh remain open.
+Status: source corrections and a current-source visual check are complete; matched visual comparison remains open.
 
 ## Reference and scope
 
@@ -41,13 +41,23 @@ verification record remains the evidence for those flows.
   corrected in Tauri source and covered by targeted UI regressions. The current
   board navigation action is hidden while already on the board. These changes
   are in commits `bf4a22a`, `9457e14` and `25f9cac`.
-- The open installed Tauri window was inspected after those source commits and
-  still displayed the older board toolbar and duplicate prompt action. Treat
-  that window as a stale bundle, not as evidence that the committed source
-  correction failed. A current-source app has since been built in isolation at
-  `/tmp/sectile-tauri-ux-audit/release/bundle/macos/Sectile UX Audit.app` with a
-  separate bundle identifier; it has not yet been launched because the Mac is
-  locked. The Electron window could not be inspected for the same reason.
+- On 2026-10-29 the Tauri debug bundle was rebuilt from current source and
+  launched in the existing workspace. The visible board uses the single
+  persistent agent status in the sidebar, omits the redundant connection
+  indicator and footer claim, hides the current-board navigation action, and
+  keeps refresh beside the board it updates. The project screen puts the local
+  folder, default prompt profile and primary prompt action before advanced
+  options. This is a source verification, not a matched Electron/Tauri visual
+  comparison.
+- Electron's searchable settings dialog and Tauri's native settings page were
+  inspected side by side. Electron exposes General, Appearance, Agent
+  connection, Execution defaults, AI engines, Skills, Deployment, Agent logs
+  and Changelog; Tauri exposes AI engines, Profile, Accounts and trackers,
+  Projects and Local services. The settings architectures differ as intended,
+  but the terminology and information hierarchy still deserve a focused
+  comparison. Electron was in English/dark mode while Tauri was in French/light
+  mode. Neither saved theme preference was changed to force a comparison, so
+  the matched language, color and spacing review remains open.
 - Prompt context now surfaces attached folder names immediately. The full path
   and role remain available in the details disclosure. Typecheck and production
   build passed for this change; a matched live visual review is still pending.
