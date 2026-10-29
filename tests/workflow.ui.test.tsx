@@ -23,6 +23,15 @@ test("workflow loads after React remounts its effect during an in-flight read",a
  resolveFirst([task]);
  expect(await screen.findByRole("button",{name:"Étape suivante : Implémenter"})).toBeTruthy();
 });
+test("finished tickets show their result and PR without unavailable launch controls",async()=>{
+ vi.mocked(api.listTasks).mockResolvedValue([{...task,status:"finished",labels:["#finished"],prUrl:"https://example.test/pr/1"}]);
+ show();
+ expect(await screen.findByText("Ce ticket est terminé.")).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Ouvrir la PR / MR"})).toBeTruthy();
+ expect(screen.queryByRole("button",{name:/Lancer la chaîne/})).toBeNull();
+ expect(screen.queryByText("Instructions et autre skill")).toBeNull();
+ expect(screen.queryByText(/Préparation skills\/MCP non confirmée/)).toBeNull();
+});
 test("next-step launch rereads workflow state and preserves the configured chain stop in the UI",async()=>{
  show();const next=await screen.findByRole("button",{name:"Étape suivante : Implémenter"});
  await waitFor(()=>expect(next.hasAttribute("disabled")).toBe(false));

@@ -582,3 +582,9 @@ Allow a new navigation read to supersede an older one, let only the newest read
 update the view, and suppress overlapping periodic polls. Verify the initial
 workflow becomes usable under React's effect remount and that the completed
 ticket still has no launch action.
+
+The completed workflow also rendered disabled next-step, chain and custom-skill
+controls plus a provider-preparation warning, despite Go refusing every launch
+for a finished ticket. Show completion, linked PR and execution history without
+those unavailable controls. Keep the preparation warning only on a loaded,
+unfinished workflow so it does not appear while ticket metadata is loading.
