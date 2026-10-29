@@ -262,12 +262,34 @@ bundle was not launched: the active Local companion retained fixed port 52963,
 and the existing app was left undisturbed. This qualifies current-source bundle
 provenance, not a fresh Tauri-to-companion runtime launch.
 
+Fresh Local Tauri runtime smoke (2026-10-29, same Tauri source, Go commit
+`7dea9140`): an isolated bundle identifier and a temporary Go worktree changing
+only the Local port from 52963 to 52964 avoided stopping the user's active
+companion. The packaged Tauri app started its current-source companion and
+agent, saved an isolated local profile, stored a synthetic GitHub credential
+against a loopback mock, created a mock-backed tracker and project, and linked
+`/private/tmp/sectile-local-current-smoke-project` through the native directory
+picker. The project configuration and both new-prompt and conversation screens
+showed that folder as the execution context. Real Codex (`gpt-6-astra`) and
+Claude Code conversations each read the temporary README through a tracked tool,
+returned the exact expected marker and first line, and reported Sectile MCP as
+connected. Neither prompt changed a file. The mock received only a read-only
+`GET /user`; the profile, credential, tracker, project and conversations lived
+in the isolated app database. Closing the desktop left its companion running as
+designed; the test then stopped it and removed the isolated app data, workspace,
+bundle and temporary worktree. Generated services were restored from the clean
+Go source afterward. This verifies the Tauri Local path with a test-only port
+override; it does not replace the clean default-port bundle launch qualification.
+During this smoke the conversation detail reported `Prêt`, while the sidebar
+labels still said `En cours` after both answers completed. Carry this status
+label discrepancy into the deferred Electron-to-Tauri UX convergence phase.
+
 ### Stage 5 compatibility evidence
 
 | Combination | Evidence now available | Qualification |
 | --- | --- | --- |
 | Local companion binary from Go `7dea9140` | Fresh isolated macOS smoke using an ephemeral data root: local profile sign-in, one-time pairing with owner/device identity check, embedded agent readiness, authenticated `/api/projects` and clean SIGTERM shutdown | Pass for the current-source companion binary and backend lifecycle. This does not qualify the Tauri launcher or provider/MCP execution against this fresh generation; the active Local debug bundle still contains an older companion hash. |
-| Tauri + Local companion + embedded backend from this branch | Existing macOS managed-install migration; disposable Claude Code, Codex, MCP and companion lifecycle checks | Verified on macOS for the recorded prototype; fresh current-bundle launch through Tauri remains open before V1 |
+| Tauri + Local companion + embedded backend from this branch | Existing macOS managed-install migration; fresh isolated Tauri Local launch from Go `7dea9140` source with a test-only alternate port; native profile, fake tracker/project, folder association, Codex and Claude Code prompts, tool events and MCP connection | Pass for the Local bootstrap and provider path with the alternate port. The current-source default-port bundle was built and hash-verified but not launched because the existing Local companion held port 52963. |
 | Tauri current agent + live Fleet backend | Agent `dev` from Go commit `7dea9140` paired through a temporary one-time code to live server `660-main` (`b8fabf44aa7a`); the local gateway reported connected, `/api/me` matched the pairing owner, and `/api/projects` succeeded. The visual check confirmed Fleet-backed project listing and local-folder/project-link controls. OAuth setup reports unsupported by this Fleet backend version; profile fields were blank and not saved. The workstation page remained at four devices and did not identify a distinct test record, so no existing device was revoked. | Real pairing and authenticated project access pass. Native Fleet setup is only partially qualified; OAuth/profile persistence and safe cleanup remain open. No tracker writes were attempted |
 | Tauri + legacy attached Fleet agent | An isolated `com.sebferry.sectile.tauri.fleetcheck` macOS bundle used the native “attach existing agent” flow, reported `Agent local · backend Fleet`, loaded 19 live projects, and read 390 tickets from the Sectile project (2026-10-29). It attached to the existing v0.7.6 workstation agent without creating tracker writes or replacing the active Local profile. A read-only `/api/me` request through that agent gateway returned `401`, so this legacy connection cannot supply the authenticated user profile required for native API setup. | Live attachment, backend mode display, project discovery and tracker-backed board reads verified. Native setup through this legacy connection still requires a newly paired desktop credential. |
 | Existing Electron/Go workstation + live backend | The installed Electron agent is `v0.7.6` (`ac74004102c0`). Its `sectile-agent mcp` bridge connected to live server `660-main` (`b8fabf44aa7a`), listed 21 tools and completed a read-only `list_projects` call (2026-10-29); 315 Electron unit tests and 137 Electron UI tests pass on Go commit `7dea9140` | Live MCP bridge behavior is verified for this installed client/server pair. Current-branch Electron/server compatibility remains unqualified |
