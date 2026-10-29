@@ -101,11 +101,18 @@ type desktopRun struct {
 	TaskKey          string    `json:"taskKey"`
 	// MacroKey is set on a macro skill run, which has no task. TaskKey then
 	// carries the macro key too, for the label.
-	MacroKey  string `json:"macroKey,omitempty"`
-	ProjectID string `json:"projectId"`
-	Skill     string `json:"skill"`
-	SessionID string `json:"sessionId"`
-	Directory string `json:"directory"`
+	MacroKey string `json:"macroKey,omitempty"`
+	// Scope is "orchestrator" on a project's orchestrator session (ADR 0064),
+	// which has neither a task nor a macro, and ProfileID and ProfileName name
+	// the orchestration agent it runs. The desktop shows these sessions in its
+	// Orchestration section, never as ticket workers.
+	Scope       string `json:"scope,omitempty"`
+	ProfileID   string `json:"profileId,omitempty"`
+	ProfileName string `json:"profileName,omitempty"`
+	ProjectID   string `json:"projectId"`
+	Skill       string `json:"skill"`
+	SessionID   string `json:"sessionId"`
+	Directory   string `json:"directory"`
 	// Folders are every folder of the run, Directory first, when it has more
 	// than one (#762): the desktop offers to copy each. A folder prepared or
 	// attached while the run goes is added to it. Absent for a run launched
@@ -185,7 +192,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		capabilities := []string{"engine-setup", "batch-launch", "git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", "agy-conversation", codexSettingsCapability, agySettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability, taskPageCapability, taskFieldsCapability, stageMoveCapability, orchestrationControlsCapability, orchestrationAgentsCapability}
+		capabilities := []string{"engine-setup", "batch-launch", "git-diff", markdownDocumentsCapability, markdownImagesCapability, "create-task", "remove-project", "free-console", "transition-stage", "repositories", attachedFoldersCapability, "git-init", taskEnginesCapability, openEditorCapability, "claude-conversation", "codex-conversation", "agy-conversation", codexSettingsCapability, agySettingsCapability, conversationControlsCapability, conversationQueueCapability, runFoldersCapability, runFoldersTerminalsCapability, folderSelectionCapability, consoleViewCapability, conversationModeCapability, projectTerminalCapability, archiveWorkspaceCapability, taskPageCapability, taskFieldsCapability, stageMoveCapability, orchestrationControlsCapability, orchestrationAgentsCapability, orchestrationSessionsCapability}
 		if d.store != nil {
 			capabilities = append(capabilities, runStoreCapability)
 		}
@@ -543,10 +550,14 @@ func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, statu
 	arguments := map[string]string{"taskKey": taskID}
 	if taskID == "" {
 		projectID, macroKey := d.macroOfRun(runID)
-		if macroKey == "" {
+		switch {
+		case macroKey != "":
+			arguments = map[string]string{"projectId": projectID, "macroKey": macroKey}
+		case d.orchestratorProjectOfRun(runID) != "":
+			arguments = map[string]string{"projectId": d.orchestratorProjectOfRun(runID)}
+		default:
 			return nil
 		}
-		arguments = map[string]string{"projectId": projectID, "macroKey": macroKey}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -569,6 +580,7 @@ func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, statu
 	}
 	if taskID == "" {
 		d.forgetMacroRun(runID)
+		d.forgetOrchestratorRun(runID)
 	}
 	return nil
 }

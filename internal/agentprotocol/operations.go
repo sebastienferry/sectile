@@ -11,6 +11,9 @@ import (
 // keep its run open until the agent reports an outcome.
 var ErrLaunchUnconfirmed = errors.New("launch not confirmed")
 
+// ScopeOrchestrator is the scope of an orchestrator session launch.
+const ScopeOrchestrator = "orchestrator"
+
 // Operation names a local capability; directories are resolved by the agent from project identity.
 type Operation struct {
 	DeviceID string `json:"deviceId,omitempty"`
@@ -25,12 +28,19 @@ type Operation struct {
 	SkillID           string `json:"skillId,omitempty"`
 	// Model is the one-off model override carried by a queued launch, empty when
 	// the launcher resolved none.
-	Model     string `json:"model,omitempty"`
-	RunID     string `json:"runId,omitempty"`
-	ProjectID string `json:"projectId"`
-	TaskID    string `json:"taskId,omitempty"`
-	Action    string `json:"action"`
-	Branch    string `json:"branch,omitempty"`
+	Model string `json:"model,omitempty"`
+	RunID string `json:"runId,omitempty"`
+	// Scope is ScopeOrchestrator on the launch of a project's orchestrator
+	// session (ADR 0064), which has no task; empty on every other operation.
+	Scope string `json:"scope,omitempty"`
+	// ProfileID and ProfileName name the workstation's orchestration agent
+	// whose Markdown file is an orchestrator session's policy.
+	ProfileID   string `json:"profileId,omitempty"`
+	ProfileName string `json:"profileName,omitempty"`
+	ProjectID   string `json:"projectId"`
+	TaskID      string `json:"taskId,omitempty"`
+	Action      string `json:"action"`
+	Branch      string `json:"branch,omitempty"`
 	// Repository names a repository other than the project checkout's, as its
 	// host/path identity, for evidence of a pull request that lives there.
 	// Empty keeps the operation on the project checkout.

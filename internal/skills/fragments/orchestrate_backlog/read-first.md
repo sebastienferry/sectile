@@ -1,0 +1,4 @@
+- The orchestration policy in the prompt: the profile's Markdown file, or the project's shared policy. It is mandatory and outranks the defaults below.
+- `get_orchestration_state`: free slots, the blocker labels the server refuses, the tickets already being worked on, and the latest decision on each ticket with whether the ticket changed since.
+- `list_tasks` for the project, then `get_task` on the candidates you need to read in full.
+- `get_project_context` for the project's workflow, specification framework and conventions.

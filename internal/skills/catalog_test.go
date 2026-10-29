@@ -87,8 +87,8 @@ func TestGeneratedSkillsRenameTheSessionAfterTheWorkItem(t *testing.T) {
 		for _, stage := range skills.StageSkills {
 			t.Run(framework+"/"+stage.ID, func(t *testing.T) {
 				item := "ticket"
-				if stage.Scope == "macro" {
-					item = "macro"
+				if stage.Scope == "macro" || stage.Scope == "project" {
+					item = stage.Scope
 				}
 				for _, document := range []string{
 					skills.RenderSkillContent(stage, framework),

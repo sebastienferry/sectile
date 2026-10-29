@@ -181,6 +181,39 @@ empty and `SECTILE_SPEC_WORKTREE` is `false`. It reads no task and records no
 branch. An agent that predates `macroKey` refuses
 the dispatch as a task dispatch without a task.
 
+A project's orchestrator session (`orchestrate_backlog`, ADR 0064) is
+dispatched the same way, with neither a task nor a macro, and with
+`"scope": "orchestrator"`. `profileId` and `profileName` name the workstation's
+orchestration agent whose Markdown file is the session's policy; both are empty
+when the project's shared policy applies, which the server then puts in
+`prompt`:
+
+```json
+{
+  "schemaVersion": 1,
+  "taskId": "",
+  "taskKey": "",
+  "projectId": "actual-project-id",
+  "scope": "orchestrator",
+  "profileId": "docs",
+  "profileName": "Documentation agent",
+  "skillId": "orchestrate_backlog",
+  "mode": "autonomous",
+  "prompt": "Orchestrate the backlog of project Demo (projectId actual-project-id).",
+  "runId": "remote-run-id"
+}
+```
+
+The agent runs it headless in the project's mapped checkout, with
+`SECTILE_PROJECT_ID` and `SECTILE_RUN_ID` set and every `SECTILE_TASK_*` and
+`SECTILE_MACRO_*` empty. It reads the named agent's file at each launch and
+appends it to the prompt as the mandatory policy; an agent no longer configured
+fails the session with that reason. One session runs at a time per project on a
+workstation. The session finishes with `finish_run(projectId, runId, status,
+note)`, without a task or macro key. An armed workstation that is offline when
+a session is woken keeps it queued, and the server sends it when that
+workstation connects again; no other workstation takes it.
+
 `step_status` correlates with `msgId` and reports `running`, `completed` or
 `failed`, with a summary. `completed` acknowledges launch only, not completion of
 the requested workflow stage. Web launch requests wait up to 45 seconds. The
@@ -453,11 +486,13 @@ Authenticated `GET /api/v1/agent/projects` returns
 `{"schemaVersion":1,"projects":[{"id":"server-primary-key","name":"Project","gitRemoteUrl":"..."}]}`.
 Discovery records may also carry `orchestratorEnabled`, `orchestratorMaxConcurrent`, and `orchestratorActiveRuns`. The count covers active task sessions across the project, including other workstations. It is present for enabled orchestrators; absence means capacity is unknown, while an explicit zero means no active runs. These optional fields do not change the schema version. The agent forwards them through authenticated `GET /desktop/projects` for the desktop orchestration section.
 
-The local agent advertises `orchestration-controls` and `orchestration-agents` for named desktop orchestration. New desktop controls require `orchestration-agents`. Authenticated `GET /desktop/orchestration?projectId=…` returns project `orchestratorEnabled`, `orchestratorMaxConcurrent`, `maxAgents` (20), and `agents`: local `{id,name,file,guidelines,guidelinesError?}` records. `GET /desktop/projects` also includes the local `orchestrationAgents` definitions `{id,name,file}` for sidebar controls, without file contents.
+The local agent advertises `orchestration-controls`, `orchestration-agents` and `orchestration-sessions` for named desktop orchestration. New desktop controls require `orchestration-agents`; starting and stopping require `orchestration-sessions`, which an agent that predates ADR 0064 lacks. Authenticated `GET /desktop/orchestration?projectId=…` returns project `orchestratorEnabled`, `orchestratorMaxConcurrent`, `maxAgents` (20), `agents`: local `{id,name,file,guidelines,guidelinesError?}` records, and `state`: the server's orchestration state (below), or null when the project is disabled or the server predates ADR 0064. `GET /desktop/projects` also includes the local `orchestrationAgents` definitions `{id,name,file}` for sidebar controls, without file contents.
 
-`PUT /desktop/orchestration?projectId=…` accepts `{orchestratorEnabled,orchestratorMaxConcurrent,agents:[{id,name,file}]}`. IDs and names must be unique; IDs remain stable on edits. Names and IDs are bounded to 80 bytes. Names, IDs and file paths are trimmed; an empty file path uses `AGENTS.md`. A disabled project can store `agents:[]`, while enabling requires at least one agent and valid files for all definitions. The path and definitions stay in workstation project settings; only enablement and concurrency are forwarded to the server.
+`PUT /desktop/orchestration?projectId=…` accepts `{orchestratorEnabled,orchestratorMaxConcurrent,agents:[{id,name,file}]}`. IDs and names must be unique; IDs remain stable on edits. Names and IDs are bounded to 80 bytes. Names, IDs and file paths are trimmed; an empty file path uses `AGENTS.md`. A disabled project can store `agents:[]`, while enabling requires at least one agent and valid files for all definitions. The path and definitions stay in workstation project settings; only enablement and concurrency are forwarded to the server. Saving a list without the agent this workstation started stops orchestration first.
 
-`POST /desktop/orchestration?projectId=…` accepts `{agentId}` and runs only that saved agent. An omitted ID is accepted only when exactly one agent exists; unknown, removed or ambiguous agents are rejected. The selected file is read afresh. Relative `.md` paths must stay inside the mapped checkout, including through symlinks; missing, empty, non-UTF-8 or oversized files are rejected. The agent's name, ID and file contents form a guideline snapshot of at most 32 KiB. It is forwarded as the optional `guidelines` on `POST /api/projects/{id}/orchestrate` and retained through every chain step, without rewriting shared web/MCP policy. All agents use the same project concurrency cap and task reservation. The bridge accepts no actor, force, guideline text or capacity override on a run. The paired credential determines user and workstation; a device header cannot replace them. Missing server support produces HTTP 501.
+`POST /desktop/orchestration?projectId=…` accepts `{agentId}` and starts orchestration with that saved agent (ADR 0064). An omitted ID is accepted only when exactly one agent exists; unknown, removed or ambiguous agents are rejected. The selected file is read to refuse an agent whose policy is already unreadable: relative `.md` paths must stay inside the mapped checkout, including through symlinks; missing, empty, non-UTF-8 or files over 32 KiB are rejected. The file text never travels: `POST /api/projects/{id}/orchestrate` receives `{profileId,profileName}`, and the workstation reads the file again at each session launch. The server answers 202 with `{session}`, 409 when the project is disabled, another agent or workstation is started, a session is already active (with that `session`), or no workstation can run it. `DELETE /desktop/orchestration?projectId=…` stops orchestration through `POST /api/projects/{id}/orchestrate/stop`; running chains finish on their own. All agents use the same project concurrency cap and task reservation. The bridge accepts no actor, force, guideline text or capacity override. The paired credential determines user and workstation; a device header cannot replace them. Missing server support produces HTTP 501.
+
+`GET /api/projects/{id}/orchestrate` returns `{projectId,enabled,maxConcurrent,activeRuns,availableSlots,blockerLabels,armed?,session?,decisions}`. `armed` is `{projectId,userId,deviceId,profileId,profileName,wakePending,armedAt}` while orchestration is started. `session` is the active orchestrator session, with `runScope: "orchestrator"`. `decisions` holds the latest launch or deferral of each ticket, `{taskId,taskKey,title,runId,decision,reason,decidedAt,unchangedSinceDecision}`, most recent first, kept 30 days. A request that still carries `guidelines` is refused with 400 and asks for a desktop update.
 
 
 Discovery excludes server filesystem paths and credentials.
@@ -618,7 +653,8 @@ with completed, failed or canceled when it ends, including a stop for user input
 A macro skill run names `projectId` and `macroKey` instead of `taskKey`, in both
 calls; naming both forms, or a macro key without its project, is refused. Such a
 run is a project activity with no task, and its end hands nothing back to a
-workflow chain.
+workflow chain. An orchestrator session names only `projectId` and its `runId`
+in `finish_run`; its end may wake the next session (ADR 0064).
 Nested skills reuse their owner's run; intermediate transitions do not close it.
 These activities never acquire the managed-stage transition guard.
 

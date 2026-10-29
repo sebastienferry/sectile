@@ -4,11 +4,14 @@ const {_electron:electron,expect}=require('@playwright/test')
 const {WebSocketServer}=require('ws')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
-test('named orchestration agents keep independent files and run controls alongside live consoles',async()=>{
+test('named orchestration agents keep independent files and start one backlog orchestrator alongside live consoles',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-orchestration-'))
  let openedTerminals=0
  let online=true,capacity=3,discoveryAvailable=true,metadata=true,controlsAvailable=true,saveFailure=false,evaluateFailure=false
  let settings={orchestratorEnabled:false,orchestratorMaxConcurrent:1,agents:[{id:'default',name:'Default agent',file:'AGENTS.md'}]},evaluations=0,saves=0
+ // The server's orchestration state: who is started, and the decisions.
+ let armed=null
+ const decisions=[{taskId:'t2',taskKey:'IDLE-2',title:'Wait for vendor',decision:'deferred',reason:'Blocked on the vendor API.',decidedAt:'2026-10-29T09:00:00Z',unchangedSinceDecision:true},{taskId:'t1',taskKey:'IDLE-1',title:'Validate requests',decision:'launched',reason:'Unblocks the API work.',decidedAt:'2026-10-29T09:00:00Z',unchangedSinceDecision:false}]
  const policies={'AGENTS.md':'# Local guidelines','docs/documentation.md':'Documentation policy','docs/tests.md':'Testing policy'}
  const selections=[],stopped=[]
  const attachments=[]
@@ -18,18 +21,21 @@ test('named orchestration agents keep independent files and run controls alongsi
  const server=http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json')
   if(!online){res.writeHead(503).end();return}
-  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:controlsAvailable?['orchestration-controls','orchestration-agents','project-terminal']:[]}));return}
+  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:controlsAvailable?['orchestration-controls','orchestration-agents','orchestration-sessions','project-terminal']:[]}));return}
   if(req.url==='/desktop/projects'&&!discoveryAvailable){res.writeHead(503).end();return}
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'demo',name:'Demo',path:'/tmp/demo',...(metadata?{orchestratorEnabled:true,orchestratorMaxConcurrent:4,orchestratorActiveRuns:capacity,orchestrationAgents:[{id:'demo',name:'Demo agent',file:'AGENTS.md'}]}:{})},{id:'idle',name:'Idle',path:'/tmp/idle',...settings,orchestrationAgents:settings.agents,orchestratorActiveRuns:0}]));return}
   if(req.url.startsWith('/desktop/orchestration?')){
-   if(req.method==='GET'){res.end(JSON.stringify({...settings,agents:settings.agents.map(agent=>({...agent,guidelines:policies[agent.file]||''}))}));return}
+   if(req.method==='GET'){res.end(JSON.stringify({...settings,agents:settings.agents.map(agent=>({...agent,guidelines:policies[agent.file]||''})),state:{projectId:'idle',maxConcurrent:settings.orchestratorMaxConcurrent,armed,decisions:armed?decisions:[]}}));return}
+   if(req.method==='DELETE'){armed=null;res.end(JSON.stringify({projectId:'idle',decisions:[]}));return}
    if(req.method==='PUT'){
     let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{saves++;if(saveFailure){res.writeHead(503).end(JSON.stringify({error:'Saving is temporarily unavailable'}));return}settings={...settings,...JSON.parse(raw)};res.end(JSON.stringify(settings))});return
    }
    let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{
-    evaluations++;selections.push(JSON.parse(raw).agentId)
-    if(evaluateFailure){res.writeHead(503).end(JSON.stringify({error:'Run is temporarily unavailable'}));return}
-    setTimeout(()=>res.end(JSON.stringify({projectId:'idle',activeRunsAfter:1,maxConcurrent:settings.orchestratorMaxConcurrent,launched:[{key:'IDLE-1',activityId:'test-live'}],skipped:[{key:'IDLE-2',reason:'task carries blocker label blocked'}]})),500)
+    evaluations++;const agentId=JSON.parse(raw).agentId;selections.push(agentId)
+    if(evaluateFailure){res.writeHead(503).end(JSON.stringify({error:'Start is temporarily unavailable'}));return}
+    if(armed&&armed.profileId!==agentId){res.writeHead(409).end(JSON.stringify({error:'orchestration is already started'}));return}
+    armed={projectId:'idle',profileId:agentId,profileName:settings.agents.find(agent=>agent.id===agentId)?.name}
+    setTimeout(()=>{res.writeHead(202);res.end(JSON.stringify({session:{id:'review-'+evaluations}}))},500)
    });return
   }
   if(req.url.startsWith('/desktop/project?')){res.end(JSON.stringify({server:{projectName:'Idle',skills:[]},path:'/tmp/idle',configured:true,parallelism:4,aiProvider:'claude'}));return}
@@ -67,8 +73,9 @@ test('named orchestration agents keep independent files and run controls alongsi
   const first=form.locator('[data-agent-id="default"]')
   await expect(first.getByLabel('Guidelines file')).toHaveValue('AGENTS.md')
   await expect(first.getByLabel('Guidelines preview')).toHaveText('# Local guidelines')
-  await expect(first.getByRole('button',{name:'Run agent',exact:true})).toBeDisabled()
+  await expect(first.getByRole('button',{name:'Start',exact:true})).toBeDisabled()
   await expect(page.getByRole('button',{name:'Evaluate backlog',exact:true})).toHaveCount(0)
+  await expect(page.getByRole('button',{name:'Run agent',exact:true})).toHaveCount(0)
   await form.getByLabel('Enable orchestration').check()
   await form.getByLabel('Concurrency limit').fill('3')
   await first.getByLabel('Agent name').fill('Documentation agent')
@@ -77,7 +84,7 @@ test('named orchestration agents keep independent files and run controls alongsi
   const second=form.locator('.orchestration-agent-settings').nth(1)
   await second.getByLabel('Agent name').fill('Test agent')
   await second.getByLabel('Guidelines file').fill('docs/tests.md')
-  await expect(first.getByRole('button',{name:'Run agent',exact:true})).toBeDisabled()
+  await expect(first.getByRole('button',{name:'Start',exact:true})).toBeDisabled()
   saveFailure=true
   await form.getByRole('button',{name:'Save orchestration settings'}).click()
   await expect(form.getByRole('alert')).toContainText('Saving is temporarily unavailable')
@@ -85,7 +92,7 @@ test('named orchestration agents keep independent files and run controls alongsi
   await expect(first.getByLabel('Guidelines file')).toHaveValue('docs/documentation.md')
   saveFailure=false
   await form.getByRole('button',{name:'Save orchestration settings'}).click()
-  await expect(first.getByRole('button',{name:'Run agent',exact:true})).toBeEnabled()
+  await expect(first.getByRole('button',{name:'Start',exact:true})).toBeEnabled()
   assert.equal(settings.orchestratorEnabled,true)
   assert.equal(settings.orchestratorMaxConcurrent,3)
   assert.equal(settings.agents.length,2)
@@ -100,15 +107,18 @@ test('named orchestration agents keep independent files and run controls alongsi
   await expect(second.getByLabel('Guidelines preview')).toHaveText('Testing policy')
   await page.screenshot({path:path.join(root,'orchestration-settings.png')})
   evaluateFailure=true
-  await first.getByRole('button',{name:'Run agent',exact:true}).click()
-  await expect(form.getByRole('alert')).toContainText('Documentation agent: Run is temporarily unavailable')
+  await first.getByRole('button',{name:'Start',exact:true}).click()
+  await expect(form.getByRole('alert')).toContainText('Documentation agent: Start is temporarily unavailable')
   evaluateFailure=false
-  await first.getByRole('button',{name:'Run agent',exact:true}).click()
-  await expect(first.getByRole('button',{name:'Run agent',exact:true})).toBeDisabled()
-  await expect(first.getByRole('status')).toContainText('1 launched · 1 skipped · 1 / 3 slots used')
-  await expect(first.getByRole('status')).toContainText('IDLE-2: task carries blocker label blocked')
-  await second.getByRole('button',{name:'Run agent',exact:true}).click()
-  await expect(second.getByRole('status')).toContainText('1 launched · 1 skipped')
+  await first.getByRole('button',{name:'Start',exact:true}).click()
+  await expect(first.getByRole('status')).toContainText('Started: a session is reviewing the backlog.')
+  // One agent at a time orchestrates the project: the other waits for a stop.
+  await expect(first.getByRole('button',{name:'Stop',exact:true})).toBeEnabled()
+  await expect(second.getByRole('button',{name:'Start',exact:true})).toBeDisabled()
+  await first.getByRole('button',{name:'Stop',exact:true}).click()
+  await expect(first.getByRole('status')).toContainText('Stopped: the chains it launched finish on their own.')
+  await second.getByRole('button',{name:'Start',exact:true}).click()
+  await expect(second.getByRole('status')).toContainText('Started')
   assert.deepEqual(selections,['default','default',secondId])
   await page.locator('.configuration-page').getByRole('button',{name:'Back',exact:true}).click()
   await expect(idle).toBeVisible()
@@ -116,7 +126,9 @@ test('named orchestration agents keep independent files and run controls alongsi
   const testPolicy=idle.locator('[data-agent-id="'+secondId+'"]')
   await expect(docsPolicy).toContainText('docs/documentation.md')
   await expect(testPolicy).toContainText('docs/tests.md')
-  await expect(section.getByRole('button',{name:'Run agent',exact:true})).toHaveCount(0)
+  await expect(section.getByRole('button',{name:'Start',exact:true})).toHaveCount(0)
+  await expect(testPolicy).toContainText('Started')
+  await expect(docsPolicy).toContainText('Ready')
   await expect(section.locator('progress')).toHaveCount(0)
   const attachmentsBeforeOverview=[...attachments]
   await testPolicy.click()
@@ -124,18 +136,36 @@ test('named orchestration agents keep independent files and run controls alongsi
   await expect(overview.getByRole('heading',{name:'Test agent',exact:true})).toBeVisible()
   await expect(overview).toContainText('docs/tests.md')
   await expect(page.locator('#workspace article')).toBeHidden()
-  await overview.getByRole('button',{name:'Run agent',exact:true}).click()
-  await expect(overview.getByRole('status')).toContainText('1 launched · 1 skipped')
+  await expect(overview.getByRole('heading',{name:'Started',exact:true})).toBeVisible()
+  await expect(overview.getByRole('region',{name:'Agent status'})).not.toContainText('Ready to start')
+  // The orchestrator's decisions, with a deferral the ticket has outgrown.
+  await expect(overview.locator('.orchestration-decision[data-decision="deferred"]')).toContainText('IDLE-2 · Wait for vendor')
+  await expect(overview.locator('.orchestration-decision[data-decision="deferred"]')).toContainText('Blocked on the vendor API.')
+  await expect(overview.locator('.orchestration-decision[data-decision="launched"]')).toContainText('Unblocks the API work.')
+  await overview.getByRole('button',{name:'Stop',exact:true}).click()
+  await expect(overview.getByRole('heading',{name:'Ready to start',exact:true})).toBeVisible()
+  assert.equal(armed,null)
+  await overview.getByRole('button',{name:'Start',exact:true}).click()
+  await expect(overview.getByRole('heading',{name:'Started',exact:true})).toBeVisible()
   assert.equal(selections.at(-1),secondId)
   assert.equal(evaluations,4)
   await expect(idle.getByRole('checkbox')).toHaveCount(0)
   runs.push({id:'test-live',projectId:'idle',taskId:'task-c',taskKey:'IDLE-3',skill:'implement',status:'running',provider:'claude',headless:true,trace:true,createdAt:'2026-10-22T10:30:00Z',prompt:'Backlog orchestration: preflight\nProject eligibility guidelines (mandatory):\nOrchestration agent: Test agent ['+secondId+']\n\nTesting policy'})
   await expect(page.locator('#runs .run[data-run-id="test-live"]')).toHaveCount(1)
-  await expect(testPolicy).toContainText('Ready')
+  await expect(testPolicy).toContainText('Started')
   await expect(idle.locator('[data-run-id="test-live"]')).toHaveCount(0)
   await expect(overview.getByRole('button',{name:'Open console',exact:true})).toHaveCount(0)
-  await expect(overview.getByRole('button',{name:'Stop agent',exact:true})).toHaveCount(0)
-  await expect(overview).toContainText('No dedicated orchestration sessions yet.')
+  await expect(overview).toContainText('No backlog review yet.')
+  // The orchestrator session itself is the agent's activity, never a task row.
+  runs.push({id:'review-live',projectId:'idle',scope:'orchestrator',profileId:secondId,profileName:'Test agent',skill:'orchestrate_backlog',status:'running',provider:'claude',headless:true,trace:true,createdAt:'2026-10-22T10:31:00Z'})
+  await expect(testPolicy).toContainText('Reviewing backlog')
+  await expect(overview.getByRole('heading',{name:'Reviewing the backlog',exact:true})).toBeVisible()
+  await expect(overview.locator('.orchestration-session')).toContainText('Backlog review')
+  await expect(page.locator('#runs .run[data-run-id="review-live"]')).toHaveCount(0)
+  await overview.getByRole('button',{name:'Stop',exact:true}).click()
+  await expect.poll(()=>stopped.includes('review-live')).toBe(true)
+  assert.equal(armed,null)
+  runs=runs.filter(run=>run.id!=='review-live');stopped.length=0
   runs.push({id:'auth-failed',projectId:'idle',taskId:'auth-task',skill:'clarify',status:'failed',restored:true,authenticationRequired:true,prompt:'Backlog orchestration: preflight\nProject eligibility guidelines (mandatory):\nOrchestration agent: Documentation agent [default]\n\nPolicy'})
   await docsPolicy.click()
   await expect(docsPolicy).toContainText('Ready')
@@ -166,7 +196,7 @@ test('named orchestration agents keep independent files and run controls alongsi
   await second.getByRole('button',{name:'Remove agent',exact:true}).click()
   await form.getByRole('button',{name:'Save orchestration settings'}).click()
   await expect(form.locator('.orchestration-agent-settings')).toHaveCount(1)
-  await expect(first.getByRole('button',{name:'Run agent',exact:true})).toBeEnabled()
+  await expect(first.getByRole('button',{name:'Start',exact:true})).toBeEnabled()
   assert.equal(settings.agents[0].id,'default')
   await page.locator('.configuration-page').getByRole('button',{name:'Back',exact:true}).click()
   await expect(testPolicy).toHaveCount(0)
@@ -192,7 +222,7 @@ test('named orchestration agents keep independent files and run controls alongsi
   await expect(demo).toHaveCount(0)
   controlsAvailable=false
   await docsPolicy.click()
-  await overview.getByRole('button',{name:'Run agent',exact:true}).click()
+  await overview.getByRole('button',{name:'Start',exact:true}).click()
   await expect(overview.getByRole('alert')).toContainText('Update and restart the local agent')
   settings.orchestratorEnabled=false;runs=[]
   await page.evaluate(()=>{const now=Date.now;Date.now=()=>now()+16000})

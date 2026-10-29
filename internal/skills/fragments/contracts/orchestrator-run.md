@@ -1,0 +1,5 @@
+## Orchestrator session
+This skill works on a whole project, not on a ticket or a macro: it declares no stage and moves none. `SECTILE_PROJECT_ID` names the project when Sectile launched the session; the project given as argument wins over it.
+- **Remote execution indicator**: Sectile launched this run and reports its end itself. Do not call `start_run`. When the whole invocation ends, call `finish_run` with `projectId`, the runId (`SECTILE_RUN_ID`), a status (completed, failed or canceled) and a note summarizing what was launched and what was deferred; never pass a `taskKey` or a `macroKey`.
+- **Acting on tickets**: `launch_task_chain` and `defer_task` are the only writes this skill makes. They answer only to the project's running orchestrator session, which Sectile identifies from this console. Never edit, comment on, create, move or close a ticket, never start a skill on a ticket by any other means, and never merge.
+- Report faithfully: a refusal from `launch_task_chain` is a decision the server made, stated with its reason, never retried under another name.

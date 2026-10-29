@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1508,42 +1509,11 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sub-action: /api/projects/{id}/orchestrate: evaluate project backlog and launch autonomous sessions up to max concurrency
-	if len(parts) >= 2 && parts[1] == "orchestrate" && r.Method == http.MethodPost {
-		var req models.OrchestrateProjectRequest
-		if r.Body != nil {
-			// An unknown field is refused rather than ignored: a caller sending a
-			// capacity or enablement override must learn that it has no effect.
-			decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256*1024))
-			decoder.DisallowUnknownFields()
-			if err := decoder.Decode(&req); err != nil && err != io.EOF {
-				writeError(w, http.StatusBadRequest, "Invalid orchestration request")
-				return
-			}
-		}
-		actor := h.webPrincipal(r).Actor()
-		ctx := r.Context()
-		// A paired desktop evaluates on its own workstation, even if its user has
-		// several connected devices. The credential is the authority, not a header.
-		if credential, authErr := h.resolveAgentCredential(bearerToken(r)); authErr == nil && credential.Device != nil {
-			ctx = agentprotocol.WithDeviceID(ctx, credential.Device.ID)
-		}
-		result, err := h.db.EvaluateAndOrchestrateBacklog(ctx, id, actor, req)
-		switch {
-		case errors.Is(err, db.ErrOrchestratorProjectNotFound):
-			writeError(w, http.StatusNotFound, err.Error())
-			return
-		case errors.Is(err, db.ErrOrchestratorDisabled):
-			writeError(w, http.StatusConflict, err.Error())
-			return
-		case errors.Is(err, db.ErrOrchestratorGuidelinesTooLarge):
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		case err != nil:
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, result)
+	// Sub-actions of /api/projects/{id}/orchestrate (ADR 0064): GET reads the
+	// orchestration state, POST starts orchestration and its first session,
+	// POST .../stop stops it.
+	if len(parts) >= 2 && parts[1] == "orchestrate" {
+		h.handleOrchestrate(w, r, id, parts[2:])
 		return
 	}
 
@@ -3942,6 +3912,9 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	if h.pullOnConnect {
 		go h.pullAndApplyAgentTasks(ac)
 	}
+	// An orchestrator session woken while this workstation was offline waited
+	// for it (ADR 0064): send it now.
+	go h.db.ResumeOrchestratorSessions(ac.UserID, ac.DeviceID)
 
 	// Presence writes run beside the loop rather than in it, so a slow
 	// database cannot stop the loop from reading until the deadline drops
@@ -4558,4 +4531,85 @@ func repositoryErrorStatus(err error) int {
 		return http.StatusConflict
 	}
 	return http.StatusInternalServerError
+}
+
+// handleOrchestrate serves /api/projects/{id}/orchestrate and its stop action.
+func (h *Handler) handleOrchestrate(w http.ResponseWriter, r *http.Request, id string, rest []string) {
+	writeOrchestrationError := func(err error) {
+		switch {
+		case errors.Is(err, db.ErrOrchestratorProjectNotFound):
+			writeError(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, db.ErrOrchestratorDisabled), errors.Is(err, db.ErrOrchestratorArmedElsewhere), errors.Is(err, db.ErrOrchestratorNoWorkstation):
+			writeError(w, http.StatusConflict, err.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, err.Error())
+		}
+	}
+	switch {
+	case len(rest) == 0 && r.Method == http.MethodGet:
+		state, err := h.db.OrchestrationState(id)
+		if err != nil {
+			writeOrchestrationError(err)
+			return
+		}
+		writeJSON(w, http.StatusOK, state)
+	case len(rest) == 1 && rest[0] == "stop" && r.Method == http.MethodPost:
+		if err := h.db.StopOrchestration(id); err != nil {
+			writeOrchestrationError(err)
+			return
+		}
+		state, err := h.db.OrchestrationState(id)
+		if err != nil {
+			writeOrchestrationError(err)
+			return
+		}
+		writeJSON(w, http.StatusOK, state)
+	case len(rest) == 0 && r.Method == http.MethodPost:
+		var req models.OrchestrateProjectRequest
+		if r.Body != nil {
+			// An unknown field is refused rather than ignored: a caller sending a
+			// capacity or enablement override must learn that it has no effect,
+			// and a desktop that still sends its policy text must learn that
+			// this server no longer reads it from the request.
+			raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 256*1024))
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "Invalid orchestration request")
+				return
+			}
+			if len(bytes.TrimSpace(raw)) > 0 {
+				var probe map[string]json.RawMessage
+				if json.Unmarshal(raw, &probe) == nil {
+					if _, legacy := probe["guidelines"]; legacy {
+						writeError(w, http.StatusBadRequest, "This server runs the orchestrator as an agent over the backlog and reads the policy on the workstation: update Sectile Desktop")
+						return
+					}
+				}
+				decoder := json.NewDecoder(bytes.NewReader(raw))
+				decoder.DisallowUnknownFields()
+				if err := decoder.Decode(&req); err != nil {
+					writeError(w, http.StatusBadRequest, "Invalid orchestration request")
+					return
+				}
+			}
+		}
+		start := db.OrchestrationStart{UserID: h.webPrincipal(r).Actor().ID, ProfileID: req.ProfileID, ProfileName: req.ProfileName}
+		// A paired desktop orchestrates from its own workstation, even if its
+		// user has several connected devices. The credential is the authority,
+		// not a header.
+		if credential, authErr := h.resolveAgentCredential(bearerToken(r)); authErr == nil && credential.Device != nil {
+			start.DeviceID = credential.Device.ID
+		}
+		run, err := h.db.StartOrchestration(id, start)
+		if errors.Is(err, db.ErrOrchestratorSessionActive) {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "session": run})
+			return
+		}
+		if err != nil {
+			writeOrchestrationError(err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"session": run})
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+	}
 }

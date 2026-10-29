@@ -12,6 +12,10 @@ func checkPresenceDeviceUpgrade(t *testing.T, d *DB) {
 	// Recreate the deployed version-50 table with populated legacy rows.
 	for _, query := range []string{
 		`DROP INDEX task_launch_affinity`,
+		`DROP INDEX IF EXISTS idx_task_activities_orchestrator_active`,
+		`ALTER TABLE task_activities DROP COLUMN run_scope`,
+		`DROP TABLE IF EXISTS orchestrator_arming`,
+		`DROP TABLE IF EXISTS orchestrator_decisions`,
 		`ALTER TABLE task_activities DROP COLUMN device_label`,
 		`ALTER TABLE task_activities DROP COLUMN dispatch_state`,
 		`ALTER TABLE task_activities DROP COLUMN remote_run_id`,

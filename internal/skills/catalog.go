@@ -38,7 +38,7 @@ type StageSkill struct {
 	Command     string
 	FromStage   string
 	ToStage     string
-	Scope       string // "task" (default) or "macro"
+	Scope       string // "task" (default), "macro", or "project" for the orchestrator session
 	Mode        string
 	Description string // shown in the Sectile interface, in French
 	Icon        string
@@ -252,6 +252,27 @@ var StageSkills = []StageSkill{
 		GuardTitle:      "Do not",
 	},
 	{
+		ID:          "orchestrate_backlog",
+		Name:        "Orchestrate Backlog",
+		DirName:     models.SkillDirNames["orchestrate_backlog"],
+		Command:     "/orchestrate-backlog",
+		FromStage:   "project",
+		ToStage:     "project",
+		Scope:       "project",
+		Mode:        models.SkillModeAutonomous,
+		Description: "Passe le backlog du projet en revue et lance les chaînes autonomes des tickets à traiter maintenant, en expliquant chaque choix.",
+		Icon:        "Workflow",
+		Color:       "violet",
+		Steps: []string{
+			"Lecture de l'état d'orchestration et des places libres",
+			"Revue des tickets candidats au regard de la politique d'orchestration",
+			"Lancement des chaînes retenues, report motivé des autres",
+		},
+		Title:           "Orchestrate Backlog",
+		FrontmatterDesc: "Review the project's whole backlog and launch the autonomous chains of the tickets to work on now, within the free orchestrator slots, explaining every launch and deferral.",
+		GuardTitle:      "Do not",
+	},
+	{
 		ID:          "pickup_issues",
 		Name:        "Batch Pickup & Auto-Pilot to PR",
 		DirName:     models.SkillDirNames["pickup_issues"],
@@ -372,10 +393,13 @@ func realignMacroFrameworkName(specFramework string) string {
 // renderMacroRunContract tells a macro skill how to report its run: under its
 // project and macro, never under a task, and without any stage.
 func renderMacroRunContract(s StageSkill) string {
-	if s.Scope != "macro" {
-		return ""
+	switch s.Scope {
+	case "macro":
+		return strings.TrimRight(readContractFragment("macro-run"), "\n") + "\n"
+	case "project":
+		return strings.TrimRight(readContractFragment("orchestrator-run"), "\n") + "\n"
 	}
-	return strings.TrimRight(readContractFragment("macro-run"), "\n") + "\n"
+	return ""
 }
 
 // directTaskAccessFallback is the HTTP fallback of a skill the direct setup
@@ -398,8 +422,11 @@ func renderTaskAccessContract(fallback string) string {
 // on, so a board of parallel sessions stays readable.
 func renderSessionTitleContract(s StageSkill) string {
 	item := "ticket"
-	if s.Scope == "macro" {
+	switch s.Scope {
+	case "macro":
 		item = "macro"
+	case "project":
+		item = "project"
 	}
 	tmpl := readContractFragment("session-title")
 	res := executeContractTemplate(tmpl, map[string]any{
@@ -427,7 +454,7 @@ func renderSpecWorkspaceContract(s StageSkill) string {
 // for the skill based on its from/to stages in the sequence:
 // new -> clarified -> specified -> implemented -> reviewed -> finished
 func renderTicketTransitionContract(s StageSkill) string {
-	if s.Scope == "macro" {
+	if s.Scope == "macro" || s.Scope == "project" {
 		return ""
 	}
 	tmpl := readContractFragment("transition")
@@ -534,7 +561,7 @@ func assembleSkill(s StageSkill, name, readFirst, steps, taskAccessFallback stri
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\nname: %s\ndescription: %s\n---\n", s.DirName, YAMLString(s.FrontmatterDesc))
 	fmt.Fprintf(&b, "# %s\n\n", name)
-	if s.FromStage != "" && s.Scope != "macro" {
+	if s.FromStage != "" && s.Scope != "macro" && s.Scope != "project" {
 		fmt.Fprintf(&b, "Stage: %s -> %s.", s.FromStage, s.ToStage)
 		if s.Mode == models.SkillModeInteractive {
 			b.WriteString(" Interactive: the user answers in the terminal.")
@@ -743,8 +770,11 @@ func skillCommand(s StageSkill, body string) string {
 	b.WriteString("---\n")
 	fmt.Fprintf(&b, "description: %s\n", YAMLString(s.FrontmatterDesc))
 	hint := "<TICKET-KEY> [contexte]"
-	if s.Scope == "macro" {
+	switch s.Scope {
+	case "macro":
 		hint = "<MACRO-KEY> [contexte]"
+	case "project":
+		hint = "<PROJECT-ID> [contexte]"
 	}
 	fmt.Fprintf(&b, "argument-hint: %s\n", hint)
 	b.WriteString("---\n")

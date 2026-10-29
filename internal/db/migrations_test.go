@@ -105,6 +105,15 @@ func dropCredentialAccountColumn(d *DB) {
 	undoTrackerMigration(d)
 }
 
+// undoOrchestratorSessions removes what migration 57 adds. The index goes
+// first: SQLite refuses to drop a column an index still names.
+func undoOrchestratorSessions(d *DB) {
+	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_orchestrator_active")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN run_scope")
+	_, _ = d.conn.Exec("DROP TABLE IF EXISTS orchestrator_arming")
+	_, _ = d.conn.Exec("DROP TABLE IF EXISTS orchestrator_decisions")
+}
+
 // undoTrackerMigration removes the schema added since tracker adoption
 // (#741), for the fixtures that put a database back before them and reopen it.
 // SQLite refuses to drop a column an index still names, so the indexes go
@@ -115,6 +124,7 @@ func undoTrackerMigration(d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN dispatch_state")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN device_label")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN device_id")
+	undoOrchestratorSessions(d)
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN orchestrator_prompt")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN orchestrator_max_concurrent")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN orchestrator_enabled")
@@ -653,6 +663,7 @@ func TestMigration55TagsOAuthFlowsWithTheirTracker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating the database: %v", err)
 	}
+	undoOrchestratorSessions(d)
 	for _, stmt := range []string{
 		"ALTER TABLE projects DROP COLUMN orchestrator_prompt",
 		"ALTER TABLE projects DROP COLUMN orchestrator_max_concurrent",
@@ -708,6 +719,10 @@ func TestMigration56AddsOrchestrationAfterForgeOAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, stmt := range []string{
+		"DROP INDEX IF EXISTS idx_task_activities_orchestrator_active",
+		"ALTER TABLE task_activities DROP COLUMN run_scope",
+		"DROP TABLE IF EXISTS orchestrator_arming",
+		"DROP TABLE IF EXISTS orchestrator_decisions",
 		"ALTER TABLE projects DROP COLUMN orchestrator_prompt",
 		"ALTER TABLE projects DROP COLUMN orchestrator_max_concurrent",
 		"ALTER TABLE projects DROP COLUMN orchestrator_enabled",

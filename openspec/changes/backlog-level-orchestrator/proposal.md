@@ -28,7 +28,8 @@ Decision: `docs/adrs/0064-the-orchestrator-is-an-agent-over-the-backlog.md`.
 - Ticket chains no longer carry the eligibility preflight. They keep the
   `Backlog orchestration:` prefix, followed by the orchestrator's rationale.
 - Armed state per project: a finished orchestrated chain wakes a new session,
-  coalesced over 2 minutes, never more than one queued or running.
+  never more than one queued or running; a chain that ends during a session
+  wakes one more after it.
   New `POST /api/projects/{id}/orchestrate/stop` disarms it.
 - Orchestrator decisions are stored and shown in the desktop overview.
 - Desktop: Run agent becomes Start / Stop; the overview shows the orchestrator

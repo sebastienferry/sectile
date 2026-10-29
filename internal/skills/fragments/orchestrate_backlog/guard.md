@@ -1,0 +1,4 @@
+- Do not edit, comment on, create, move or close any ticket, and do not run any other skill: launching and deferring are this skill's only writes.
+- Do not exceed the free slots, and do not try to get around a refusal of `launch_task_chain`.
+- Do not launch a ticket the policy excludes, or one whose readiness you doubt: defer it with the reason instead.
+- Do not ask questions: this session runs headless and nobody answers. A doubt becomes a deferral.

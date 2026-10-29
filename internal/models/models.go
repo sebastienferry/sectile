@@ -110,6 +110,9 @@ type TaskActivity struct {
 	// belong to several projects, and a task run cannot store one in ProjectID,
 	// which a task activity leaves empty. Empty on every other row.
 	RunProjectID string `json:"runProjectId,omitempty"`
+	// RunScope is "orchestrator" on a project's orchestrator session (ADR
+	// 0064), empty on every other run. Set only where a read needs it.
+	RunScope string `json:"runScope,omitempty"`
 	// TrackerID names the tracker a synchronisation read. Empty on every other
 	// row.
 	TrackerID string `json:"trackerId,omitempty"`
@@ -666,40 +669,58 @@ func NormalizeOrchestratorMaxConcurrent(n int) int {
 	return n
 }
 
-// OrchestrateProjectRequest carries no enablement or capacity override: the
-// project settings are the only authority, so every caller shares one cap.
+// OrchestrateProjectRequest starts orchestration (ADR 0064). It carries no
+// enablement, capacity or eligibility override: the project settings and the
+// server's guards are the only authority. ProfileID names the workstation's
+// orchestration agent whose Markdown file is the session's policy; empty runs
+// the project's shared policy. The policy text itself never travels here: the
+// workstation reads it when it launches each session.
 type OrchestrateProjectRequest struct {
-	// Guidelines snapshots the local Markdown file for this invocation only.
-	// Nil keeps the server's project guidelines for web and MCP callers.
-	Guidelines *string `json:"guidelines,omitempty"`
+	ProfileID   string `json:"profileId,omitempty"`
+	ProfileName string `json:"profileName,omitempty"`
 }
 
 const OrchestratorGuidelinesMaxBytes = 32 * 1024
 
-type OrchestratedTaskInfo struct {
-	ID         string `json:"id"`
-	Key        string `json:"key"`
-	Title      string `json:"title"`
-	Stage      string `json:"stage"`
-	ActivityID string `json:"activityId"`
+// OrchestratorArming is who started orchestration on a project, from which
+// workstation and with which profile. WakePending says a slot freed while a
+// session ran, so its end starts the next one.
+type OrchestratorArming struct {
+	ProjectID   string    `json:"projectId"`
+	UserID      string    `json:"userId,omitempty"`
+	DeviceID    string    `json:"deviceId,omitempty"`
+	ProfileID   string    `json:"profileId,omitempty"`
+	ProfileName string    `json:"profileName,omitempty"`
+	WakePending bool      `json:"wakePending,omitempty"`
+	ArmedAt     time.Time `json:"armedAt"`
 }
 
-type SkippedTaskInfo struct {
-	ID     string `json:"id"`
-	Key    string `json:"key"`
-	Title  string `json:"title"`
-	Reason string `json:"reason"`
+// OrchestratorDecision is the latest launch or deferral of a ticket.
+// UnchangedSinceDecision says the ticket was not edited since, so a deferral
+// still holds.
+type OrchestratorDecision struct {
+	TaskID                 string    `json:"taskId"`
+	TaskKey                string    `json:"taskKey"`
+	Title                  string    `json:"title"`
+	RunID                  string    `json:"runId,omitempty"`
+	Decision               string    `json:"decision"`
+	Reason                 string    `json:"reason"`
+	DecidedAt              time.Time `json:"decidedAt"`
+	UnchangedSinceDecision bool      `json:"unchangedSinceDecision"`
 }
 
-type OrchestrationResult struct {
-	ProjectID        string                 `json:"projectId"`
-	EvaluatedCount   int                    `json:"evaluatedCount"`
-	ActiveRunsBefore int                    `json:"activeRunsBefore"`
-	ActiveRunsAfter  int                    `json:"activeRunsAfter"`
-	MaxConcurrent    int                    `json:"maxConcurrent"`
-	AvailableSlots   int                    `json:"availableSlots"`
-	Launched         []OrchestratedTaskInfo `json:"launched"`
-	Skipped          []SkippedTaskInfo      `json:"skipped"`
+// OrchestrationState is what the orchestrator session and the desktop read:
+// capacity, who armed it, the active session and the decisions.
+type OrchestrationState struct {
+	ProjectID      string                 `json:"projectId"`
+	Enabled        bool                   `json:"enabled"`
+	MaxConcurrent  int                    `json:"maxConcurrent"`
+	ActiveRuns     int                    `json:"activeRuns"`
+	AvailableSlots int                    `json:"availableSlots"`
+	BlockerLabels  []string               `json:"blockerLabels"`
+	Armed          *OrchestratorArming    `json:"armed,omitempty"`
+	Session        *TaskActivity          `json:"session,omitempty"`
+	Decisions      []OrchestratorDecision `json:"decisions"`
 }
 
 // A skill run is executed in one of two modes. Interactive opens a terminal the
@@ -837,32 +858,33 @@ type InstalledSkillInfo struct {
 // database (which renders the files) and the runner (which invokes the agent)
 // need it, and a second list would drift.
 var SkillDirNames = map[string]string{
-	"clarify":         "clarify-issue",
-	"specify":         "specify-issue",
-	"implement":       "implement-issue",
-	"implement-issue": "implement-issue",
-	"code-issue":      "implement-issue",
-	"adjust":          "adjust-issue",
-	"adjust-issue":    "adjust-issue",
-	"create-pr":       "create-pr",
-	"create_pr":       "create-pr",
-	"review":          "adjust-issue",
-	"handoff":         "handoff-issue",
-	"pickup":          "pickup-issue",
-	"pick":            "pickup-issue",
-	"pickup_issues":   "pickup-issues",
-	"pickup-issues":   "pickup-issues",
-	"pick_issues":     "pickup-issues",
-	"pick-issues":     "pickup-issues",
-	"rewrite_story":   "rewrite-story",
-	"rewrite-story":   "rewrite-story",
-	"rewrite":         "rewrite-story",
-	"realign_macro":   "realign-macro",
-	"realign-macro":   "realign-macro",
-	"realign":         "realign-macro",
-	"refine_macro":    "refine-macro",
-	"refine-macro":    "refine-macro",
-	"refine":          "refine-macro",
+	"clarify":             "clarify-issue",
+	"specify":             "specify-issue",
+	"implement":           "implement-issue",
+	"implement-issue":     "implement-issue",
+	"code-issue":          "implement-issue",
+	"adjust":              "adjust-issue",
+	"adjust-issue":        "adjust-issue",
+	"create-pr":           "create-pr",
+	"create_pr":           "create-pr",
+	"review":              "adjust-issue",
+	"handoff":             "handoff-issue",
+	"pickup":              "pickup-issue",
+	"pick":                "pickup-issue",
+	"pickup_issues":       "pickup-issues",
+	"pickup-issues":       "pickup-issues",
+	"pick_issues":         "pickup-issues",
+	"pick-issues":         "pickup-issues",
+	"rewrite_story":       "rewrite-story",
+	"orchestrate_backlog": "orchestrate-backlog",
+	"rewrite-story":       "rewrite-story",
+	"rewrite":             "rewrite-story",
+	"realign_macro":       "realign-macro",
+	"realign-macro":       "realign-macro",
+	"realign":             "realign-macro",
+	"refine_macro":        "refine-macro",
+	"refine-macro":        "refine-macro",
+	"refine":              "refine-macro",
 }
 
 // LegacySkillDirs maps a skill directory to the name it had before, which is

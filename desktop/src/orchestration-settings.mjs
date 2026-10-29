@@ -1,9 +1,10 @@
 import { ipcMessage } from './execution-fields.mjs'
-// Named agent policies stay in project settings; the sidebar launches saved agents.
+// Named agent policies stay in project settings; one saved agent at a time is
+// started on the project, from here or from the sidebar (ADR 0064).
 export function orchestrationSettings({container,project,api,onChanged=()=>{}}){
  const node=(tag,text)=>{const element=document.createElement(tag);if(text!==undefined)element.textContent=text;return element}
  const form=node('form');form.className='orchestration-form';form.setAttribute('aria-label','Orchestration settings for '+project.name)
- container.append(node('p','Add agents with different local Markdown files. Each Run agent action reads its file again. All agents share the project concurrency limit.'),form)
+ container.append(node('p','Add agents with different local Markdown files. One agent at a time orchestrates the project: each backlog review reads its file again. All agents share the project concurrency limit.'),form)
  const status=node('p','Loading settings…');status.setAttribute('role','status');form.append(status)
  let fields,agents=[],dirty=false,pending=false,views=[]
  const outcomes=new Map()
@@ -26,7 +27,9 @@ export function orchestrationSettings({container,project,api,onChanged=()=>{}}){
   add.disabled=!fields||pending||agents.length>=(fields.maxAgents||20)
   for(const view of views){
    view.name.disabled=view.file.disabled=view.remove.disabled=!fields||pending
-   view.run.disabled=!fields||pending||dirty||!enabled.checked||!!view.agent.guidelinesError
+   const armed=fields?.state?.armed,started=!!armed&&(armed.profileId||'')===view.agent.id
+   view.run.textContent=started?'Stop':'Start'
+   view.run.disabled=!fields||pending||(!started&&(dirty||!enabled.checked||!!view.agent.guidelinesError||!!armed))
    view.reload.disabled=!fields||pending||dirty
   }
  }
@@ -35,8 +38,7 @@ export function orchestrationSettings({container,project,api,onChanged=()=>{}}){
   report.className='orchestration-report'
   if(!result)return
   report.setAttribute('role','status')
-  report.append(node('p',(result.launched||[]).length+' launched · '+(result.skipped||[]).length+' skipped · '+result.activeRunsAfter+' / '+result.maxConcurrent+' slots used'))
-  for(const item of result.skipped||[])report.append(node('p',(item.key||item.id)+': '+item.reason))
+  report.append(node('p',result))
  }
  function renderAgents(){
   cards.replaceChildren();views=[]
@@ -49,7 +51,7 @@ export function orchestrationSettings({container,project,api,onChanged=()=>{}}){
    label(card,'Agent name',name);label(card,'Guidelines file',file)
    const warning=node('p',agent.guidelinesError||'');warning.className='orchestration-error'
    const preview=node('pre',agent.guidelines||'');preview.className='orchestration-guidelines';preview.setAttribute('aria-label','Guidelines preview')
-   const run=node('button','Run agent');run.type='button'
+   const run=node('button','Start');run.type='button'
    const reload=node('button','Reload file');reload.type='button'
    const remove=node('button','Remove agent');remove.type='button'
    const buttons=node('div');buttons.className='orchestration-actions';buttons.append(run,reload,remove)
@@ -63,9 +65,14 @@ export function orchestrationSettings({container,project,api,onChanged=()=>{}}){
    run.onclick=async()=>{
     if(run.disabled)return
     pending=true;error.textContent='';update()
-    try{outcomes.set(agent.id,await api.runOrchestrationAgent(project.id,agent.id));showOutcome(agent,report);onChanged()}
+    const stopping=run.textContent==='Stop'
+    try{
+     if(stopping){await api.stopOrchestration(project.id);outcomes.set(agent.id,'Stopped: the chains it launched finish on their own.')}
+     else{await api.runOrchestrationAgent(project.id,agent.id);outcomes.set(agent.id,'Started: a session is reviewing the backlog.')}
+     showOutcome(agent,report);onChanged()
+    }
     catch(err){error.textContent=agent.name+': '+ipcMessage(err)}
-    finally{pending=false;update()}
+    finally{pending=false;await refreshState()}
    }
   }
  }
@@ -75,9 +82,14 @@ export function orchestrationSettings({container,project,api,onChanged=()=>{}}){
    fields=await api.orchestration(project.id)
    if(!Array.isArray(fields.agents))throw Error('Update and restart the local agent to configure multiple agents.')
    agents=fields.agents.map(agent=>({...agent}));enabled.checked=fields.orchestratorEnabled===true;limit.value=fields.orchestratorMaxConcurrent||1;dirty=false
-   renderAgents();status.textContent='Agents run on demand. Disabling orchestration stops future launches; active tasks continue.'
+   renderAgents();status.textContent='A started agent reviews the backlog again whenever one of its chains ends. Disabling orchestration stops it; active tasks continue.'
   }catch(err){error.textContent=ipcMessage(err);status.textContent=''}
   finally{pending=false;update()}
+ }
+ // The started agent changes without touching the form: reread only the state.
+ async function refreshState(){
+  try{const fresh=await api.orchestration(project.id);if(fields)fields.state=fresh?.state||null}catch{}
+  update()
  }
  add.onclick=()=>{
   let count=agents.length+1

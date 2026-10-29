@@ -1,6 +1,6 @@
 # ADR 0060: Project Backlog Orchestrator Agent
 
-- Status: Proposed
+- Status: Superseded in part by [ADR 0064](0064-the-orchestrator-is-an-agent-over-the-backlog.md) (invocation, backlog triage and eligibility); the concurrency guard stands as amended by [ADR 0063](0063-only-orchestrated-runs-take-an-orchestrator-slot.md)
 - Date: 2026-10-22
 
 ## Context

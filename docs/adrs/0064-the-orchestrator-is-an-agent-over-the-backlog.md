@@ -1,6 +1,6 @@
 # ADR 0064: The orchestrator is an agent over the backlog
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-29
 
 Supersedes: [ADR 0060](0060-project-backlog-orchestrator-agent.md) on
@@ -32,15 +32,20 @@ This has three consequences users notice:
 ## Decision
 
 1. **The orchestrator is one agent session per project.** It is a
-   project-scoped run, stored like a macro run (`project_id` set, `task_id`
-   NULL), with its own skill `orchestrate_backlog`, run autonomously on the
-   workstation that started orchestration. At most one is queued or running per
-   project, enforced by a partial unique index as for macros. The session takes
-   no orchestrator slot: slots bound ticket work.
+   project-scoped agent run, stored like a macro run (`project_id` set,
+   `task_id` NULL) and marked `run_scope = 'orchestrator'`, running the skill
+   `orchestrate_backlog` autonomously on the workstation that started
+   orchestration. At most one is queued or running per project, across server
+   instances, enforced by a partial unique index on `project_id` for that
+   scope. The session takes no orchestrator slot: slots bound ticket work.
 
 2. **Its policy is the orchestration agent's Markdown file.** The selected
-   profile's file, read and validated as today (ADR 0060, layout 6), becomes the
-   session's instructions. It is no longer copied into ticket runs.
+   profile's file, validated as today (ADR 0060, layout 6), becomes the
+   session's instructions. The workstation reads it at each session launch, so
+   an edit applies to the next session, and the server never holds it: starting
+   orchestration sends the profile's identity, not its text. Without a profile,
+   the project's shared policy applies. The file is no longer copied into ticket
+   runs.
 
 3. **It decides with the whole backlog in view and acts through two tools.**
    It reads the backlog with the existing MCP tools (`list_tasks`, `get_task`,
@@ -71,14 +76,20 @@ This has three consequences users notice:
 
 6. **Orchestration is armed, and a freed slot wakes it.** Starting
    orchestration arms the project for one user, one workstation and one profile
-   and runs a first session. While armed, the server queues a new session when
-   an orchestrated chain ends, whatever its outcome, and no session is already
-   queued or running. Triggers inside a short coalescing window (2 minutes)
-   produce one session. A session that launches nothing frees no slot and
-   therefore wakes nothing: an exhausted backlog stays quiet until a slot frees,
-   the user runs it again, or orchestration is stopped. There is no periodic
-   timer. Stopping, disabling orchestration or removing the profile disarms it.
-   A wake-up whose workstation is offline waits for it, and says so.
+   and runs a first session; the first start wins across server instances.
+   While armed, the server starts a new session when an orchestrated chain ends,
+   whatever its outcome, and leaves no slot behind. A chain that ends while a
+   session runs marks a wake-up as pending instead, because that session may
+   have read the state before the slot freed: the end of the session then starts
+   the next one. A burst of chain ends therefore produces at most one session
+   after the running one, and a freed slot is never lost. A session that
+   launches nothing frees no slot and therefore wakes nothing: an exhausted
+   backlog stays quiet until a slot frees, the user starts it again, or
+   orchestration is stopped. There is no periodic timer and no time window.
+   Stopping, disabling orchestration, or saving the starting workstation's
+   agent list without the started profile disarms it. A session woken while its
+   workstation is offline stays queued and is sent when that workstation
+   connects again; stopping cancels it.
 
 7. **Decisions are remembered.** Each `launch_task_chain` and `defer_task` is
    stored with the session that made it, its reason and the ticket's
@@ -88,10 +99,13 @@ This has three consequences users notice:
 
 8. **The entry points keep their names and change meaning.**
    `POST /api/projects/{id}/orchestrate` and the MCP tool `orchestrate_project`
-   arm the project and start a session, answering 202 with its run ID instead of
-   a synchronous `OrchestrationResult`. `POST /api/projects/{id}/orchestrate/stop`
-   disarms it. Enablement, unknown project and unknown field errors stay as
-   ADR 0060 defined them; there is still no capacity or eligibility override.
+   arm the project and start a session, answering 202 with the session instead
+   of a synchronous `OrchestrationResult`. `GET` on the same path returns the
+   orchestration state, and `POST /api/projects/{id}/orchestrate/stop` disarms
+   it. Enablement, unknown project and unknown field errors stay as ADR 0060
+   defined them; there is still no capacity or eligibility override. A start
+   that no workstation can run is refused with 409, rather than queued for a
+   workstation that may never come.
 
 ## Consequences
 

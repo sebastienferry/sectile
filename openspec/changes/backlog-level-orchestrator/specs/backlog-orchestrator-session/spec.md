@@ -70,10 +70,12 @@ the step to re-evaluate the ticket's eligibility or repeat the profile's policy.
 ### Requirement: A freed slot wakes an armed orchestrator
 
 While a project is armed, the end of an orchestrated chain, completed, failed,
-stopped or canceled, SHALL queue a new orchestrator session when none is queued
-or running and none was woken in the last 2 minutes. A session that launches
-nothing SHALL NOT cause another session. Stopping, disabling orchestration or
-removing the armed profile SHALL disarm the project.
+stopped or canceled, SHALL start a new orchestrator session when none is queued
+or running, and otherwise SHALL start one after the running session ends. A
+session that launches nothing SHALL NOT cause another session. Stopping,
+disabling orchestration, or the starting workstation saving its agents without
+the armed profile SHALL disarm the project. A session woken while the armed
+workstation is offline SHALL wait, queued, for that workstation to connect.
 
 #### Scenario: Chain reaches implemented
 
@@ -81,11 +83,19 @@ removing the armed profile SHALL disarm the project.
 - **WHEN** that chain reaches `implemented`
 - **THEN** one orchestrator session is queued on the armed workstation
 
-#### Scenario: Two chains end together
+#### Scenario: Chains end during a session
 
-- **GIVEN** an armed project and two orchestrated chains
-- **WHEN** both end within 2 minutes
-- **THEN** a single orchestrator session is queued
+- **GIVEN** an armed project, an orchestrator session running, and two
+  orchestrated chains
+- **WHEN** both chains end before the session does
+- **THEN** exactly one orchestrator session starts, after the running one ends
+
+#### Scenario: Workstation offline
+
+- **GIVEN** an armed project whose workstation is offline
+- **WHEN** an orchestrated chain ends
+- **THEN** the woken session stays queued, no other workstation takes it, and
+  it is sent when the armed workstation connects again
 
 #### Scenario: Nothing left to take
 

@@ -1,0 +1,1 @@
+Review the project's backlog as a whole and launch the autonomous workflow chain of the tickets that should be worked on now, within the free orchestrator slots, following the orchestration policy given in the prompt. Explain every launch and every deferral, so a person reading the backlog understands why each ticket was or was not taken.

@@ -1052,6 +1052,10 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		d.cancelRun(ctx, conn, msg, payload)
 		return
 	}
+	if payload.Scope == agentprotocol.ScopeOrchestrator {
+		d.handleOrchestratorDispatch(ctx, conn, msg, payload)
+		return
+	}
 	if strings.TrimSpace(payload.MacroKey) != "" {
 		d.handleMacroDispatch(ctx, conn, msg, payload)
 		return

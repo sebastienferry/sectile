@@ -39,12 +39,15 @@ func AssertNaming(t *testing.T, ctx context.Context, session *mcp.ClientSession,
 		"record_pull_request": {"taskKey": task.ID, "url": "https://github.com/o/b/pull/1"},
 		// Listed for the catalog check only: they need a macro, which the
 		// taskmcp tests cover.
-		"get_macro":           {"projectId": "default", "macroKey": "M-1"},
-		"list_macros":         {"projectId": "default"},
-		"create_macro":        {"projectId": "default", "title": "Canonical macro"},
-		"update_macro":        {"projectId": "default", "macroKey": "M-1", "title": "Updated macro"},
-		"update_macro_todos":  {"projectId": "default", "macroKey": "M-1", "todos": []any{}},
-		"orchestrate_project": {"projectId": "default"},
+		"get_macro":               {"projectId": "default", "macroKey": "M-1"},
+		"list_macros":             {"projectId": "default"},
+		"create_macro":            {"projectId": "default", "title": "Canonical macro"},
+		"update_macro":            {"projectId": "default", "macroKey": "M-1", "title": "Updated macro"},
+		"update_macro_todos":      {"projectId": "default", "macroKey": "M-1", "todos": []any{}},
+		"orchestrate_project":     {"projectId": "default"},
+		"get_orchestration_state": {"projectId": "default"},
+		"launch_task_chain":       {"taskKey": "#1", "rationale": "Contract check"},
+		"defer_task":              {"taskKey": "#1", "reason": "Contract check"},
 	}
 	list, err := session.ListTools(ctx, nil)
 	if err != nil {
