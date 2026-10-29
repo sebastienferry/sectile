@@ -782,3 +782,14 @@ state and its agent log, and a manual refresh completed without switching to
 Local setup. The app and replacement agent were stopped and their private data
 and bundle removed. This qualifies native gateway restart and retained mode;
 the closed backend prevented a live profile restoration check.
+
+An isolated current-source Go backend on `127.0.0.1:55460` supplied a synthetic
+paired account and folder-only project to a separate unsigned Tauri bundle at
+`2f2514c`. Native Settings initially showed the profile and project. After the
+backend stopped, **Actualiser** showed Fleet disconnected and the backend error
+while preserving the selected mode. The same Go database was reopened; the
+agent reconnected without restarting, and a second native refresh restored
+the profile fields and project list. The agent log had one startup entry across
+the outage. This closes the native Fleet backend restart/recovery slice for
+current source and synthetic data; real OAuth and tracker services remain
+separate qualifications.
