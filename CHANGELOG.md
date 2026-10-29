@@ -36,6 +36,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 - Show attached workspace folders in the prompt context so users can see what the agent will use without opening the folder details.
 - Project navigation hides the “Tableau” action while the board is already open.
 - Local projects backed only by the synthetic local tracker now show a prompt-ready empty state instead of remote tracker filters and read-only tracker status; the duplicate prompt button has been removed.
+- Compact the project prompt on short windows so its launch controls, prompt suggestions and keyboard hint stay visible together.
 
 - The connection status distinguishes the Fleet backend from the locally running agent.
 

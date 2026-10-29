@@ -131,6 +131,19 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .prompt-suggestions button { font-size:11px; color:var(--muted); padding:8px 10px; border-color:var(--divider); background:transparent; }
 .prompt-suggestions svg { height:12px; width:12px; }
 .composer-shortcut { color:var(--muted); font-size:10px; margin-top:18px; opacity:.8; }
+@media (max-height: 850px) {
+  .prompt-start { padding-top: 22px; padding-bottom: 20px; }
+  .prompt-intro { margin-bottom: 18px; }
+  .prompt-symbol { padding: 9px; margin-bottom: 12px; }
+  .prompt-symbol svg { width: 20px; height: 20px; }
+  .prompt-intro h2 { margin: 8px 0; }
+  .prompt-intro > p { line-height: 1.55; }
+  .project-prompt .composer { padding: 12px; gap: 6px; }
+  .project-prompt .composer textarea { min-height: 60px; }
+  .prompt-suggestions { margin-top: 12px; gap: 6px; }
+  .prompt-suggestions button { padding: 6px 8px; }
+  .composer-shortcut { margin-top: 10px; }
+}
 .conversation-prompt { max-width:1060px; padding:0 32px 20px; }
 .workspace-pane-conversation { overflow:hidden; }
 .conversation-prompt .prompt-heading { min-height:51px; padding:6px 0; gap:10px; border-bottom:1px solid var(--divider); margin-bottom:6px; color:var(--muted); }

@@ -1,9 +1,10 @@
 # Electron and Tauri desktop UX audit
 
 Date: 2026-10-29
-Status: source corrections and a current-source visual check are complete. The
-convergence plan has passed an independent design challenge; matched
-populated-state screenshots remain a hard gate before UI implementation.
+Status: source corrections and the matched current-source visual baseline for
+shared surfaces are complete. The convergence plan has passed an independent
+design challenge; post-dispatch conversation and execution surfaces are
+documented as product-specific rather than visual-parity targets.
 
 ## Reference and scope
 
@@ -72,13 +73,16 @@ broken workflow.
 1. **Matched baseline and design-token map.** Build both applications from
    current source and use equivalent disposable project, tracker, task, run
    and conversation fixtures. Capture matched light and dark states at the same
-   window sizes: project/task rail, board, prompt, active conversation with
-   tools, waiting question, execution/diff and settings. Normalize language,
-   connection mode and fixture state. Record font, line height, header/rail
-   dimensions, control height, spacing and semantic color differences. This is
-   an evidence-only lot: do not change layout or style until the comparison is
-   reviewable. **Hard gate:** do not begin lot 2 until all required states have
-   matched captures or a documented reason a surface cannot be matched.
+   window sizes for the project/task rail, board, pre-dispatch prompt and
+   settings. Normalize language, connection mode and fixture state. Record
+   font, line height, header/rail dimensions, control height, spacing and
+   semantic color differences. This is an evidence-only lot: do not change
+   layout or style until the comparison is reviewable. **Hard gate:** do not
+   begin lot 2 until shared surfaces have matched captures and each
+   product-specific surface has a documented reason it cannot be matched.
+   Electron's interactive CLI console and Tauri's in-app conversation,
+   transcript, questions and diff are product-specific after dispatch; do not
+   manufacture parity by changing their execution model.
 2. **Workbench navigation and density.** Apply explicit launch rules: (a) on a
    returning launch, restore the last valid project and view; (b) if that
    project or conversation was removed or is inaccessible, fall back to the
@@ -241,8 +245,9 @@ semantic tokens or enlarge the compact Tauri type scale; their small color
 differences from Electron retain AA contrast and preserve the lighter native
 settings hierarchy.
 
-The board and settings hierarchy have been inspected with isolated data at
-1280 × 900 CSS pixels and 800 × 820 CSS pixels, in both light and dark themes.
+The board, pre-dispatch prompt and settings hierarchy have been inspected with
+isolated data at 1280 × 900 CSS pixels and 800 × 820 CSS pixels, in both light
+and dark themes.
 The populated board uses the same three Jira tickets in both applications. The
 isolated Electron copy used a fake loopback agent and separate user-data
 directory; Tauri used the development-only fixture. The board captures are
@@ -288,14 +293,38 @@ readiness-card detail or copy. Tauri runtime strings remain French and
 Electron's remain English; this is a product-localization difference, not a
 reason to translate one app during a styling change.
 
+The pre-dispatch project prompt was also captured from current builds at both
+sizes and in both themes. Electron's “Project prompt” is an engine-selection
+dialog that names the local repository and opens an interactive CLI console;
+it has no prompt field. Tauri accepts the actual prompt in its workspace and
+shows project-folder context, provider, model and Plan/execution mode before
+dispatch. The first 800 × 820 capture put suggestions and the keyboard hint
+below the visible area. A short-window layout now reduces intro and composer
+spacing so the send action, provider/model/mode controls, prompt suggestions
+and keyboard hint all fit without scrolling. At 1280 × 900 the composer and
+suggestions retain the roomier layout. This is a matched pre-dispatch context
+comparison, not a claim that these flows have identical behavior. The
+screenshots are `/tmp/sectile-electron-prompt-light-800.png`,
+`/tmp/sectile-electron-prompt-dark-800.png`,
+`/tmp/sectile-tauri-prompt-light-800.png`,
+`/tmp/sectile-tauri-prompt-dark-800.png`, and corresponding `-1280` captures.
+Both applications used the same disposable `Project A` and
+`/tmp/sectile-ux-fixture/workspace` folder. Electron used a fake loopback agent
+and separate user data; Tauri used the development-only fixture. Nothing was
+submitted, and no provider, tracker or production companion was contacted.
+The refinement was checked in both themes at 800 × 820; the composer remains
+within the viewport and the prompt suggestions and keyboard hint are visible
+below it. `npm run check` passes.
+
 Conversation, waiting-question and execution/diff states cannot be matched
 between the current products without changing their behavior: Electron opens
 CLI sessions in its console/terminal, while Tauri hosts the conversation and
 tool transcript in its own renderer. Tauri fixtures capture those surfaces for
 internal consistency, but they are not Electron parity targets. The matched
-shared-surface gate is closed for the populated project board and settings
-hierarchy at 1280 × 900 and 800 × 820 in both themes. The captures are an
-evidence baseline, not pixel-approval for styling changes.
+shared-surface gate is closed for the populated project board, pre-dispatch
+prompt context and settings hierarchy at 1280 × 900 and 800 × 820 in both
+themes. The captures are an evidence baseline, not pixel-approval for styling
+changes.
 
 A Tauri-only waiting-question fixture at 800 × 820 exposed a third, outer
 scroll area that pushed the question action buttons below the visible window.
@@ -461,10 +490,11 @@ disposable test data.
 ## Remaining convergence work
 
 The plan above follows the source audit and tested parity changes. Current
-source has matched populated-board and settings captures at normal and narrow
-widths in both themes. Production windows remain unsuitable for comparison
-because their projects and tracker modes differ. Conversation and execution
-surfaces remain Tauri-only by product design. Continue in plan order,
+source has matched populated-board, pre-dispatch prompt and settings captures
+at normal and narrow widths in both themes. Production windows remain
+unsuitable for comparison because their projects and tracker modes differ.
+Conversation and execution surfaces remain Tauri-only by product design.
+Continue in plan order,
 preserving tracker-authoritative ticket state, existing Go execution/MCP
 contracts, accessible focus behavior, the no-tabs decision and the fast
 standalone Local path.
