@@ -478,9 +478,12 @@ caller-token attribution, one tracker stage update and a workflow transition in
 both directions. The harness also calls the authenticated project
 `skills-status` route with each opposite-version agent connected. The operation
 crosses the server-agent WebSocket and returns the expected temporary Git
-workspace in both directions. Mutating workspace operations, cancellation,
-provider execution, live GitHub/Jira/GitLab behavior and Electron registration
-remain unqualified. Stage 5 remains
+workspace in both directions. The harness then removes that temporary
+repository's `.git` metadata, invokes the native `init-git` API through each
+server/agent pairing and verifies Git initialized the expected path; it restores
+the original temporary metadata afterward. This qualifies one mutating agent
+operation. Task worktree operations, cancellation, provider execution, live
+GitHub/Jira/GitLab behavior and Electron registration remain unqualified. Stage 5 remains
 open for a live Fleet pairing/setup session, an Electron live MCP call after the
 Tauri migration, signed-package qualification and repeated true cold-start
 measurements. The qualification host currently has zero valid macOS
