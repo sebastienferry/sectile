@@ -1057,6 +1057,15 @@ func (d *DB) SeedDemoData() error {
 	return nil
 }
 
+// importChunkSize is how many tickets ImportOrUpdateTasks writes before it lets
+// the other users of the lock in. Fifty tickets is a few hundred statements,
+// well under a second on a remote PostgreSQL.
+var importChunkSize = 50
+
+// importChunkPause runs between two chunks, with the lock released. It does
+// nothing outside the tests, which use it to check the lock is free there.
+var importChunkPause = func() {}
+
 // ImportOrUpdateTasks writes what a synchronisation read from one tracker
 // (#741). A ticket is found by its tracker and key, or by its id, then through
 // the alias a merged-away duplicate left; the tracker's board mapping decides
@@ -1068,9 +1077,23 @@ func (d *DB) SeedDemoData() error {
 // An empty trackerID takes each ticket's tracker from its project, the default
 // project when it names none: the path of the callers that import into a
 // project rather than from a tracker.
+//
+// The write lock is released every importChunkSize tickets. A full read of a
+// large tracker is thousands of tickets and several statements each: held for
+// the whole import, the lock stalled every other reader of the process for
+// tens of seconds, long enough for the instance to miss its heartbeat and be
+// taken for dead, and for every agent connection to be dropped for silence.
+// Each ticket is written on its own, and two instances already import side by
+// side without sharing this lock, so a chunk boundary opens no race the
+// import was not already exposed to.
 func (d *DB) ImportOrUpdateTasks(trackerID string, syncedTasks []models.Task) error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			d.mu.Unlock()
+		}
+	}()
 
 	now := time.Now()
 	var importErrs []string
@@ -1084,7 +1107,14 @@ func (d *DB) ImportOrUpdateTasks(trackerID string, syncedTasks []models.Task) er
 		trackers[id] = t
 		return t
 	}
-	for _, t := range syncedTasks {
+	for i, t := range syncedTasks {
+		if i > 0 && i%importChunkSize == 0 {
+			d.mu.Unlock()
+			locked = false
+			importChunkPause()
+			d.mu.Lock()
+			locked = true
+		}
 		labelsJSON, _ := json.Marshal(t.Labels)
 		isPinned := HasPinnedLabel(t.Labels)
 		pinnedVal := 0

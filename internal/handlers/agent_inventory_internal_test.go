@@ -270,3 +270,70 @@ func TestFailedReplacementRegistrationWithdrawsOldSession(t *testing.T) {
 	}
 	t.Fatal("closed session retained published availability after failed replacement")
 }
+
+// Noting a heartbeat or an inventory never waits for the write behind it: the
+// read loop notes them, and a database slower than the read deadline used to
+// stop the loop from reading until the agent was dropped for silence.
+func TestAgentPresenceNotesWithoutWaitingAndKeepsTheLatestInventory(t *testing.T) {
+	p := newAgentPresence()
+	noted := make(chan struct{})
+	go func() {
+		for i := 0; i < 1000; i++ {
+			p.notePing()
+			p.noteInventory(AgentMessage{MsgID: "old"}, 1)
+		}
+		p.noteInventory(AgentMessage{MsgID: "latest"}, 2)
+		close(noted)
+	}()
+	select {
+	case <-noted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("noting presence waited for a writer that never ran")
+	}
+	if !p.ping {
+		t.Error("the heartbeat was not kept for the writer")
+	}
+	if p.inventory == nil || p.inventory.msg.MsgID != "latest" {
+		t.Errorf("pending inventory = %+v, want the latest one", p.inventory)
+	}
+	if len(p.wake) != 1 {
+		t.Errorf("%d wake-ups pending, want exactly one", len(p.wake))
+	}
+}
+
+type forgottenSessionDirectory struct{ *db.DB }
+
+func (forgottenSessionDirectory) WorkstationPing(string, time.Time) error {
+	return db.ErrWorkstationSessionGone
+}
+
+// A session another instance forgot is hung up on, so the agent reconnects and
+// registers again. It used to stay connected with every inventory refused.
+func TestAForgottenSessionIsHungUpOn(t *testing.T) {
+	store, err := db.NewDB(filepath.Join(t.TempDir(), "forgotten-session.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	stop, err := store.StartInstance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	d := NewAgentDispatcher()
+	d.SetCluster(forgottenSessionDirectory{DB: store}, clusterToken, nil)
+	agent := connectClusterAgent(t, d, "u", "all", "a")
+	ac := d.Lookup("u", "p", "a")
+	if ac == nil {
+		t.Fatal("agent not registered")
+	}
+
+	d.sessionPing(ac)
+
+	_ = agent.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, _, err = agent.ReadMessage()
+	var closeErr *websocket.CloseError
+	if !errors.As(err, &closeErr) || closeErr.Code != agentCloseSessionGone {
+		t.Fatalf("agent read %v, want a close with code %d", err, agentCloseSessionGone)
+	}
+}

@@ -39,6 +39,10 @@ const (
 	// silence. It sits next to 4001 ("Session Rebound") in the private range and
 	// lets the agent log say which of the two happened.
 	agentCloseKeepaliveTimeout = 4002
+	// agentCloseSessionGone is the close code sent to an agent whose session
+	// another instance forgot after taking this one for dead. The agent
+	// reconnects, as after any close, and registers a session again.
+	agentCloseSessionGone = 4003
 	// defaultAgentReconnectGrace is how long an operation waits for an agent to
 	// come back before giving up. It is short by design: it has to fit inside
 	// the 15s budget the caller gives a local inspection and still leave the

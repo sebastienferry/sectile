@@ -3943,9 +3943,17 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 		go h.pullAndApplyAgentTasks(ac)
 	}
 
+	// Presence writes run beside the loop rather than in it, so a slow
+	// database cannot stop the loop from reading until the deadline drops
+	// the agent.
+	presence := newAgentPresence()
+	stopPresence := make(chan struct{})
+	go h.runAgentPresence(ac, presence, stopPresence)
+
 	// Read loop: handle messages from the local agent (pty_output, step_status,
 	// heartbeat responses). The loop exits when the connection closes.
 	defer func() {
+		close(stopPresence)
 		h.agentDispatcher.Unregister(userID, deviceID, conn)
 		_ = conn.Close()
 		h.BroadcastEvent(Event{
@@ -3986,7 +3994,7 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 
 		switch msg.Type {
 		case "heartbeat":
-			h.agentDispatcher.sessionPing(ac)
+			presence.notePing()
 			_ = ac.Send(AgentMessage{
 				MsgID: msg.MsgID,
 				Type:  "heartbeat",
@@ -4005,7 +4013,7 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 				Type: "agent_step_status",
 			})
 		case agentprotocol.ProjectInventoryType:
-			h.receiveProjectInventory(ac, msg, len(msgData))
+			presence.noteInventory(msg, len(msgData))
 		case "running_tasks":
 			h.agentDispatcher.ReportRunningTasks(ac, msg)
 		case agentprotocol.RunAnsweredType:
