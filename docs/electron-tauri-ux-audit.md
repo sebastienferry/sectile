@@ -931,3 +931,24 @@ test selects a custom skill on an unconfigured project and verifies that neither
 action can dispatch. TypeScript, 15 domain tests, 133 UI tests, the production
 build and 38 Rust tests pass. The final guard change was tested in source; the
 observed native bundle predates it. No remote tracker write was made.
+
+## Native tracker workflow qualification: connection identity blocker
+
+On 2026-10-30, an isolated unsigned app from Tauri `0711eb8` and Go `5500840d`
+(test-only port `55466`) created a GitHub-backed project and temporary Sectile
+issue `#899` through its backend API. The native board displayed the issue,
+and **Next step: Clarify** dispatched a real Codex conversation in a disposable
+Git worktree. The transcript showed connected MCP transport and an approval
+request for `sectile_companion.get_project_context`, but **Allow once** was
+disabled. Native **Stop execution** stopped the run and showed a stopped skill.
+This is a failed workflow qualification, not an end-to-end pass.
+
+Source inspection identifies the missing link: free conversations receive
+`X-Sectile-Connection-ID` at creation, but a tracker skill returns through the
+server dispatch path without that desktop identity. The conversation endpoint
+therefore treats it as an unbound read-only history; tracked runs cannot use
+the free-history adoption path. Carry the initiating connection identity
+through local launch/dispatch correlation, while preserving rejection of other
+connections and legacy Electron behavior. Do not enable approval buttons by
+dropping the connection check. Verify approvals and tool activity with the
+real native fixture after fixing this path.
