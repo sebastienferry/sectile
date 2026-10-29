@@ -462,10 +462,11 @@ but its fixed port reservation failed because port 52963 was occupied. The
 existing service was left running. The test must be repeated after that service
 stops.
 
-Stage 5 remains open for old-agent/new-server and new-agent/supported-server
-binary integration fixtures, a live Fleet pairing/setup session, an Electron
-live MCP call after the Tauri migration, signed-package qualification and
-repeated true cold-start measurements. Do not infer these from unit tests or
+Stage 5 now has one binary handshake direction qualified: a released v0.7.6
+agent connected to the current Go server handler. It remains open for the reverse
+current-agent/supported-server binary path, a live Fleet pairing/setup session,
+an Electron live MCP call after the Tauri migration, signed-package
+qualification and repeated true cold-start measurements. Do not infer these from unit tests or
 from the migrated Local installation.
 
 Existing workstation connection qualification (2026-10-29): the saved local
@@ -495,5 +496,8 @@ times of 207–245 ms with the filesystem cache warm. They do not replace repeat
 true cold-start measurements; a signed artifact also remains open. Source-level
 protocol fixtures pass in both directions: the current server parses the pinned
 v0.7.6 agent connection query, and a parser copied from the v0.7.6 server
-source accepts the current agent announcement. Real binary integration remains
-open.
+source accepts the current agent announcement. Separately, a real v0.7.6 agent
+binary connected to the current server WebSocket handler in an isolated test
+with a temporary database and HOME; the server accepted its version and complete
+operation list. The reverse binary direction and full Fleet API compatibility
+remain open.
