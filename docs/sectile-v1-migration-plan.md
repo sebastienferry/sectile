@@ -197,7 +197,7 @@ launched and no visual or runtime behavior is qualified by this build.
 | Tauri + Local companion + embedded backend from this branch | Existing macOS managed-install migration; disposable Claude Code, Codex, MCP and companion lifecycle checks | Verified on macOS for the recorded prototype; repeat against the current commit before V1 |
 | Tauri + bundled Fleet agent + current Go backend | Pairing HTTP contract fixture, TLS/credential checks, API authorization tests and UI/native setup tests | Contract coverage only; a real remote one-time-code pairing and paired-agent native setup are still required |
 | Tauri + legacy attached Fleet agent | An isolated `com.sebferry.sectile.tauri.fleetcheck` macOS bundle used the native “attach existing agent” flow, reported `Agent local · backend Fleet`, loaded 19 live projects, and read 390 tickets from the Sectile project (2026-10-29). It attached to the existing v0.7.6 workstation agent without creating tracker writes or replacing the active Local profile. A read-only `/api/me` request through that agent gateway returned `401`, so the legacy connection cannot supply the authenticated user profile needed for native API setup. | Live attachment, backend mode display, project discovery and tracker-backed board reads verified. Native user/tracker/project setup requires a newly paired desktop credential; one-time pairing remains unqualified. |
-| Existing Electron/Go workstation + live backend | The existing v0.7.6 agent returned connected status, no contract error and 19 discovered projects in a read-only live check (2026-10-29); 315 Electron unit tests pass | This qualifies the existing connection only; post-migration MCP and current-branch Electron/server compatibility remain unqualified |
+| Existing Electron/Go workstation + live backend | The installed Electron `sectile-agent mcp` bridge connected to the configured live backend, listed 21 tools and completed a read-only `list_projects` call (2026-10-29); 315 Electron unit tests pass | Live MCP bridge behavior is verified for this installed client and backend. Current-branch Electron/server compatibility and the Electron UI suite remain unqualified |
 | Source-level v0.7.6 protocol fixtures | The current server parses a pinned v0.7.6 agent connection query; a parser copied from the v0.7.6 server source parses the current agent announcement. Focused agent/handler tests also cover operation dispatch. | Pass on this source revision. These tests do not execute either released binary. |
 | Released agent binary to current Go server | The Go repository harness `python3 scripts/compatibility/test-v076-server-current-agent.py` builds the `v0.7.6` agent from its tag and connects it to the current handler with isolated database, HOME and Git repositories. Re-run against Go commit `3ea74cbb` on 2026-10-29. | Pass for startup, WebSocket handshake, 27-operation status, task lifecycle, mocked tracker API calls, `skills_status`, `init_git` and task-spec worktree creation. |
 | Current agent binary to `v0.7.6` server binary | The same harness starts the server built from the Git tag with isolated SQLite state; the current `dev` agent connects and the server reports all 27 operations with `outdated=false`. Re-run against Go commit `3ea74cbb` on 2026-10-29. | Pass for startup, WebSocket handshake, task lifecycle, mocked tracker API calls, `skills_status`, `init_git` and task-spec worktree creation. |
@@ -226,9 +226,13 @@ installation. The client listed 21 tools and successfully called the read-only
 `list_projects` tool. The call used the Local companion's private installation
 credential in memory; no credential was logged or changed. This verifies the
 running Local MCP route, not the isolated release bundle or Electron's separate
-MCP registration. The connected Sectile MCP client still returned
-`connection closed: client is closing`, and Electron's post-migration bridge
-call remains open.
+MCP registration. A separate read-only smoke then invoked the installed
+Electron `sectile-agent mcp` bridge against its configured live backend. It
+listed 21 tools and successfully called `list_projects`; its existing bearer
+credential was read from the active MCP process in memory and was not logged or
+changed. This qualifies the installed Electron bridge against that live backend,
+not every Electron/server version pair. The separate Codex app Sectile MCP
+connector still returned `connection closed: client is closing`.
 
 Full Go suite re-run (2026-10-29, Go commit `7dea9140`): `go test ./...`
 passed across the server, companion, agent, backend, handlers, provider runner,
