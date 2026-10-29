@@ -5,17 +5,20 @@ import ProjectPrompt from "../src/components/ProjectPrompt";
 import * as api from "../src/lib/conversation";
 vi.mock("../src/lib/conversation",async original=>({...await original<typeof api>(),providerModels:vi.fn(),createConversation:vi.fn(),readConversation:vi.fn(),controlConversation:vi.fn()}));
 afterEach(()=>{cleanup();vi.resetAllMocks();});
-test("catalogue, live Codex models and the current model are offered without resetting pending choices",async()=>{
+test("live Codex models replace stale workstation suggestions without losing the current or pending choice",async()=>{
  vi.mocked(api.providerModels).mockResolvedValue(["configured-model"]);
  const onChange=vi.fn();const snapshot={id:"settings",busy:false,readOnly:false,provider:"codex",model:"current-model",mode:"plan",models:[{model:"live-model"}]};
  const view=render(<TurnSettings provider="codex" snapshot={snapshot} value={{}} onChange={onChange} disabled={false}/>);
- await screen.findByRole("option",{name:"configured-model"});
+ await waitFor(()=>expect(api.providerModels).toHaveBeenCalledWith("codex"));
+ expect(screen.queryByRole("option",{name:"configured-model"})).toBeNull();
  expect(screen.getByRole("option",{name:"live-model"})).toBeTruthy();
+ expect(screen.getByRole("option",{name:"current-model"})).toBeTruthy();
  expect(screen.getByRole("option",{name:"Conserver : Plan"})).toBeTruthy();
  fireEvent.change(screen.getByLabelText("Modèle"),{target:{value:"live-model"}});
  expect(onChange).toHaveBeenCalledWith({model:"live-model"});
- view.rerender(<TurnSettings provider="codex" snapshot={{...snapshot,model:"other-model"}} value={{model:"live-model",mode:"execute"}} onChange={onChange} disabled={false}/>);
- expect((screen.getByLabelText("Modèle") as HTMLSelectElement).value).toBe("live-model");
+ view.rerender(<TurnSettings provider="codex" snapshot={{...snapshot,model:"other-model",models:[{model:"other-live"}]}} value={{model:"live-model",mode:"execute"}} onChange={onChange} disabled={false}/>);
+ expect((screen.getByLabelText("Modèle") as HTMLSelectElement).value).toBe("__custom__");
+ expect((screen.getByLabelText("Identifiant du modèle") as HTMLInputElement).value).toBe("live-model");
  expect((screen.getByLabelText("Mode de conversation") as HTMLSelectElement).value).toBe("execute");
 });
 test("the first project prompt sends model and plan choices once through the controller",async()=>{

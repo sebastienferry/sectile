@@ -549,3 +549,21 @@ different project and tracker modes, so they are not valid content-comparison
 fixtures. Conversation transcripts, questions and execution/diff surfaces
 remain intentionally Tauri-specific because Electron continues provider CLI
 sessions in its console/terminal.
+
+## Post-convergence model availability correction
+
+A live tracked-task check on 2026-10-29 exposed an outdated Codex model
+suggestion: `gpt-5-codex` was offered by the workstation catalogue but refused
+by the signed-in CLI. The same static list is merged into Tauri's conversation
+model selector even after Codex has returned its account-specific `model/list`.
+That makes a known-unavailable suggestion appear beside verified live models.
+
+For an active Codex conversation, use its live model list as the selectable
+catalogue and retain the current model so an existing conversation remains
+legible. Keep the workstation suggestions for the first prompt, where no live
+conversation exists, and keep custom identifiers available. The first-prompt
+list remains a suggestion rather than an availability guarantee; a future
+provider-catalogue service may improve that path without delaying prompt entry.
+Verify that live suggestions replace stale workstation suggestions, that the
+current and pending selections survive a refresh, and that first-prompt and
+custom-model flows remain intact.

@@ -12,7 +12,11 @@ export function TurnSettings({ provider, snapshot, value, onChange, disabled, co
     if (provider === "claude" || provider === "codex") void providerModels(provider).then(models => { if (mounted) setCatalogue(Array.isArray(models) ? models.filter(model => typeof model === "string") : []); }).catch(() => { if (mounted) setUnavailable(true); });
     return () => { mounted = false; };
   }, [provider]);
-  const models = [...new Set([...(snapshot?.models?.map(model => model.model) ?? []), ...catalogue, ...(snapshot?.model ? [snapshot.model] : [])])];
+  // Codex's live catalogue is scoped to the signed-in account. Once it is
+  // available, workstation suggestions must not add models the CLI may reject.
+  const snapshotModels = snapshot?.models?.map(model => model.model) ?? [];
+  const suggestions = provider === "codex" && Array.isArray(snapshot?.models) ? snapshotModels : [...snapshotModels, ...catalogue];
+  const models = [...new Set([...suggestions, ...(snapshot?.model ? [snapshot.model] : [])])];
   const currentMode = snapshot?.mode === "plan" ? "Plan" : snapshot?.mode === "read-only" ? "Lecture seule" : "Exécution";
   return <fieldset className={`turn-settings ${compact ? "compact" : ""}`} disabled={disabled}>
     <legend className={compact ? "sr-only" : ""}>Prochain message</legend>
