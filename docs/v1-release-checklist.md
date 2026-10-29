@@ -85,9 +85,13 @@ live tracker/provider behavior or Fleet reconnection.
 
 The migration plan records a valid unsigned arm64 DMG, current-source Local
 onboarding and provider-supervision tests, Go/Electron regression suites,
-current/v0.7.6 agent/server protocol tests, and an isolated Local profile/project
+current/v0.7.6 agent/server protocol tests, a read-only Electron UI smoke
+against the current Go API, and an isolated Local profile/project
 bundle-replacement smoke. The latest app bundle reports
 `releaseEligible: false`. Signing/notarization, clean-user installation and
 complete upgrade retention, default-port cold start with the current binary,
 and the remaining live Fleet/Electron checks are still open. No V1 release is
-ready to publish.
+ready to publish. Full Fleet/Electron workflows, live tracker/provider
+qualification, current default-port cold startup and signed/notarized macOS
+installation remain open. Linux remains experimental and Windows is deferred,
+so neither is a V1 qualification gate.
