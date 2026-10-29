@@ -592,3 +592,9 @@ unfinished workflow so it does not appear while ticket metadata is loading.
 Execution history on a ticket retained a disabled stop button for completed
 runs. Keep the stop action on active runs only, and label an active run with a
 pending stop request as such. Historical output and review remain readable.
+
+The free-prompt component kept its draft state when the active project changed,
+and an in-flight conversation creation could navigate back to the old project
+after the user switched. Scope the composer instance to the selected project
+and conversation; keep a submitted message running in Go, but only navigate to
+its conversation while its originating composer remains mounted.

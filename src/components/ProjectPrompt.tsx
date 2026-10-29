@@ -23,6 +23,8 @@ export default function ProjectPrompt({ projectId, runId, onCreated, onTitleChan
   const [profiles, setProfiles] = useState<ProjectProfiles>();
   const [profileId, setProfileId] = useState("");
   const customized = useRef(false);
+  const mounted = useRef(false);
+  useEffect(() => { mounted.current=true; return () => { mounted.current=false; }; }, []);
   useEffect(() => {
     if(runId) return;
     let current=true;
@@ -46,7 +48,7 @@ export default function ProjectPrompt({ projectId, runId, onCreated, onTitleChan
       try {
         const created = profileId ? await createConversation(projectId, provider, profileId) : await createConversation(projectId, provider);
         void conversationFor(created.id).send(draft, true, options);
-        onCreated(created.id);
+        if (mounted.current) onCreated(created.id);
       } catch (cause) { setError(String(cause)); }
       finally { setBusy(false); }
     }}>

@@ -23,6 +23,24 @@ test("a free prompt creates a project-scoped Go conversation and crosses IPC onc
   expect(api.createConversation).toHaveBeenCalledWith("project-one", "claude");
   expect(api.controlConversation).toHaveBeenCalledTimes(1);
 });
+test("switching projects clears the draft and does not reopen an older project after creation",async()=>{
+ let resolveCreate!:(value:{id:string})=>void;
+ vi.mocked(api.createConversation).mockReturnValueOnce(new Promise(resolve=>{resolveCreate=resolve;})).mockResolvedValue({id:"new-project-chat"});
+ vi.mocked(api.readConversation).mockResolvedValue(snapshot("new-project-chat"));
+ const opened=vi.fn();
+ const view=render(<ProjectPrompt key="project-one" projectId="project-one" onCreated={opened}/>);
+ fireEvent.change(screen.getByRole("textbox",{name:"Prompt libre"}),{target:{value:"Prompt for project one"}});
+ fireEvent.click(screen.getByRole("button",{name:"Envoyer"}));
+ view.rerender(<ProjectPrompt key="project-two" projectId="project-two" onCreated={opened}/>);
+ expect((screen.getByRole("textbox",{name:"Prompt libre"}) as HTMLTextAreaElement).value).toBe("");
+ resolveCreate({id:"old-project-chat"});
+ await waitFor(()=>expect(api.controlConversation).toHaveBeenCalledWith("old-project-chat",{action:"message",message:"Prompt for project one"}));
+ expect(opened).not.toHaveBeenCalled();
+ fireEvent.change(screen.getByRole("textbox",{name:"Prompt libre"}),{target:{value:"Prompt for project two"}});
+ fireEvent.click(screen.getByRole("button",{name:"Envoyer"}));
+ await waitFor(()=>expect(opened).toHaveBeenCalledWith("new-project-chat"));
+ expect(api.createConversation).toHaveBeenNthCalledWith(2,"project-two","claude");
+});
 test("the React controller renders Go state, sends only the next message and restores read-only history", async () => {
   vi.mocked(api.readConversation).mockResolvedValue(snapshot("history-chat"));
   render(<ProjectPrompt projectId="project-two" runId="history-chat" onCreated={vi.fn()} />);

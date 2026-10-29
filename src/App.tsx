@@ -563,7 +563,7 @@ function ProjectPane({
         </div>
       ) : selection.view === "prompt" ? (
         selection.runId || project?.path?.trim() ? <Suspense fallback={<p>Ouverture du prompt…</p>}>
-          <ProjectPrompt directory={workingDirectory} folders={currentRun?.folders} onFoldersChanged={()=>void monitor.refresh()} onTitleChanged={()=>void monitor.refresh()} projectId={selection.projectId} runId={selection.runId} onCreated={id => { if (project) navigate(project, "prompt", id); }} />
+          <ProjectPrompt key={`${selection.projectId}:${selection.runId??"new"}`} directory={workingDirectory} folders={currentRun?.folders} onFoldersChanged={()=>void monitor.refresh()} onTitleChanged={()=>void monitor.refresh()} projectId={selection.projectId} runId={selection.runId} onCreated={id => { if (project) navigate(project, "prompt", id); }} />
         </Suspense> : project ? <ProjectFolderSetup project={project} onMapped={path=>onFolderMapped(project.id,path)} /> : <p>Chargement du projet…</p>
       ) : (
         <Supervisor
