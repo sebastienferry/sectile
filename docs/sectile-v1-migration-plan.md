@@ -165,6 +165,12 @@ returned `connection closed: client is closing`; this does not qualify the
 post-migration MCP call. See
 [the runtime plan](local-fleet-runtime-plan.md) for the scope of this evidence.
 
+Current Tauri verification (2026-10-29): `npm run check`, `npm test` (9 tests),
+`npm run test:ui` (87 tests), `cargo fmt --check` and `cargo test` (35 tests) all
+pass. Two isolated macOS release bundles built successfully with unique bundle
+identifiers for live Fleet checks; each measured 101.72 MiB. The active Local
+installation and its companion remained running during those checks.
+
 ### Stage 5 compatibility evidence
 
 | Combination | Evidence now available | Qualification |
