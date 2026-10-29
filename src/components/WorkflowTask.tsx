@@ -10,7 +10,11 @@ import {RunReview} from "./RunReview";
 const RunConsole=lazy(()=>import("./RunConsole").then(module=>({default:module.RunConsole})));
 const ProjectPrompt=lazy(()=>import("./ProjectPrompt"));
 
-export function WorkflowTask({projectId,taskId,onBack,onSetup}:{projectId:string;taskId:string;onBack:()=>void;onSetup:()=>void}){
+type WorkflowTaskProps={projectId:string;taskId:string;onBack:()=>void;onSetup:()=>void};
+export function WorkflowTask(props:WorkflowTaskProps){
+ return <WorkflowTaskView key={JSON.stringify([props.projectId,props.taskId])} {...props}/>;
+}
+function WorkflowTaskView({projectId,taskId,onBack,onSetup}:WorkflowTaskProps){
  const monitor=useExecutionMonitor();
  const [task,setTask]=useState<Task>();const [project,setProject]=useState<ProjectContext>();
  const [selected,setSelected]=useState("");const [result,setResult]=useState<RunResult>();

@@ -355,6 +355,9 @@ journal and survives agent restarts; renaming never sends a provider message or
 changes remote tracker tickets. Existing saved histories derive titles from their
 first user message and can also be renamed.
 
+Ticket workflow screens keep draft instructions scoped to the selected project
+and ticket. Switching tickets starts with a fresh workflow view.
+
 ## Configure AI provider access
 
 Open **Paramètres → Moteurs IA** to detect Claude Code and Codex using the Go

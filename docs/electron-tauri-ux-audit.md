@@ -904,3 +904,12 @@ only once the agent is available and scopes it to the selected connection.
 An onboarding UI regression verifies that detection appears after agent
 readiness. TypeScript, 15 domain tests, 131 UI tests, the production build and
 38 Rust tests pass; this follow-up has not had a separate native retake.
+
+A workflow navigation review found that switching directly between tickets
+reused the previous component state. Its title, draft instructions, selected
+skill and errors could remain while the next ticket loaded. Workflow state is
+now scoped to the project/ticket pair. A delayed-read UI regression verifies
+that the old ticket and launch controls disappear during loading and that the
+new ticket starts with empty instructions. TypeScript, 15 domain tests, 132 UI
+tests, the production build and 38 Rust tests pass. This source fix still needs
+a native navigation retake.

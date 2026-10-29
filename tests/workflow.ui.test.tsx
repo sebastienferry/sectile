@@ -15,6 +15,22 @@ const project={configured:true,aiProvider:"claude",skills:[{id:"implement"},{id:
 beforeEach(()=>{vi.resetAllMocks();monitor.snapshot.runs=[];monitor.fresh=true;vi.mocked(api.listTasks).mockResolvedValue([task]);vi.mocked(context.projectContext).mockResolvedValue(project);vi.mocked(context.providerReadiness).mockResolvedValue({provider:"claude",complete:true,steps:{skills:{status:"success"},mcp:{status:"success"}}});vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true},runs:[]});vi.mocked(api.launchTask).mockResolvedValue({});});
 afterEach(cleanup);
 const show=()=>render(<WorkflowTask projectId="project" taskId="task" onBack={()=>{}} onSetup={()=>{}}/>);
+test("switching tickets clears the prior workflow and instructions while the next ticket loads",async()=>{
+ const view=show();
+ await screen.findByRole("heading",{name:task.title});
+ fireEvent.click(screen.getByText("Instructions et autre skill"));
+ fireEvent.change(screen.getByLabelText("Instructions supplémentaires"),{target:{value:"Only for the first ticket"}});
+ let finish!:(tasks:typeof task[])=>void;
+ vi.mocked(api.listTasks).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+ view.rerender(<WorkflowTask projectId="project" taskId="second" onBack={()=>{}} onSetup={()=>{}}/>);
+ expect(screen.queryByRole("heading",{name:task.title})).toBeNull();
+ expect(screen.queryByLabelText("Instructions supplémentaires")).toBeNull();
+ expect(screen.queryByRole("button",{name:/Étape suivante/})).toBeNull();
+ finish([{...task,id:"second",key:"APP-2",title:"Second ticket"}]);
+ await screen.findByRole("heading",{name:"Second ticket"});
+ expect((screen.getByLabelText("Instructions supplémentaires") as HTMLTextAreaElement).value).toBe("");
+ expect(api.launchTask).not.toHaveBeenCalled();
+});
 test("workflow loads after React remounts its effect during an in-flight read",async()=>{
  let resolveFirst!:(tasks:typeof task[])=>void;
  vi.mocked(api.listTasks).mockImplementationOnce(()=>new Promise(resolve=>{resolveFirst=resolve;})).mockResolvedValue([task]);
