@@ -145,8 +145,12 @@ Debian Bookworm ARM64 container from Tauri commit `0988d58` and Go commit
 `7dea9140`. The 49.11 MiB `.deb` contains an ARM64 Tauri executable and all
 three Go services; each embedded service reports the expected Go commit, and
 the build manifest SHA-256 and size values verify. This is package construction
-and artifact integrity evidence only: Linux runtime, installation, startup,
-migration and UI behavior remain unqualified. The current unsigned optimized macOS `.app` measures
+and artifact integrity evidence. The package also installed successfully in the
+same Debian environment, and the application created a visible X11 window under
+Xvfb/DBus before it was stopped cleanly. This is a simulated ARM64 startup
+smoke, not qualification on a real Linux desktop: interactive UI, migration,
+provider execution and behavior across distributions remain unqualified. The
+current unsigned optimized macOS `.app` measures
 101.72 MiB. One isolated arm64 macOS cold launch showed its first native window
 at 1.09 seconds. Three subsequent process relaunches using the same unconfigured
 profile and warm filesystem cache showed 207–245 ms to the first window. The
@@ -218,7 +222,7 @@ launched and no visual or runtime behavior is qualified by this build.
 | Cross-version agent operation dispatch | The same harness connects a current agent to the v0.7.6 server and a released v0.7.6 agent to the current server. Each pairing calls authenticated `skills-status` and `init-git` routes. MCP `prepare_task_spec_worktree` creates a registered, distinct worktree on a task branch through the server-agent WebSocket in both pairings; the test verifies its path, branch and Git registration. | Pass for read, mutation and task specification workspace operations over the server-agent WebSocket in both directions. Cancellation, provider execution and Electron registration remain unqualified. |
 | Go service cross-builds | On 2026-10-29 at Go commit `3ea74cbb`, built `cmd/companion`, `cmd/agent` and `cmd/server` for both `linux/amd64` and `windows/amd64`; `file` confirmed ELF and PE x86-64 outputs. | Go service compilation passes for both targets. This does not qualify the Tauri package, native startup, migration, process execution or installers on either OS. |
 | Optional headless server artifact | At Go commit `7dea9140`, `make build-server-headless` produced `bin/server-headless` without invoking Node. The opt-in `sectile_headless` build retains API/MCP/auth routes and returns 404 for browser paths; isolated runtime smoke verified `/api/health` (200), browser paths (404), and an unauthenticated unknown API route (JSON 401). Both default and tagged `cmd/server`/`internal/webui` tests pass. | Linux/amd64 ELF and Windows/amd64 PE headless binaries cross-compile. This qualifies the optional artifact and its no-web behavior on the current macOS host, not native Linux/Windows runtime or release distribution. |
-| Native platforms | macOS live migration and unsigned bundle build; Linux ARM64 `.deb` built from Tauri `0988d58` and Go `7dea9140`, with ARM64 executable inspection and embedded service manifest/hash/version verification; Windows companion and Go handler test binary cross-build; Linux and Windows Go service cross-builds above | Linux package build/integrity passes; Linux runtime/install/migration and Windows runtime/migration remain unqualified |
+| Native platforms | macOS live migration and unsigned bundle build; Linux ARM64 `.deb` built from Tauri `0988d58` and Go `7dea9140`, with ARM64 executable inspection, embedded service manifest/hash/version verification, successful Debian installation and visible X11 window under Xvfb/DBus; Windows companion and Go handler test binary cross-build; Linux and Windows Go service cross-builds above | Linux package build/install and simulated startup smoke pass; real desktop interaction, migration/provider execution, other distributions and Windows runtime/migration remain unqualified |
 | macOS signing | `security find-identity -v -p codesigning` returned zero valid identities on the qualification host (2026-10-29) | No signed macOS artifact can be qualified on this host; a valid signing identity is required |
 | Open-source package provenance | Tauri repository has an MIT `LICENSE`; the Go checkout has no license file, while `prepare:services` builds and bundles the Go server, agent and companion | Public binary redistribution remains unqualified until the Go services' licensing and required notices are explicit |
 
