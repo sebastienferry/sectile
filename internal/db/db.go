@@ -7325,6 +7325,10 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 		GitlabUrl: strings.TrimSpace(req.GitlabUrl), GitlabProject: strings.TrimSpace(req.GitlabProject), JiraProject: jiraProject, TrackerUrl: req.TrackerUrl,
 		BoardID: req.BoardID, IssueTypes: issueTypes, AutoSyncEnabled: autoSyncEnabledInt == 1, AutoSyncIntervalMin: autoSyncIntervalMin,
 	}
+	if req.FolderOnly {
+		autoSyncEnabledInt = 0
+		created.AutoSyncEnabled = false
+	}
 	// A tracker the new project joins keeps its own board mirror; it only
 	// takes the project's auto-sync when the project asks for it. A creation
 	// naming no tracker names its source through its tracker fields.
@@ -7353,6 +7357,9 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 		}
 		// A project naming its trackers selects those; otherwise it gets the
 		// one its tracker fields name (#741).
+		if req.FolderOnly {
+			return nil
+		}
 		if len(req.Trackers) == 0 {
 			if err := d.ensureProjectTrackerUnsafe(tx, created, settings, joined); err != nil {
 				return err

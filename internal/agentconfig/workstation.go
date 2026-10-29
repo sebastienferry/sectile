@@ -16,7 +16,8 @@ import (
 // values into the workstation ones. Layout 5 (#859) keeps the project-local
 // orchestration guidelines path. Layout 6 stores multiple named orchestration
 // agents, which older writers must not discard.
-const SettingsLayout = 6
+// Layout 7 preserves conversation modes in named engine profiles.
+const SettingsLayout = 7
 
 // DefaultProvider is the provider a workstation runs when neither its defaults
 // nor the project section name one.

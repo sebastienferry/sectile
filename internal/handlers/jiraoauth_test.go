@@ -212,3 +212,47 @@ func TestTheJiraOAuthAppIsAnAdminsAndItsSecretWriteOnly(t *testing.T) {
 		t.Fatalf("clear: %d %s", w.Code, w.Body)
 	}
 }
+
+func TestCompanionOwnsJiraCallbackWhileWebKeepsItsConfiguration(t *testing.T) {
+	h, admin := credentialHandler(t)
+	t.Setenv("SECTILE_LOCAL_RUNTIME_KEY", "")
+	call := func(method, body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		h.HandleJiraOAuthApp(w, signedRequest(admin, method, JiraOAuthAppPath, strings.NewReader(body)))
+		return w
+	}
+	webCallback := "https://sectile.example.com/auth/jira/callback"
+	if w := call(http.MethodPut, `{"clientId":"cid","clientSecret":"private-secret","redirectUrl":"`+webCallback+`"}`); w.Code != 200 {
+		t.Fatal(w.Body)
+	}
+	t.Setenv("SECTILE_LOCAL_RUNTIME_KEY", "private")
+	w := call(http.MethodGet, "")
+	var state db.OAuthAppState
+	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil {
+		t.Fatal(err)
+	}
+	callback := "http://127.0.0.1:52963/auth/jira/callback"
+	if !state.Configured || state.RedirectURL != callback || state.ExpectedRedirectURL != callback {
+		t.Fatalf("unexpected companion state: %+v", state)
+	}
+	if w := call(http.MethodPut, `{"clientId":"cid","redirectUrl":"https://attacker.example/callback"}`); w.Code != 400 {
+		t.Fatalf("accepted callback override: %d", w.Code)
+	}
+	if w := call(http.MethodPut, `{"clientId":"cid"}`); w.Code != 200 {
+		t.Fatalf("native save without callback: %d %s", w.Code, w.Body)
+	}
+	t.Setenv("SECTILE_LOCAL_RUNTIME_KEY", "")
+	if w := call(http.MethodPut, `{"clientId":"cid","redirectUrl":"`+webCallback+`"}`); w.Code != 200 {
+		t.Fatal(w.Body)
+	}
+	w = call(http.MethodGet, "")
+	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.RedirectURL != webCallback {
+		t.Fatalf("web callback changed: %s", state.RedirectURL)
+	}
+	if strings.Contains(w.Body.String(), "private-secret") {
+		t.Fatal("secret returned")
+	}
+}

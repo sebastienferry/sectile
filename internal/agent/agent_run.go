@@ -91,8 +91,10 @@ type controlledRun struct {
 	taskID   string
 	token    string
 	canceled bool
-	exited   chan struct{}
-	once     sync.Once
+	// resumeAfterShutdown distinguishes daemon cleanup from an explicit user stop.
+	resumeAfterShutdown bool
+	exited              chan struct{}
+	once                sync.Once
 	// trace is what a headless run showed while it worked, for the desktop to
 	// attach to. It is nil for a run whose engine was not asked for its
 	// reasoning stream, which is every interactive run and every engine whose
@@ -122,6 +124,7 @@ type controlledRun struct {
 	finishedAt time.Time
 	saved      runSave
 	persistMu  sync.Mutex
+	journal    *conversationJournal
 }
 
 func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {

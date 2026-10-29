@@ -527,6 +527,8 @@ type EpicAxisPrefixes struct {
 // (#305): the workstation owns them, and a request that still names one is
 // decoded without it, so an older client keeps saving the rest.
 type CreateProjectRequest struct {
+	// FolderOnly creates project metadata without selecting a ticket source.
+	FolderOnly bool `json:"folderOnly,omitempty"`
 	// IssueTypes names the tracker work item types to import. Empty means the
 	// default list.
 	IssueTypes []string `json:"issueTypes,omitempty"`

@@ -358,6 +358,9 @@ func TestAProjectOnASiteTheGrantLacksIsRefused(t *testing.T) {
 // existing API token stays.
 func TestAGrantCoveringNoConfiguredSiteStoresNothing(t *testing.T) {
 	f := newGrantFixture(t)
+	if _, err := f.d.conn.Exec(`UPDATE trackers SET site = 'https://gamma.atlassian.net' WHERE provider = 'jira'`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.d.conn.Exec(`UPDATE projects SET tracker_url = 'https://gamma.atlassian.net' WHERE id = ?`, f.project.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -703,5 +706,31 @@ func TestPostgresJiraGrant(t *testing.T) {
 	}
 	if app, source, err := second.JiraOAuthApp(); err != nil || source != ServerCredentialStored || app.ClientSecret != "page-secret" {
 		t.Fatalf("the saved app: %+v %s %v", app, source, err)
+	}
+}
+
+// A source can be configured before a project links it during desktop onboarding.
+func TestJiraConsentRecognizesATrackerSourceWithoutALegacyProject(t *testing.T) {
+	d := testDB(t)
+	fake := atlassiantest.New(t, atlassiantest.FakeSite{CloudID: "c-acme", URL: acmeSite})
+	setJiraOAuthEnvironment(t)
+	d.SetAtlassianEndpoints(fake.Endpoints(), nil)
+	if err := d.EnsureUser("usr_ada"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.CreateTrackerAs("usr_ada", models.Tracker{Name: "Jira source", Provider: "jira", Site: acmeSite, Scope: "PE"}); err != nil {
+		t.Fatal(err)
+	}
+	sites, err := d.ConfiguredJiraSites()
+	if err != nil || len(sites) != 1 || sites[0] != acmeSite {
+		t.Fatalf("configured sources: %v %v", sites, err)
+	}
+	f := &grantFixture{d: d, fake: fake}
+	if outcome := f.connect(t, d, "usr_ada", "Ada", "c-acme"); outcome != JiraOAuthConnected {
+		t.Fatalf("source-only consent: %s", outcome)
+	}
+	credentials, err := d.UserTrackerCredentials("usr_ada")
+	if err != nil || len(credentials) != 1 || credentials[0].Kind != CredentialKindOAuth {
+		t.Fatalf("verified grant not stored: %v %v", credentials, err)
 	}
 }

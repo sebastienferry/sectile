@@ -228,46 +228,55 @@ func (d *agentDaemon) setupRead(r *http.Request, settings agentconfig.Settings, 
 		current.Fingerprint = setupDigest([]any{saved, current.Status})
 		view.Steps[step] = current
 	}
-	mcp := setupStep{Status: "pending", Scope: "provider"}
-	entry, found, err := agentconfig.RegisteredMCPEntry(provider)
-	choice := settings.MCPConnections[provider]
-	target := d.link.serverURL
-	key := d.currentMCPKey()
-	if choice.Target == "local" {
-		target, key = d.loopback.url, ""
-	}
-	executable, executableErr := os.Executable()
-	valid := found && entry.Server == strings.TrimRight(target, "/") && entry.APIKey == key && (entry.Transport == "http" || entry.Transport == "stdio" && executableErr == nil && entry.Command == executable)
-	if valid {
-		matched, readErr := agentconfig.MCPEntryMatches(provider, executable, target, key, entry.Transport, choice.Target == "local")
-		valid = matched
-		if readErr != nil {
-			err = readErr
+	if companionMCPURL() != "" && (provider == "claude" || provider == "codex") {
+		valid := companionMCPURL() == d.link.serverURL && d.link.token != ""
+		status := "unknown"
+		if valid {
+			status = "success"
 		}
-	}
-	repair := false
-	if provider == "claude" {
-		views, readErr := d.claudeEntryViews(settings, executable)
-		if readErr != nil {
-			err = readErr
+		view.Steps["mcp"] = setupStep{Status: status, Scope: "session", Message: "Connexion isolée du compagnon ; les inscriptions utilisateur restent inchangées.", Configuration: &setupMCPView{Target: "companion", Transport: "stdio", Present: true, Valid: valid}, Fingerprint: setupDigest([]any{companionMCPURL(), valid})}
+	} else {
+		mcp := setupStep{Status: "pending", Scope: "provider"}
+		entry, found, err := agentconfig.RegisteredMCPEntry(provider)
+		choice := settings.MCPConnections[provider]
+		target := d.link.serverURL
+		key := d.currentMCPKey()
+		if choice.Target == "local" {
+			target, key = d.loopback.url, ""
 		}
-		for _, item := range views {
-			repair = repair || item.Stale
+		executable, executableErr := os.Executable()
+		valid := found && entry.Server == strings.TrimRight(target, "/") && entry.APIKey == key && (entry.Transport == "http" || entry.Transport == "stdio" && executableErr == nil && entry.Command == executable)
+		if valid {
+			matched, readErr := agentconfig.MCPEntryMatches(provider, executable, target, key, entry.Transport, choice.Target == "local")
+			valid = matched
+			if readErr != nil {
+				err = readErr
+			}
 		}
+		repair := false
+		if provider == "claude" {
+			views, readErr := d.claudeEntryViews(settings, executable)
+			if readErr != nil {
+				err = readErr
+			}
+			for _, item := range views {
+				repair = repair || item.Stale
+			}
+		}
+		if err != nil || d.link.serverURL == "" || d.currentMCPKey() == "" {
+			mcp.Status = "unknown"
+		} else if valid && !repair {
+			mcp.Status = "success"
+		}
+		targetName := "remote"
+		if choice.Target == "local" {
+			targetName = "local"
+		}
+		mcp.Configuration = &setupMCPView{Target: targetName, Transport: entry.Transport, Present: found, Valid: valid && !repair, NeedsRepair: repair}
+		// Fingerprint contains only safe identity/enums and comparison booleans.
+		mcp.Fingerprint = setupDigest([]any{view.Server, choice.Target, entry.Transport, valid, repair})
+		view.Steps["mcp"] = mcp
 	}
-	if err != nil || d.link.serverURL == "" || d.currentMCPKey() == "" {
-		mcp.Status = "unknown"
-	} else if valid && !repair {
-		mcp.Status = "success"
-	}
-	targetName := "remote"
-	if choice.Target == "local" {
-		targetName = "local"
-	}
-	mcp.Configuration = &setupMCPView{Target: targetName, Transport: entry.Transport, Present: found, Valid: valid && !repair, NeedsRepair: repair}
-	// Fingerprint contains only safe identity/enums and comparison booleans.
-	mcp.Fingerprint = setupDigest([]any{view.Server, choice.Target, entry.Transport, valid, repair})
-	view.Steps["mcp"] = mcp
 	if d.link.serverURL == "" || d.currentMCPKey() == "" {
 		for name, step := range view.Steps {
 			step.Status = "unknown"

@@ -361,7 +361,7 @@ func grantedSiteURLs(sites []atlassian.Site) []string {
 }
 
 // ConfiguredJiraSites lists the Jira sites the deployment works with: its own
-// and every site a Jira project sets for itself, each once. A grant covering
+// and every Jira tracker source or legacy project site, each once. A grant covering
 // none of them is of no use.
 func (d *DB) ConfiguredJiraSites() ([]string, error) {
 	seen := map[string]bool{}
@@ -378,7 +378,9 @@ func (d *DB) ConfiguredJiraSites() ([]string, error) {
 	if d.trackers != nil {
 		add(d.trackers.JiraURL)
 	}
-	rows, err := d.conn.Query(`SELECT tracker_url FROM projects WHERE LOWER(issue_tracker) = 'jira' AND TRIM(tracker_url) <> '' ORDER BY name`)
+	rows, err := d.conn.Query(`SELECT site FROM trackers WHERE LOWER(provider) = 'jira' AND TRIM(site) <> ''
+ UNION SELECT tracker_url FROM projects WHERE LOWER(issue_tracker) = 'jira' AND TRIM(tracker_url) <> ''
+ ORDER BY 1`)
 	if err != nil {
 		return nil, err
 	}

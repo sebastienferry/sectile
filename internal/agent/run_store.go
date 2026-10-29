@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"tasks/internal/agentconfig"
 	"tasks/internal/terminal"
 )
 
@@ -24,10 +25,12 @@ import (
 // this process only, so every restart emptied the sidebar. The run store keeps a
 // private copy of each run on the workstation and the next process reads it
 // back: the person finds the same consoles, readable as they ended. The process
-// behind a console is not kept; a restored run is only ever replayed.
+// behind a console is not kept. Free provider conversations retain session identity
+// and resume only when the owner sends a new message.
 //
-// The store is a courtesy, like the trace: a run is never failed, delayed or
-// stopped because its copy could not be written.
+// Terminal histories remain a courtesy. Free conversations instead commit
+// normalized events through a synchronous journal, report storage failures and
+// refuse to dispatch a new prompt whose local write failed.
 
 // runStoreCapability tells the desktop that a restart keeps the consoles, so
 // its confirmation does not warn that they will be lost.
@@ -41,8 +44,8 @@ const runStoreVersion = 1
 // oldest finished run goes first; a live run never counts.
 const runStoreRetained = 100
 
-// runStoreFlush is how often a live run's changes are written, and so how much
-// of its console a crash can lose.
+// runStoreFlush checkpoints ordinary consoles. Conversations commit continuously
+// through their journal; this interval only controls their compaction.
 const runStoreFlush = 5 * time.Second
 
 // safeRunID is what a run id must look like to become a file name: the server
@@ -55,9 +58,30 @@ type storedRun struct {
 	Run     desktopRun `json:"run"`
 	// Console is what the run's terminal printed, bounded as the session
 	// history is. Trace is a headless run's rendered reasoning stream.
-	Console    []byte    `json:"console,omitempty"`
-	Trace      []string  `json:"trace,omitempty"`
-	FinishedAt time.Time `json:"finishedAt,omitzero"`
+	Console         []byte              `json:"console,omitempty"`
+	Trace           []string            `json:"trace,omitempty"`
+	FinishedAt      time.Time           `json:"finishedAt,omitzero"`
+	Conversation    *storedConversation `json:"conversation,omitempty"`
+	Partial         string              `json:"partial,omitempty"`
+	JournalSequence uint64              `json:"journalSequence,omitempty"`
+	TraceVersion    uint64              `json:"traceVersion,omitempty"`
+}
+
+// storedConversation contains provider identity, never credentials, pending input or tools.
+// Only free project conversations are resumable; ticket environments are rebuilt elsewhere.
+type storedConversation struct {
+	Session   string   `json:"session"`
+	Mode      string   `json:"mode"`
+	Effort    string   `json:"effort,omitempty"`
+	ExtraDirs []string `json:"extraDirs,omitempty"`
+}
+
+func resumableConversation(record storedRun) bool {
+	c := record.Conversation
+	return record.Run.Conversation && record.Run.TaskID == "" && c != nil &&
+		strings.TrimSpace(c.Session) != "" && len(c.Session) <= 512 &&
+		(record.Run.Provider == "claude" || record.Run.Provider == "codex") &&
+		providerConversationModes(record.Run.Provider)[c.Mode] && agentconfig.ValidModel(record.Run.Model) == nil
 }
 
 // runStore is the directory of stored runs. A nil store is a disabled one:
@@ -124,6 +148,10 @@ func (s *runStore) save(record storedRun) error {
 		file.Close()
 		return err
 	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
 	if err := file.Close(); err != nil {
 		return err
 	}
@@ -151,6 +179,7 @@ func (s *runStore) remove(ids ...string) {
 		}
 		s.removed[id] = true
 		delete(s.finished, id)
+		_ = os.Remove(s.journalPath(id))
 		if err := os.Remove(s.path(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			log.Printf("[Agent] Stored run %s not deleted: %v", id, err)
 		}
@@ -195,6 +224,7 @@ func (s *runStore) load() []storedRun {
 			log.Printf("[Agent] Stored run %s skipped: format %d is not %d, or the file names another run", id, record.Version, runStoreVersion)
 			continue
 		}
+		s.recoverConversationJournal(&record)
 		switch record.Run.Status {
 		case "completed", "failed", "canceled":
 		case "running":
@@ -252,6 +282,8 @@ func (s *runStore) prune(keep int, live map[string]bool) {
 	})
 	for _, old := range finished[keep:] {
 		delete(s.finished, old.id)
+		s.removed[old.id] = true
+		_ = os.Remove(s.journalPath(old.id))
 		if err := os.Remove(s.path(old.id)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			log.Printf("[Agent] Stored run %s not deleted: %v", old.id, err)
 		}
@@ -295,7 +327,9 @@ type runSave struct {
 	trace   uint64
 	// folders counts the run's folders: one added while the console is quiet
 	// is written all the same (#762).
-	folders int
+	folders      int
+	conversation string
+	model        string
 }
 
 // tapConsole gives a run its own copy of its session's output, from the first
@@ -326,14 +360,20 @@ func (d *agentDaemon) tapConsole(runID string) {
 	tap.version++
 }
 
-// trackRun writes a run as soon as it ends, rather than at the next flush. It
-// is called where a run enters the index, under the queue lock.
+// trackRun writes ordinary runs at completion. Journaled conversations commit
+// their final events before signaling exit. Called under the queue lock.
 func (d *agentDaemon) trackRun(id string, run *controlledRun) {
 	if d.store == nil {
 		return
 	}
 	go func() {
 		<-run.exited
+		d.queue.mu.Lock()
+		journaled := run.journal != nil
+		d.queue.mu.Unlock()
+		if journaled {
+			return
+		}
 		d.persistRun(id, run)
 		d.pruneRuns()
 	}()
@@ -352,7 +392,17 @@ func (d *agentDaemon) persistRun(id string, run *controlledRun) {
 		d.queue.mu.Unlock()
 		return
 	}
+	d.updateConversationJournalLocked(run)
+	if run.journal != nil {
+		journal := run.journal
+		d.queue.mu.Unlock()
+		journal.checkpoint()
+		return
+	}
 	record := storedRun{Run: run.desktop}
+	if c := run.conversation; c != nil && (!run.canceled || run.resumeAfterShutdown) && run.taskID == "" && len(c.env) == 0 && (run.desktop.Provider == "claude" || run.desktop.Provider == "codex") && c.session != "" {
+		record.Conversation = &storedConversation{Session: c.session, Mode: providerConversationMode(run.desktop.Provider, c.mode), Effort: c.effort, ExtraDirs: append([]string(nil), c.extraDirs...)}
+	}
 	status := run.desktop.Status
 	exited := false
 	select {
@@ -363,6 +413,10 @@ func (d *agentDaemon) persistRun(id string, run *controlledRun) {
 		}
 		record.FinishedAt = run.finishedAt
 	default:
+	}
+	if record.Conversation != nil {
+		record.Run.Status = "running"
+		record.FinishedAt = time.Time{}
 	}
 	tap, trace, saved := run.console, run.trace, run.saved
 	d.queue.mu.Unlock()
@@ -377,7 +431,8 @@ func (d *agentDaemon) persistRun(id string, run *controlledRun) {
 	record.Run.QueueSequence = 0
 	console, consoleVersion := tap.snapshot()
 	lines, traceVersion := trace.snapshot()
-	next := runSave{status: status, console: consoleVersion, trace: traceVersion, folders: len(record.Run.Folders)}
+	metadata, _ := json.Marshal(record.Conversation)
+	next := runSave{status: status, console: consoleVersion, trace: traceVersion, folders: len(record.Run.Folders), conversation: string(metadata), model: record.Run.Model}
 	if next == saved {
 		return
 	}
@@ -425,6 +480,7 @@ func (d *agentDaemon) persistLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			d.persistRuns()
+			d.pruneRuns()
 		}
 	}
 }
@@ -448,7 +504,7 @@ func (d *agentDaemon) pruneRuns() {
 }
 
 // restoreRuns puts the stored runs back in the index, before the desktop can
-// list anything. A restored run has exited, has no session and cannot be
+// list anything. A historical run has exited, has no session and cannot be
 // waited on or stopped; its terminal route replays what it showed, through the
 // read-only path the headless trace uses, and ends.
 func (d *agentDaemon) restoreRuns() {
@@ -468,6 +524,9 @@ func (d *agentDaemon) restoreRuns() {
 			continue
 		}
 		entry := record.Run
+		if entry.Conversation && entry.TaskID == "" && entry.Title == "" {
+			entry.Title = titleFromConversationTrace(record.Trace)
+		}
 		entry.SessionID = ""
 		entry.ExternalTerminal = ""
 		entry.WaitingSince = time.Time{}
@@ -476,6 +535,11 @@ func (d *agentDaemon) restoreRuns() {
 		entry.Restored = true
 		replay := newRunTrace()
 		replay.lines = record.Trace
+		replay.version = record.TraceVersion
+		if replay.version == 0 {
+			replay.version = uint64(len(record.Trace))
+			record.TraceVersion = replay.version
+		}
 		if len(replay.lines) == 0 && len(record.Console) > 0 {
 			replay.lines = []string{string(record.Console)}
 		}
@@ -483,7 +547,37 @@ func (d *agentDaemon) restoreRuns() {
 		d.queue.sequence++
 		run := &controlledRun{taskID: entry.TaskID, sequence: d.queue.sequence, root: entry.Directory, desktop: entry,
 			exited: make(chan struct{}), trace: replay, restored: true, finishedAt: record.FinishedAt}
-		run.once.Do(func() { close(run.exited) })
+		if resumableConversation(record) {
+			c := record.Conversation
+			run.restored, run.desktop.Restored = false, false
+			run.desktop.Status = "running"
+			run.finishedAt = time.Time{}
+			replay.closed = false
+			run.conversation = &providerConversation{session: c.Session, mode: c.Mode, effort: c.Effort, extraDirs: c.ExtraDirs, codexProbed: true, commands: []conversationSlash{}}
+			metadata := conversationRunMetadata(run)
+			record.Run, record.Conversation = metadata.Run, metadata.Conversation
+			record.FinishedAt = metadata.FinishedAt
+			j := &conversationJournal{store: d.store, record: record, saved: record.JournalSequence}
+			if info, err := os.Stat(d.store.journalPath(id)); err == nil {
+				j.bytes = int(info.Size())
+			}
+			data, _ := json.Marshal(metadata)
+			j.metadata = string(data)
+			run.journal, run.conversation.journal, replay.journal = j, j, j
+			preserveConversationDraft(run)
+			d.trackRun(id, run)
+		} else {
+			if record.Partial != "" {
+				data, _ := json.Marshal(conversationEvent{Kind: "assistant", Text: record.Partial, Interrupted: true})
+				replay.lines = append(replay.lines, string(data))
+				replay.version++
+				record.Trace, record.TraceVersion, record.Partial = replay.lines, replay.version, ""
+				if err := d.store.save(record); err != nil {
+					log.Printf("[Agent] Recovered draft could not be checkpointed: %v", err)
+				}
+			}
+			run.once.Do(func() { close(run.exited) })
+		}
 		d.queue.runs[id] = run
 		restored++
 	}

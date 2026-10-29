@@ -45,6 +45,9 @@ func (h *Handler) HandleJiraOAuthCallback(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
+	if h.finishDesktopOAuth("jira", w, r) {
+		return
+	}
 	query := r.URL.Query()
 	outcome := db.JiraOAuthInvalid
 	userID, session := "", ""

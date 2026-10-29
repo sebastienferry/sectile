@@ -21,7 +21,9 @@ import (
 // Two rules govern everything below, and they are the same rule twice: the trace
 // is a courtesy, and the run is the work. A line that cannot be rendered is
 // dropped, a watcher that cannot keep up is disconnected, and neither is ever
-// allowed to slow down or fail the run being traced.
+// allowed to slow down or fail the run being traced. Free conversations have
+// an explicit exception: their optional journal syncs before publication so
+// already displayed output survives agent death.
 
 // traceRetained is how many rendered lines a run keeps. A run reading a large
 // file prints it, and the daemon holds every trace of every run it remembers;
@@ -42,6 +44,7 @@ type runTrace struct {
 	// version changes on every line, so the run store can tell whether the
 	// trace moved since its last write.
 	version uint64
+	journal *conversationJournal
 }
 
 func newRunTrace() *runTrace {
@@ -69,6 +72,7 @@ func (t *runTrace) write(line string) {
 	if t.closed {
 		return
 	}
+	t.journal.line(line)
 	t.lines = append(t.lines, line)
 	t.version++
 	if len(t.lines) > traceRetained {

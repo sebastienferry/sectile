@@ -21,6 +21,7 @@ import (
 	"tasks/internal/db"
 	"tasks/internal/handlers"
 	"tasks/internal/httpgzip"
+	"tasks/internal/localruntime"
 	"tasks/internal/metrics"
 	"tasks/internal/trackerapi"
 	"tasks/internal/version"
@@ -83,6 +84,15 @@ func loadDotEnv(paths ...string) {
 // It returns an empty string when the user's data directory cannot be resolved
 // or created, which callers treat as "use the working directory instead".
 func appDataDir() string {
+	if configured := strings.TrimSpace(os.Getenv("SECTILE_SERVER_DATA_DIR")); configured != "" {
+		if !filepath.IsAbs(configured) {
+			log.Fatal("SECTILE_SERVER_DATA_DIR must be an absolute path")
+		}
+		if err := os.MkdirAll(configured, 0o700); err != nil {
+			log.Fatalf("Cannot create SECTILE_SERVER_DATA_DIR: %v", err)
+		}
+		return configured
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil || strings.TrimSpace(dir) == "" {
 		return ""
@@ -104,6 +114,10 @@ func appDataDir() string {
 func resolveDBPath(explicit string) (path string, origin string) {
 	if strings.TrimSpace(explicit) != "" {
 		return explicit, "DB_PATH"
+	}
+	// An explicit data directory must never adopt a different installation.
+	if strings.TrimSpace(os.Getenv("SECTILE_SERVER_DATA_DIR")) != "" {
+		return filepath.Join(appDataDir(), "tasks.db"), "SECTILE_SERVER_DATA_DIR"
 	}
 	if fi, err := os.Stat("tasks.db"); err == nil && fi.Size() > 0 {
 		return "tasks.db", "base trouvée dans le répertoire courant"
@@ -150,6 +164,10 @@ func alreadyServing(baseURL string) bool {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--local-runtime-info" {
+		_ = json.NewEncoder(os.Stdout).Encode(localruntime.Info())
+		return
+	}
 	// .env.local last: it overrides nothing already exported, but is the usual
 	// place for a machine-specific secret.
 	// Le répertoire courant d'abord, pour la boucle de développement, puis le
@@ -164,9 +182,12 @@ func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8090"
+		if localruntime.Active() {
+			port = fmt.Sprint(localruntime.Port)
+		}
 	}
 
-	// The version is the one argument the server takes. Everything else is
+	// Version and public runtime discovery are read-only arguments. Everything else is
 	// configuration, and configuration arrives through the environment: a flag
 	// the server silently ignored is how a deployment ends up running with
 	// settings nobody applied.
@@ -176,6 +197,12 @@ func main() {
 			return
 		}
 		log.Fatal("sectile-server accepts configuration through environment variables; use sectile-agent for local execution and MCP")
+	}
+
+	if localruntime.Active() {
+		if err := localruntime.Validate(os.Getenv("SECTILE_SERVER_HOST"), port, os.Getenv("SECTILE_SERVER_DATA_DIR")); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	log.Printf("Sectile server %s", version.String())
@@ -308,6 +335,8 @@ func main() {
 	// asks /api/me which of the two modes it is in.
 	mux.HandleFunc("/auth/login", h.HandleLogin)
 	mux.HandleFunc("/auth/callback", h.HandleAuthCallback)
+	mux.HandleFunc(handlers.DesktopOAuthPath, h.HandleDesktopOAuth)
+	mux.HandleFunc(handlers.DesktopOAuthStartPath, h.HandleDesktopOAuthStart)
 	mux.HandleFunc(handlers.JiraOAuthCallbackPath, h.HandleJiraOAuthCallback)
 	mux.HandleFunc(handlers.GithubOAuthCallbackPath, h.HandleGithubOAuthCallback)
 	mux.HandleFunc(handlers.GitlabOAuthCallbackPath, h.HandleGitlabOAuthCallback)
@@ -448,8 +477,17 @@ func main() {
 
 	handlerWithCORS := serverMetrics.Instrument(httpgzip.Handler(h.EnableCORS(h.RequireSession(mux))), routeOf(mux))
 
-	addr := ":" + port
-	url := fmt.Sprintf("http://localhost%s", addr)
+	handlerWithCORS = localRuntimeProbe(handlerWithCORS, os.Getenv("SECTILE_LOCAL_RUNTIME_KEY"))
+
+	addr, err := listenAddress(os.Getenv("SECTILE_SERVER_HOST"), port)
+	if err != nil {
+		log.Fatal(err)
+	}
+	urlHost := os.Getenv("SECTILE_SERVER_HOST")
+	if urlHost == "" {
+		urlHost = "localhost"
+	}
+	url := "http://" + net.JoinHostPort(urlHost, port)
 
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {

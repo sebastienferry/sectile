@@ -40,7 +40,8 @@ type Event struct {
 }
 
 type Handler struct {
-	db *db.DB
+	desktopOAuth desktopOAuthBroker
+	db           *db.DB
 	// dataDir is where the application keeps its own files, the environment file
 	// holding the tracker token included. Empty when the process could not
 	// resolve one, in which case the token can only go to the database.
@@ -864,7 +865,11 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 		// A project is created on trackers an admin recorded (#741): one it
 		// selects, or one its legacy tracker fields name. Creating a project
 		// never creates a tracker, not even a local board.
-		if !createNamesTracker(req) {
+		if req.FolderOnly && createNamesTracker(req) {
+			writeError(w, http.StatusBadRequest, "Un projet dossier ne sélectionne pas de tracker")
+			return
+		}
+		if !req.FolderOnly && !createNamesTracker(req) {
 			writeError(w, http.StatusBadRequest, "Choisissez au moins un tracker pour le projet : un admin les enregistre dans Administration → Trackers")
 			return
 		}

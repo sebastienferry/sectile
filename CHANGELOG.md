@@ -13,6 +13,31 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Fixed
+
+- Jira OAuth recognizes configured tracker sources before they are linked to a project, avoiding a false “no site authorized” failure during desktop onboarding.
+- The standalone desktop companion now gets its fixed local OAuth port and callback URLs from Go, keeping Jira sign-in aligned with the registered callback across restarts.
+- Standalone companions can isolate Claude Code and Codex MCP per launch without replacing another desktop's registration; Codex MCP consent is answered directly in conversations.
+- Claude Code and Codex conversations save messages, tool activity and streamed replies as they arrive; after an agent crash, unfinished replies remain visible as interrupted history.
+
+- Claude Code and Codex conversation tools stop when the local Go agent crashes, including abrupt termination, instead of continuing as orphaned processes.
+
+- Free Claude Code and Codex conversations can resume after an agent restart with their transcript, provider context, model and permission mode preserved.
+
+### Added
+
+- Desktop conversation snapshots expose pending MCP verification so clients can keep its status current while the conversation is idle.
+
+- Desktop project conversations can use named Claude Code and Codex profiles with project defaults, and keep automatic or manually edited conversation titles across agent restarts.
+
+- Desktop folder mappings can explicitly accept non-Git directories for project conversations, while Git task workflows retain repository validation.
+
+- Desktop provider sign-in endpoints detect Claude Code and Codex, check authentication without exposing CLI output, and open official interactive login commands.
+
+- Desktop companions can connect GitHub.com, GitLab.com and Jira Cloud through browser OAuth with private, expiring handoffs and connection status feedback.
+
+- Local desktop companions can isolate server data, bind the server to loopback, and disable automatic changes to existing provider MCP registrations. An authenticated discovery endpoint identifies the companion’s own local server.
+
 ## [0.7.5] - 2026-10-22
 
 ### Added
@@ -26,6 +51,10 @@ test fixtures or internal plumbing.
 - **One way to filter, in every view.** Board, List, Roadmap, Triage, Sprint timeline, Team and Activities now filter with the same controls: on/off toggles and the search in the toolbar, every value filter (sprint, macro, team, person, status, type, epic priority, projects, labels, skill) as the same searchable picker in a **Filters** panel whose button counts what is set, and a row of chips naming each active filter, one click to remove it, **Clear all** to remove them all. The same filter reads the same everywhere; what each filter narrows, and whether it follows you from view to view, is unchanged. (#866)
 
 ### Fixed
+
+- Interrupting a Codex conversation terminates its local provider process tree, including tools in separate sessions; the next message resumes the same thread.
+
+- Free conversations in mapped non-Git folders no longer report a Git error when reading attached folders.
 
 - Desktop keeps task rows in place while orchestration and task metadata refresh under the pointer or keyboard focus. (#859)
 

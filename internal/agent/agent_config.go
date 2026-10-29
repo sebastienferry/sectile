@@ -180,6 +180,9 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 			return "", settings, fmt.Errorf("no local repository mapping for project %s; set its folder in the desktop app", c.ProjectID)
 		}
 	}
+	if info, statErr := os.Stat(root); statErr != nil || !info.IsDir() {
+		return "", settings, fmt.Errorf("local project folder is unavailable")
+	}
 	root, err = filepath.Abs(root)
 	if err != nil {
 		return "", settings, err
@@ -529,11 +532,11 @@ func headlessCommandLine(provider, model, prompt, settings string, addDirs ...st
 	}
 	switch provider {
 	case "claude":
-		return words("claude", "-p", "--permission-mode", "bypassPermissions", reasoning, modelFlag, quoteShell(prompt), dirFlags), nil
+		return words("claude", companionMCPFlags("claude"), "-p", "--permission-mode", "bypassPermissions", reasoning, modelFlag, quoteShell(prompt), dirFlags), nil
 	case "codex":
 		// codex exec is non-interactive, but its approval bypass flag is not
 		// attested here: it is left to a custom template until it is verified.
-		return words("codex", "exec", reasoning, modelFlag, quoteShell(prompt), dirFlags), nil
+		return words("codex", companionMCPFlags("codex"), "exec", reasoning, modelFlag, quoteShell(prompt), dirFlags), nil
 	default:
 		return "", fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
 	}
@@ -640,7 +643,7 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 		if autonomous && !templateCarriesMode(template) {
 			return "", fmt.Errorf("the configured AI command template decides the execution mode: add a {mode:AUTONOMOUS|INTERACTIVE} placeholder to it, or run this skill interactively")
 		}
-		return expandConfiguredTemplate(template, model, prompt, autonomous, contexts...)
+		return expandProviderTemplate(provider, template, model, prompt, autonomous, contexts...)
 	}
 	var addDirs []string
 	settings := ""
@@ -655,9 +658,9 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 	case "agy":
 		return words("agy", "-i", quoteShell(prompt)), nil
 	case "claude":
-		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs), settingsArg(provider, settings)), nil
+		return words(provider, companionMCPFlags(provider), modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs), settingsArg(provider, settings)), nil
 	case "codex":
-		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
+		return words(provider, companionMCPFlags(provider), modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
 	default:
 		return "", fmt.Errorf("unsupported AI provider %q; configure an AI command template", provider)
 	}
@@ -666,12 +669,30 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 // expandConfiguredTemplate builds the command line a configured template asks
 // for. A template owns its command line: the model reaches it through its own
 // {model} slot, never as a flag spliced in beside the template's words.
+func expandProviderTemplate(provider, template, model, prompt string, autonomous bool, contexts ...agentCommandContext) (string, error) {
+	var launch agentCommandContext
+	if len(contexts) > 0 {
+		launch = contexts[0]
+	}
+	launch.MCPProvider = provider
+	return expandConfiguredTemplate(template, model, prompt, autonomous, launch)
+}
+
 func expandConfiguredTemplate(template, model, prompt string, autonomous bool, contexts ...agentCommandContext) (string, error) {
 	var launch agentCommandContext
 	if len(contexts) > 0 {
 		launch = contexts[0]
 	}
 	values := launch.values(prompt)
+	provider := launch.MCPProvider
+	if provider == "" {
+		provider = templateProvider(template)
+	}
+	flags := companionMCPFlags(provider)
+	if flags != "" && !strings.Contains(template, "{mcpArgs}") {
+		return "", fmt.Errorf("companion command templates must contain {mcpArgs} for isolated MCP access")
+	}
+	template = strings.ReplaceAll(template, "{mcpArgs}", flags)
 	resolved := resolveTemplateMode(template, autonomous)
 	// {addDirs} is several options, already quoted, rather than one value: it
 	// is spliced in before the quoting pass, and is empty for a provider whose
@@ -698,7 +719,7 @@ func expandConfiguredTemplate(template, model, prompt string, autonomous bool, c
 func launchCommandLine(config agentconfig.Config, model, prompt, mode string, contexts ...agentCommandContext) (string, error) {
 	if models.NormalizeSkillMode(mode) == models.SkillModeAutonomous {
 		if dedicated := strings.TrimSpace(config.AICommandTemplateAutonomous); dedicated != "" {
-			return expandConfiguredTemplate(dedicated, model, prompt, true, contexts...)
+			return expandProviderTemplate(config.AIProvider, dedicated, model, prompt, true, contexts...)
 		}
 	}
 	return modeCommandLine(config.AIProvider, config.AICommandTemplate, model, prompt, mode, contexts...)
@@ -806,7 +827,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 		if err != nil || len(contexts) == 0 {
 			return line, err
 		}
-		return words(line, addDirArgs(liveProvider(config), contexts[0].AddDirs), settingsArg(liveProvider(config), contexts[0].ClaudeSettings)), nil
+		return words(line, companionMCPFlags(liveProvider(config)), addDirArgs(liveProvider(config), contexts[0].AddDirs), settingsArg(liveProvider(config), contexts[0].ClaudeSettings)), nil
 	}
 	model, err := LaunchModel(config, skillID, modelOverride)
 	if err != nil {

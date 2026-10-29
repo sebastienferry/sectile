@@ -1,5 +1,20 @@
 # Project Knowledge Base (MEMORY.md)
 
+### Process-Scoped Companion MCP (2026-10-29)
+
+- `SECTILE_COMPANION_MCP_URL` supplies native launches with `sectile_companion`
+  without rewriting Electron's shared `sectile` registrations. Codex deep-merges
+  configuration tables: swapping the shared STDIO entry to HTTP retains old
+  transport fields, so use a distinct name and disable the shared entry only in
+  the companion process. Keep credentials in child environments, never arguments.
+- Codex MCP consent arrives as `mcpServer/elicitation/request`, including an empty
+  object schema for a tool approval. Present explicit allow-once/decline rather
+  than answering it as command-execution approval or offering permanent consent.
+- A disposable GitLab on loopback needs repository-local `glab` host, api_host
+  and api_protocol settings for real PR evidence. A PATH-only test wrapper does
+  not supersede the agent's deliberate discovered-tool prefix. Preserve failed
+  activity evidence and resume from the last accepted stage after fixture repair.
+
 ## Architecture Decisions & Constraints
 
 ### SQLite Test Templates (#595)
@@ -237,3 +252,62 @@
 - Main deliberately retired the startup engine setup assistant in #865. Its former UI tests must cover direct Settings configuration, independent skills/MCP actions and explicit provider permission edits; do not reconnect the unused assistant module to make obsolete tests pass. Empty validation notices must not carry an error state before an actual failure, or unrelated settings checks report false errors.
 - The admission cap is read from the locked project row, never from the request: a caller-supplied cap or `force` flag silently defeats a shared limit, and an agent is a caller. The HTTP endpoint refuses unknown fields so such an override fails loudly.
 - The chain hand-back repeats a step's prompt only for an orchestrated chain (`orchestratorPromptPrefix`). Repeating every prompt would replay a manual launch instruction written for the first step into specify and implement.
+
+### Explicit Server Data Directories Must Not Adopt Legacy Data (2026-10-28)
+
+- `SECTILE_SERVER_DATA_DIR` takes precedence over both a working-directory `tasks.db` and the legacy `taskacao/tasks.db` fallback. Only an explicit `DB_PATH` overrides it. Checking the configured directory only inside `appDataDir` still lets `resolveDBPath` adopt a different installation. Keep the isolation test when changing database discovery.
+- An isolated companion sets `SECTILE_DISABLE_MCP_REFRESH=1`: empty companion settings alone do not isolate provider registrations, because `refreshMCPConnections` also repairs existing unsaved Codex and Antigravity registrations.
+
+### Codex Turn Interruption Does Not Guarantee Tool Termination (2026-10-28)
+
+- A real desktop conversation in a disposable non-Git folder acknowledged `turn/interrupt`, returned idle and accepted another turn, while an `exec_command` containing `sleep 90; write-marker` continued and wrote its marker after the delay. The completed tool result arrived after the resumed answer.
+- Do not equate the interrupted turn notification with proof that subprocesses stopped. Validate interruption using a delayed side effect after its full deadline. Killing only the app-server process group also needs verification: CLI tools may own separate sessions.
+- Reproduction: ask the free Codex conversation to print a start marker, sleep 90 seconds and write a file; interrupt while the tool runs; check for the file after 90 seconds. No credential or provider configuration change is needed.
+
+- Fix: Codex interruption now retires the dedicated app-server tree through `agentexec.StopTree`; the next message resumes the retained thread ID. Unix descendant discovery freezes parents before collecting children, since a process-group signal misses separate sessions. Windows uses the owned Job Object. Keep the separate-session delayed-writer regression test.
+- Verification: two real Codex tests waited 95 seconds after interrupting a 90-second delayed writer; both left no marker and resumed the same thread with `RESUME_OK`. The stricter run waited for a shell-written start marker before interrupting.
+
+### Claude Authentication in Isolated macOS Tests (2026-10-28)
+
+- The installed Claude CLI reports `authMethod: none` with only HOME and PATH, but finds the existing `claude.ai` login when USER is also present. Preserve USER in opt-in real-provider test environments; do not copy credentials or infer a product authentication failure from the stripped fixture environment. The desktop companion already preserves USER.
+
+### Agent Restart Restores Conversations as Read-Only Histories (2026-10-28)
+
+- Real Claude and Codex conversations survived desktop quit/reopen but not a companion agent restart as writable conversations. Traces and run IDs survived; continuation returned HTTP 409. `storedRun` stores desktop metadata/trace, not provider session/thread identity or conversation mode; `restoreRuns` reconstructs exited histories without `providerConversation`.
+- Model IDs survive in desktop run metadata but are absent from the restored conversation snapshot because model/mode are currently exposed only when the runtime conversation exists. Do not claim restart resumption based on transcript recovery alone. A future implementation must distinguish resumable idle conversations from explicitly stopped histories and must not replay previous prompts or tools automatically.
+
+### Resumable Free Conversations (2026-10-28)
+
+- ADR 0062 supersedes the read-only restart limitation for newly checkpointed free Claude/Codex conversations. Persist provider identity alongside mode/effort and desktop model; never infer it from trace text. Daemon cleanup must distinguish an open conversation from an explicit user stop.
+- Reconstruct idle state without pending messages, approvals or provider processes. The next explicit message uses `--resume`/`thread/resume`; never replay old prompts or silently replace a failed resume with an empty session. Legacy records and ticket environments remain read-only.
+
+### SIGKILL Can Leave Provider Tools Running (2026-10-28)
+
+- A real crash test SIGKILLed the owned Go agent while Claude/Codex each ran a one-shot `START; sleep 90; DONE` shell tool. Both resumed with exact checkpointed history, context, model and mode; after 108 seconds both counters remained one, so neither tool was replayed.
+- The original Claude tool nevertheless survived Go and performed its delayed write. The Codex delayed write was absent. Treat no replay, restored idle state and tool termination as separate claims. `StopTree` on explicit interruption cannot help when Go has already been killed; crash-safe tool lifetime needs an independent supervisor or OS ownership mechanism.
+- Current crash recovery checkpoints active turns every five seconds and omits partial streaming text. This real test preserved all complete events observed before the crash, but does not establish zero loss at arbitrary crash timing. See ADR 0062 for the full test evidence.
+
+### Crash-Safe Conversation Provider Ownership (2026-10-28)
+
+- ADR 0063 uses `agentexec.StartOwned` for Claude turns and Codex app-servers. Unix re-executes the `provider-guard` role with an agent-only lifetime pipe; Windows assigns the suspended provider to a kill-on-close job before resuming. Ordinary detached terminals keep their existing semantics.
+- Use `OwnedStdinPipe` with an owned conversation: it sends an explicit normal-input-close notification. On owner death the Unix guard holds provider stdin open until descendant discovery, avoiding a CLI exiting on EOF and orphaning its tools.
+- Do not wrap the read-side `*os.File` returned internally by `exec.Cmd.StdinPipe` in an `io.Reader`: `exec.Start` closes its child-side file after spawn, racing the input-copy goroutine and causing broken-pipe initialization failures. Wrap the write-side close instead. Preserve normal stdin EOF and CLI exit status in regression tests.
+
+- Real guarded verification: SIGKILL while both provider tools ran `START; sleep 90; DONE`; none of 21 recorded descendants remained at the 30-second check. At 125 seconds neither delayed file existed and both counters were exactly one. Both sessions resumed with context, checkpointed history, model and mode intact. This supersedes the earlier observed Claude orphan-tool write.
+- A transient `ps` failure must retain the ancestor and retry tree inspection. Killing only the root's group on that error loses separately sessioned tools. The guard checks inspector availability before launching and has a fail-once inspection regression test.
+
+### Conversation Journaling and Draft Recovery (2026-10-28)
+
+- ADR 0064 supersedes the five-second loss window for free Claude/Codex conversations. Their normalized events and text deltas sync to an append-only private journal before publication; the periodic run-store loop only compacts them. Preserve the journal sequence in snapshots so a crash between rename and truncation cannot replay events.
+- Do not clear a durable draft on Claude block-stop/message-stop before its complete assistant event commits. Recovery promotes it once to an interrupted assistant history event and atomically clears the saved draft, including on a second restart. Never replay the fragment as a provider prompt.
+- Journal callbacks follow queue -> trace -> journal -> store lock order and never call back up. Avoid asynchronous finished-run persistence for journaled conversations: completion must commit its final normalized events before closing the exited signal. Tests that clean temporary stores exposed this ordering.
+- Real SIGKILL during streaming, without waiting for a checkpoint: base snapshots held zero draft characters; observed drafts were 784/153 characters and recovery retained 811/221 for Claude/Codex. Event prefixes, context, model and mode survived; tool counters stayed unchanged and both providers replied JOURNAL_RESUME_OK without tool replay.
+
+### Desktop Project Profiles and Titles (2026-10-28)
+
+- Reuse the engine catalogue for conversation profiles (ADR 0065, settings layout 7). Preserve an implicit workstation default before adding the first project profile; otherwise adding one would silently change other projects. A manual provider switch must clear the other provider's inherited model/template.
+- Keep `undefined` (default model) distinct from `""` (editing a custom model ID) in profile forms. Collapsing both into one value makes the custom field disappear as soon as it is selected.
+- Titles belong to local run metadata and its synchronous journal; renaming must not send a provider turn or update remote task titles. A graceful agent restart adds a pause notice, so persistence checks compare the prior event prefix and verify extra events are notices, rather than expecting byte-identical trace lengths.
+
+### Jira OAuth must discover tracker sources (2026-10-29)
+- `ConfiguredJiraSites` must read `trackers.site` as well as legacy `projects.tracker_url`. Native onboarding can configure a source before linking it to a project; checking only legacy project fields accepts the OAuth exchange but rejects a valid grant with `no_site`. Forge OAuth already reads the tracker table.

@@ -92,6 +92,7 @@ type desktopRun struct {
 	QueueSequence   uint64    `json:"queueSequence,omitempty"`
 	CreatedAt       time.Time `json:"createdAt"`
 	StartedAt       time.Time `json:"startedAt,omitzero"`
+	Title           string    `json:"title,omitempty"`
 	Prompt          string    `json:"prompt,omitempty"`
 	ID              string    `json:"id"`
 	TaskID          string    `json:"taskId"`
@@ -137,6 +138,14 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if r.Header.Get("Origin") != "" || d.loopback.desktopToken == "" || subtle.ConstantTimeCompare([]byte(token), []byte(d.loopback.desktopToken)) != 1 {
 		http.Error(w, "Unauthorized", 401)
+		return
+	}
+	if r.URL.Path == "/desktop/conversation-profiles" {
+		d.desktopConversationProfiles(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/conversation/title" {
+		d.desktopConversationTitle(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/conversation" {
@@ -271,6 +280,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopTasks(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/provider-login" {
+		d.desktopProviderLogin(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/engines" {
 		d.desktopEngines(w, r)
 		return
@@ -396,6 +409,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	trace := run.trace
 	if r.URL.Path == "/desktop/stop" && r.Method == http.MethodPost {
 		run.canceled = true
+		d.updateConversationJournalLocked(run)
 		if run.conversation != nil {
 			if !run.conversation.busy && run.conversation.codex == nil {
 				run.desktop.Status = conversationStoppedStatus(run)
@@ -634,7 +648,11 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	if _, err := gitLocal(r.Context(), input.Path, "rev-parse", "--show-toplevel"); err != nil {
+	if info, err := os.Stat(input.Path); err != nil || !info.IsDir() {
+		http.Error(w, "Select an existing local folder", 400)
+		return
+	}
+	if _, err := gitLocal(r.Context(), input.Path, "rev-parse", "--show-toplevel"); err != nil && !input.FolderOnly {
 		http.Error(w, "Select a local Git repository", 400)
 		return
 	}

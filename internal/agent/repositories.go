@@ -567,7 +567,8 @@ func withSpecWorktree(entries []models.FolderMapEntry, spec models.TaskSpecWorks
 // (#676). Unlike taskFolderMap it reports its failure: such a session says
 // when it runs without the project's folders.
 func (d *agentDaemon) projectFolderMap(ctx context.Context, config agentconfig.Config, directory string) ([]models.FolderMapEntry, error) {
-	root, overrides, err := d.localProjectRoot(ctx, config)
+	// Free project sessions also support explicitly mapped folders without Git.
+	root, overrides, err := d.localProjectRoot(ctx, config, true)
 	if err != nil {
 		return nil, err
 	}

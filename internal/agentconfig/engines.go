@@ -19,6 +19,7 @@ type Engine struct {
 	ID                string            `json:"id"`
 	Name              string            `json:"name"`
 	Provider          string            `json:"provider"`
+	ConversationMode  string            `json:"conversationMode,omitempty"`
 	Model             string            `json:"model,omitempty"`
 	SkillModels       map[string]string `json:"skillModels,omitempty"`
 	Command           string            `json:"command,omitempty"`
@@ -223,6 +224,9 @@ func ValidateEngines(e Engines) error {
 		names[key] = name
 		if strings.TrimSpace(engine.Provider) == "" {
 			return fmt.Errorf("%s: a provider is required", label)
+		}
+		if engine.ConversationMode != "" && engine.ConversationMode != "plan" && engine.ConversationMode != "execute" {
+			return fmt.Errorf("%s: unknown conversation mode", label)
 		}
 		if err := ValidateExecution(engine.execution()); err != nil {
 			return fmt.Errorf("%s: %w", label, err)

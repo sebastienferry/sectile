@@ -58,6 +58,8 @@ func main() {
 				log.Fatal(err)
 			}
 			return
+		case "provider-guard":
+			os.Exit(agentexec.RunProviderGuard(args[1:]))
 		case "agent-exec":
 			if err := agentexec.Run(args[1:]); err != nil {
 				log.Fatal(err)

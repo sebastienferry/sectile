@@ -18,8 +18,9 @@ import (
 // nil keeps the stored value; an inherit flag removes the project's statement
 // so the workstation default applies again.
 type projectSettingsInput struct {
-	ProjectID string `json:"projectId"`
-	Path      string `json:"path"`
+	FolderOnly bool   `json:"folderOnly"`
+	ProjectID  string `json:"projectId"`
+	Path       string `json:"path"`
 	// DefaultEngine picks the project default engine from the catalogue
 	// (#510); InheritDefaultEngine follows the workstation default engine.
 	DefaultEngine        *string `json:"defaultEngine"`

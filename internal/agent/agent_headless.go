@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -381,6 +382,14 @@ func (d *agentDaemon) postRunOutput(taskRef, runID, chunk string) {
 // the agent's own environment so the provider CLI finds its PATH and credentials.
 func commandEnv(envVars map[string]string) []string {
 	env := runner.SanitizedEnviron()
+	if companionMCPURL() != "" {
+		if _, present := envVars["SECTILE_AGENT_TOKEN"]; !present {
+			env = append(env, "SECTILE_AGENT_TOKEN="+os.Getenv("TOKEN"))
+		}
+		if _, present := envVars["SECTILE_DEVICE_ID"]; !present {
+			env = append(env, "SECTILE_DEVICE_ID="+os.Getenv("SECTILE_PAIRED_DEVICE_ID"))
+		}
+	}
 	for key, value := range envVars {
 		env = append(env, fmt.Sprintf("%s=%s", key, value))
 	}

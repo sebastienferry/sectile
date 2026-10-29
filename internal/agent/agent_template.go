@@ -10,11 +10,13 @@ import (
 
 // agentCommandContext contains launch-time data, never persisted configuration.
 type agentCommandContext struct {
-	Task      models.Task
-	Branch    string
-	Directory string
-	Tracker   string
-	Repo      string
+	// MCPProvider carries the selected CLI through owner-authored wrappers.
+	MCPProvider string
+	Task        models.Task
+	Branch      string
+	Directory   string
+	Tracker     string
+	Repo        string
 	// AddDirs are the other folders of the task the CLI may read (#456): its
 	// context repositories, its secondary worktrees and its specifications
 	// folder. Only a provider whose flag is attested receives them.

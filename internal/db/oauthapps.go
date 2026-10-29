@@ -11,6 +11,7 @@ import (
 
 	"tasks/internal/atlassian"
 	"tasks/internal/forgeoauth"
+	"tasks/internal/localruntime"
 	"tasks/internal/secrets"
 )
 
@@ -45,13 +46,14 @@ var ErrOAuthAppUnreadable = errors.New("the saved OAuth app secret cannot be dec
 // OAuthAppState is what the Administration page shows of a tracker's OAuth
 // app. It never carries the secret.
 type OAuthAppState struct {
-	Configured  bool                   `json:"configured"`
-	ClientID    string                 `json:"clientId"`
-	SecretSet   bool                   `json:"secretSet"`
-	RedirectURL string                 `json:"redirectUrl"`
-	Source      ServerCredentialSource `json:"source"`
-	Unreadable  bool                   `json:"unreadable,omitempty"`
-	UpdatedAt   *time.Time             `json:"updatedAt,omitempty"`
+	ExpectedRedirectURL string                 `json:"expectedRedirectUrl,omitempty"`
+	Configured          bool                   `json:"configured"`
+	ClientID            string                 `json:"clientId"`
+	SecretSet           bool                   `json:"secretSet"`
+	RedirectURL         string                 `json:"redirectUrl"`
+	Source              ServerCredentialSource `json:"source"`
+	Unreadable          bool                   `json:"unreadable,omitempty"`
+	UpdatedAt           *time.Time             `json:"updatedAt,omitempty"`
 }
 
 type storedOAuthApp struct {
@@ -102,6 +104,7 @@ func (d *DB) OAuthApp(tracker string) (forgeoauth.App, ServerCredentialSource, e
 	if err != nil {
 		return forgeoauth.App{}, ServerCredentialNone, err
 	}
+	callback := localruntime.Callback(tracker)
 	row, err := d.readOAuthApp(tracker)
 	if err != nil {
 		return forgeoauth.App{}, ServerCredentialNone, err
@@ -114,11 +117,17 @@ func (d *DB) OAuthApp(tracker string) (forgeoauth.App, ServerCredentialSource, e
 		if err != nil {
 			return forgeoauth.App{}, ServerCredentialStored, ErrOAuthAppUnreadable
 		}
+		if callback != "" {
+			row.redirectURL = callback
+		}
 		return forgeoauth.App{ClientID: row.clientID, ClientSecret: secret, RedirectURL: row.redirectURL}, ServerCredentialStored, nil
 	}
 	app := environmentOAuthApp(tracker)
 	if app.ClientID == "" && app.ClientSecret == "" && app.RedirectURL == "" {
 		return forgeoauth.App{}, ServerCredentialNone, nil
+	}
+	if callback != "" {
+		app.RedirectURL = callback
 	}
 	return app, ServerCredentialEnvironment, nil
 }
@@ -133,7 +142,7 @@ func (d *DB) OAuthAppConfigured(tracker string) bool {
 // OAuthAppState answers what the Administration page shows of a tracker's app.
 func (d *DB) OAuthAppState(tracker string) (OAuthAppState, error) {
 	app, source, err := d.OAuthApp(tracker)
-	state := OAuthAppState{Source: source}
+	state := OAuthAppState{Source: source, ExpectedRedirectURL: localruntime.Callback(strings.ToLower(strings.TrimSpace(tracker)))}
 	switch {
 	case errors.Is(err, ErrOAuthAppUnreadable):
 		row, readErr := d.readOAuthApp(strings.ToLower(strings.TrimSpace(tracker)))
@@ -214,6 +223,12 @@ func (d *DB) SaveOAuthApp(tracker, clientID, secret, redirectURL, adminID string
 		return err
 	}
 	clientID, secret, redirectURL = strings.TrimSpace(clientID), strings.TrimSpace(secret), strings.TrimSpace(redirectURL)
+	if callback := localruntime.Callback(tracker); callback != "" {
+		if redirectURL != "" && redirectURL != callback {
+			return fmt.Errorf("l’URL de rappel du compagnon est définie par le serveur Go")
+		}
+		redirectURL = callback
+	}
 	if clientID == "" {
 		return fmt.Errorf("l'identifiant client est requis")
 	}

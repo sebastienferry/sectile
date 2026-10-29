@@ -127,6 +127,10 @@ const conversationMCPTimeout = time.Minute
 // shows what it printed. Claude is not told: it is for the owner. The queue
 // lock is held.
 func (d *agentDaemon) startConversationMCPLocked(run *controlledRun) {
+	if companionMCPURL() != "" {
+		d.checkSectileMCPLocked(run)
+		return
+	}
 	if run.desktop.Provider == "codex" {
 		d.checkCodexMCPLocked(run, true)
 		return
@@ -172,6 +176,7 @@ const sectileMCPName = "sectile"
 // conversation: connected, needs-auth, failed, pending, missing (not
 // registered) or unknown, with what the check said.
 type conversationMCP struct {
+	Source string `json:"source,omitempty"`
 	Status string `json:"status"`
 	Detail string `json:"detail,omitempty"`
 }
@@ -216,6 +221,9 @@ func parseMCPGet(output string) conversationMCP {
 const sectileMCPCheckTimeout = 30 * time.Second
 
 func (d *agentDaemon) checkSectileMCP(directory string, env map[string]string) conversationMCP {
+	if companionMCPURL() != "" {
+		return d.checkCompanionMCP()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), sectileMCPCheckTimeout)
 	defer cancel()
 	var output limitedConversationBuffer
@@ -270,7 +278,7 @@ func initMCPServer(servers []struct {
 	Status string `json:"status"`
 }) conversationMCP {
 	for _, server := range servers {
-		if server.Name == sectileMCPName {
+		if server.Name == conversationMCPName() {
 			return conversationMCP{Status: mcpStatus(server.Status), Detail: server.Status}
 		}
 	}

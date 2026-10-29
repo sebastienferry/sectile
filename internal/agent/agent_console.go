@@ -56,7 +56,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	}
 	d.prepareMu.Lock()
 	defer d.prepareMu.Unlock()
-	root, overrides, err := d.localProjectRoot(r.Context(), config)
+	root, overrides, err := d.localProjectRoot(r.Context(), config, input.View == "conversation")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
@@ -77,6 +77,12 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	provider := input.Provider
 	if input.EngineID != "" {
 		provider = config.AIProvider
+	}
+	if input.View == "conversation" && input.EngineID == "" && provider != config.AIProvider {
+		// A manual provider switch must not inherit another CLI's model or template.
+		config.AIProvider, config.AIModel = provider, ""
+		config.AISkillModels = nil
+		config.AICommandTemplate, config.AICommandTemplateAutonomous = "", ""
 	}
 	// The console is given the project's folders at launch (#676); a
 	// conversation reads them again at each turn instead.
@@ -105,7 +111,18 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		run.desktop.EngineID, run.desktop.EngineName = engine.ID, engine.Name
+		if input.EngineID != "" && engine.ConversationMode != "" {
+			run.conversation.mode = "plan"
+			if engine.ConversationMode == "execute" {
+				if provider == "codex" {
+					run.conversation.mode = "workspace-write"
+				} else {
+					run.conversation.mode = "default"
+				}
+			}
+		}
 		run.desktop.Folders = runFolders(root, folders)
+		d.updateConversationJournalLocked(run)
 		entry := run.desktop
 		d.queue.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
@@ -141,13 +158,13 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 // through the engine's attested option, or the template's {addDirs} slot.
 func consoleLaunch(provider, model, template, templateModel, root string, dirs []string) (string, error) {
 	if template != "" {
-		return expandConfiguredTemplate(template, templateModel, "", false, agentCommandContext{Directory: root, AddDirs: dirs})
+		return expandProviderTemplate(provider, template, templateModel, "", false, agentCommandContext{Directory: root, AddDirs: dirs})
 	}
 	command, err := consoleCommand(provider, model)
 	if err != nil {
 		return "", err
 	}
-	return words(command, addDirArgs(provider, dirs)), nil
+	return words(command, companionMCPFlags(provider), addDirArgs(provider, dirs)), nil
 }
 
 // consoleEnv is the environment of a free console. It carries no task, but it

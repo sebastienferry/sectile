@@ -3,6 +3,7 @@ package agentconfig
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -128,8 +129,8 @@ func TestMigrationReportsADowngradeWithoutFolding(t *testing.T) {
 // is, at start and on every save (#744).
 func TestNewerSettingsAreNeverOverwritten(t *testing.T) {
 	for _, raw := range []string{
-		`{"layout":7,"defaults":{"futureField":true}}`,
-		`{"layout":3,"maxLayout":7,"defaults":{"terminal":"ghostty"}}`,
+		fmt.Sprintf(`{"layout":%d,"defaults":{"futureField":true}}`, SettingsLayout+1),
+		fmt.Sprintf(`{"layout":3,"maxLayout":%d,"defaults":{"terminal":"ghostty"}}`, SettingsLayout+1),
 	} {
 		path := writeSettingsFile(t, raw)
 		if err := WriteSettings(Settings{}); !errors.Is(err, ErrSettingsNewer) {
@@ -139,7 +140,7 @@ func TestNewerSettingsAreNeverOverwritten(t *testing.T) {
 			t.Errorf("%s: UpdateSettings = %v", raw, err)
 		}
 		migrated, report, err := MigrateSettingsReport(t.TempDir())
-		if migrated || err != nil || report.NewerLayout != 7 {
+		if migrated || err != nil || report.NewerLayout != SettingsLayout+1 {
 			t.Errorf("%s: migration = %v %+v %v", raw, migrated, report, err)
 		}
 		if after, _ := os.ReadFile(path); string(after) != raw {

@@ -1300,3 +1300,23 @@ func TestAConversationPollSkipsAnUnchangedHistory(t *testing.T) {
 		t.Fatalf("a changed history was not sent: %s", body)
 	}
 }
+
+func TestConversationSnapshotReportsPendingMCPVerification(t *testing.T) {
+	d, id := conversationFixture(t)
+	d.queue.mu.Lock()
+	d.queue.runs[id].conversation.checkingMCP = true
+	d.queue.mu.Unlock()
+	w := conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private")
+	if w.Code != 200 {
+		t.Fatal(w.Code)
+	}
+	var snapshot struct {
+		CheckingMCP bool `json:"checkingMcp"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.CheckingMCP {
+		t.Fatal("pending MCP verification was not exposed to the desktop")
+	}
+}

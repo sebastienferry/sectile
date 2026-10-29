@@ -22,6 +22,9 @@ import (
 
 // Exercise the real supervisor when a test-owned PTY launches this executable.
 func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "provider-guard" {
+		os.Exit(agentexec.RunProviderGuard(os.Args[2:]))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "agent-exec" {
 		if err := agentexec.Run(os.Args[2:]); err != nil {
 			os.Exit(1)

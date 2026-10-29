@@ -41,6 +41,17 @@ func (d *agentDaemon) desktopMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer d.prepareMu.Unlock()
 	provider := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("provider")))
+	if companionMCPURL() != "" && (provider == "claude" || provider == "codex") {
+		if companionMCPURL() != d.link.serverURL {
+			http.Error(w, "Companion endpoint does not match its server", 409)
+			return
+		}
+		// Session arguments are prepared by the native launcher. An explicit
+		// setup action must never rewrite Electron's shared provider entry.
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"scope": "session", "serverName": companionMCPName, "choice": map[string]string{"target": "companion", "transport": "stdio"}})
+		return
+	}
 	loc, err := agentconfig.ResolveLocations(provider)
 	if err != nil {
 		http.Error(w, err.Error(), 400)
@@ -200,6 +211,9 @@ func (d *agentDaemon) claudeEntryViews(settings agentconfig.Settings, executable
 // one the provider default is written and, for Claude, recorded as the managed choice so the next agent start rewrites
 // it after a new pairing (#716).
 func (d *agentDaemon) registerMCP(provider, executable string) (string, error) {
+	if companionMCPURL() != "" && (provider == "claude" || provider == "codex") {
+		return "", nil
+	}
 	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
 	if err != nil {
 		return "", err
@@ -246,6 +260,11 @@ func (d *agentDaemon) registerMCP(provider, executable string) (string, error) {
 // over stdio, the executable: an entry is rewritten only when one of them
 // changed since it was written, never merely because the agent started (#267).
 func (d *agentDaemon) refreshMCPConnections() error {
+	// A companion can own a separate backend without taking over registrations
+	// belonging to another installation. Explicit repair remains user initiated.
+	if os.Getenv("SECTILE_DISABLE_MCP_REFRESH") == "1" {
+		return nil
+	}
 	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
 	if err != nil {
 		return err

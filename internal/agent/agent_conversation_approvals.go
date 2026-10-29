@@ -64,14 +64,15 @@ func conversationControl(subtype string) map[string]any {
 
 // conversationApproval is a tool call waiting for the owner's decision.
 type conversationApproval struct {
-	Access          json.RawMessage   `json:"access,omitempty"`
-	WireDecisions   map[string]string `json:"-"`
-	QuestionSecrets map[string]bool   `json:"-"`
-	ID              string            `json:"id"`
-	ToolUseID       string            `json:"toolUseId,omitempty"`
-	Tool            string            `json:"tool"`
-	Description     string            `json:"description,omitempty"`
-	Input           json.RawMessage   `json:"input,omitempty"`
+	MCPFields       map[string]mcpFormField `json:"-"`
+	Access          json.RawMessage         `json:"access,omitempty"`
+	WireDecisions   map[string]string       `json:"-"`
+	QuestionSecrets map[string]bool         `json:"-"`
+	ID              string                  `json:"id"`
+	ToolUseID       string                  `json:"toolUseId,omitempty"`
+	Tool            string                  `json:"tool"`
+	Description     string                  `json:"description,omitempty"`
+	Input           json.RawMessage         `json:"input,omitempty"`
 	// Suggestions are the updates Claude proposes for "always allow". They
 	// are handed back for the running conversation only, and their allow
 	// rules are added to the project's (#700).

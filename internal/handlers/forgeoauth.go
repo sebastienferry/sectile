@@ -70,6 +70,9 @@ func (h *Handler) handleForgeOAuthCallback(tracker string) http.HandlerFunc {
 			writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
+		if h.finishDesktopOAuth(tracker, w, r) {
+			return
+		}
 		query := r.URL.Query()
 		outcome := db.ForgeOAuthInvalid
 		userID, session := "", ""

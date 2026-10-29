@@ -316,3 +316,59 @@ and desktop app. See [`AGENTS.md`](./AGENTS.md) for the release procedure and
 
 No license is currently declared for this repository. Contact the repository
 owner before redistributing or reusing the code.
+
+### Isolated desktop companions
+
+A companion hosting its own server can set `SECTILE_SERVER_HOST=127.0.0.1`
+to bind only IPv4 loopback and `SECTILE_SERVER_DATA_DIR` to an absolute,
+private directory for its database, keys and server environment file. `DB_PATH`
+still overrides the database location; clear inherited deployment settings
+before starting a separate local instance. The default server still listens
+on all interfaces when `SECTILE_SERVER_HOST` is absent.
+
+For a separate agent, use `SECTILE_DESKTOP_DATA_DIR` and `--desktop-info`
+with companion-owned locations. Set `SECTILE_DISABLE_MCP_REFRESH=1` to prevent
+startup and reconnect from rewriting existing provider MCP registrations.
+This switch does not prohibit an explicit user-requested MCP repair.
+For native Claude/Codex launches, `SECTILE_COMPANION_MCP_URL` supplies an isolated
+MCP connection to that loopback server. The process-only `sectile_companion`
+bridge inherits the paired key privately; it never rewrites user registrations.
+In this mode setup reports session scope, and direct CLI templates use the
+`{mcpArgs}` slot for their isolated connection. Without this variable, existing
+Electron and workstation registration behavior is unchanged.
+
+A local companion can also set a random `SECTILE_LOCAL_RUNTIME_KEY` to enable
+authenticated `GET /api/local-runtime` discovery (protocol 1). It requires
+`SECTILE_SERVER_HOST=127.0.0.1` and an explicit server data directory. Send the
+key as a bearer credential to this route only; it does not authenticate user API
+requests. Browser origins and unknown keys receive 404.
+
+Desktop OAuth integration is described in [the companion API contract](docs/desktop-oauth.md).
+
+Free Claude Code and Codex conversations retain their provider session, transcript,
+model and mode across agent restarts. They resume on the next explicit message;
+previous prompts and tools are not replayed. Older histories without saved session
+identity and explicitly stopped conversations remain read-only. See
+[ADR 0062](docs/adrs/0062-resumable-local-provider-conversations.md).
+
+Claude Code and Codex conversation processes follow the Go agent lifetime. An
+independent Unix guard or Windows kill-on-close job terminates their local tools
+if the agent crashes, including SIGKILL on Unix. See
+[ADR 0063](docs/adrs/0063-provider-tools-follow-the-agent-lifetime.md).
+
+Free Claude Code and Codex conversations synchronously journal normalized events
+and streamed reply fragments before displaying them. Recovery keeps unfinished
+text as interrupted history, without replaying tools. Periodic writes compact the
+journal rather than defining a five-second conversation-loss window. Storage
+errors are visible and prevent unsaved new prompts from being dispatched. See
+[ADR 0064](docs/adrs/0064-conversation-events-use-a-synchronous-journal.md).
+
+### Desktop project conversation preferences
+
+The local desktop companion exposes authenticated conversation-profile and title
+endpoints. Profiles reuse the workstation engine catalogue (settings layout 7);
+project defaults apply to new conversations, and edits leave open provider sessions
+unchanged. Free conversation titles persist with local run histories. See
+[ADR 0065](docs/adrs/0065-desktop-project-profiles-and-conversation-titles.md).
+
+The isolated desktop companion uses the Go-owned loopback origin `http://127.0.0.1:52963`. Register `http://127.0.0.1:52963/auth/jira/callback` in the Atlassian OAuth application. `sectile-server --local-runtime-info` exposes the public transport contract without opening the database; ordinary web and Electron deployments keep their configured ports and callbacks. See [desktop OAuth](docs/desktop-oauth.md).

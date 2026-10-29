@@ -269,7 +269,7 @@ func TestCodexConversationInterruptKeepsTheSession(t *testing.T) {
 	codexMessage(t, d, id, `{"message":"continue"}`)
 	waitCodex(t, d, id, func(c *providerConversation) bool { return !c.busy })
 	text := codexLog(t, log)
-	if strings.Count(text, `"method":"thread/start"`) != 1 || !strings.Contains(text, `"method":"turn/interrupt"`) {
+	if strings.Count(text, `"method":"thread/start"`) != 1 || !strings.Contains(text, `"method":"thread/resume"`) {
 		t.Fatalf("interrupt replaced the session: %s", text)
 	}
 }

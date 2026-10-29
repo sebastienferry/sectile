@@ -93,7 +93,7 @@ func providerConversationEfforts(run *controlledRun, chosen ...string) map[strin
 }
 
 func codexConversationCommand(directory string, env map[string]string) *exec.Cmd {
-	cmd := agentexec.Hidden(exec.Command("codex", "app-server", "--listen", "stdio://"))
+	cmd := agentexec.Hidden(exec.Command("codex", append([]string{"app-server", "--listen", "stdio://"}, companionMCPArgs("codex")...)...))
 	cmd.Dir, cmd.Env = directory, commandEnv(env)
 	cmd.WaitDelay = headlessStopGrace
 	return cmd
@@ -213,7 +213,7 @@ func (d *agentDaemon) codexConversationTurn(run *controlledRun, prompt string) {
 	d.queue.mu.Unlock()
 
 	cmd := codexConversationCommand(directory, env)
-	stdin, err := cmd.StdinPipe()
+	stdin, err := agentexec.OwnedStdinPipe(cmd)
 	if err != nil {
 		d.endCodexConversation(run, state, err)
 		return
@@ -225,7 +225,7 @@ func (d *agentDaemon) codexConversationTurn(run *controlledRun, prompt string) {
 	cmd.Stdout = output
 	var diagnostics limitedConversationBuffer
 	cmd.Stderr = &diagnostics
-	release, err := agentexec.StartDetached(cmd)
+	release, err := agentexec.StartOwned(cmd)
 	if err != nil {
 		rpc.input.close()
 		d.endCodexConversation(run, state, err)
@@ -237,7 +237,6 @@ func (d *agentDaemon) codexConversationTurn(run *controlledRun, prompt string) {
 	go func() {
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
-		stopping := false
 		for {
 			select {
 			case <-watchDone:
@@ -246,8 +245,7 @@ func (d *agentDaemon) codexConversationTurn(run *controlledRun, prompt string) {
 				return
 			case <-ticker.C:
 				if d.queue.canceled(run) {
-					agentexec.StopControlled(cmd, stopping)
-					stopping = true
+					release()
 				}
 			}
 		}
@@ -255,11 +253,11 @@ func (d *agentDaemon) codexConversationTurn(run *controlledRun, prompt string) {
 	defer close(watchDone)
 	defer func() {
 		rpc.input.close()
-		agentexec.StopControlled(cmd, false)
+		release()
 		select {
 		case <-waited:
 		case <-time.After(headlessStopGrace):
-			agentexec.StopControlled(cmd, true)
+			_ = agentexec.StopTree(cmd)
 			<-waited
 		}
 		release()
@@ -283,7 +281,6 @@ func (d *agentDaemon) codexConversationTurn(run *controlledRun, prompt string) {
 	d.refreshCodexMCP(run, state, false)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	var interruptAt time.Time
 	for {
 		select {
 		case <-rpc.done:
@@ -302,26 +299,16 @@ func (d *agentDaemon) codexConversationTurn(run *controlledRun, prompt string) {
 				return
 			}
 			if interrupted {
-				if turnID == "" {
-					d.queue.mu.Lock()
-					c.interrupted = false
-					c.busy = len(c.next) > 0
-					conversationWrite(run.trace, "notice", "Interrupted", "Codex stopped this answer. Send a message to continue.")
-					d.queue.mu.Unlock()
-					interruptAt = time.Time{}
-				} else if interruptAt.IsZero() {
-					interruptAt = time.Now()
-					if interruptErr := rpc.request("turn/interrupt", map[string]string{"threadId": c.session, "turnId": turnID}, nil); interruptErr != nil {
-						err = interruptErr
-						return
-					}
-				} else if time.Since(interruptAt) > conversationInterruptGrace {
-					err = fmt.Errorf("Codex did not confirm the interruption; its process was stopped. Send a message to resume.")
-					return
+				// A turn acknowledgement can leave unified-exec tools running.
+				// Retire this provider tree; the next turn resumes c.session.
+				if stopErr := agentexec.StopTree(cmd); stopErr != nil {
+					err = fmt.Errorf("Codex tool termination could not be confirmed: %w", stopErr)
+				} else {
+					conversationWrite(run.trace, "notice", "Interrupted", "Codex and its local tools were terminated. Send a message to resume.")
+					err = nil
 				}
-				continue
+				return
 			}
-			interruptAt = time.Time{}
 			if len(messages) == 0 {
 				continue
 			}
@@ -410,6 +397,7 @@ func (d *agentDaemon) initializeCodexConversation(run *controlledRun, state *cod
 	if run.desktop.Model == "" {
 		run.desktop.Model = response.Model
 	}
+	d.updateConversationJournalLocked(run)
 	d.queue.mu.Unlock()
 	return nil
 }
@@ -478,6 +466,7 @@ func (d *agentDaemon) endCodexConversation(run *controlledRun, state *codexConve
 		return
 	}
 	c.codex, c.input = nil, nil
+	preserveConversationDraft(run)
 	c.busy, c.interrupted = false, false
 	c.partial = ""
 	c.approvals = nil
@@ -488,9 +477,14 @@ func (d *agentDaemon) endCodexConversation(run *controlledRun, state *codexConve
 	}
 	if run.canceled {
 		run.desktop.Status = conversationStoppedStatus(run)
-		run.once.Do(func() { close(run.exited) })
-		conversationWrite(run.trace, "notice", "Conversation stopped", "")
+		notice := "Conversation stopped"
+		if run.resumeAfterShutdown {
+			notice = "Conversation paused for agent restart"
+		}
+		conversationWrite(run.trace, "notice", notice, "")
 		run.trace.close()
+		d.updateConversationJournalLocked(run)
+		run.once.Do(func() { close(run.exited) })
 	} else if err != nil {
 		conversationWrite(run.trace, "error", err.Error(), "")
 	}
@@ -499,6 +493,16 @@ func (d *agentDaemon) endCodexConversation(run *controlledRun, state *codexConve
 // codexNotification normalizes Codex items into the existing bounded transcript.
 // Requests retain their original wire id, including numeric ids.
 func (d *agentDaemon) codexNotification(run *controlledRun, state *codexConversation, frame codexFrame) {
+	defer func() {
+		if frame.Method == "turn/completed" {
+			d.queue.mu.Lock()
+			journaled := run.journal != nil
+			d.queue.mu.Unlock()
+			if !journaled {
+				d.persistRun(run.desktop.ID, run)
+			}
+		}
+	}()
 	d.queue.mu.Lock()
 	defer d.queue.mu.Unlock()
 	c := run.conversation
@@ -552,6 +556,7 @@ func (d *agentDaemon) codexNotification(run *controlledRun, state *codexConversa
 		if state.turnID != "" && state.turnID != params.Turn.ID {
 			return
 		}
+		preserveConversationDraft(run)
 		state.turnID = ""
 		state.partialID = ""
 		c.partial = ""
@@ -572,7 +577,7 @@ func (d *agentDaemon) codexNotification(run *controlledRun, state *codexConversa
 			state.partialID = params.ItemID
 		}
 		if len(c.partial)+len(params.Delta) <= conversationPartialLimit {
-			c.partial += params.Delta
+			c.setPartial(c.partial + params.Delta)
 		}
 	case "item/started", "item/completed":
 		events := codexItemEvents(params.Item, frame.Method == "item/completed")
@@ -739,6 +744,9 @@ func codexMCPText(raw json.RawMessage) string {
 }
 
 func codexApproval(frame codexFrame) (conversationApproval, bool) {
+	if frame.Method == "mcpServer/elicitation/request" {
+		return codexMCPApproval(frame)
+	}
 	var params struct {
 		ItemID                string            `json:"itemId"`
 		Command               string            `json:"command"`
@@ -840,7 +848,13 @@ func (d *agentDaemon) decideCodexApprovalLocked(run *controlledRun, id, decision
 			return err
 		}
 		result := map[string]any{}
-		if approval.Tool == askUserQuestion {
+		if approval.Method == "mcpServer/elicitation/request" {
+			var err error
+			result, err = codexMCPAnswer(approval, decision, answers)
+			if err != nil {
+				return err
+			}
+		} else if approval.Tool == askUserQuestion {
 			if decision != "answer" && decision != "deny" {
 				return fmt.Errorf("a question takes an answer or skip")
 			}
@@ -1002,7 +1016,7 @@ func (d *agentDaemon) refreshCodexMCP(run *controlledRun, state *codexConversati
 			current = "connected"
 		}
 		lines = append(lines, server.Name+": "+current)
-		if server.Name == sectileMCPName {
+		if server.Name == conversationMCPName() {
 			status = conversationMCP{Status: current, Detail: server.Error}
 		}
 	}

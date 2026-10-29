@@ -27,6 +27,7 @@ type providerConversation struct {
 	codex       *codexConversation
 	codexProbed bool
 	models      []conversationModelOption
+	journal     *conversationJournal
 	session     string
 	busy        bool
 	// effort is the level the last turn ran with; empty leaves the CLI default.
@@ -43,8 +44,8 @@ type providerConversation struct {
 	// terminal would have had; nil for a free conversation.
 	env map[string]string
 	// partial is the reply Claude is still writing, from its streamed text
-	// deltas. It is never stored: the complete message replaces it in the
-	// trace as soon as Claude emits it.
+	// deltas. Free conversations journal these fragments until the complete
+	// assistant event atomically replaces the durable draft.
 	partial string
 	// extraDirs are folders a skill launch adds to the project's, such as a
 	// custom skill's own folder; every turn is given them.
@@ -140,12 +141,17 @@ type conversationStream struct {
 func streamPartial(c *providerConversation, event conversationStream) {
 	switch event.Type {
 	case "content_block_start", "content_block_stop", "message_stop":
-		c.partial = ""
+		// Keep text visible and durable until the complete assistant event commits.
 	case "content_block_delta":
 		if event.Delta.Type == "text_delta" && len(c.partial)+len(event.Delta.Text) <= conversationPartialLimit {
-			c.partial += event.Delta.Text
+			c.setPartial(c.partial + event.Delta.Text)
 		}
 	}
+}
+
+func (c *providerConversation) setPartial(text string) {
+	c.journal.partial(text)
+	c.partial = text
 }
 
 // conversationAllowedTools lets a conversation call Sectile's own MCP tools
@@ -186,9 +192,10 @@ func (u conversationUsage) contextSize() int {
 }
 
 type conversationEvent struct {
-	Kind   string `json:"kind"`
-	Text   string `json:"text"`
-	Detail string `json:"detail,omitempty"`
+	Interrupted bool   `json:"interrupted,omitempty"`
+	Kind        string `json:"kind"`
+	Text        string `json:"text"`
+	Detail      string `json:"detail,omitempty"`
 	// Tool and Input are a tool call's full name and arguments, which
 	// Desktop draws as a card per tool; Detail stays for a reader without.
 	Tool  string          `json:"tool,omitempty"`
@@ -280,7 +287,10 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	}
 	if r.Method == http.MethodGet {
 		lines, version := run.trace.snapshot()
-		response := map[string]any{"provider": run.desktop.Provider, "id": id, "version": version, "busy": false, "readOnly": run.restored || run.canceled || run.conversation == nil}
+		response := map[string]any{"provider": run.desktop.Provider, "id": id, "version": version, "busy": false, "readOnly": run.restored || run.canceled || run.conversation == nil, "title": run.desktop.Title, "canRename": run.desktop.TaskID == "" && d.store != nil}
+		if run.journal.err() != nil {
+			response["persistenceError"] = "La sauvegarde locale est indisponible. Les dernières sorties risquent d’être perdues."
+		}
 		// Desktop polls a conversation several times a second and sends the
 		// version it already shows: the events go only when they changed.
 		if since := r.URL.Query().Get("since"); since == "" || since != strconv.FormatUint(version, 10) {
@@ -292,6 +302,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 			response["approvals"] = append([]conversationApproval{}, c.approvals...)
 			response["commands"] = c.commands
 			response["sectileMcp"] = c.sectileMCP
+			response["checkingMcp"] = c.checkingMCP
 			if run.desktop.Provider == "codex" && !run.restored && !run.canceled && !c.codexProbed {
 				c.codexProbed = true
 				go d.codexConversationTurn(run, "")
@@ -410,10 +421,21 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	if run.desktop.Provider == "codex" || run.desktop.Provider == "agy" {
 		run.conversation.effort = input.Effort
 	}
+	if run.desktop.Title == "" {
+		run.desktop.Title = automaticConversationTitle(input.Message)
+	}
+	d.updateConversationJournalLocked(run)
+	if !run.conversation.busy {
+		preserveConversationDraft(run)
+	}
 	// A message sent while Claude works joins the turn, as in Claude Code;
 	// one sent as the turn closes starts the next turn.
 	if run.conversation.busy {
 		conversationWrite(run.trace, "user", input.Message, "")
+		if run.journal.err() != nil {
+			http.Error(w, "Conversation could not be saved locally; message was not sent", http.StatusServiceUnavailable)
+			return
+		}
 		message := withShellContext(run.conversation, input.Message)
 		queued := run.desktop.Provider == "codex" || run.desktop.Provider == "agy" || run.conversation.input == nil || run.conversation.input.send(conversationUserMessage(message)) != nil
 		if queued {
@@ -428,7 +450,13 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	}
 	run.conversation.busy = true
 	run.conversation.effort = input.Effort
+	d.updateConversationJournalLocked(run)
 	conversationWrite(run.trace, "user", input.Message, "")
+	if run.journal.err() != nil {
+		run.conversation.busy = false
+		http.Error(w, "Conversation could not be saved locally; message was not sent", http.StatusServiceUnavailable)
+		return
+	}
 	message := withShellContext(run.conversation, input.Message)
 	if run.desktop.Provider == "codex" {
 		// Admission records the message under the queue lock, before another
@@ -453,6 +481,11 @@ func (d *agentDaemon) newConversationLocked(projectID, directory, model, mode, o
 	}
 	run.desktop.Kind = consoleRunKind
 	startConversationLocked(run, model, mode, origin, provider...)
+	if err := d.enableConversationJournalLocked(run); err != nil {
+		delete(d.queue.runs, run.desktop.ID)
+		run.once.Do(func() { close(run.exited) })
+		return nil, fmt.Errorf("conversation could not be saved locally: %w", err)
+	}
 	return run, nil
 }
 
@@ -511,6 +544,10 @@ func claudeConversationCommand(directory, model, effort, mode, session, settings
 	}
 	if settings != "" {
 		args = append(args, "--settings="+settings)
+	}
+	args = append(args, companionMCPArgs("claude")...)
+	if companionMCPURL() != "" {
+		args = append(args, "--allowedTools=mcp__"+companionMCPName)
 	}
 	cmd := agentexec.Hidden(exec.Command("claude", args...))
 	cmd.Dir = directory
@@ -579,6 +616,14 @@ const conversationFoldersTimeout = 10 * time.Second
 const conversationInterruptGrace = 5 * time.Second
 
 func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
+	defer func() {
+		d.queue.mu.Lock()
+		journaled := run.journal != nil
+		d.queue.mu.Unlock()
+		if !journaled {
+			d.persistRun(run.desktop.ID, run)
+		}
+	}()
 	if run.desktop.Provider == "codex" {
 		d.codexConversationTurn(run, prompt)
 		return
@@ -615,7 +660,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	d.queue.mu.Unlock()
 	initialize, initID := conversationInitialize()
 	var input *conversationInput
-	if stdin, pipeErr := cmd.StdinPipe(); pipeErr == nil {
+	if stdin, pipeErr := agentexec.OwnedStdinPipe(cmd); pipeErr == nil {
 		input = &conversationInput{w: stdin}
 	}
 	resultSeen, resultFailed, assistantSeen, mainModel := false, false, false, ""
@@ -714,6 +759,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 				if _, err := uuid.Parse(frame.Session); err == nil {
 					d.queue.mu.Lock()
 					run.conversation.session = frame.Session
+					d.updateConversationJournalLocked(run)
 					d.queue.mu.Unlock()
 				}
 			}
@@ -771,7 +817,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	}
 	release := func() {}
 	if err == nil {
-		release, err = agentexec.StartDetached(cmd)
+		release, err = agentexec.StartOwned(cmd)
 	}
 	if err == nil {
 		d.queue.mu.Lock()
@@ -783,7 +829,6 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 		go func() { waited <- cmd.Wait() }()
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
-		stopping := false
 		// An interrupt is asked of Claude first; a turn that has not ended
 		// a few seconds later is stopped, as a stop always is.
 		var interruptedAt time.Time
@@ -801,8 +846,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 				}
 				if canceled || interrupted && time.Since(interruptedAt) > conversationInterruptGrace {
 					input.close()
-					agentexec.StopControlled(cmd, stopping)
-					stopping = true
+					_ = agentexec.StopTree(cmd)
 				}
 			}
 		}
@@ -825,13 +869,19 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 		conversationWrite(run.trace, "notice", "The turn ended before its tool calls were answered", "")
 	}
 	markApprovalWaitLocked(run)
+	preserveConversationDraft(run)
 	if interrupted && !run.canceled {
 		conversationWrite(run.trace, "notice", "Interrupted", "Claude Code stopped this answer. Send a message to continue the conversation.")
 	} else if run.canceled {
 		run.desktop.Status = conversationStoppedStatus(run)
-		run.once.Do(func() { close(run.exited) })
-		conversationWrite(run.trace, "notice", "Conversation stopped", "")
+		notice := "Conversation stopped"
+		if run.resumeAfterShutdown {
+			notice = "Conversation paused for agent restart"
+		}
+		conversationWrite(run.trace, "notice", notice, "")
 		run.trace.close()
+		d.updateConversationJournalLocked(run)
+		run.once.Do(func() { close(run.exited) })
 	} else if err != nil {
 		conversationWrite(run.trace, "error", fmt.Sprintf("Claude Code failed: %v", err), "")
 	} else if !resultSeen {
@@ -872,6 +922,7 @@ func (d *agentDaemon) stopConversations() {
 		if run.conversation == nil {
 			continue
 		}
+		run.resumeAfterShutdown = !run.canceled
 		run.canceled = true
 		if !run.conversation.busy && run.conversation.codex == nil {
 			run.desktop.Status = "canceled"

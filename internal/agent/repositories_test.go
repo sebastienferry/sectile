@@ -619,3 +619,15 @@ func TestProjectFolderMapListsTheProjectFolders(t *testing.T) {
 		t.Fatal("a project without a folder here must report it")
 	}
 }
+
+func TestProjectFolderMapAcceptsMappedNonGitFolder(t *testing.T) {
+	testhome.Temp(t)
+	root := t.TempDir()
+	if err := agentconfig.WriteSettings(agentconfig.Settings{ProjectSettings: map[string]agentconfig.ProjectSettings{"p": {Path: root}}}); err != nil {
+		t.Fatal(err)
+	}
+	d, _, _ := desktopAgent(t, root, models.Task{})
+	if _, err := d.projectFolderMap(context.Background(), agentconfig.Config{ProjectID: "p"}, root); err != nil {
+		t.Fatalf("mapped folder must not require Git: %v", err)
+	}
+}
