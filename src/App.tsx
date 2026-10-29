@@ -496,7 +496,7 @@ function ProjectPane({
           </button>}
         </div>
       </div>
-      {error && (
+      {selection.view === "board" && error && (
         <p role="alert" className="error">
           {error}
         </p>
@@ -574,6 +574,7 @@ function ProjectPane({
               <Icon name="board" />
               <h2>{localOnlyProject ? project?.path ? "Votre projet local est prêt" : "Aucune source de tickets configurée" : "Aucun ticket distant"}</h2>
               <p>{localOnlyProject ? project?.path ? "Aucun tracker n’est associé. Lancez un prompt pour travailler dans votre dossier local." : "Associez un dossier local au projet pour lancer un prompt." : query ? "Essayez une autre recherche ou vérifiez la synchronisation du projet." : project?.path ? "Le tracker ne remonte aucun ticket. Vous pouvez lancer un prompt dans le dossier local associé." : "Vérifiez la synchronisation et le périmètre du tracker."}</p>
+              {localOnlyProject && project && !project.path && <ProjectFolderSetup variant="board" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}
             </div>
           )}
         </div>

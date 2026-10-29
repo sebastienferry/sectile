@@ -6,7 +6,7 @@ import { Icon } from "./Icon";
 export function ProjectFolderSetup({ project, onMapped, variant = "prompt" }: {
   project: Project;
   onMapped: (path: string) => void;
-  variant?: "prompt" | "settings";
+  variant?: "prompt" | "settings" | "board";
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -31,6 +31,11 @@ export function ProjectFolderSetup({ project, onMapped, variant = "prompt" }: {
       setPending(false);
     }
   }
+  if (variant === "board") return <div className="board-folder-action">
+    <button className="primary" disabled={pending} onClick={() => void chooseFolder()}><Icon name="folder" />{pending ? "Association en cours…" : "Choisir un dossier"}</button>
+    {pending && <p role="status">Choisissez un dossier dans la fenêtre de sélection.</p>}
+    {error && <p role="alert" className="error">{error}</p>}
+  </div>;
   if (variant === "settings") return <section className="project-folder-settings" aria-label="Dossier du projet">
     <h2>Dossier local</h2>
     {project.path ? <p className="project-folder-path" title={project.path}><Icon name="folder" /><code>{project.path}</code></p> : <p className="muted">Aucun dossier associé à ce projet.</p>}

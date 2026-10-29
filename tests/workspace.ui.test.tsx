@@ -115,6 +115,18 @@ test("a trackerless local project shows prompt guidance without tracker controls
  expect(screen.queryByRole("button",{name:"Commencer une conversation"})).toBeNull();
 });
 
+test("a folderless project can attach its folder directly from the board", async () => {
+ vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example"}]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"",skills:[],policy:{},board:{trackers:[]}});
+ vi.mocked(invoke).mockResolvedValue("/work/new-folder");
+ render(<App />);
+ await screen.findByRole("heading",{name:"Aucune source de tickets configurée"});
+ fireEvent.click(screen.getByRole("button",{name:"Choisir un dossier"}));
+ await screen.findByRole("heading",{name:"Votre projet local est prêt"});
+ expect(invoke).toHaveBeenCalledWith("choose_project_folder",{projectId:"p"});
+ expect(screen.queryByRole("textbox",{name:"Rechercher des tickets"})).toBeNull();
+});
+
 test("a local board does not flash remote controls while its project context loads",async()=>{
  vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
  let resolveContext!: (value:workspace.ProjectContext)=>void;
@@ -265,6 +277,9 @@ test("a failed ticket refresh identifies the retained board data as stale",async
  expect((await screen.findByRole("alert")).textContent).toContain("Tracker temporarily unavailable");
  expect(await screen.findByText("La dernière actualisation a échoué. Les tickets affichés proviennent de la lecture précédente.")).toBeTruthy();
  expect(screen.getByText("Previous ticket read")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Nouveau prompt"}));
+ await screen.findByRole("heading",{name:"Où voulez-vous travailler ?"});
+ expect(screen.queryByRole("alert")).toBeNull();
 });
 
 test("opening a folder navigates straight to its free prompt; cancel leaves the board visible", async () => {

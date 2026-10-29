@@ -975,6 +975,8 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .empty > svg { height:32px; width:32px; color:var(--accent-text); padding:6px; box-sizing:content-box; background:var(--selected); border-radius:12px; }
 .empty h2 { font-size:21px; margin:18px 0 8px; letter-spacing:-.5px; }
 .empty p { max-width:400px; line-height:1.7; margin:0 0 22px; }
+.board-folder-action { display:flex; align-items:center; flex-direction:column; }
+.board-folder-action .error { max-width:400px; margin:12px 0 0; text-align:left; }
 .command-palette { width:min(620px,calc(100vw - 32px)); max-width:none; max-height:min(72vh,680px); margin:12vh auto auto; padding:0; overflow:hidden; color:var(--text); background:var(--surface); border:1px solid var(--border-strong); border-radius:12px; box-shadow:0 24px 72px color-mix(in srgb,var(--shadow) 65%,transparent); }
 .command-palette::backdrop { background:color-mix(in srgb,var(--bg) 58%,transparent); backdrop-filter:blur(2px); }
 .command-palette-search { display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid var(--divider); color:var(--muted); }
