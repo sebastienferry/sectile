@@ -43,3 +43,5 @@
   HTTP retains incompatible fields. Use a distinct server and disable the old
   entry in the companion process only. MCP consent arrives as
   `mcpServer/elicitation/request`, not command-execution approval.
+
+- Phase 0 approved 2026-10-29: separate Local companion, internal HTTP/WebSocket retained initially, and current OAuth must keep working (including reconnect/refresh). Runtime topology and tracker auth are independent. See docs/phase0-runtime-baseline.md and docs/sectile-v1-migration-plan.md. Backend embedding has not been implemented.

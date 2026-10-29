@@ -430,3 +430,7 @@ for every sidebar entry. Light, dark and system themes remain available.
 The Go companion owns the fixed local OAuth origin `http://127.0.0.1:52963`. Register `http://127.0.0.1:52963/auth/jira/callback` in the Atlassian developer console. Tauri discovers this contract from the bundled server and displays its callback; it does not allocate an OAuth port. If the port is occupied, startup fails rather than changing the registered callback. Older installations on a different port require migration with local services stopped. Run isolated service integration tests only with the desktop local services stopped, because they exercise the same fixed port.
 
 Saved OAuth application credentials are not prefilled in the desktop. Both editing fields are masked, cleared after submission or closing the form, and may be left empty to retain existing values. The native layer returns only presence flags for the saved client ID and secret.
+
+## Sectile V1 migration
+
+The [V1.0.0 migration plan](docs/sectile-v1-migration-plan.md) defines Tauri as the future primary agentic board, a headless Go API/MCP/auth backend, Local/Fleet runtime modes and a separate roadmap-integration workstream. [Phase 0](docs/phase0-runtime-baseline.md) records the preserved prototypes, dedicated branches, contracts and tests. The current two-service runtime and configured OAuth remain unchanged until the reviewed migration is implemented.

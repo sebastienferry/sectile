@@ -2,8 +2,11 @@
 
 Date: 2026-10-29
 Review status: amendments checked in a second independent review; no remaining
-blocking plan defect identified. User review is still required before coding.
-Scope: architecture and source inspection only. No implementation, branch change,
+blocking plan defect identified. The user approved phase 0, a separate companion
+and temporary internal HTTP/WebSocket transport, while requiring current OAuth
+to remain functional.
+Runtime extraction has not started.
+Scope of the independent review: architecture and source inspection only. No implementation, branch change,
 service restart, credential migration or real tracker action was performed.
 
 ## Verdict
@@ -122,13 +125,14 @@ and version compatibility, but protects Fleet's existing dependency boundary.
 
 Source inspection does not prove shutdown, crash recovery, cross-version
 compatibility or performance. Those remain implementation acceptance tests.
-The proposed plan remains subject to user review before code changes.
+Phase 0 is now approved and recorded; implementation remains phased and subject
+to the acceptance gates in the amended plan.
 
 ## Final review outcome
 
 The reviewer confirmed that all five P1 findings are represented in the amended
-plan. Runtime topology and authentication are separated correctly. Remaining
-user decisions concern OAuth compatibility for the current installation and the
-separate companion with temporary internal HTTP/WebSocket transport. Detailed
-lock, identity-proof and journal specifications belong to phase 0. This approval
-is architectural review of a plan, not runtime verification or permission to code.
+plan. The user subsequently confirmed continued OAuth compatibility for the
+current installation and the separate companion with temporary internal
+HTTP/WebSocket transport. Detailed lock, identity-proof and journal specifications
+are now recorded in the phase 0 contracts. This is architectural review of a plan,
+not runtime verification or evidence that runtime guarantees are implemented.

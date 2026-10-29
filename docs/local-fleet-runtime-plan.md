@@ -1,7 +1,11 @@
 # Plan: embed the Sectile backend in the local companion
 
 Date: 2026-10-29
-Status: independently reviewed and amended; awaiting user review before code changes.
+Status: independently reviewed; separate companion and internal HTTP/WebSocket
+accepted. Phase 0 completed; runtime extraction not started.
+
+Product roadmap: [Sectile V1.0.0 migration](sectile-v1-migration-plan.md).
+Phase 0 evidence: [baseline and contracts](phase0-runtime-baseline.md).
 
 Independent review: [findings and disposition](local-fleet-runtime-review.md).
 
@@ -25,8 +29,9 @@ Independent review: [findings and disposition](local-fleet-runtime-review.md).
   as well as initial exchange. Implementing such a service is outside this plan.
 - Keep tracker state authoritative, local execution local, and business rules
   shared. Free conversations require no tracker configuration.
-- This plan authorizes no source refactoring, service restart, credential
-  migration, branch switch or tracker operation before review.
+- Phase 0 was authorized to preserve source, create dedicated branches, record
+  contracts and measure the baseline. No runtime refactoring, production service
+  restart or credential/data migration has been performed.
 
 ## Findings from the current implementation
 
@@ -118,10 +123,10 @@ parity first, then decide whether the extra local socket is worth removing.
 - New Local installations use API tokens for this iteration, as requested.
   Migrating the existing OAuth-enabled prototype is a separate compatibility
   decision: process embedding must not implicitly invalidate its working grant.
-  Preserve app configuration, grant kind and encrypted records. Before upgrading
-  that installation, choose explicitly between a supported compatibility profile,
-  guided replacement with a verified API token, or retaining the previous runtime.
-  No revocation, silent conversion or newly unusable credentials as a side effect.
+  The user explicitly chose continued OAuth support for this installation.
+  Preserve app configuration, grant kind, encrypted records, callback, reconnect
+  and refresh through an explicit compatibility capability. No forced API-token
+  replacement, revocation, silent conversion or newly unusable credentials.
   Once selected, enforce the declared capability in Go and Tauri, not only the UI.
 - Fleet exposes OAuth only when its backend supports/configures it. No shared
   provider client secret is bundled in either workstation executable.
@@ -139,12 +144,13 @@ parity first, then decide whether the extra local socket is worth removing.
 
 ### 0. Establish a reviewable baseline in both repositories
 
-- Sectile currently has substantial uncommitted prototype work on
-  `feat/desktop-local-runtime`; Tauri is on `feat/tauri-bootstrap` with the
-  codebase still untracked. Preserve and review these changes before splitting
-  new work. A new worktree from HEAD alone would omit needed prototype code.
-- Proposed branches: Sectile `refactor/embedded-local-backend`; Tauri
-  `feat/local-fleet-modes`, using isolated worktrees once the baseline is captured.
+- At initial review Sectile had substantial uncommitted prototype work on
+  `feat/desktop-local-runtime`, and Tauri had no commits on `feat/tauri-bootstrap`.
+  Phase 0 preserved them as commits `4576ca30` and `afa466c8` before branching;
+  see the baseline report. Neither prototype is now an untracked branch base.
+- Dedicated branches created: Sectile `refactor/embedded-local-backend`; Tauri
+  `feat/local-fleet-modes`. The existing Go worktree is reused; isolate parallel
+  implementation work if needed without omitting the captured prototype.
 - A fork is not technically required. Decide separately whether upstream
   contribution or independent maintenance is intended. Do not relicense or
   copy upstream Go code into the MIT desktop repository by implication.
@@ -261,8 +267,9 @@ workflows, provider prompts, questions, interruption and recovery still function
   a snapshot: it cannot undo a tracker write or OAuth rotation. Stop safely and
   recover forward, with an explicit recovery procedure. An old binary opening a
   newer schema is never the fallback.
-- Make the existing-OAuth migration choice a separate reviewed product/credential
-  compatibility lot. Do not make the process-topology change its approval.
+- Preserve the user-selected existing-OAuth compatibility path. Any future
+  removal or replacement is a separate product decision, not a side effect of
+  this process-topology change.
 
 Acceptance: existing history, folders, profiles, trackers and IDs survive;
 Electron and Fleet installations remain independent; failed upgrade is recoverable.
@@ -302,7 +309,7 @@ Acceptance: recorded results for both modes, documented limits and supported
 rollback. Only then remove two-service Local startup/resources, update README,
 changelog, release packaging and supersede ADR 0003 with a reviewed ADR.
 
-## Decisions to confirm at plan review
+## Confirmed decisions and next gates
 
 1. Keep a separate combined Local executable so Fleet retains its current lean
    dependency boundary.
@@ -311,9 +318,8 @@ changelog, release packaging and supersede ADR 0003 with a reviewed ADR.
 3. Treat Local/Fleet as separate connections and stores; exclude live switching
    and automatic data transfer from this migration.
 4. Keep API-token onboarding as the initial fresh Local path, independently of
-   the runtime topology; separately choose
-   a compatibility profile or guided token migration for the existing working
-   OAuth installation. Preserve the old runtime until this choice is resolved.
+   runtime topology, and preserve the current OAuth installation with its existing
+   reconnect/refresh behavior. The user confirmed this compatibility choice.
 5. Accept automatic snapshot rollback only before migration commit; after work
    resumes, use a defined forward-recovery procedure.
 
@@ -322,3 +328,8 @@ changelog, release packaging and supersede ADR 0003 with a reviewed ADR.
 Rust rewrite, a generic plugin system, a public OAuth relay, cloud account
 creation, automatic Local-to-Fleet synchronization and rewriting tracker/skill
 logic. The planned extraction shares the existing Go engine.
+
+The future product boundary is defined in the V1 migration plan: Tauri owns the
+primary agentic board; the headless backend retains API/MCP/auth and required
+business logic. Roadmapping separation and web-client deprecations remain
+independent product lots, not part of phases 0-5.
