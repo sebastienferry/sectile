@@ -100,7 +100,32 @@ func main() {
     result, err := session.CallTool(ctx, &mcp.CallToolParams{Name:"list_projects", Arguments:map[string]any{}})
     if err != nil { panic(err) }
     if result.IsError { panic("list_projects returned an MCP error") }
-    output := map[string]any{"toolCount":len(tools.Tools), "listProjectsCall":"passed"}
+    taskID := os.Args[3]
+    started, err := session.CallTool(ctx, &mcp.CallToolParams{Name:"start_run", Arguments:map[string]any{"taskKey":taskID, "skill":"compatibility-check"}})
+    if err != nil { panic(err) }
+    if started.IsError { panic("start_run returned an MCP error") }
+    raw, err := json.Marshal(started.StructuredContent)
+    if err != nil { panic(err) }
+    var activity struct { ID string `json:"id"` }
+    if err := json.Unmarshal(raw, &activity); err != nil || activity.ID == "" { panic("start_run returned no activity ID") }
+    transition, err := session.CallTool(ctx, &mcp.CallToolParams{Name:"transition_stage", Arguments:map[string]any{"taskKey":taskID, "stage":"clarified", "note":"Cross-version MCP compatibility check"}})
+    if err != nil { panic(err) }
+    if transition.IsError { panic("transition_stage returned an MCP error") }
+    finished, err := session.CallTool(ctx, &mcp.CallToolParams{Name:"finish_run", Arguments:map[string]any{"taskKey":taskID, "runId":activity.ID, "status":"completed", "note":"Compatibility check completed"}})
+    if err != nil { panic(err) }
+    if finished.IsError { panic("finish_run returned an MCP error") }
+    finishedRaw, err := json.Marshal(finished.StructuredContent)
+    if err != nil { panic(err) }
+    var finishedActivity struct { Status string `json:"status"` }
+    if err := json.Unmarshal(finishedRaw, &finishedActivity); err != nil || finishedActivity.Status != "completed" { panic("finish_run did not persist completed status") }
+    taskResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name:"get_task", Arguments:map[string]any{"taskKey":taskID}})
+    if err != nil { panic(err) }
+    if taskResult.IsError { panic("get_task returned an MCP error") }
+    taskRaw, err := json.Marshal(taskResult.StructuredContent)
+    if err != nil { panic(err) }
+    var taskState struct { Task struct { Status string `json:"status"` } `json:"task"` }
+    if err := json.Unmarshal(taskRaw, &taskState); err != nil || taskState.Task.Status != "clarified" { panic("transition_stage did not persist clarified status") }
+    output := map[string]any{"toolCount":len(tools.Tools), "listProjectsCall":"passed", "runLifecycle":"passed", "taskStatus":taskState.Task.Status, "runStatus":finishedActivity.Status}
     if err := json.NewEncoder(os.Stdout).Encode(output); err != nil { panic(fmt.Sprint(err)) }
 }
 '''
@@ -134,13 +159,15 @@ def main():
         seed_dir.mkdir(parents=True)
         (seed_dir / "main.go").write_text(
             '''package main
-import ("encoding/json"; "os"; "tasks/internal/db")
+import ("encoding/json"; "os"; "tasks/internal/db"; "tasks/internal/models")
 func main() {
  d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err != nil { panic(err) }; defer d.Close()
  if err = d.EnsureUser(db.ImplicitUserID); err != nil { panic(err) }
+ project, err := d.CreateProject(models.CreateProjectRequest{Name:"Compatibility", IssueTracker:"local"}); if err != nil { panic(err) }
+ task, err := d.CreateTask(models.CreateTaskRequest{ProjectID:project.ID, Title:"Cross-version MCP run", Status:models.StatusToClarify}); if err != nil { panic(err) }
  key, _, err := d.CreateAPIKey(db.ImplicitUserID, "binary-compatibility-test", db.DefaultAPIKeyTTL); if err != nil { panic(err) }
  session, _, err := d.CreateWebSession(db.ImplicitUserID); if err != nil { panic(err) }
- if err = json.NewEncoder(os.Stdout).Encode(map[string]string{"apiKey":key,"session":session}); err != nil { panic(err) }
+ if err = json.NewEncoder(os.Stdout).Encode(map[string]string{"apiKey":key,"session":session,"taskID":task.ID}); err != nil { panic(err) }
 }
 ''',
             encoding="utf-8",
@@ -269,7 +296,7 @@ func main() {
         else:
             raise RuntimeError("The v0.7.6 server did not register the current agent.")
 
-        old_mcp = json.loads(run([str(current_mcp_client), base_url, credentials["apiKey"]], work))
+        old_mcp = json.loads(run([str(current_mcp_client), base_url, credentials["apiKey"], credentials["taskID"]], work))
         old_mcp["client"] = "current"
         old_mcp["server"] = "v0.7.6"
 
@@ -289,8 +316,8 @@ func main() {
         current_seed_dir.mkdir()
         (current_seed_dir / "main.go").write_text(
             '''package main
-import ("encoding/json"; "os"; "tasks/internal/db")
-func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err != nil { panic(err) }; defer d.Close(); if err = d.EnsureUser(db.ImplicitUserID); err != nil { panic(err) }; key, _, err := d.CreateAPIKey(db.ImplicitUserID, "binary-compatibility-test", db.DefaultAPIKeyTTL); if err != nil { panic(err) }; if err = json.NewEncoder(os.Stdout).Encode(map[string]string{"apiKey":key}); err != nil { panic(err) } }
+import ("encoding/json"; "os"; "tasks/internal/db"; "tasks/internal/models")
+func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err != nil { panic(err) }; defer d.Close(); if err = d.EnsureUser(db.ImplicitUserID); err != nil { panic(err) }; project, err := d.CreateProject(models.CreateProjectRequest{Name:"Compatibility", IssueTracker:"local"}); if err != nil { panic(err) }; task, err := d.CreateTask(models.CreateTaskRequest{ProjectID:project.ID, Title:"Cross-version MCP run", Status:models.StatusToClarify}); if err != nil { panic(err) }; key, _, err := d.CreateAPIKey(db.ImplicitUserID, "binary-compatibility-test", db.DefaultAPIKeyTTL); if err != nil { panic(err) }; if err = json.NewEncoder(os.Stdout).Encode(map[string]string{"apiKey":key,"taskID":task.ID}); err != nil { panic(err) } }
 ''', encoding="utf-8")
         try:
             current_seed_binary = work / "compat-seed-current"
@@ -324,7 +351,7 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
         else:
             raise RuntimeError("The current Go server did not become healthy.")
         current_mcp_result = json.loads(
-            run([str(old_mcp_client), current_url, current_credentials["apiKey"]], work)
+            run([str(old_mcp_client), current_url, current_credentials["apiKey"], current_credentials["taskID"]], work)
         )
         current_mcp_result["client"] = "v0.7.6"
         current_mcp_result["server"] = "current"
