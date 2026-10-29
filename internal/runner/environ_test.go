@@ -35,6 +35,19 @@ func TestTheServerKeyNeverReachesASpawnedProcess(t *testing.T) {
 	}
 }
 
+func TestTheDesktopGatewayTokenNeverReachesASpawnedProcess(t *testing.T) {
+	const name = "SECTILE_DESKTOP_TOKEN"
+	if !slices.Contains(desktopOnlySecrets, name) {
+		t.Fatalf("%s is not stripped from spawned process environments", name)
+	}
+	t.Setenv(name, "not-for-children")
+	for _, entry := range SanitizedEnviron() {
+		if strings.HasPrefix(entry, name+"=") {
+			t.Fatalf("the desktop gateway token is in the child environment: %q", entry)
+		}
+	}
+}
+
 // Windows spells the inherited variable "Path": a child environment that only
 // looked for "PATH=" kept it and added a second PATH with the tool directories
 // alone, and os/exec, folding names case-insensitively with the last one

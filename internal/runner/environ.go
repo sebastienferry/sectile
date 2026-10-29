@@ -19,6 +19,10 @@ import (
 // pins it against secrets.KeyEnvVar so the two cannot drift.
 var serverOnlySecrets = []string{"SECTILE_SECRET_KEY"}
 
+// desktopOnlySecrets authenticate requests from a desktop to its loopback
+// agent. Provider CLIs, shell commands and other children never need them.
+var desktopOnlySecrets = []string{"SECTILE_DESKTOP_TOKEN"}
+
 // SanitizedEnviron is os.Environ() without what a child process must not see.
 func SanitizedEnviron() []string {
 	env := os.Environ()
@@ -65,6 +69,11 @@ func isPathName(name string) bool {
 
 func hidden(name string) bool {
 	for _, secret := range serverOnlySecrets {
+		if name == secret {
+			return true
+		}
+	}
+	for _, secret := range desktopOnlySecrets {
 		if name == secret {
 			return true
 		}

@@ -24,6 +24,10 @@ test fixtures or internal plumbing.
 
 - Free Claude Code and Codex conversations can resume after an agent restart with their transcript, provider context, model and permission mode preserved.
 
+### Security
+
+- Keep the desktop-to-agent gateway credential out of provider CLI and shell child process environments.
+
 ### Added
 
 - Desktop conversation snapshots expose pending MCP verification so clients can keep its status current while the conversation is idle.
