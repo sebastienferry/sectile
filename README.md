@@ -358,6 +358,9 @@ first user message and can also be renamed.
 Ticket workflow screens keep draft instructions scoped to the selected project
 and ticket. Switching tickets starts with a fresh workflow view.
 Next-step, chain and custom-skill launches all require a configured project.
+Once the configured chain target is reached, the workflow shows that result
+and keeps the next manual step available. Chain launch checks the latest ticket
+and policy again before dispatching.
 
 ## Configure AI provider access
 

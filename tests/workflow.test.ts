@@ -1,8 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {nextSkill,skillResultLabel,taskStage} from "../src/domain/workflow.ts";
+import {chainProgress,nextSkill,skillResultLabel,taskStage} from "../src/domain/workflow.ts";
 const task={id:"t",title:"Ticket",status:"to_clarify",labels:[]};
 const project={configured:true,skills:["clarify","specify","implement","adjust","handoff","pickup"].map(id=>({id})),policy:{prCreationStage:"implemented"},board:{trackerColumns:[{name:"Review",statuses:["Code review"]}],stageColumns:{implemented:["Review"]},trackers:[{trackerId:"other",trackerColumns:[{name:"Doing",statuses:["WIP"]}],stageColumns:{specified:["Doing"]}}]}};
+test("chain progress respects the configured stop stage and authoritative workflow mapping",()=>{
+ assert.deepEqual(chainProgress({...task,status:"to_implement"},project),{target:"implemented",reached:false});
+ assert.equal(chainProgress({...task,status:"to_test"},project).reached,true);
+ const reviewed={...project,policy:{fullChainStopStage:"reviewed"}};
+ assert.equal(chainProgress({...task,status:"to_test"},reviewed).reached,false);
+ assert.equal(chainProgress({...task,status:"to_close"},reviewed).reached,true);
+ assert.equal(chainProgress({...task,status:"finished"},reviewed).reached,true);
+ assert.equal(chainProgress({...task,status:"unknown"},reviewed).reached,false);
+ assert.equal(chainProgress({...task,trackerStatus:"Code review"},project).reached,true);
+ assert.equal(chainProgress({...task,status:"to_close",labels:["#specified"]},reviewed).reached,false);
+});
 test("workflow stage preserves finished status, labels and tracker-specific mapping precedence",()=>{
  assert.equal(taskStage({...task,status:"finished",labels:["#new"]},project.board),"finished");
  assert.equal(taskStage({...task,trackerStatus:"Code review",labels:["#clarified"]},project.board),"clarified");

@@ -15,6 +15,24 @@ const project={configured:true,aiProvider:"claude",skills:[{id:"implement"},{id:
 beforeEach(()=>{vi.resetAllMocks();monitor.snapshot.runs=[];monitor.fresh=true;vi.mocked(api.listTasks).mockResolvedValue([task]);vi.mocked(context.projectContext).mockResolvedValue(project);vi.mocked(context.providerReadiness).mockResolvedValue({provider:"claude",complete:true,steps:{skills:{status:"success"},mcp:{status:"success"}}});vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true},runs:[]});vi.mocked(api.launchTask).mockResolvedValue({});});
 afterEach(cleanup);
 const show=()=>render(<WorkflowTask projectId="project" taskId="task" onBack={()=>{}} onSetup={()=>{}}/>);
+test("reaching the chain target replaces its launch action while keeping the next manual step",async()=>{
+ vi.mocked(api.listTasks).mockResolvedValue([{...task,status:"to_close",labels:["#reviewed"],prUrl:"https://example.test/pr/1"}]);
+ vi.mocked(context.projectContext).mockResolvedValue({...project,skills:[...project.skills,{id:"handoff"}]});
+ show();
+ expect(await screen.findByText("Objectif de la chaîne atteint : Revu.")).toBeTruthy();
+ expect(screen.queryByRole("button",{name:/Lancer la chaîne/})).toBeNull();
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Étape suivante : Finaliser"}).hasAttribute("disabled")).toBe(false));
+});
+test("a chain target reached after rendering prevents dispatch on the fresh read",async()=>{
+ vi.mocked(api.listTasks).mockResolvedValueOnce([task]).mockResolvedValue([{...task,status:"to_close",labels:["#reviewed"]}]);
+ show();
+ const chain=await screen.findByRole("button",{name:"Lancer la chaîne · jusqu’à Revu"});
+ await waitFor(()=>expect(chain.hasAttribute("disabled")).toBe(false));
+ fireEvent.click(chain);
+ expect(await screen.findByText("Objectif de la chaîne atteint : Revu.")).toBeTruthy();
+ expect(api.launchTask).not.toHaveBeenCalled();
+ expect(screen.queryByRole("alert")).toBeNull();
+});
 test("an unconfigured project disables chain and custom skill dispatch",async()=>{
  vi.mocked(context.projectContext).mockResolvedValue({...project,configured:false});
  show();

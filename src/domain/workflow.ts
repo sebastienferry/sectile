@@ -25,6 +25,11 @@ export function nextSkill(task:Task,project:ProjectContext):{stage?:Stage;skillI
  if(!project.skills.some(s=>s.id===skillId))return {stage,label,reason:"La skill attendue n’est pas disponible dans ce projet."};
  return {stage,skillId,label};
 }
+export function chainProgress(task:Task,project:Pick<ProjectContext,"board"|"policy">){
+ const target=project.policy?.fullChainStopStage==="reviewed"?"reviewed":"implemented";
+ const stage=taskStage(task,project.board);
+ return {target,reached:!!stage&&stages.indexOf(stage)>=stages.indexOf(target)} as const;
+}
 export interface RunResult {activity?:{id:string;taskId:string;skillId:string;status:string}|null;successor?:{id:string;skillId:string;status:string}|null;task?:{status:string;labels?:string[]}}
 export function skillResultLabel(run:{id:string;taskId:string;skill:string;status:string},result?:RunResult){
  const own=result?.activity;

@@ -1,7 +1,7 @@
 import {lazy,Suspense,useEffect,useRef,useState} from "react";
 import type {Task} from "../domain/board";
 import {isActive,launchInput,statusLabel,type Run} from "../domain/execution";
-import {nextSkill,skillLabels,skillResultLabel,stageLabels,stages,taskStage,type RunResult} from "../domain/workflow";
+import {chainProgress,nextSkill,skillLabels,skillResultLabel,stageLabels,stages,taskStage,type RunResult} from "../domain/workflow";
 import {executionSnapshot,launchTask,listTasks,stopRun} from "../lib/agent";
 import {declareReviewed,openExternalLink,projectContext,providerReadiness,runResult,type ProjectContext,type Readiness} from "../lib/workspace";
 import {useExecutionMonitor} from "./ExecutionMonitor";
@@ -47,16 +47,21 @@ function WorkflowTaskView({projectId,taskId,onBack,onSetup}:WorkflowTaskProps){
  useEffect(()=>{if(!submitted)return;const next=runs.find(r=>!submitted.ids.includes(r.id));if(next){setSelected(next.id);setSubmitted(undefined);setNotice("");}},[monitor.snapshot,submitted]);
  const step=task&&project?nextSkill(task,project):undefined;
  const finished=step?.stage==="finished";
+ const chain=task&&project?chainProgress(task,project):undefined;
  const active=runs.find(isActive);
  const connected=monitor.fresh&&monitor.snapshot?.status.connected&&!monitor.snapshot.status.contractError;
  const mcpConflict=readiness?.steps?.mcp?.configuration?.present===true&&readiness.steps.mcp.configuration.valid===false;
  const blocked=mcpConflict||pending||!!submitted||!!active||!connected||!project?.configured||!task||!!error||!!readError;
  async function launch(kind:"next"|"chain"|"custom"){
-  if(acting.current||blocked||!task||!project)return;acting.current=true;++generation.current;setPending(true);setError("");setNotice("");
+  if(acting.current||blocked||!task||!project||kind==="chain"&&chain?.reached)return;acting.current=true;++generation.current;setPending(true);setError("");setNotice("");
   try{
    const [tasks,context,state]=await Promise.all([listTasks(projectId),projectContext(projectId),executionSnapshot()]);
    const freshTask=tasks.find(t=>t.id===taskId);if(!freshTask)throw new Error("Ticket unavailable");
    setTask(freshTask);setProject(context);
+   if(kind==="chain"){
+    const progress=chainProgress(freshTask,context);
+    if(progress.reached)return;
+   }
    if(!state.status.connected||state.status.contractError||state.runs.some(r=>r.taskId===taskId&&r.projectId===projectId&&isActive(r)))throw new Error("Task busy");
    if(context.aiProvider==="claude"||context.aiProvider==="codex"){
     const currentPreparation=await providerReadiness(context.aiProvider);setReadiness(currentPreparation);
@@ -84,7 +89,7 @@ function WorkflowTaskView({projectId,taskId,onBack,onSetup}:WorkflowTaskProps){
  {step?.reason&&<p role="status">{step.reason}</p>}
  {active&&<p role="status">{skillLabels[active.skill]||active.skill} · {statusLabel(active)}. Une exécution est déjà ouverte pour ce ticket.</p>}
  {task&&project&&!finished&&<div className="workflow-actions"><button className="primary" disabled={blocked||!step?.skillId} onClick={()=>void launch("next")}>{pending?"Envoi…":step?.skillId?`Étape suivante : ${step.label}`:step?.label||"Étape indisponible"}</button>
- {project?.skills.some(s=>s.id==="pickup")&&<button disabled={blocked||step?.stage==="finished"} onClick={()=>void launch("chain")}>Lancer la chaîne · jusqu’à {project.policy.fullChainStopStage==="reviewed"?"Revu":"Implémenté"}</button>}</div>}
+ {project?.skills.some(s=>s.id==="pickup")&&(chain?.reached?<p role="status">Objectif de la chaîne atteint : {stageLabels[chain.target]}.</p>:<button disabled={blocked} onClick={()=>void launch("chain")}>Lancer la chaîne · jusqu’à {project.policy.fullChainStopStage==="reviewed"?"Revu":"Implémenté"}</button>)}</div>}
  {task&&project&&!finished&&<details className="workflow-advanced"><summary>Instructions et autre skill</summary><label>Instructions supplémentaires<textarea value={draft} maxLength={5000} disabled={pending} onChange={e=>setDraft(e.target.value)}/></label><label>Skill<select aria-label="Autre skill" value={customSkill} onChange={e=>setCustomSkill(e.target.value)}><option value="">Choisir une skill…</option>{project?.skills.map(s=><option key={s.id} value={s.id}>{skillLabels[s.id]||s.id}{s.command?` · /${s.command}`:""}</option>)}</select></label><button disabled={blocked||!customSkill||step?.stage==="finished"} onClick={()=>void launch("custom")}>Lancer la skill choisie</button></details>}
  {task?.prUrl&&/^https?:\/\//.test(task.prUrl)&&<p><button onClick={()=>void openExternalLink(task.prUrl!).catch(()=>setError("Impossible d’ouvrir le lien de PR / MR."))}>Ouvrir la PR / MR</button></p>}
  {step?.stage==="implemented"&&task?.prUrl&&<details className="manual-review"><summary>Déclarer la revue validée</summary><p>Cette action enregistre explicitement l’étape « Revu » sur le serveur. Elle ne lance aucune skill et ne fusionne pas la PR.</p><label>Justification<textarea value={reviewNote} onChange={e=>setReviewNote(e.target.value)} maxLength={1000}/></label><button disabled={blocked||!reviewNote.trim()} onClick={()=>{if(acting.current)return;acting.current=true;setPending(true);void declareReviewed(projectId,taskId,reviewNote).then(()=>refresh()).catch(()=>setError("Validation non confirmée. Actualisez le ticket avant de réessayer.")).finally(()=>{acting.current=false;setPending(false);});}}>Enregistrer la revue validée</button></details>}

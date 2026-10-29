@@ -1031,7 +1031,12 @@ This qualifies the standard native chain with recovery through a controlled
 local forge. It is not an uninterrupted first-attempt pass, a real GitLab
 service integration, a Codex full-chain run or signed-release qualification.
 The chain action remained available after its configured Reviewed target had
-been reached; that native UX inconsistency remains to correct.
+been reached. The follow-up source now replaces that action with a reached-target
+status, while preserving the next manual step. Its dispatch guard rechecks the
+fresh task and policy, so a ticket advanced by another client does not trigger
+an unnecessary chain. Domain tests cover both stop stages, mapping precedence
+and unknown stages; UI tests cover the reached state and advancement between
+rendering and clicking. This source change has not had a separate native retake.
 The isolated app, companion, forge, Git repositories, worktrees and private
 configuration were removed after the check; the regular companion on 52963
 remained running.
