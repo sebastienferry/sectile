@@ -770,5 +770,15 @@ caused `local_setup_status` to fail before returning the selected mode. Native
 Settings now retains Fleet identity and diagnostics for gateway, startup and
 backend failures. A UI recovery regression moves from an unavailable Fleet
 gateway to a ready profile with one manual refresh and confirms the profile
-fields are populated. This source-level check does not replace a native
-gateway-failure and live-backend recovery retake.
+fields are populated. The native gateway restart is covered below; live-backend
+recovery still needs its own retake.
+
+A unique unsigned app built from Tauri `9fbe40d` and Go `554374b2` then
+reproduced the local gateway stop with synthetic Fleet credentials and a closed
+loopback backend. After the isolated agent was terminated, the desktop's agent
+request invalidated the stale connection and started one replacement agent.
+Settings continued to identify Fleet, displayed the disconnected backend
+state and its agent log, and a manual refresh completed without switching to
+Local setup. The app and replacement agent were stopped and their private data
+and bundle removed. This qualifies native gateway restart and retained mode;
+the closed backend prevented a live profile restoration check.
