@@ -1,7 +1,7 @@
 # Electron and Tauri desktop UX audit
 
 Date: 2026-10-29
-Status: initial audit and visual convergence plan committed; implementation remains open.
+Status: source corrections are in progress; matched visual comparison and installed-app refresh remain open.
 
 ## Reference and scope
 
@@ -31,7 +31,24 @@ verification record remains the evidence for those flows.
 | A local-only project shows tracker controls even though it has no remote tickets. | In the live Tauri window, `Documents` has a local path and zero tickets, while the board toolbar still says “Statuts du tracker · lecture seule” and offers tracker grouping/search. `App.tsx` renders this toolbar for every project. | Make the empty local-project state describe local work and hide tracker-specific controls until the project has a tracker-backed ticket collection. Keep “Nouveau prompt” as the single primary action. |
 | The local-project empty state repeats the primary prompt action. | The project toolbar already has “Nouveau prompt”; the empty board adds “Commencer une conversation”. The live screenshot shows both at once. | Keep the global project action and remove the duplicate empty-state button; use the empty state to explain that the local project is ready for prompts. |
 | The project toolbar offers navigation to the view already open. | The live board screenshot shows a “Tableau” button beside the current project; `App.tsx` always renders it, and its handler navigates to the same board view. | Hide the current-view action while the board is open. Keep “Tableau” available from prompts and execution views so navigation remains direct. |
+| Attached folders were hidden behind a disclosure in the prompt context. | `PromptFolders` listed the active directory in the toolbar, while the additional project folders were only visible after opening “Dossiers”. | Show attached folder names under the active directory with full paths available on hover; keep detailed roles and paths in the existing disclosure. |
 | The current live Electron/Tauri windows are not a valid populated-state visual comparison. | Both windows were captured at the same desktop size, but Electron was showing a long historical conversation and orchestration sidebar while Tauri showed the empty Local `Documents` board. | Use these captures only for shell/navigation comparison. Before tuning typography, spacing or colors, capture equivalent screens, themes and data states; do not infer style changes from the mismatched content. |
+
+## Current source and runtime status
+
+- Trackerless board controls and the duplicate empty-state prompt action are
+  corrected in Tauri source and covered by targeted UI regressions. The current
+  board navigation action is hidden while already on the board. These changes
+  are in commits `bf4a22a`, `9457e14` and `25f9cac`.
+- The open installed Tauri window was inspected after those source commits and
+  still displayed the older board toolbar and duplicate prompt action. Treat
+  that window as a stale bundle, not as evidence that the committed source
+  correction failed. Rebuild/relaunch in an isolated profile before claiming
+  visual qualification; the computer became locked before the Electron window
+  could be inspected in this continuation.
+- Prompt context now surfaces attached folder names immediately. The full path
+  and role remain available in the details disclosure. Typecheck and production
+  build passed for this change; a matched live visual review is still pending.
 
 ## First corrections
 
@@ -47,21 +64,19 @@ verification record remains the evidence for those flows.
 
 ## Remaining convergence order
 
-1. Keep project toolbar actions contextual: hide the current-view action while
-   already on that view; preserve it from other project views.
-2. Correct local-only board presentation: remove tracker-only controls when no
-   tracker data exists, and retain one clear prompt action. Cover local projects,
-   tracker-backed projects with tickets, tracker-backed projects with no tickets,
-   and failed/stale ticket reads.
-3. Capture matched light and dark screenshots of Electron and Tauri at the same
+1. Rebuild/relaunch the current Tauri source and visually verify the contextual
+   toolbar and trackerless board states. Recheck local projects, tracker-backed
+   projects with tickets, tracker-backed projects with no tickets, and
+   failed/stale ticket reads.
+2. Capture matched light and dark screenshots of Electron and Tauri at the same
    window size and with equivalent project/activity data. Normalize typography,
    surface contrast, control height, spacing and selected/hover states from
    evidence, not from a wholesale restyle.
-4. Reduce settings page density and align labels, section names and primary
+3. Reduce settings page density and align labels, section names and primary
    actions with Electron while retaining native OAuth and filesystem flows.
-5. Audit each Electron command-palette action and shortcut against Tauri's
+4. Audit each Electron command-palette action and shortcut against Tauri's
    command inventory; only expose actions Tauri can actually perform.
-6. Recheck prompt, workflow and conversation layouts at narrow and normal window
+5. Recheck prompt, workflow and conversation layouts at narrow and normal window
    sizes, including empty, active, error and waiting states.
 
 Each completed item should preserve tracker-authoritative ticket state, the
