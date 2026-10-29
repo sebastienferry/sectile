@@ -191,7 +191,7 @@ export function createOrchestration({container,details,onConsole,onOpen=()=>true
    const heading=node('div','orchestration-heading');heading.append(node('strong','',project.name))
    const capacity=node('span','orchestration-capacity'),known=Number.isInteger(project.orchestratorActiveRuns)&&project.orchestratorActiveRuns>=0
    capacity.textContent=project.orchestratorEnabled?(known?project.orchestratorActiveRuns:'?')+' / '+(project.orchestratorMaxConcurrent||'?')+' in use':project.orchestratorMaxConcurrent?'Not enabled':'Capacity unavailable'
-   capacity.title='Project-wide usage, including queued tasks and other workstations'+(stale?' (last known)':'');heading.append(capacity);group.append(heading)
+   capacity.title='Runs the orchestrator started on this project, queued ones and those on other workstations included; sessions started by hand take no slot'+(stale?' (last known)':'');heading.append(capacity);group.append(heading)
    const definitions=project.orchestratorEnabled?project.orchestrationAgents||[]:[]
    if(project.orchestratorEnabled&&!definitions.length)group.append(node('p','orchestration-empty','Add agents in project settings'))
    for(const agent of definitions){

@@ -27,13 +27,19 @@ func activeRunsCountForProjectOn(q rowQuerier, project *models.Project) (int, er
 	// A run counts through activeRunPredicate, which the catalog test keeps in
 	// step with the skills. A launch still being handed to an agent is recorded
 	// as agent_launch meanwhile, and holds its slot too.
+	//
+	// Only the orchestrator's own work counts (ADR 0063): its prompt prefix
+	// travels with the queued launch, the agent_launch row, the remote run and
+	// every chained step. A session somebody started by hand takes no slot; it
+	// still keeps the orchestrator off its task, which is busy.
 	query := `
   SELECT COUNT(DISTINCT a.task_id)
   FROM task_activities a
   WHERE (a.run_project_id IN (?, ?) OR (COALESCE(a.run_project_id, '') = '' AND a.task_id IN (SELECT id FROM tasks WHERE project_id IN (?, ?))))
+    AND COALESCE(a.prompt, '') LIKE ?
     AND ((` + activeRunPredicate() + `) OR (skill_id = 'agent_launch' AND status IN (` + sqlStringList(activeRunStatuses) + `)))`
 	var count int
-	err := q.QueryRow(query, project.ID, project.Slug, project.ID, project.Slug).Scan(&count)
+	err := q.QueryRow(query, project.ID, project.Slug, project.ID, project.Slug, orchestratorPromptPrefix+"%").Scan(&count)
 	return count, err
 }
 
