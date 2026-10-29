@@ -159,6 +159,37 @@ func main() {
 }
 '''
 
+MCP_BRIDGE_CLIENT_SOURCE = '''package main
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "os"
+    "os/exec"
+    "time"
+    "github.com/modelcontextprotocol/go-sdk/mcp"
+)
+func main() {
+    ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+    defer cancel()
+    command := exec.Command(os.Args[1], "mcp", "--url", os.Args[2])
+    command.Env = append(os.Environ(), "SECTILE_AGENT_TOKEN="+os.Args[3])
+    client := mcp.NewClient(&mcp.Implementation{Name:"sectile-stdio-compatibility-check", Version:"1"}, nil)
+    session, err := client.Connect(ctx, &mcp.CommandTransport{Command:command}, nil)
+    if err != nil { panic(err) }
+    defer session.Close()
+    tools, err := session.ListTools(ctx, nil)
+    if err != nil { panic(err) }
+    found := false
+    for _, tool := range tools.Tools { if tool.Name == "list_projects" { found = true } }
+    if !found { panic("stdio bridge catalog does not contain list_projects") }
+    result, err := session.CallTool(ctx, &mcp.CallToolParams{Name:"list_projects", Arguments:map[string]any{}})
+    if err != nil { panic(err) }
+    if result.IsError { panic("stdio bridge list_projects returned an MCP error") }
+    if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"toolCount":len(tools.Tools), "listProjectsCall":"passed"}); err != nil { panic(fmt.Sprint(err)) }
+}
+'''
+
 
 class FakeGitHubHandler(BaseHTTPRequestHandler):
     requests = []
@@ -213,6 +244,17 @@ def tracker_evidence(requests, server_version):
     if any(request[2] != "Bearer compatibility-token" for request in creates + updates):
         raise RuntimeError(f"{server_version} tracker writes did not use the personal token: {creates + updates}")
     return {"server": server_version, "createdIssues": len(creates), "stageUpdates": len(updates), "personalTokenUsed": True}
+
+
+def stdio_bridge_evidence(client_binary, agent_binary, base_url, token, work, home):
+    evidence = json.loads(run(
+        [str(client_binary), str(agent_binary), base_url, token],
+        work,
+        isolated_environment(home),
+    ))
+    if evidence.get("toolCount") != 21 or evidence.get("listProjectsCall") != "passed":
+        raise RuntimeError(f"{agent_binary} stdio MCP bridge returned unexpected evidence: {evidence}")
+    return evidence
 
 
 def agent_operation_evidence(base_url, session, repo_path, version):
@@ -361,6 +403,7 @@ func main() {
         current_agent = work / "sectile-agent-current"
         old_mcp_client = work / "mcp-client-v0.7.6"
         current_mcp_client = work / "mcp-client-current"
+        mcp_bridge_client = work / "mcp-stdio-bridge-client"
         run(
             [
                 "go", "build", "-trimpath", "-ldflags",
@@ -394,6 +437,13 @@ func main() {
             run(["go", "build", "-trimpath", "-o", str(current_mcp_client), "./cmd/compat-mcp-client-temp"], repo)
         finally:
             shutil.rmtree(current_client_source, ignore_errors=True)
+        bridge_client_source = repo / "cmd" / "compat-mcp-bridge-client-temp"
+        bridge_client_source.mkdir()
+        (bridge_client_source / "main.go").write_text(MCP_BRIDGE_CLIENT_SOURCE, encoding="utf-8")
+        try:
+            run(["go", "build", "-trimpath", "-o", str(mcp_bridge_client), "./cmd/compat-mcp-bridge-client-temp"], repo)
+        finally:
+            shutil.rmtree(bridge_client_source, ignore_errors=True)
 
         database_path = work / "tasks.db"
         seed_env = isolated_environment(home_server)
@@ -486,6 +536,11 @@ func main() {
         ], work))
         old_mcp["client"] = "current"
         old_mcp["server"] = "v0.7.6"
+        current_bridge = stdio_bridge_evidence(
+            mcp_bridge_client, current_agent, base_url, credentials["apiKey"], work, home_agent,
+        )
+        current_bridge["agent"] = "current"
+        current_bridge["server"] = "v0.7.6"
         old_agent_operation = agent_operation_evidence(base_url, credentials["session"], agent_root, "current")
 
         stop(agent_process)
@@ -579,6 +634,11 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
         )
         current_mcp_result["client"] = "v0.7.6"
         current_mcp_result["server"] = "current"
+        v076_bridge = stdio_bridge_evidence(
+            mcp_bridge_client, old_agent, current_url, current_credentials["apiKey"], work, v076_agent_home,
+        )
+        v076_bridge["agent"] = "v0.7.6"
+        v076_bridge["server"] = "current"
         task_spec_worktrees = [{"server": "v0.7.6", "supported": old_mcp["taskSpecWorktreeSupported"]}]
         if current_mcp_result["taskSpecWorktreeSupported"]:
             task_spec_worktrees.append(verify_task_spec_worktree(current_mcp_result, issue_spec_root, "current"))
@@ -609,6 +669,7 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
                     "currentAgentToV076Server": reverse_result,
                     "v076AgentToCurrentServer": {"connected": True},
                     "mcpCompatibility": [old_mcp, current_mcp_result],
+                    "stdioMcpBridges": [current_bridge, v076_bridge],
                     "trackerWrites": [old_tracker_evidence, current_tracker_evidence],
                     "agentOperations": [old_agent_operation, v076_agent_operation],
                     "taskSpecWorktrees": task_spec_worktrees,
