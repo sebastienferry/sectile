@@ -440,17 +440,21 @@ The first cross-surface check slice passes:
 | Tauri Fleet | Pairing contract fixture plus an isolated macOS bundle pointed at the existing Fleet workstation agent | The contract fixture covers pairing request/response and errors. The live Tauri dashboard loaded 19 projects from the v0.7.6 agent and displayed the Fleet backend identity without writing remotely. One-time-code pairing, the native attach button, Fleet profile/API setup and OAuth on the live backend remain unqualified. Conversation identity and explicit legacy association are covered by local Go/Rust/UI tests, not a live Fleet session. |
 | Existing native Local install | Managed macOS migration verification and real Jira/Claude/Codex/MCP requests | Pass; details above. |
 | Existing Electron/Go Fleet connection | Read-only calls to the existing workstation agent's authenticated `/desktop/status`, `/desktop/version` and `/desktop/projects` routes | The agent reports v0.7.6, connected, no contract error, and 19 projects (2026-10-29). This verifies the existing connection only; no Tauri mode or server data was changed. |
-| macOS release bundle | `npm run tauri -- build --bundles app --no-sign` | Pass on the current commit (2026-10-29); the unsigned release `.app` is 101.70 MiB versus the recorded 133.1 MiB debug app. It contains about 95 MiB of Go binaries: companion (40 MiB), legacy server (36 MiB) and legacy agent (20 MiB) for migration/recovery. This is an unsigned macOS app bundle, not a release artifact or a cross-platform size comparison. |
+| macOS release bundle | `npm run tauri -- build --bundles app --no-sign` | Pass on the current commit (2026-10-29); the unsigned release `.app` is 101.72 MiB versus the recorded 133.1 MiB debug app. It contains about 95 MiB of Go binaries: companion (40 MiB), legacy server (36 MiB) and legacy agent (20 MiB) for migration/recovery. This is an unsigned macOS app bundle, not a release artifact or a cross-platform size comparison. |
+| macOS cold start | Isolated unsigned optimized app with a fresh profile; first native window and UI readiness observed separately | One arm64 macOS 27.0.1 sample: first native window at 1.09 s; React setup screen accessible by about 3.5 s (upper bound from a manual two-second observation interval). At 33 s, app RSS was 94.7 MiB and no companion was running. One sample only; not a startup SLA. |
 
-The idle Go service process count is now one. At the captured idle sample,
+The idle Go service process count is now one. At the earlier captured idle sample,
 `sectile-companion` used about 40.7 MiB RSS, compared with the phase 0 server and
 agent medians totaling 55.7 MiB. The Tauri desktop process used another 62.2 MiB
 and was excluded from the Go-service comparison; this does not establish a total
-desktop memory saving. The rebuilt debug `.app` occupies 133.1 MiB versus the
-92.9 MiB phase 0 debug app, an increase of about 40.2 MiB. It bundles the
-companion plus the legacy server and agent migration executables. A release
-artifact size and cold native startup measurement are still required before
-claiming a smaller or faster delivery.
+desktop memory saving. A later one-shot process snapshot measured the active Tauri
+debug process at 55.3 MiB RSS and the companion at 40.2 MiB RSS; the conditions
+were not controlled, so this is a point-in-time observation, not a baseline.
+The rebuilt debug `.app` occupies 133.1 MiB versus the 92.9 MiB phase 0 debug
+app, an increase of about 40.2 MiB. It bundles the companion plus the legacy
+server and agent migration executables. A signed release artifact and repeated
+cold native startup measurements are still required before claiming a smaller
+or faster delivery.
 
 The isolated native service test was attempted after preparing fresh Go binaries,
 but its fixed port reservation failed because port 52963 was occupied. The
@@ -476,8 +480,12 @@ error. They do not redeem a real Fleet code, validate remote TLS deployment, or
 prove a paired workstation's reconnection behavior.
 
 Release bundle measurement (2026-10-29): a clean optimized Tauri build completed
-with signing disabled and produced a 101.70 MiB macOS `.app`. The bundle still
+with signing disabled and produced a 101.72 MiB macOS `.app`. The bundle still
 contains all three Go executables, including the previous two-service pair, so
 the measurement quantifies the current migration-capable package and does not
 claim the final Fleet or V1 distribution size. The active desktop remained open;
-no release app was launched over its data directory.
+no release app was launched over its data directory. The isolated cold-start
+probe used a separate app identifier and fresh profile; the first native window
+appeared at 1.09 seconds, and the setup UI was accessible by about 3.5 seconds
+(one manual upper-bound observation). At 33 seconds, process RSS was 94.7 MiB;
+no companion was started. Repeated launches and a signed artifact remain open.

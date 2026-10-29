@@ -131,10 +131,12 @@ unsupported: selecting a second mode requires a future explicit migration flow.
 Stage 5 remains open: qualify the
 Fleet/Electron compatibility matrix,
 supported versions, other-platform migration and measured process/memory/startup
-and package behavior. An unsigned optimized macOS `.app` has now been measured
-at 101.70 MiB on a fresh optimized build of the current Tauri commit; cold startup and signed release artifact measurements remain
-open. Do not claim stages 6-8 complete or infer that this branch constitutes a
-V1 release.
+and package behavior. The current unsigned optimized macOS `.app` measures
+101.72 MiB. One isolated arm64 macOS cold launch showed its first native window
+at 1.09 seconds and the React setup screen accessible by 3.5 seconds (an upper
+bound from a single manual observation). Repeated startup, signed artifact and
+cross-platform measurements remain open. Do not claim stages 6-8 complete or
+infer that this branch constitutes a V1 release.
 
 The first compatibility slice passed: standalone `cmd/agent` and `cmd/server`
 tests, race-enabled companion/backend/agent tests, a Windows companion
