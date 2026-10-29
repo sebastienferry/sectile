@@ -665,3 +665,11 @@ At 800 × 820, the board had 530 px of viewport width for 942 px of columns,
 but its scroll container had no keyboard focus target or accessible name. The
 board is now a named, focusable region with a visible focus indicator so users
 can move through columns with the keyboard as well as a pointer or trackpad.
+
+The isolated bundle replacement check also exposed an inaccurate transcript
+notice: an idle Codex conversation with a completed answer said “Conversation
+paused for agent restart” after the companion was stopped. Go commit
+`554374b2` records whether a turn was actually in progress at shutdown and
+emits that notice only for an interrupted turn. Focused restart tests and the
+full agent/companion package suites pass. The observed bundle predates this
+fix; the corrected native transcript has not yet been retaken.

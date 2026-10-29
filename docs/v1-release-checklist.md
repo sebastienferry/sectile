@@ -62,13 +62,20 @@ service-only comparison; release-binary desktop performance remains open.
   An isolated macOS bundle replacement smoke on 2026-10-29 verified a saved
   Local profile, folder-backed project and folder association across bundles
   with the same identifier and data directory. Credentials, OAuth records,
-  conversation history and managed-runtime recovery remain unverified; see the
-  migration plan.
+  conversation upgrade from a released older version and managed-runtime
+  recovery inside a release bundle remain unverified; see the migration plan.
 
   Go commit `b907c42f` now checks migration recovery at every durable boundary
   with a personal tracker token, encrypted Jira OAuth app, project, ticket and
   run-store snapshot/journal. This is source-level retention evidence; it does
   not replace the release-bundle upgrade check or provider conversation resume.
+  A separate unsigned arm64 bundle replacement on 2026-10-29 used one disposable
+  app identity and data directory with test versions 0.1.0 and 0.1.1. A real
+  Codex conversation created in the first bundle returned `FIRST_TURN_OK`; the
+  replacement restored its folder, transcript, `gpt-6-astra` model and
+  execution mode. A second turn recalled the first turn's marker. This tests
+  same-source bundle replacement with Go `b907c42f`, not a released-version
+  upgrade, credential/OAuth retention in the native app, or signed installation.
 - [ ] Confirm manual update instructions and release notes identify required
   migration behavior and any incompatible Fleet server/agent combinations.
 
@@ -208,6 +215,24 @@ the manifest names fixed port 52963, 52 license files, `goDirty: false` and
 `5961bb4d12a27dbd323b99fd9d2d9b2bfaf3851bcab29c1cf7ebb65943450031`.
 Signing, notarization, Gatekeeper, clean-user installation and native UI
 qualification of the real Jira result remain open.
+
+Updated unsigned package check (2026-10-29): clean Tauri `109c18e` and Go
+`b907c42f` produced a 103.30 MiB arm64 app and a 56,316,296-byte DMG.
+Resource verification and `hdiutil verify` passed with fixed port 52963,
+52 license files, `goDirty: false` and `releaseEligible: false`. DMG SHA-256:
+`fa8c249635387a7c6143180c1d5796fb0985aa3741f1666c6d9ad9db9f56c452`.
+Go `554374b2` subsequently fixed a misleading idle-restart notice; this
+package does not include that later source change. A refreshed package with
+that Go commit is recorded below.
+
+Latest unsigned package check (2026-10-29): the Tauri application code from
+`109c18e` and clean Go `554374b2` produced a 103.30 MiB arm64 app and a
+56,317,277-byte DMG. Resource verification and `hdiutil verify` passed with
+fixed port 52963, 52 license files, `goDirty: false` and
+`releaseEligible: false`. DMG SHA-256:
+`25c65d90105d064b114daa16877647017ad2e694a0135d62f74173014481809b`.
+The transcript correction passes the full Go agent and companion package
+suites; this refreshed bundle has not had a native transcript retake.
 
 Electron source regression refresh (2026-10-29): Go branch `fe3a98c8`
 remained clean while the Electron source passed its 315 unit tests, 137 UI
