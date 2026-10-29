@@ -167,3 +167,8 @@ agent operations, 21 MCP tools, STDIO bridges, run lifecycle and fake tracker
 creation/stage writes. These checks use isolated data. No Developer ID
 Application identity is installed on the test Mac, so signing and notarization
 cannot be qualified until one is provisioned.
+
+Desktop OAuth contract check (2026-10-29): focused Go handler tests passed
+complete fake-provider GitHub, GitLab and Jira callback exchanges and the fixed
+Local Jira callback contract. Real provider consent and tracker reads from a
+signed desktop package remain open.
