@@ -1176,6 +1176,10 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .project-profiles .project-tracker-setup { padding: 0 0 24px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
 .project-profiles .project-tracker-setup h2 { margin: 0 0 8px; font-size: 22px; }
 .project-profiles .project-tracker-setup form { max-width: 520px; }
+.project-profiles .project-tracker-setup fieldset { display: grid; gap: 12px; margin: 16px 0 0; padding: 0; border: 0; }
+.project-profiles .project-tracker-setup label { display: grid; gap: 7px; }
+.project-profiles .project-tracker-setup select { width: 100%; min-height: 38px; }
+.project-profiles .project-tracker-setup button { justify-self: start; }
 .conversation-rename { display: flex; align-items: end; gap: 10px; padding: 12px 24px; border-bottom: 1px solid var(--border); }
 .conversation-rename label { display: grid; flex: 1; gap: 6px; }
 .prompt-heading h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

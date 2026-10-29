@@ -49,7 +49,8 @@ export function ProjectTrackerSetup({
     {error && <p role="alert" className="error">{error} {!suppliedSetup && <button type="button" onClick={() => {setError("");setReload(value => value + 1);}}>Réessayer</button>}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
     {setup && !remoteTrackers.length && <p className="muted">Ajoutez d’abord une source dans Paramètres → Comptes et trackers.</p>}
-    {setup && !!remoteTrackers.length && <form onSubmit={submit}>
+    {setup && !!remoteTrackers.length && selected?.id && !available.length && <p className="muted">Toutes les sources disponibles sont déjà associées à ce projet.</p>}
+    {setup && !!remoteTrackers.length && (!selected?.id || !!available.length) && <form onSubmit={submit}>
       <fieldset disabled={pending}>
         {!projectId && <label>Projet existant<select required value={selectedProjectId} onChange={event => {setSelectedProjectId(event.target.value);setTrackerId("");}}><option value="">Choisir un projet</option>{setup.projects?.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>}
         <label>Tracker à ajouter<select required value={trackerId} onChange={event => setTrackerId(event.target.value)}><option value="">Choisir un tracker</option>{available.map(tracker => <option key={tracker.id} value={tracker.id}>{tracker.name}</option>)}</select></label>

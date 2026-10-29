@@ -121,6 +121,14 @@ tracker and after the test server restarted; its tracker selection and default
 also persisted. This qualifies the Go API contract used by the native action,
 not a live tracker import or a packaged Tauri UI interaction.
 
+An isolated unsigned Tauri app at `5e44fde` paired with a disposable Fleet
+backend built from Go `45940914`. In the native project configuration it added
+the registered GitLab fixture tracker to an existing folder-only project. The
+screen showed the linked tracker, and a backend read confirmed its selection
+and default without creating a second project. This checks the native action
+against a current Go backend; it does not cover a real import, a folder picker
+in that same test or the post-capture layout correction.
+
 The binary compatibility harness was re-run on 2026-10-29 against Go commit
 `c2f38222` and the released v0.7.6 server/agent pair. Both directions passed
 21-tool MCP, STDIO bridge, mocked GitHub create/stage update, task/run lifecycle,

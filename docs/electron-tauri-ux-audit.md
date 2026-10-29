@@ -865,3 +865,12 @@ existing project from either Settings or that project's configuration. The
 current source UI test covers the direct project path; an isolated Go API test
 covers folder retention and tracker selection across a server restart. A
 packaged desktop interaction and live tracker import remain separate checks.
+
+The first native Fleet retake of this project action at Tauri `5e44fde` and
+Go `45940914` paired an isolated app with a disposable backend, attached one
+GitLab fixture tracker to an existing folder-only project, and showed the
+association in project settings. A backend read confirmed the original project
+ID, one selected tracker, the new default and no duplicate project. The
+screen capture exposed an unstyled native `fieldset` border and an empty
+selector after the last available source was attached. The form now uses the
+project settings layout and shows a completed state instead of empty controls.

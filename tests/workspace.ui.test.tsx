@@ -418,10 +418,11 @@ test("project settings can also associate the first folder",async()=>{
 });
 
 test("project settings attach a tracker directly to the selected project", async () => {
- const attach = vi.fn().mockResolvedValue({});
+ let linked = false;
+ const attach = vi.fn().mockImplementation(async () => {linked = true;return {};});
  vi.mocked(invoke).mockImplementation(async command => {
    if (command === "conversation_profiles") return {profiles:[],defaultId:"",inherited:true};
-   if (command === "local_setup_status") return {enabled:true,ready:true,signedIn:true,projects:[{id:"p",name:"Example",trackers:[]}],trackers:[{id:"t",name:"Fixture tracker",provider:"github",scope:"fixture/repo"}]};
+   if (command === "local_setup_status") return {enabled:true,ready:true,signedIn:true,projects:[{id:"p",name:"Example",trackers:linked?[{trackerId:"t"}]:[]}],trackers:[{id:"t",name:"Fixture tracker",provider:"github",scope:"fixture/repo"}]};
    if (command === "attach_project_tracker") return attach();
    return null;
  });
@@ -432,5 +433,8 @@ test("project settings attach a tracker directly to the selected project", async
  fireEvent.click(screen.getByRole("button",{name:"Associer le tracker"}));
  await waitFor(()=>expect(invoke).toHaveBeenCalledWith("attach_project_tracker",{projectId:"p",trackerId:"t"}));
  expect(attach).toHaveBeenCalledOnce();
+ expect(await screen.findByText("Trackers associés : Fixture tracker.")).toBeTruthy();
+ expect(screen.getByText("Toutes les sources disponibles sont déjà associées à ce projet.")).toBeTruthy();
+ expect(screen.queryByRole("button",{name:"Associer le tracker"})).toBeNull();
  expect(invoke).not.toHaveBeenCalledWith("create_local_project",expect.anything());
 });
