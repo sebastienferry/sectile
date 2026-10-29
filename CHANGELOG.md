@@ -13,6 +13,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Workflow chain and custom-skill actions now stay unavailable until the project is configured, matching the next-step action.
 - Switching tickets now clears the previous ticket's workflow and draft instructions while the next ticket loads.
 - AI provider detection now starts after the Local or Fleet agent is available, avoiding stale connection errors after first-time setup.
 - Project tracker setup now shows a completed state after all available sources are linked and follows the project settings form layout.

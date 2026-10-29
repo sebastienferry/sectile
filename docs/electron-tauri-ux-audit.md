@@ -913,3 +913,21 @@ that the old ticket and launch controls disappear during loading and that the
 new ticket starts with empty instructions. TypeScript, 15 domain tests, 132 UI
 tests, the production build and 38 Rust tests pass. This source fix still needs
 a native navigation retake.
+
+An unsigned native app from Tauri `d926f26` and Go `5500840d`, with only the
+companion port changed to `55466`, verified first-start provider setup: the
+unconfigured screen offered connection setup, and saving the Local profile
+automatically detected both signed-in CLIs without stale mode-selection errors.
+Two synthetic tracker tickets were seeded only in this disposable installation.
+Opening the first workflow, entering instructions, returning through the board
+and opening the second showed an empty draft. This covers native board-mediated
+navigation; the direct prop-change/loading race remains covered by the UI test,
+since the quick navigator does not expose ticket destinations.
+
+The same native check found that chain dispatch was enabled on an unconfigured
+project, although next-step dispatch was disabled. The shared launch guard now
+requires project configuration for chain and custom skills too. A regression
+test selects a custom skill on an unconfigured project and verifies that neither
+action can dispatch. TypeScript, 15 domain tests, 133 UI tests, the production
+build and 38 Rust tests pass. The final guard change was tested in source; the
+observed native bundle predates it. No remote tracker write was made.

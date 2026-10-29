@@ -357,6 +357,7 @@ first user message and can also be renamed.
 
 Ticket workflow screens keep draft instructions scoped to the selected project
 and ticket. Switching tickets starts with a fresh workflow view.
+Next-step, chain and custom-skill launches all require a configured project.
 
 ## Configure AI provider access
 

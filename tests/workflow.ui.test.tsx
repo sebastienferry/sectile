@@ -15,6 +15,18 @@ const project={configured:true,aiProvider:"claude",skills:[{id:"implement"},{id:
 beforeEach(()=>{vi.resetAllMocks();monitor.snapshot.runs=[];monitor.fresh=true;vi.mocked(api.listTasks).mockResolvedValue([task]);vi.mocked(context.projectContext).mockResolvedValue(project);vi.mocked(context.providerReadiness).mockResolvedValue({provider:"claude",complete:true,steps:{skills:{status:"success"},mcp:{status:"success"}}});vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true},runs:[]});vi.mocked(api.launchTask).mockResolvedValue({});});
 afterEach(cleanup);
 const show=()=>render(<WorkflowTask projectId="project" taskId="task" onBack={()=>{}} onSetup={()=>{}}/>);
+test("an unconfigured project disables chain and custom skill dispatch",async()=>{
+ vi.mocked(context.projectContext).mockResolvedValue({...project,configured:false});
+ show();
+ const chain=await screen.findByRole("button",{name:"Lancer la chaîne · jusqu’à Revu"});
+ expect(chain.hasAttribute("disabled")).toBe(true);
+ fireEvent.click(screen.getByText("Instructions et autre skill"));
+ fireEvent.change(screen.getByLabelText("Autre skill"),{target:{value:"implement"}});
+ const custom=screen.getByRole("button",{name:"Lancer la skill choisie"});
+ expect(custom.hasAttribute("disabled")).toBe(true);
+ fireEvent.click(chain);fireEvent.click(custom);
+ expect(api.launchTask).not.toHaveBeenCalled();
+});
 test("switching tickets clears the prior workflow and instructions while the next ticket loads",async()=>{
  const view=show();
  await screen.findByRole("heading",{name:task.title});

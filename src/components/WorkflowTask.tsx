@@ -50,7 +50,7 @@ function WorkflowTaskView({projectId,taskId,onBack,onSetup}:WorkflowTaskProps){
  const active=runs.find(isActive);
  const connected=monitor.fresh&&monitor.snapshot?.status.connected&&!monitor.snapshot.status.contractError;
  const mcpConflict=readiness?.steps?.mcp?.configuration?.present===true&&readiness.steps.mcp.configuration.valid===false;
- const blocked=mcpConflict||pending||!!submitted||!!active||!connected||!project||!task||!!error||!!readError;
+ const blocked=mcpConflict||pending||!!submitted||!!active||!connected||!project?.configured||!task||!!error||!!readError;
  async function launch(kind:"next"|"chain"|"custom"){
   if(acting.current||blocked||!task||!project)return;acting.current=true;++generation.current;setPending(true);setError("");setNotice("");
   try{
