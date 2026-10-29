@@ -89,7 +89,8 @@ try {
   const pair = await request('/api/v1/agent/pair', 'POST', { code: code.code, label: 'Live tracker fixture' });
   token = pair.token;
   for (const provider of ['github', 'gitlab']) {
-    const siteUrl = provider === 'github' ? 'https://api.github.com' : 'https://gitlab.com/api/v4';
+    // Use the website address to verify that Go accepts saved pre-fix values.
+    const siteUrl = provider === 'github' ? 'https://api.github.com' : 'https://gitlab.com';
     const scope = provider === 'github' ? 'sebastienferry/sectile' : 'smartadserver/private/shared-platform/taskativ';
     const credential = provider === 'github' ? ghToken.stdout.trim() : process.env.GITLAB_TOKEN;
     await request('/api/me/tracker-credentials', 'PUT', { tracker: provider, siteUrl, token: credential });

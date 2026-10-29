@@ -426,7 +426,9 @@ authenticated `gh` CLI, `GITLAB_TOKEN`, and `SECTILE_TEST_SERVER_BINARY` pointin
 to a disposable Go server built with an unused Local runtime port. Run
 `npm run test:live-trackers`. It creates a uniquely named issue on each forge,
 updates its title through Sectile, waits for the queued tracker activity,
-verifies the remote result, and deletes the issue. Do not use the regular
+verifies the remote result, and deletes the issue. It deliberately stores the
+GitLab website address without `/api/v4` to cover older saved configurations.
+Do not use the regular
 52963 companion binary or data directory for this test.
 
 ## Read conversation output
