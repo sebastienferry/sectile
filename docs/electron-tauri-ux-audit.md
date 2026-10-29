@@ -598,3 +598,9 @@ and an in-flight conversation creation could navigate back to the old project
 after the user switched. Scope the composer instance to the selected project
 and conversation; keep a submitted message running in Go, but only navigate to
 its conversation while its originating composer remains mounted.
+
+The Tauri package still used its starter icon while Electron shipped Sectile's
+branded icon. Reuse Electron's existing MIT-licensed vector and native icon
+assets for Tauri's bundle and preview, and generate the Tauri platform PNGs
+from the same source. This changes the app identity in the dock and package
+without altering its bundle identifier or user-data path.

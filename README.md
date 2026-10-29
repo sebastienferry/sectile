@@ -225,7 +225,8 @@ npm run package:macos
 service manifest and hashes from `src-tauri/binaries`, include dependency notices
 and license texts, and pass `hdiutil verify`. It refuses dirty Go service
 builds. Use `npm run tauri build` only for development packages that do not need
-this qualification. Bundles currently use Tauri's starter icons. V1 uses manual
+this qualification. Bundles use Sectile's existing desktop icon across macOS,
+Windows and Linux; the vector source is `src-tauri/icons/source.svg`. V1 uses manual
 DMG updates. A release requires a Developer ID Application signing identity in
 the macOS keychain and Apple notarization credentials. Set
 `APPLE_SIGNING_IDENTITY` and either the App Store Connect API key variables

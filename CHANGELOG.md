@@ -31,6 +31,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Desktop packages and browser previews use Sectile's existing app icon instead of the Tauri starter icon.
 - Lay out project prompt controls in a compact two-row grid on narrow windows so model and mode guidance remains readable.
 - Keep workflow executions on their owning ticket cards, with run history in the project executions view instead of a duplicate project-rail row.
 - Hide project navigation while Settings is open and return to the previous workspace from the header.
