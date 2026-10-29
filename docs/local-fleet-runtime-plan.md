@@ -370,3 +370,11 @@ pairing bootstrap, authenticated readiness, SIGTERM shutdown and relaunch passed
 on disposable data. Tauri still launches the existing two services. Provider
 workflow/crash qualification, complete drain admission, packaging and the
 journaled migration remain pending before switching the desktop launcher.
+
+Combined-process provider qualification (2026-10-29): real Claude Code (`haiku`)
+and Codex (`gpt-6-luna`) free conversations passed execution/tool trace,
+interruption, SIGKILL during a tool and explicit resumption on disposable data.
+History prefixes, context, model and mode survived; both 90-second delayed tools
+remained stopped beyond their deadlines and their counters showed no replay.
+The Go repository records details in `docs/companion-provider-qualification.md`.
+Rendered Tauri switching, real ticket/MCP workflows and migration remain pending.
