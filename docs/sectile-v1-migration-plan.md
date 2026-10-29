@@ -3,9 +3,9 @@
 Date: 2026-10-29
 Status: product direction confirmed; Local companion runtime and managed upgrade
 are implemented on dedicated branches. Stage 5 compatibility qualification is
-underway. Stage 6/7 feature ownership inventory is recorded, while client
-migration, roadmapping and UX convergence decisions remain open. This is not a
-V1 release.
+underway. The Stage 6 headless server build is implemented, and the Stage 6/7
+feature ownership inventory is recorded. Client migration, roadmapping and UX
+convergence decisions remain open. This is not a V1 release.
 
 ## 1. Product destination
 
@@ -197,6 +197,7 @@ launched and no visual or runtime behavior is qualified by this build.
 | Cross-version MCP clients and servers | The harness starts real `v0.7.6` and current server binaries against separate temporary databases. Each server is exercised by the other version's SDK client: list 21 tools, call `list_projects`, create a GitHub issue through a mock API with the personal token, transition the remote task to `clarified`, verify tracker sync, start/finish a run on a local task, read back persisted statuses and prepare a task specification worktree. | Pass for MCP sessions, catalog, remote issue creation, caller-token attribution, one tracker stage update, run lifecycle, workflow transition and task specification worktree preparation in both directions. Live GitHub/Jira/GitLab behavior, execution tools and Electron registration remain unqualified. |
 | Cross-version agent operation dispatch | The same harness connects a current agent to the v0.7.6 server and a released v0.7.6 agent to the current server. Each pairing calls authenticated `skills-status` and `init-git` routes. MCP `prepare_task_spec_worktree` creates a registered, distinct worktree on a task branch through the server-agent WebSocket in both pairings; the test verifies its path, branch and Git registration. | Pass for read, mutation and task specification workspace operations over the server-agent WebSocket in both directions. Cancellation, provider execution and Electron registration remain unqualified. |
 | Go service cross-builds | On 2026-10-29 at Go commit `3ea74cbb`, built `cmd/companion`, `cmd/agent` and `cmd/server` for both `linux/amd64` and `windows/amd64`; `file` confirmed ELF and PE x86-64 outputs. | Go service compilation passes for both targets. This does not qualify the Tauri package, native startup, migration, process execution or installers on either OS. |
+| Optional headless server artifact | At Go commit `7dea9140`, `make build-server-headless` produced `bin/server-headless` without invoking Node. The opt-in `sectile_headless` build retains API/MCP/auth routes and returns 404 for browser paths; isolated runtime smoke verified `/api/health` (200), browser paths (404), and an unauthenticated unknown API route (JSON 401). Both default and tagged `cmd/server`/`internal/webui` tests pass. | Linux/amd64 ELF and Windows/amd64 PE headless binaries cross-compile. This qualifies the optional artifact and its no-web behavior on the current macOS host, not native Linux/Windows runtime or release distribution. |
 | Native platforms | macOS live migration and unsigned bundle build; Windows companion and Go handler test binary cross-build; Linux and Windows Go service cross-builds above | Windows runtime/migration and Linux/Windows native desktop builds remain unqualified |
 | macOS signing | `security find-identity -v -p codesigning` returned zero valid identities on the qualification host (2026-10-29) | No signed macOS artifact can be qualified on this host; a valid signing identity is required |
 | Open-source package provenance | Tauri repository has an MIT `LICENSE`; the Go checkout has no license file, while `prepare:services` builds and bundles the Go server, agent and companion | Public binary redistribution remains unqualified until the Go services' licensing and required notices are explicit |
@@ -226,6 +227,14 @@ identifies the existing web/Electron planning and operational capabilities and
 the current Tauri components, but does not select a replacement roadmapping
 tool or grant authority to deprecate any client. A headless distribution can
 omit website assets without immediately deleting the current web server.
+
+Stage 6 headless server slice (2026-10-29): Go commit `7dea9140` adds the
+`sectile_headless` build tag and `make build-server-headless`. The default Fleet
+server build still embeds the web application. Default and headless server/UI
+tests pass; the headless binary passed an isolated runtime smoke and Linux and
+Windows amd64 cross-builds. This completes the headless-artifact portion of
+Stage 6 only. Explicit migration paths for web/Electron consumers and a
+V1-supported server distribution remain open.
 
 ## 5. Non-regression and upgrade gates
 
