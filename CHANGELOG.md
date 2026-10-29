@@ -16,6 +16,8 @@ test fixtures or internal plumbing.
 ### Fixed
 
 - Agents no longer drop and reconnect, or fail to discover their projects ("context deadline exceeded"), while a server synchronises large trackers; server instances sharing one database no longer take each other for dead during those synchronisations, and an agent whose session was lost that way reconnects on its own instead of having its project inventory refused until it restarts.
+- Agent runs caught by a server restart before they reached the workstation no longer stay active forever: a run that was never sent is canceled, one whose sending was interrupted is closed when its workstation reconnects without it, and neither keeps holding a slot of the project's orchestration capacity.
+- When a backlog evaluation finds no free slot, the desktop says the capacity is reached, with the active runs against the limit, instead of reporting "0 launched · 0 skipped".
 
 ## [0.7.6] - 2026-10-28
 

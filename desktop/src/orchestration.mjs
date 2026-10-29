@@ -35,6 +35,16 @@ export function orchestrationProfileState(runs,{pending=false,error=''}={}){
  return {id:'completed',label:'Ready',run}
 }
 
+// The server stops before reading the backlog when the project has no free
+// slot, so an empty report then means "refused", not "nothing eligible".
+export function orchestrationReportSummary(report){
+ const launched=(report?.launched||[]).length,skipped=(report?.skipped||[]).length
+ const counts=launched+' launched · '+skipped+' skipped'
+ if(launched||skipped||report?.availableSlots!==0||!report?.maxConcurrent)return {counts}
+ const active=Number.isInteger(report.activeRunsBefore)?report.activeRunsBefore:'?'
+ return {counts,capacity:'Capacity reached: '+active+' / '+report.maxConcurrent+' runs already active on this project, so no task was evaluated. Finish or stop a run, or raise the limit in project settings.'}
+}
+
 const node=(tag,className,text)=>{const element=document.createElement(tag);if(className)element.className=className;if(text!==undefined)element.textContent=text;return element}
 const button=(text,className,action)=>{const element=node('button',className,text);element.type='button';element.onclick=action;return element}
 const badge=state=>{const element=node('span','orchestration-state',state.label);element.dataset.state=state.id;const icon=node('span','orchestration-state-icon');icon.innerHTML=runStateSvg(state.id,13);icon.setAttribute('aria-hidden','true');element.prepend(icon);return element}
@@ -145,7 +155,8 @@ export function createOrchestration({container,details,onConsole,onOpen=()=>true
   notice.append(actions);details.append(notice)
   if(lastInput.offline||lastInput.stale)details.append(node('p','hint',lastInput.offline?'Reconnect the local agent to run agents or open consoles.':'Capacity could not be refreshed. Reconnect before running an agent.'))
   if(state.error){const error=node('p','orchestration-error',state.error);error.setAttribute('role','alert');details.append(error)}
-  if(state.report){const report=node('section','orchestration-report');report.setAttribute('role','status');report.append(node('h2','','Last backlog evaluation'),node('p','',(state.report.launched||[]).length+' launched · '+(state.report.skipped||[]).length+' skipped'))
+  if(state.report){const report=node('section','orchestration-report'),summary=orchestrationReportSummary(state.report);report.setAttribute('role','status');report.append(node('h2','','Last backlog evaluation'),node('p','',summary.counts))
+   if(summary.capacity)report.append(node('p','orchestration-capacity-reached',summary.capacity))
    for(const item of state.report.skipped||[])report.append(node('p','',(item.key||'Task')+': '+item.reason));details.append(report)}
   if(latest)taskDetails(details,latest)
   sessions(details,history)
