@@ -491,16 +491,14 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Not found", 404)
 }
 
-// stopPTYRun sends an interrupt while the CLI can still forward cancellation
-// to its provider, then closes the owned terminal process tree. The short grace
-// period lets a CLI cancel a tool running in its private app server.
+// stopPTYRun closes the owned terminal process tree before a provider can exit
+// and orphan a background tool. An interrupt and grace period let Codex detach
+// such a tool from the shell before the terminal manager can discover it.
 func (d *agentDaemon) stopPTYRun(id string, run *controlledRun, entry desktopRun) bool {
 	if d.terminal.manager == nil || entry.SessionID == "" || entry.Headless {
 		return false
 	}
 	sessionID := entry.SessionID
-	_ = d.terminal.manager.SendInput(sessionID, "\x03")
-	time.Sleep(350 * time.Millisecond)
 	_ = d.terminal.manager.CloseSession(sessionID)
 	d.queue.mu.Lock()
 	if d.queue.runs[id] == run {

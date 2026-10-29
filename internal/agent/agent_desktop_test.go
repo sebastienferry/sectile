@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"tasks/internal/agentconfig"
+	"tasks/internal/agentexec"
 	"tasks/internal/models"
 	"tasks/internal/terminal"
 	"tasks/internal/testhome"
@@ -170,6 +171,68 @@ func TestStopClosesPTYProcessTree(t *testing.T) {
 	case <-run.exited:
 	default:
 		t.Fatal("Stop did not acknowledge the run exit")
+	}
+}
+
+func TestPTYDetachedToolHelper(t *testing.T) {
+	if os.Getenv("SECTILE_PTY_DETACHED_HELPER") != "1" {
+		return
+	}
+	late := os.Getenv("SECTILE_PTY_LATE_MARKER")
+	cmd := exec.Command("sh", "-c", "sleep 3; printf LATE > "+quoteShell(late))
+	if _, err := agentexec.StartDetached(cmd); err != nil {
+		os.Exit(2)
+	}
+	if err := os.WriteFile(os.Getenv("SECTILE_PTY_START_MARKER"), []byte("STARTED"), 0600); err != nil {
+		os.Exit(3)
+	}
+	_ = cmd.Wait()
+}
+
+func TestStopClosesDetachedPTYToolBeforeHangup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the detached PTY tool fixture uses POSIX process groups")
+	}
+	root := t.TempDir()
+	started := filepath.Join(root, "started-marker.txt")
+	late := filepath.Join(root, "late-marker.txt")
+	manager := terminal.NewManager()
+	run := &controlledRun{
+		desktop: desktopRun{ID: "detached-stop", SessionID: "detached-stop", Provider: "codex", Directory: root, Status: "running"},
+		exited:  make(chan struct{}),
+	}
+	d := &agentDaemon{
+		terminal: terminalChoice{manager: manager},
+		loopback: loopbackServer{desktopToken: "private"},
+		queue:    runQueue{runs: map[string]*controlledRun{"detached-stop": run}},
+	}
+	defer manager.CloseSession(run.desktop.SessionID)
+	line := "SECTILE_PTY_DETACHED_HELPER=1 SECTILE_PTY_START_MARKER=" + quoteShell(started) +
+		" SECTILE_PTY_LATE_MARKER=" + quoteShell(late) +
+		" " + quoteShell(os.Args[0]) + " -test.run=^TestPTYDetachedToolHelper$"
+	if err := d.runInPty(run.desktop.SessionID, root, nil, line); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if _, err := os.Stat(started); err != nil {
+		t.Fatalf("detached tool did not start: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/desktop/stop?id=detached-stop", nil)
+	req.Header.Set("Authorization", "Bearer private")
+	rec := httptest.NewRecorder()
+	d.desktopHandler(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("stop returned %d: %s", rec.Code, rec.Body.String())
+	}
+	time.Sleep(3500 * time.Millisecond)
+	if _, err := os.Stat(late); !os.IsNotExist(err) {
+		t.Fatalf("detached PTY tool survived Stop: %v", err)
 	}
 }
 

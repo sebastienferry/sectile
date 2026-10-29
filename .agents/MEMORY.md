@@ -1,5 +1,15 @@
 # Project Knowledge Base (MEMORY.md)
 
+### PTY Stop Must Precede Provider Exit (2026-10-29)
+
+- A tracked Electron Codex run can start a shell tool in its own process group.
+  Sending Ctrl-C to the provider and waiting 350 ms before closing the PTY lets
+  Codex exit first; the tool is then adopted by `launchd` and survives Stop.
+- Stop the owned PTY process tree while the PTY remains open, before a hangup
+  or provider interrupt can detach descendants. A test with a detached child
+  covers this ordering, and the real Electron tracked-task check must wait past
+  the delayed file marker rather than relying on the canceled UI status.
+
 ### PTY Run-Control Credential (2026-10-29)
 
 - Controlled console commands must not include the per-run control token in their

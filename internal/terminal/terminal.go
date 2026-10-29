@@ -273,14 +273,17 @@ func (m *Manager) CloseSession(sessionID string) error {
 	sess.closed = true
 	close(sess.closeChan)
 
-	if sess.Pty != nil {
-		_ = sess.Pty.Close()
-	}
 	if sess.Cmd != nil && sess.Cmd.Process != nil {
+		// Stop descendants while the PTY is still open. Closing it first sends
+		// a hangup to the shell; a provider can then exit and orphan its tools
+		// before StopProcessTree discovers them.
 		if err := agentexec.StopProcessTree(sess.Cmd.Process.Pid); err != nil {
 			_ = sess.Cmd.Process.Kill()
 		}
 		go func() { _ = sess.Cmd.Wait() }()
+	}
+	if sess.Pty != nil {
+		_ = sess.Pty.Close()
 	}
 
 	sess.clientsMu.Lock()
