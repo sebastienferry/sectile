@@ -49,7 +49,12 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     }).catch(cause => { if (mounted.current) setError(String(cause)); });
     return () => { mounted.current = false; };
   }, []);
-  async function perform(action: () => Promise<unknown>, message: string, isCancelled?: (result: unknown) => boolean) {
+  async function perform(
+    action: () => Promise<unknown>,
+    message: string,
+    isCancelled?: (result: unknown) => boolean,
+    hydrateProfile = false,
+  ) {
     if (busy.current) return;
     busy.current = true; setPending(true); setError(""); setNotice("");
     try {
@@ -57,6 +62,10 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       if (isCancelled?.(result)) return;
       if (mounted.current) setNotice(message);
       const next = await refresh();
+      if (hydrateProfile) {
+        setEmail(next.profile?.email ?? "");
+        setDisplayName(next.profile?.displayName ?? "");
+      }
       setSection(previous => previous === "services" && next.ready && !next.signedIn ? "profile" : previous === "profile" && !setup?.signedIn && next.signedIn ? "engines" : previous);
       onChanged();
     } catch (cause) {
@@ -66,8 +75,8 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       try { await refresh(); onChanged(); } catch { /* Keep the original error. */ }
     } finally { busy.current = false; if (mounted.current) setPending(false); }
   }
-  function submit(event: FormEvent, action: () => Promise<unknown>, message: string) {
-    event.preventDefault(); void perform(action, message);
+  function submit(event: FormEvent, action: () => Promise<unknown>, message: string, hydrateProfile = false) {
+    event.preventDefault(); void perform(action, message, undefined, hydrateProfile);
   }
   const ready = setup?.ready && setup.signedIn && setup.apiSetupAvailable !== false;
   return <section className="settings local-settings">
@@ -94,14 +103,14 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       {setup?.mode !== "fleet" && <button disabled={pending} onClick={() => void perform(api.enableLocalRuntime, "Compagnon local démarré et mode Local sélectionné.")}>{setup?.enabled ? "Vérifier / démarrer le compagnon local" : "Démarrer en mode Local"}</button>}
       {(!setup?.mode || setup.mode === "unconfigured") && <article><h3>Mode Fleet</h3>
         <p className="muted">Associez ce poste avec un code à usage unique depuis votre profil sur le backend Fleet. Le jeton durable reste dans le stockage privé natif et n’est jamais affiché.</p>
-        <form onSubmit={e => submit(e, async () => { try { await api.pairFleetAgent(fleetUrl, fleetCode); } finally { setFleetCode(""); } }, "Poste associé au backend Fleet.")}>
+        <form onSubmit={e => submit(e, async () => { try { await api.pairFleetAgent(fleetUrl, fleetCode); } finally { setFleetCode(""); } }, "Poste associé au backend Fleet.", true)}>
           <fieldset disabled={pending}>
             <label>Adresse du backend Fleet<input type="url" required placeholder="https://sectile.example.com" value={fleetUrl} onChange={e => setFleetUrl(e.target.value)} autoComplete="url" /></label>
             <label>Code de jumelage<input type="password" required autoComplete="off" value={fleetCode} onChange={e => setFleetCode(e.target.value)} /></label>
             <button className="primary" type="submit">Associer ce poste à Fleet</button>
           </fieldset>
         </form>
-        <details><summary>J’ai déjà associé un agent sur ce poste</summary><p className="muted">Tauri peut reprendre explicitement l’agent existant sans modifier son installation partagée.</p><button disabled={pending} onClick={() => void perform(api.attachFleetAgent, "Agent Fleet associé à ce desktop.")}>Associer l’agent Fleet existant</button></details>
+        <details><summary>J’ai déjà associé un agent sur ce poste</summary><p className="muted">Tauri peut reprendre explicitement l’agent existant sans modifier son installation partagée.</p><button disabled={pending} onClick={() => void perform(api.attachFleetAgent, "Agent Fleet associé à ce desktop.", undefined, true)}>Associer l’agent Fleet existant</button></details>
       </article>}
       {setup?.mode === "fleet" && <p className="muted">Les profils, trackers et projets Fleet se configurent sur le backend Sectile. Cette page ne modifie que le compagnon Local.</p>}
       <button disabled={pending} onClick={() => void perform(async () => {}, "Configuration actualisée.")}>Actualiser</button>

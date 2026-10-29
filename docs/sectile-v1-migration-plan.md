@@ -139,8 +139,18 @@ devices share the same host name, neither was revoked; temporary-pairing
 cleanup could not be verified safely. This live UI observation does not qualify
 Fleet-native setup as complete. Existing-project folder association now uses the
 native directory picker, and UI tests cover successful selection and cancel
-without mutation; this does not replace live visual qualification. New
-conversations persist the selected runtime's private connection UUID in Go's
+without mutation; this does not replace live visual qualification.
+Stage 4 visual qualification (2026-10-29, isolated Fleet Current Smoke bundle)
+repeated one-time pairing against a disposable Go backend built from commit
+`7dea9140`. The UI displayed the paired account's email and display name as soon
+as pairing completed, and the email remained read-only. The follow-up fixes the
+blank profile observed in the earlier bundle; a UI regression test covers both
+pairing and attaching an existing Fleet agent. The isolated backend, paired
+agent, app data and bundle were removed after the check. This qualifies profile
+hydration on a current backend, while the live Fleet backend's unsupported OAuth
+setup operation and safe test-device cleanup remain open.
+
+New conversations persist the selected runtime's private connection UUID in Go's
 run journal; a mismatched Tauri connection cannot read or resume them. Legacy
 histories remain readable and Tauri requires an explicit association before
 resuming an unbound history. Rust, Go and UI fixtures cover UUID migration,

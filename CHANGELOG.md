@@ -8,6 +8,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 - Fleet attachment can no longer replace an already selected Local or Fleet runtime without an explicit migration.
 - Paired Fleet setup now verifies the backend account still matches the account that paired this desktop.
+- The signed-in profile is populated immediately after pairing or attaching a Fleet agent.
 
 - Saved OAuth client identifiers no longer reach the renderer; configuration fields stay empty and masked, retaining saved credentials when left blank.
 - Jira OAuth now recognizes tracker sources before they are linked to a project.

@@ -43,6 +43,37 @@ test("Fleet pairing sends the one-time code to native code and clears it after f
   await screen.findByRole("alert");
   await waitFor(() => expect((code as HTMLInputElement).value).toBe(""));
 });
+test("Fleet pairing hydrates the signed-in profile returned by the selected backend", async () => {
+  const profile = { email: "fleet-user@example.invalid", displayName: "Fleet User", role: "member" };
+  vi.mocked(api.localSetupStatus)
+    .mockResolvedValueOnce({ enabled: false, mode: "unconfigured" })
+    .mockResolvedValue({ enabled: true, ready: true, signedIn: true, agentReady: true, mode: "fleet", apiSetupAvailable: true, profile });
+  vi.mocked(api.pairFleetAgent).mockResolvedValue();
+  render(<LocalSettings onChanged={vi.fn()} />);
+  fireEvent.change(await screen.findByLabelText("Adresse du backend Fleet"),{target:{value:"https://fleet.example.invalid"}});
+  fireEvent.change(screen.getByLabelText("Code de jumelage"),{target:{value:"one-time-code"}});
+  fireEvent.click(screen.getByRole("button",{name:"Associer ce poste à Fleet"}));
+  await screen.findByText("Poste associé au backend Fleet.");
+  fireEvent.click(screen.getByRole("button",{name:"Profil"}));
+  await waitFor(() => expect((screen.getByLabelText("Adresse e-mail") as HTMLInputElement).value).toBe(profile.email));
+  expect((screen.getByLabelText("Adresse e-mail") as HTMLInputElement).readOnly).toBe(true);
+  expect((screen.getByLabelText("Nom affiché") as HTMLInputElement).value).toBe(profile.displayName);
+});
+test("attaching an existing Fleet agent hydrates the signed-in profile returned by the backend", async () => {
+  const profile = { email: "attached-user@example.invalid", displayName: "Attached User", role: "member" };
+  vi.mocked(api.localSetupStatus)
+    .mockResolvedValueOnce({ enabled: false, mode: "unconfigured" })
+    .mockResolvedValue({ enabled: true, ready: true, signedIn: true, agentReady: true, mode: "fleet", apiSetupAvailable: true, profile });
+  vi.mocked(api.attachFleetAgent).mockResolvedValue();
+  render(<LocalSettings onChanged={vi.fn()} />);
+  fireEvent.click(await screen.findByText("J’ai déjà associé un agent sur ce poste"));
+  fireEvent.click(screen.getByRole("button", { name: "Associer l’agent Fleet existant" }));
+  await screen.findByText("Agent Fleet associé à ce desktop.");
+  fireEvent.click(screen.getByRole("button", { name: "Profil" }));
+  await waitFor(() => expect((screen.getByLabelText("Adresse e-mail") as HTMLInputElement).value).toBe(profile.email));
+  expect((screen.getByLabelText("Adresse e-mail") as HTMLInputElement).readOnly).toBe(true);
+  expect((screen.getByLabelText("Nom affiché") as HTMLInputElement).value).toBe(profile.displayName);
+});
 test("paired Fleet enables native setup while keeping shared tracker creation admin-only", async () => {
   vi.mocked(api.localSetupStatus).mockResolvedValue({
     enabled: true, ready: true, signedIn: true, agentReady: true, apiSetupAvailable: true,
