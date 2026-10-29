@@ -725,6 +725,34 @@ fn read_fleet_credentials(root: &Path) -> Result<FleetCredentials, String> {
     Ok(credentials)
 }
 
+fn read_fleet_runtime(root: &Path) -> Result<FleetRuntime, String> {
+    let runtime: FleetRuntime = serde_json::from_slice(
+        &fs::read(fleet_root(root)?.join("fleet-runtime.json"))
+            .map_err(|_| "Configuration d’identité Fleet absente".to_string())?,
+    )
+    .map_err(|_| "Configuration d’identité Fleet illisible".to_string())?;
+    if runtime.server != selected_fleet_server(root)?
+        || runtime.user_id.trim().is_empty()
+        || runtime.desktop_token.trim().is_empty()
+    {
+        return Err("Configuration d’identité Fleet incompatible".into());
+    }
+    Ok(runtime)
+}
+
+fn validate_fleet_profile_identity(profile: &Value, expected_user: &str) -> Result<(), String> {
+    if profile["signedIn"] != true
+        || profile["userId"]
+            .as_str()
+            .is_none_or(|user| user != expected_user)
+    {
+        return Err(
+            "L’identité du backend Fleet ne correspond plus au jumelage de ce poste.".into(),
+        );
+    }
+    Ok(())
+}
+
 async fn fleet_request(
     root: &Path,
     method: Method,
@@ -913,6 +941,8 @@ pub async fn local_setup_status(app: tauri::AppHandle) -> Result<Value, String> 
                 "apiSetupAvailable":false}));
         }
         let profile = fleet_request(&root, Method::GET, "/api/me", None).await?;
+        let runtime = read_fleet_runtime(&root)?;
+        validate_fleet_profile_identity(&profile, &runtime.user_id)?;
         let credentials =
             fleet_request(&root, Method::GET, "/api/me/tracker-credentials", None).await?;
         let trackers = fleet_request(&root, Method::GET, "/api/trackers", None).await?;
@@ -1754,6 +1784,20 @@ mod oauth_privacy_tests {
 
 #[cfg(test)]
 mod generation_tests {
+    #[test]
+    fn paired_fleet_profile_must_match_the_original_user() {
+        let profile = serde_json::json!({"signedIn":true,"userId":"user-1"});
+        assert!(super::validate_fleet_profile_identity(&profile, "user-1").is_ok());
+        assert!(super::validate_fleet_profile_identity(&profile, "user-2").is_err());
+        assert!(
+            super::validate_fleet_profile_identity(
+                &serde_json::json!({"signedIn":false,"userId":"user-1"}),
+                "user-1"
+            )
+            .is_err()
+        );
+    }
+
     #[test]
     fn selected_local_or_fleet_runtime_cannot_be_replaced_by_pairing_or_attachment() {
         assert!(super::require_unconfigured_runtime(None).is_ok());

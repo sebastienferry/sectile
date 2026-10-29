@@ -117,9 +117,10 @@ validating its live connection. The shared Electron discovery file is no longer
 a silent fallback. Paired Fleet connections now expose native profile, personal
 tracker credential, project and OAuth account setup through the selected backend;
 OAuth app secrets and shared tracker administration remain server-admin tasks.
-Stage 4 remains open for live Fleet qualification and conversation/backend
-identity adoption. Runtime switching is deliberately unsupported: selecting a
-second mode requires a future explicit migration flow, and this turn closes an
+Stage 4 remains open for live Fleet qualification and conversation-history
+identity adoption. New one-time-code pairings verify the backend user's ID
+against the identity recorded at pairing. Runtime switching is deliberately
+unsupported: selecting a second mode requires a future explicit migration flow, and this turn closes an
 attachment path that could replace an already selected Fleet identity. Stage 5 remains open: qualify the
 Fleet/Electron compatibility matrix,
 supported versions, other-platform migration and measured process/memory/startup
@@ -131,7 +132,7 @@ V1 release.
 The first compatibility slice passed: standalone `cmd/agent` and `cmd/server`
 tests, race-enabled companion/backend/agent tests, a Windows companion
 cross-build, 315 Electron unit tests, and the Tauri typecheck/build plus 86 UI
-and 31 Rust tests. Fleet-native setup also passes its Go handler/backend tests;
+and 33 Rust tests. Fleet-native setup also passes its Go handler/backend tests;
 this is contract coverage, not a live remote Fleet qualification. The migrated macOS install preserved its ten original
 projects, trackers, OAuth key and 25 conversation histories; live Jira,
 Claude/Codex prompt and embedded MCP calls succeeded. One idle companion used
