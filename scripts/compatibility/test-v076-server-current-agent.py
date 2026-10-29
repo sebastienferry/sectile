@@ -109,6 +109,15 @@ func main() {
     if err != nil { panic(err) }
     var created struct { Task struct { ID string `json:"id"`; Key string `json:"key"` } `json:"task"` }
     if err := json.Unmarshal(createdRaw, &created); err != nil || created.Task.ID == "" || created.Task.Key != "#42" { panic("create_task did not return the confirmed remote issue") }
+    trackerTransition, err := session.CallTool(ctx, &mcp.CallToolParams{Name:"transition_stage", Arguments:map[string]any{"taskKey":created.Task.ID, "stage":"clarified", "note":"Cross-version tracker sync check"}})
+    if err != nil { panic(err) }
+    if trackerTransition.IsError { panic("tracker-backed transition_stage returned an MCP error") }
+    trackerTransitionRaw, err := json.Marshal(trackerTransition.StructuredContent)
+    if err != nil { panic(err) }
+    var trackerTransitionResult struct { TrackerSync string `json:"trackerSync"`; Task struct { Status string `json:"status"` } `json:"task"` }
+    if err := json.Unmarshal(trackerTransitionRaw, &trackerTransitionResult); err != nil { panic(err) }
+    syncQueued := trackerTransitionResult.TrackerSync == "queued" || trackerTransitionResult.TrackerSync == "done"
+    if !syncQueued || trackerTransitionResult.Task.Status != "clarified" { panic(fmt.Sprintf("tracker-backed transition was not saved and queued: %s", trackerTransitionRaw)) }
     taskID := os.Args[3]
     started, err := session.CallTool(ctx, &mcp.CallToolParams{Name:"start_run", Arguments:map[string]any{"taskKey":taskID, "skill":"compatibility-check"}})
     if err != nil { panic(err) }
@@ -134,7 +143,7 @@ func main() {
     if err != nil { panic(err) }
     var taskState struct { Task struct { Status string `json:"status"` } `json:"task"` }
     if err := json.Unmarshal(taskRaw, &taskState); err != nil || taskState.Task.Status != "clarified" { panic("transition_stage did not persist clarified status") }
-    output := map[string]any{"toolCount":len(tools.Tools), "listProjectsCall":"passed", "trackerCreate":"passed", "runLifecycle":"passed", "taskStatus":taskState.Task.Status, "runStatus":finishedActivity.Status}
+    output := map[string]any{"toolCount":len(tools.Tools), "listProjectsCall":"passed", "trackerCreate":"passed", "trackerTransition":trackerTransitionResult.TrackerSync, "runLifecycle":"passed", "taskStatus":taskState.Task.Status, "runStatus":finishedActivity.Status}
     if err := json.NewEncoder(os.Stdout).Encode(output); err != nil { panic(fmt.Sprint(err)) }
 }
 '''
@@ -169,6 +178,10 @@ class FakeGitHubHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         self.requests.append((self.command, self.path, self.headers.get("Authorization"), ""))
+        if self.path.startswith("/repos/acme/app/issues?"):
+            return self.respond(200, [{"number": 42, "title": "Cross-version tracker issue", "state": "open", "labels": []}])
+        if self.path.endswith("/comments"):
+            return self.respond(200, [])
         return self.respond(200, {"number": 42, "title": "Cross-version tracker issue", "state": "open", "labels": []})
 
     def do_PATCH(self):
@@ -179,6 +192,16 @@ class FakeGitHubHandler(BaseHTTPRequestHandler):
 
     def log_message(self, _format, *_args):
         pass
+
+
+def tracker_evidence(requests, server_version):
+    creates = [request for request in requests if request[0] == "POST" and request[1] == "/repos/acme/app/issues"]
+    updates = [request for request in requests if request[0] == "PATCH" and request[1] == "/repos/acme/app/issues/42"]
+    if len(creates) != 1 or not updates:
+        raise RuntimeError(f"{server_version} tracker requests missed issue creation or stage sync: {requests}")
+    if any(request[2] != "Bearer compatibility-token" for request in creates + updates):
+        raise RuntimeError(f"{server_version} tracker writes did not use the personal token: {creates + updates}")
+    return {"server": server_version, "createdIssues": len(creates), "stageUpdates": len(updates), "personalTokenUsed": True}
 
 
 def main():
@@ -365,6 +388,8 @@ func main() {
         agent_process = None
         stop(server_process)
         server_process = None
+        old_tracker_evidence = tracker_evidence(list(FakeGitHubHandler.requests), "v0.7.6")
+        FakeGitHubHandler.requests.clear()
         agent_log.close()
         agent_log = None
         server_log.close()
@@ -422,14 +447,9 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
         current_mcp_result["server"] = "current"
         stop(server_process)
         server_process = None
+        current_tracker_evidence = tracker_evidence(list(FakeGitHubHandler.requests), "current")
         server_log.close()
         server_log = None
-        create_requests = [
-            request for request in FakeGitHubHandler.requests
-            if request[0] == "POST" and request[1] == "/repos/acme/app/issues"
-        ]
-        if len(create_requests) != 2 or any(request[2] != "Bearer compatibility-token" for request in create_requests):
-            raise RuntimeError(f"Cross-version tracker creation did not use both personal tokens: {create_requests}")
 
         legacy_test_env = isolated_environment(home_agent)
         legacy_test_env["SECTILE_V076_AGENT_BINARY"] = str(old_agent)
@@ -447,7 +467,7 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
                     "currentAgentToV076Server": reverse_result,
                     "v076AgentToCurrentServer": {"connected": True},
                     "mcpCompatibility": [old_mcp, current_mcp_result],
-                    "trackerWrites": {"createdIssues": len(create_requests), "personalTokenUsed": True},
+                    "trackerWrites": [old_tracker_evidence, current_tracker_evidence],
                 }
             )
         )
