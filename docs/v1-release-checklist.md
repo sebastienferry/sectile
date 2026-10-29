@@ -32,6 +32,12 @@ token. The isolated test left the Go checkout clean. Later isolated Go API tests
 created, updated, read back and deleted real GitHub and GitLab issues. Fresh
 provider OAuth consent and native tracker writes remain separate release gates.
 
+An isolated native Local retake with Tauri `317151c` and Go `5500840d`
+verified that Claude Code and Codex conversations show French Sectile-authored
+start and ready notices while returning their expected provider responses.
+The test used a disposable companion port and data directory; it did not
+exercise OAuth or tracker writes.
+
 - [ ] Select and record the exact Go source commit used to build the companion.
 - [ ] Build only from clean, reviewable source commits. Confirm the packaged
   `build-manifest.json` names the selected Go commit, reports `dirty: false`,

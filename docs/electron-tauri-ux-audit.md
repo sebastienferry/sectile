@@ -885,4 +885,14 @@ companion stop and desktop reopen, and a Codex free prompt returned its expected
 answer with the same working directory. The test also exposed English agent
 notice text in the French conversation surface. Go `5500840d` changes
 Sectile-authored conversation notices to French while leaving provider-authored
-responses untouched. A native retake with that Go commit remains open.
+responses untouched.
+
+An isolated unsigned macOS app built from Tauri `317151c` and Go `5500840d`
+(test-only companion port `55466`) then opened the same temporary folder as a
+Local project. Real Codex and Claude Code conversations returned
+`NOTICE_RETAKE_OK` and `CLAUDE_NOTICE_OK`; their initial notices read
+“Conversation Codex” and “Conversation Claude Code,” and each completed turn
+read “Prêt pour votre prochain message.” The provider replies were unchanged.
+The app, companion, provider children and temporary data were removed after
+the check. This qualifies the localized start/ready copy on the native Local
+path; interrupt/error copy was covered by Go tests rather than this retake.
