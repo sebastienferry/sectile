@@ -351,7 +351,7 @@ function Workspace() {
             </section>
           )}
           {current && (
-            <section className="workspace-pane">
+            <section className={`workspace-pane ${current.view === "prompt" && current.runId ? "workspace-pane-conversation" : ""}`}>
               {current.view === "settings" ? (
                 <LocalSettings onConfigureProject={id=>{const project=projects.find(p=>p.id===id);if(project)navigate(project,"project-settings");}} onOpenFolder={() => void openFolder()} onChanged={() => { setProjects([]); void refreshProjects(); void refreshExecutions(); }} />
               ) : (

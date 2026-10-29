@@ -279,6 +279,15 @@ shared-surface gate is closed for the populated project board and settings
 hierarchy at normal and narrow widths in both themes. The captures are an
 evidence baseline, not pixel-approval for styling changes.
 
+A Tauri-only waiting-question fixture at 800 × 820 exposed a third, outer
+scroll area that pushed the question action buttons below the visible window.
+Conversation workspaces now clip to the available height, and narrow layouts
+keep project-folder and MCP controls on compact rows while giving an active
+question more of the response area. The retake shows the full question and its
+answer/skip actions, with a 176px transcript viewport and no competing outer
+scrollbar. The composer remains reachable by scrolling the response area after
+answering; the active question is the primary action while it is pending.
+
 The first isolated capture used the same `workspace` name and
 `/private/tmp/sectile-ux-fixture/workspace` path in current Tauri and Electron
 builds, at the same 2560 × 1600 desktop size in dark mode. Tauri reached its
