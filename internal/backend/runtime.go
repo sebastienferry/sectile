@@ -104,7 +104,7 @@ func Open(cfg Config) (*Runtime, error) {
 }
 
 // HTTPHandler builds the backend HTTP stack. A Local runtime keeps all work
-// routes closed until ActivateWork; the agent bootstrap routes remain open.
+// routes closed until ActivateWork; profile and agent bootstrap remain open.
 func (r *Runtime) HTTPHandler(mux *http.ServeMux) http.Handler {
 	stack := WrapHTTP(mux, r.Handler, r.Database)
 	if !r.local {

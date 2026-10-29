@@ -56,7 +56,7 @@ func TestLocalWorkGateWaitsForAuthenticatedAgentWithoutBlockingBootstrap(t *test
 	if got := probe(handlers.HealthPath); got != http.StatusOK {
 		t.Fatalf("liveness before agent connection: %d", got)
 	}
-	for _, path := range []string{handlers.ReadyPath, "/api/projects", "/mcp", "/api/v1/agent/pair", "/api/v1/agent/identity/extra"} {
+	for _, path := range []string{handlers.ReadyPath, "/api/projects", "/mcp", "/api/v1/agent/identity/extra"} {
 		if got := probe(path); got != http.StatusServiceUnavailable {
 			t.Fatalf("%s bypassed startup gate: %d", path, got)
 		}
@@ -140,5 +140,74 @@ func TestLocalWorkGateWaitsForAuthenticatedAgentWithoutBlockingBootstrap(t *test
 	runtime.Handler.BeginDrain()
 	if got := probe(handlers.ReadyPath); got != http.StatusServiceUnavailable {
 		t.Fatalf("draining runtime stayed ready: %d", got)
+	}
+}
+
+func TestLocalWorkGateAllowsProfileAndPairingBeforeAgentConnects(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "local")
+	runtime, err := Open(Config{Database: db.SQLiteConfig(filepath.Join(root, "tasks.db")), DataDir: root, StoreRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := runtime.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, runtime.Handler)
+	server := httptest.NewServer(runtime.HTTPHandler(mux))
+	defer server.Close()
+	client := &http.Client{Timeout: 2 * time.Second}
+	signIn, err := client.Post(server.URL+"/auth/local", "application/json", strings.NewReader(`{"email":"owner@example.com"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	signIn.Body.Close()
+	if signIn.StatusCode != http.StatusOK || len(signIn.Cookies()) == 0 {
+		t.Fatalf("local profile bootstrap failed: %d", signIn.StatusCode)
+	}
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/api/pairing-codes", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.AddCookie(signIn.Cookies()[0])
+	codeResponse, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer codeResponse.Body.Close()
+	if codeResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("pairing code was blocked: %d", codeResponse.StatusCode)
+	}
+	var code struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(codeResponse.Body).Decode(&code); err != nil || code.Code == "" {
+		t.Fatalf("pairing code missing: %v", err)
+	}
+	payload, _ := json.Marshal(map[string]string{"code": code.Code, "label": "Local desktop"})
+	pairResponse, err := client.Post(server.URL+"/api/v1/agent/pair", "application/json", strings.NewReader(string(payload)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pairResponse.Body.Close()
+	if pairResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("agent pairing was blocked: %d", pairResponse.StatusCode)
+	}
+	var pair struct{ Token, DeviceID, UserID string }
+	if err := json.NewDecoder(pairResponse.Body).Decode(&pair); err != nil {
+		t.Fatal(err)
+	}
+	if pair.Token == "" || pair.DeviceID == "" || pair.UserID == "" {
+		t.Fatal("pairing response was incomplete")
+	}
+	response, err := client.Get(server.URL + "/api/projects")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("project work opened before agent connection: %d", response.StatusCode)
 	}
 }

@@ -292,14 +292,15 @@ repository mappings and generated Claude settings keep the embedded runtime
 out of the standalone agent's global settings file. These are reusable
 lifecycle primitives, not a Local companion yet. Work admission, authenticated
 self-connection/readiness gating now exist as backend primitives: Local HTTP
-admits only health and authenticated agent bootstrap endpoints until the
-expected user/device WebSocket is registered, while Fleet keeps its existing
+admits health, profile/pairing setup and authenticated agent bootstrap endpoints
+until the expected user/device WebSocket is registered. Fleet keeps its existing
 startup path. The embedded agent reports completion of its connection setup
 to its owner. Local auto-sync and task pulls start only after activation; a
 lost agent connection closes the user-facing work gate again. Tests exercise
-the gate with both a WebSocket fixture and the real embedded agent. The
-composition root still has to coordinate those signals, HTTP listener drain,
-provider process termination and full startup/failure tests. No installation
+the gate with first-run profile pairing, a WebSocket fixture and the real
+embedded agent. The composition root still has to coordinate those signals,
+HTTP listener drain, provider process termination and full startup/failure
+tests. No installation
 has been migrated.
 
 ### Phase 2 ownership inventory

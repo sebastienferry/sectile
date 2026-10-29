@@ -6,8 +6,8 @@ import (
 	"tasks/internal/handlers"
 )
 
-// gateWork keeps the Local process alive for probes and agent bootstrap while
-// its execution and user-facing APIs wait for an authenticated self-connection.
+// gateWork keeps the Local process alive for probes, profile pairing and agent
+// bootstrap while execution APIs wait for an authenticated self-connection.
 // The narrow bootstrap list prevents a new API route from silently bypassing
 // the gate. Fleet never uses this wrapper.
 func (r *Runtime) gateWork(next http.Handler) http.Handler {
@@ -24,6 +24,10 @@ func (r *Runtime) gateWork(next http.Handler) http.Handler {
 func localBootstrapPath(path string) bool {
 	switch path {
 	case handlers.HealthPath,
+		"/auth/local",
+		"/api/me",
+		"/api/pairing-codes",
+		"/api/v1/agent/pair",
 		"/ws/agent-connect",
 		"/api/v1/agent/identity",
 		"/api/v1/agent/config",
