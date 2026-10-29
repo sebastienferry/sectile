@@ -608,6 +608,12 @@ provider. The check button of the personal form (`POST
 /api/setup/tracker/check`) checks the token typed, else the caller's own token
 or grant, never the server's.
 
+**Desktop OAuth app readiness.** `GET /api/desktop-oauth/apps` requires a
+signed-in session or workstation API key and reports only whether GitHub,
+GitLab and Jira OAuth apps are configured and their callback URLs. Client IDs,
+secrets and other app metadata are not returned. The Local companion reports
+its fixed loopback callback; a Fleet backend reports its own configured callback.
+
 **Jira OAuth app (admin).** `GET`, `PUT {clientId, clientSecret?, redirectUrl}`
 and `DELETE` on `/api/admin/jira-oauth` answer
 `{configured, clientId, secretSet, redirectUrl, source, unreadable?, updatedAt?}`,

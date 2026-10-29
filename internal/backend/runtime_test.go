@@ -38,6 +38,7 @@ func TestStandaloneBackendRegistersAPIMCPAuthAndMetricsWithoutWebsite(t *testing
 		"/mcp",
 		"/ws/agent-connect",
 		"/api/v1/agent/config",
+		"/api/desktop-oauth/apps",
 	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		_, pattern := mux.Handler(req)

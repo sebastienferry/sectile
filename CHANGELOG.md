@@ -30,6 +30,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Fleet-connected desktop clients can read provider OAuth readiness and callback status without exposing OAuth client identifiers or secrets.
+
 - Desktop conversation snapshots expose pending MCP verification so clients can keep its status current while the conversation is idle.
 
 - Desktop project conversations can use named Claude Code and Codex profiles with project defaults, and keep automatic or manually edited conversation titles across agent restarts.

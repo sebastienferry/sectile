@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"net/url"
@@ -9,9 +10,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"tasks/internal/db"
 )
 
 const DesktopOAuthPath = "/api/desktop-oauth"
+const DesktopOAuthAppsPath = "/api/desktop-oauth/apps"
 const DesktopOAuthStartPath = "/auth/desktop-oauth/start"
 
 // The desktop exchanges its authenticated request for a one-use browser ticket.
@@ -24,6 +27,36 @@ type desktopOAuthFlow struct {
 type desktopOAuthBroker struct {
 	sync.Mutex
 	flows map[string]*desktopOAuthFlow
+}
+
+// HandleDesktopOAuthApps exposes only the OAuth connection state a desktop
+// needs. App credentials remain administrated by the server and are never
+// returned to a workstation client.
+func (h *Handler) HandleDesktopOAuthApps(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	caller := h.webPrincipal(r)
+	if caller.Anonymous() {
+		writeError(w, http.StatusUnauthorized, "Connectez votre profil avant de continuer.")
+		return
+	}
+	apps := make(map[string]any, 3)
+	for _, provider := range []string{"github", "gitlab", "jira"} {
+		state, err := h.db.OAuthAppState(provider)
+		if err != nil && !errors.Is(err, db.ErrOAuthAppUnreadable) {
+			writeError(w, http.StatusInternalServerError, "Configuration OAuth indisponible")
+			return
+		}
+		apps[provider] = map[string]any{
+			"configured":          state.Configured && !state.Unreadable,
+			"redirectUrl":         state.RedirectURL,
+			"expectedRedirectUrl": state.ExpectedRedirectURL,
+		}
+	}
+	writeJSON(w, http.StatusOK, apps)
 }
 
 func desktopProvider(provider string) bool {

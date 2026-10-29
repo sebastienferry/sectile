@@ -108,6 +108,42 @@ func TestDesktopOAuthRoundTripForAllProviders(t *testing.T) {
 		})
 	}
 }
+
+func TestDesktopOAuthAppsAreAvailableToWorkstationsWithoutExposingAppCredentials(t *testing.T) {
+	h, session, _ := forgeOAuthHandler(t, "github")
+	userID := h.db.UserForWebSession(session.Value)
+	token, _, err := h.db.CreateAPIKey(userID, "desktop", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, DesktopOAuthAppsPath, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	h.HandleDesktopOAuthApps(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("workstation status: %d %s", response.Code, response.Body.String())
+	}
+	var apps map[string]struct {
+		Configured          bool   `json:"configured"`
+		RedirectURL         string `json:"redirectUrl"`
+		ExpectedRedirectURL string `json:"expectedRedirectUrl"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &apps); err != nil {
+		t.Fatal(err)
+	}
+	if !apps["github"].Configured || apps["github"].RedirectURL == "" {
+		t.Fatalf("configured remote app missing: %+v", apps["github"])
+	}
+	if strings.Contains(response.Body.String(), "clientId") || strings.Contains(response.Body.String(), "clientSecret") {
+		t.Fatalf("desktop app state exposed credentials: %s", response.Body.String())
+	}
+	anonymous := httptest.NewRecorder()
+	h.HandleDesktopOAuthApps(anonymous, httptest.NewRequest(http.MethodGet, DesktopOAuthAppsPath, nil))
+	if anonymous.Code != http.StatusUnauthorized {
+		t.Fatalf("anonymous caller got %d, want 401", anonymous.Code)
+	}
+}
+
 func TestDesktopOAuthOwnershipCancellationAndExpiry(t *testing.T) {
 	h, session, _ := forgeOAuthHandler(t, "github")
 	id, _, _, start := startDesktopConsent(t, h, session, "github")

@@ -6,6 +6,9 @@ browser URL or copy a normal web-session cookie into the browser.
 
 ## Authenticated native API
 
+- `GET /api/desktop-oauth/apps` returns each provider's `{configured,
+  redirectUrl, expectedRedirectUrl}` state to a signed-in web session or
+  workstation API key. It does not return a client ID, secret, or app metadata.
 - `POST /api/desktop-oauth` with `{provider}` (`github`, `gitlab`, `jira`)
   creates an attempt for the authenticated caller. Returns `{id, startPath,
   expiresAt}`. The caller opens `startPath` on this same server in the system
@@ -34,10 +37,13 @@ result page. Native polling reports success only on `connected`. Other terminal
 outcomes include `cancelled`, `invalid`, `unreachable` and provider-specific
 failures. No status response or page includes an OAuth code, grant or app secret.
 
-The local desktop uses per-installation confidential OAuth app configuration;
-this is not a public native OAuth client implementation or a license to embed a
-shared client secret in a distributed binary. GitHub/GitLab self-managed OAuth
-endpoints are not supported by the current forge provider implementation.
+The Local desktop uses the companion's per-installation confidential OAuth app
+configuration; Fleet uses the selected backend's existing app configuration and
+callback. Fleet clients must validate `startPath` against the selected backend
+origin before opening it. Neither mode is a public native OAuth client
+implementation or a license to embed a shared client secret in a distributed
+binary. GitHub/GitLab self-managed OAuth endpoints are not supported by the
+current forge provider implementation.
 
 ## Go-owned local callback contract
 

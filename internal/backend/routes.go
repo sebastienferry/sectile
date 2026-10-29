@@ -65,6 +65,7 @@ func RegisterRoutes(mux *http.ServeMux, h *handlers.Handler) {
 	mux.HandleFunc("/auth/login", h.HandleLogin)
 	mux.HandleFunc("/auth/callback", h.HandleAuthCallback)
 	mux.HandleFunc(handlers.DesktopOAuthPath, h.HandleDesktopOAuth)
+	mux.HandleFunc(handlers.DesktopOAuthAppsPath, h.HandleDesktopOAuthApps)
 	mux.HandleFunc(handlers.DesktopOAuthStartPath, h.HandleDesktopOAuthStart)
 	mux.HandleFunc(handlers.JiraOAuthCallbackPath, h.HandleJiraOAuthCallback)
 	mux.HandleFunc(handlers.GithubOAuthCallbackPath, h.HandleGithubOAuthCallback)
