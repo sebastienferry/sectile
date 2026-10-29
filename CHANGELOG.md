@@ -30,6 +30,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Build an API/MCP-only server binary without web assets or Node.js using `make build-server-headless`.
+
 - Fleet-connected desktop clients can read provider OAuth readiness and callback status without exposing OAuth client identifiers or secrets.
 
 - Desktop conversation snapshots expose pending MCP verification so clients can keep its status current while the conversation is idle.

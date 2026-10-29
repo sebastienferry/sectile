@@ -15,7 +15,7 @@ VERSION_PKG := tasks/internal/version
 VERSION_FLAGS := -X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).Commit=$(COMMIT) -X $(VERSION_PKG).Date=$(BUILD_DATE)
 # electron/runtime.cjs resolves the agent under this name, packaged or not.
 DESKTOP_AGENT := desktop/bin/sectile-agent$(EXE)
-.PHONY: help version build-all build-server build-agent build-app build-app-package build-release image \
+.PHONY: help version build-all build-server build-server-headless build-agent build-app build-app-package build-release image \
         all build server server-build agent agent-build binary-build desktop desktop-build desktop-package build-desktop build-desktop-package release \
         web-deps desktop-deps start serve run fmt-check test render-skills plugin clean reset-db
 
@@ -62,6 +62,11 @@ build-server: web-deps ## Build the web UI and the server binary
 	@mkdir -p bin
 	go build -ldflags "$(VERSION_FLAGS)" -o bin/server$(EXE).new ./cmd/server
 	mv -f bin/server$(EXE).new bin/server$(EXE)
+
+build-server-headless: ## Build the API/MCP server without the browser UI or Node dependencies
+	@mkdir -p bin
+	go build -tags sectile_headless -ldflags "$(VERSION_FLAGS)" -o bin/server-headless$(EXE).new ./cmd/server
+	mv -f bin/server-headless$(EXE).new bin/server-headless$(EXE)
 
 build-agent: ## Build the agent binary
 	@mkdir -p bin

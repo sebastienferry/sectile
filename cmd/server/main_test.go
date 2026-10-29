@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"tasks/internal/testhome"
 	"testing"
 )
@@ -98,6 +99,34 @@ func TestResolveDBPathPrecedence(t *testing.T) {
 			t.Fatalf("expected sectile db (%q), got (%q, %q)", sectileDB, path, origin)
 		}
 	})
+}
+
+func TestHeadlessRootRejectsBrowserPathsAndReportsUnknownAPIsAsJSON(t *testing.T) {
+	mux := http.NewServeMux()
+	registerHeadlessRoot(mux)
+
+	for _, path := range []string{"/", "/projects/example"} {
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusNotFound {
+			t.Errorf("GET %s status = %d, want %d", path, response.Code, http.StatusNotFound)
+		}
+		if response.Header().Get("Content-Type") == "text/html; charset=utf-8" {
+			t.Errorf("GET %s unexpectedly returned an HTML page", path)
+		}
+	}
+
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/not-found", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("unknown API status = %d, want %d", response.Code, http.StatusNotFound)
+	}
+	if got := response.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
+		t.Fatalf("unknown API content type = %q, want application/json", got)
+	}
+	if !strings.Contains(response.Body.String(), "/api/not-found") {
+		t.Fatalf("unknown API response omitted its path: %s", response.Body.String())
+	}
 }
 
 func TestAlreadyServing(t *testing.T) {

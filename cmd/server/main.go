@@ -162,6 +162,18 @@ func alreadyServing(baseURL string) bool {
 	return strings.Contains(lower, "sectile") || strings.Contains(lower, "sectile") || strings.Contains(lower, "taskacao")
 }
 
+func registerHeadlessRoot(mux *http.ServeMux) {
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Route API non trouvée: %s", r.URL.Path)})
+			return
+		}
+		http.NotFound(w, r)
+	})
+}
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -279,7 +291,7 @@ func run() error {
 	// frontend rebuilds without recompiling the server during development.
 	uiFS, uiEmbedded := webui.FS()
 	webDistDir := "./internal/webui/dist"
-	if !uiEmbedded {
+	if !uiEmbedded && !webui.Headless() {
 		if _, err := os.Stat(webDistDir); err == nil {
 			uiFS = os.DirFS(webDistDir)
 			uiEmbedded = true
@@ -322,6 +334,8 @@ func run() error {
 			}
 			fileServer.ServeHTTP(w, r)
 		})
+	} else if webui.Headless() {
+		registerHeadlessRoot(mux)
 	} else {
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasPrefix(r.URL.Path, "/api/") {

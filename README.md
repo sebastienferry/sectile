@@ -198,6 +198,7 @@ default).
 | Command | Purpose |
 | --- | --- |
 | `make server` | Install web dependencies, build the embedded web UI, and compile `bin/server`. |
+| `make build-server-headless` | Compile `bin/server-headless` with API, MCP and authentication routes but no browser UI assets; does not require Node. |
 | `make agent` | Compile the workstation agent binary (`bin/agent`). |
 | `make build-migrate` | Compile the SQLite-to-PostgreSQL migration tool (`bin/sectile-migrate`). |
 | `make serve` | Run the server from source (`go run ./cmd/server`). |

@@ -1,3 +1,5 @@
+//go:build !sectile_headless
+
 // Package webui carries the compiled interface inside the binary.
 //
 // A single file that needs nothing beside it is the difference between a program
@@ -30,3 +32,6 @@ func FS() (fs.FS, bool) {
 	}
 	return sub, true
 }
+
+// Headless reports whether this binary was built without browser UI assets.
+func Headless() bool { return false }
