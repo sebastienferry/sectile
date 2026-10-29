@@ -97,6 +97,17 @@ exercise OAuth or tracker writes.
   execution mode. A second turn recalled the first turn's marker. This tests
   same-source bundle replacement with Go `b907c42f`, not a released-version
   upgrade, credential/OAuth retention in the native app, or signed installation.
+  Packaged recovery check (2026-10-30): the candidate's exact Go `84e19b1b`
+  companion executed `--upgrade --data-dir` against disposable installations
+  prepared at all six durable interruption boundaries. The opt-in harness at Go
+  `6603b78b` verified identity/API token, encryption key, personal tracker token,
+  encrypted Jira OAuth app, unexpired synthetic Jira/GitHub grants, projects,
+  ticket, snapshot/journal bytes, backup and the legacy-database fence. All six
+  packaged recoveries and the normal source companion suite passed. No listener
+  was started and the regular companion remained active. This establishes
+  packaged recovery from source-prepared checkpoints; it does not test a native
+  installer, process-kill timing inside that binary, real grant refresh rotation
+  or provider-session resumption through a bundle replacement.
 - [ ] Confirm manual update instructions and release notes identify required
   migration behavior and any incompatible Fleet server/agent combinations.
 

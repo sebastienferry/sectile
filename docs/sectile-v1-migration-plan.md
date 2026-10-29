@@ -600,6 +600,16 @@ platform support table before release.
 
 ### V1 compatibility claim rule
 
+Packaged migration refresh (2026-10-30): Go test harness `6603b78b` ran the exact
+`84e19b1b` companion from the Tauri `4063b47` candidate for recovery from all six
+source-prepared durable upgrade checkpoints. Identity, API key, personal
+credential, encrypted OAuth application and Jira/GitHub grants, project/ticket,
+run-store snapshot/journal, backup and legacy fencing assertions passed. Grants
+were synthetic and unexpired, so no provider or refresh endpoint was contacted.
+The normal source companion suite passed too. This narrows the packaged
+migration gap to native installation/bundle replacement, real refresh rotation
+and provider resumption; it does not prove those remaining paths.
+
 Compatibility refresh (2026-10-30): the binary harness passed again against
 clean Go `84e19b1b` and released v0.7.6 in both server/agent directions. It
 verified 27 current agent operations, the 21-tool MCP catalogue and run
