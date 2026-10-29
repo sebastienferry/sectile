@@ -167,12 +167,13 @@ import (
     "os"
     "os/exec"
     "time"
+    "tasks/internal/agentexec"
     "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 func main() {
     ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
     defer cancel()
-    command := exec.Command(os.Args[1], "mcp", "--url", os.Args[2])
+    command := agentexec.Hidden(exec.Command(os.Args[1], "mcp", "--url", os.Args[2]))
     command.Env = append(os.Environ(), "SECTILE_AGENT_TOKEN="+os.Args[3])
     client := mcp.NewClient(&mcp.Implementation{Name:"sectile-stdio-compatibility-check", Version:"1"}, nil)
     session, err := client.Connect(ctx, &mcp.CommandTransport{Command:command}, nil)
