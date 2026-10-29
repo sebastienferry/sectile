@@ -426,12 +426,10 @@ disposable test data.
 ## Remaining convergence work
 
 The plan above follows the source audit and tested parity changes. Current
-source has matched populated-board captures at normal and narrow widths in both
-themes, plus settings hierarchy captures at normal width in dark mode.
-Production windows remain unsuitable for comparison because their projects and
-tracker modes differ. Matched settings captures at narrow width and in light
-mode remain before final visual-token normalization. Conversation and
-execution surfaces remain Tauri-only by product design. Continue in plan
-order, preserving tracker-authoritative ticket state, existing Go
-execution/MCP contracts, accessible focus behavior, the no-tabs decision and
-the fast standalone Local path.
+source has matched populated-board and settings captures at normal and narrow
+widths in both themes. Production windows remain unsuitable for comparison
+because their projects and tracker modes differ. Conversation and execution
+surfaces remain Tauri-only by product design. Continue in plan order,
+preserving tracker-authoritative ticket state, existing Go execution/MCP
+contracts, accessible focus behavior, the no-tabs decision and the fast
+standalone Local path.
