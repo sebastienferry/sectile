@@ -108,3 +108,26 @@ read-only on isolated data; the mixed-version harness uses a fake tracker.
 These results qualify the named test combinations and operations only. They do
 not close the listed Fleet setup, live provider/tracker or release-installation
 gates.
+
+Current-source Local provider qualification (2026-10-29): Tauri commit
+`ecac630` ran `npm run test:services` with all three services built from Go
+commit `5274a160` in a disposable worktree whose only source difference was a
+test port of 52965. The test verified Local startup, profile and pairing, fake
+GitHub OAuth browser handoff, fake GitLab credentials/tracker/project setup,
+folder-only project mapping, real Claude Code and Codex replies/tool events,
+interruption with each delayed marker absent after 95 seconds, same-conversation
+resume, and persistence across a server restart. No external OAuth exchange or
+remote tracker write was made; the Tauri GUI was not part of this service test.
+Temporary data and services were removed. This closes that current-source Local
+service/provider slice, not release-binary qualification.
+
+Current-source package verification (2026-10-29): clean Go commit `5274a160`
+and Tauri commit `ecac630` produced a 102.28 MiB arm64 app and 51.69 MiB DMG.
+The manifest names the clean Go source, all three service hashes, fixed port
+52963, 52 license files and `releaseEligible: false`. The verifier and
+`hdiutil verify` passed. DMG SHA-256:
+`0d894ed2591779451bc175be21c380dd636d88dabd82232264e7a453e4aa708b`. The
+artifact remains unsigned; `security find-identity -v -p codesigning` found
+zero valid identities. The app was not launched because the user's companion
+owns the fixed port, and signing, notarization, Gatekeeper and clean-user
+installation remain open.
