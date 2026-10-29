@@ -592,7 +592,7 @@ func (o *conversationOutput) Write(data []byte) (int, error) {
 func (d *agentDaemon) conversationFolders(projectID, directory string) ([]models.FolderMapEntry, map[string]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), conversationFoldersTimeout)
 	defer cancel()
-	env := map[string]string{"SECTILE_PROJECT_ID": projectID}
+	env := d.companionEnvironment(map[string]string{"SECTILE_PROJECT_ID": projectID})
 	config, err := d.fetchConfig(ctx, projectID, "")
 	if err != nil {
 		return nil, env, err
@@ -961,7 +961,7 @@ func (d *agentDaemon) loadConversationCommandsLocked(run *controlledRun) {
 		return
 	}
 	c.loadingCommands = true
-	env := map[string]string{"SECTILE_PROJECT_ID": run.desktop.ProjectID}
+	env := d.companionEnvironment(map[string]string{"SECTILE_PROJECT_ID": run.desktop.ProjectID})
 	for key, value := range c.env {
 		env[key] = value
 	}

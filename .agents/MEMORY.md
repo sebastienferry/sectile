@@ -1,5 +1,18 @@
 # Project Knowledge Base (MEMORY.md)
 
+### Managed Tauri Local Companion Migration (2026-10-29)
+
+- Embedded provider children cannot rely on the standalone agent's global
+  `TOKEN` environment. Free conversation MCP calls require the companion
+  daemon's explicit token/device identity in the child environment; preserve
+  Fleet lookup behavior.
+- Managed Local paths are selected by `runtime-selection.json`. After commit,
+  read/write only the selected `generations/companion-v1` root; never fall back
+  to the source root. Recover forward after commit and keep backups private.
+- Live managed source-process shutdown is qualified on macOS. Other platforms
+  must refuse safely until their process ownership and termination path is
+  qualified.
+
 ### Process-Scoped Companion MCP (2026-10-29)
 
 - `SECTILE_COMPANION_MCP_URL` supplies native launches with `sectile_companion`

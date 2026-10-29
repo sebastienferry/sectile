@@ -96,3 +96,13 @@ func TestCompanionMCPTemplatesRequireTheScopedArgumentsEvenThroughWrappers(t *te
 		t.Fatal("wrapper lost the selected provider's connection", err)
 	}
 }
+
+func TestEmbeddedConversationUsesExplicitDaemonCredential(t *testing.T) {
+	t.Setenv("SECTILE_COMPANION_MCP_URL", "http://127.0.0.1:9876")
+	t.Setenv("TOKEN", "")
+	daemon := &agentDaemon{link: serverLink{serverURL: companionMCPURL(), token: "fixture-private-key", deviceID: "preserved-device"}}
+	env := daemon.companionEnvironment(map[string]string{"SECTILE_PROJECT_ID": "project"})
+	if env["SECTILE_AGENT_TOKEN"] != "fixture-private-key" || env["SECTILE_DEVICE_ID"] != "preserved-device" {
+		t.Fatal("embedded conversation lost its explicit machine credential")
+	}
+}

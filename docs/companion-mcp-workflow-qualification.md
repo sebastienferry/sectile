@@ -42,4 +42,6 @@ history; no stage or database record was forged to pass verification.
 This qualifies a complete MCP workflow and recovery from a real validation
 failure on the combined process. It uses a fixture skill override and a GitLab
 test service; it does not qualify every bundled skill, production forge, Codex
-workflow, or the rendered Tauri launcher. Tauri still launches two services.
+workflow, or the rendered Tauri launcher. The native Tauri launcher's later
+companion migration is qualified separately in the runtime contract; this
+workflow's fixture execution did not run through that desktop path.

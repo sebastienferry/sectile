@@ -80,3 +80,13 @@ func companionMCPFlags(provider string) string {
 	}
 	return strings.Join(args, " ")
 }
+
+// companionEnvironment supplies the embedded daemon's explicit credential.
+// Free conversations cannot depend on the standalone CLI's TOKEN environment.
+func (d *agentDaemon) companionEnvironment(env map[string]string) map[string]string {
+	if companionMCPURL() != "" && companionMCPURL() == d.link.serverURL {
+		env["SECTILE_AGENT_TOKEN"] = d.link.token
+		env["SECTILE_DEVICE_ID"] = d.link.deviceID
+	}
+	return env
+}

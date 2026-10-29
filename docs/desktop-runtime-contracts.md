@@ -1,7 +1,7 @@
 # Local/Fleet runtime contracts: phase 0
 
 Date: 2026-10-29
-Status: approved design baseline; phase 1 implemented and phase 2 lifecycle work in progress.
+Status: phases 1-3 implemented; managed Local migration and native launcher integration are implemented and qualified on macOS. Fleet/Electron compatibility matrix and cross-platform live migration remain open.
 
 ## Approved scope and ownership
 
@@ -316,7 +316,7 @@ has been migrated.
 | Provider processes | Stop conversations while postback paths remain available | Full deadline and crash-path validation remains pending |
 | HTTP request admission and Local self-connection | Local gate allows health and authenticated agent bootstrap until activation; closes again on agent loss | Real embedded connection test passes; listener drain and startup-failure tests remain for the composition root |
 
-### Experimental combined executable
+### Combined Local companion
 
 `go build -o sectile-companion ./cmd/companion` builds the first combined Local
 process. Run it with `--data-dir /absolute/private/root`; the root must contain
@@ -330,9 +330,9 @@ before opening any store.
 
 A disposable HTTP smoke run passed local profile sign-in, pairing, embedded
 agent readiness, SIGTERM exit and readiness after relaunch with the same data.
-This is an experimental composition target; the Tauri launcher still starts
-its existing two services. Provider workflows, crash recovery, complete drain
-admission and packaging/migration qualification remain acceptance gates.
+The Tauri Local launcher now starts this combined process and retains the
+standalone server and agent binaries only for a first-launch migration of its
+managed legacy installation. Fleet continues to use the standalone topology.
 
 Real Claude Code and Codex free-conversation execution, tool tracking,
 interruption and SIGKILL recovery have now passed on the combined executable.
@@ -345,10 +345,25 @@ real Git push, tests, MR evidence and completed run reporting. The first failed
 attempt and its recovery are recorded in
 [workflow qualification](companion-mcp-workflow-qualification.md).
 
-Migration implementation checkpoint: `companion.PrepareMigration` can prepare
-an offline private backup of the installation manifest, discovery, server store,
-agent settings and run journals. It refuses live source listeners and non-regular
-files, holds the Local lifetime lock, hashes every copied file, verifies the
-backup and refuses corrupted retries. It does not select a candidate generation
-or authorize a launcher switch. Native source shutdown/ownership validation,
-durable commit selection, failure recovery and desktop integration remain required.
+Managed upgrade is implemented by `companion.Upgrade`. It validates ownership of
+the authenticated legacy server/agent, refuses live task runs and busy provider
+turns, stops only the expected managed executables, archives their binaries,
+creates and verifies a private backup, validates an isolated candidate database
+and encryption key, and durably commits `runtime-selection.json`. Every durable
+checkpoint has a recovery test. Before commit the candidate is recreated from
+the verified backup; after commit recovery proceeds forward. An old launcher is
+fenced from the selected database. The original installation and backup remain
+in the private root. macOS live-process shutdown and the native Tauri migration
+have been exercised against the existing installation; Linux/Windows live
+shutdown is not qualified and requires both old services to be stopped first.
+
+The migrated installation retained all pre-migration projects, trackers,
+conversation event prefixes, provider model/mode and OAuth encryption key. Jira
+account verification returned HTTP 200 after migration. Native Tauri created a
+folder-only project and completed real Claude Code and Codex prompts in that
+folder; both exposed tool events and returned their requested markers. A
+subsequent real MCP `get_project_context` call succeeded from each conversation
+through the embedded companion. The free-conversation MCP child environment now
+receives the embedded daemon's explicit credential rather than relying on a
+standalone CLI `TOKEN` variable. Existing Electron and Fleet source paths were
+not rewritten by this migration.

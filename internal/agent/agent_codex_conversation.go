@@ -212,7 +212,7 @@ func (d *agentDaemon) codexConversationTurn(run *controlledRun, prompt string) {
 	}
 	d.queue.mu.Unlock()
 
-	cmd := codexConversationCommand(directory, env)
+	cmd := codexConversationCommand(directory, d.companionEnvironment(env))
 	stdin, err := agentexec.OwnedStdinPipe(cmd)
 	if err != nil {
 		d.endCodexConversation(run, state, err)

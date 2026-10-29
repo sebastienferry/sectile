@@ -139,7 +139,10 @@ func PrepareMigration(root string) error {
 	if err = VerifyMigrationBackup(staging); err != nil {
 		return err
 	}
-	return os.Rename(staging, destination)
+	if err = os.Rename(staging, destination); err != nil {
+		return err
+	}
+	return syncDirectory(root)
 }
 
 func requireClosedPort(address string) error {

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"tasks/internal/agent"
@@ -19,12 +20,15 @@ import (
 	"tasks/internal/localruntime"
 )
 
+var ErrRestartRequested = errors.New("companion restart requested")
+
 type Installation struct {
-	Port     int    `json:"port"`
-	Key      string `json:"key"`
-	Token    string `json:"token"`
-	DeviceID string `json:"device_id"`
-	UserID   string `json:"user_id"`
+	Port          int    `json:"port"`
+	Key           string `json:"key"`
+	Token         string `json:"token"`
+	DeviceID      string `json:"device_id"`
+	AgentDeviceID string `json:"agent_device_id,omitempty"`
+	UserID        string `json:"user_id"`
 }
 
 func readInstallation(root string) (Installation, error) {
@@ -46,6 +50,12 @@ func readInstallation(root string) (Installation, error) {
 // signals and must provide a private absolute root. Existing deployments are
 // never discovered through home-directory or environment fallbacks.
 func Run(parent context.Context, root string) (result error) {
+	var restart atomic.Bool
+	defer func() {
+		if restart.Load() && result == nil && parent.Err() == nil {
+			result = ErrRestartRequested
+		}
+	}()
 	if !filepath.IsAbs(root) {
 		return errors.New("companion data root must be absolute")
 	}
@@ -131,13 +141,17 @@ func Run(parent context.Context, root string) (result error) {
 	if installation.UserID == "" || installation.DeviceID == "" {
 		return errors.New("paired Local installation identity is incomplete")
 	}
+	agentDeviceID := installation.AgentDeviceID
+	if agentDeviceID == "" {
+		agentDeviceID = installation.DeviceID
+	}
 	connected := make(chan struct{}, 1)
 	finished := make(chan struct{})
 	var agentErr error
 	agentStopped = false
 	go func() {
 		agentErr = agent.RunEmbedded(ctx, agent.EmbeddedConfig{
-			ServerURL: "http://" + address, Token: installation.Token, ProjectID: "all", DeviceID: installation.DeviceID,
+			ServerURL: "http://" + address, Token: installation.Token, ProjectID: "all", DeviceID: agentDeviceID,
 			DesktopInfo: filepath.Join(root, "agent-connection.json"), DesktopToken: installation.Key,
 			SettingsRoot: filepath.Join(root, "agent"), RepoRoot: root,
 			OnConnected: func() {
@@ -145,7 +159,7 @@ func Run(parent context.Context, root string) (result error) {
 				case connected <- struct{}{}:
 				default:
 				}
-			}, OnRestart: cancel,
+			}, OnRestart: func() { restart.Store(true); cancel() },
 		})
 		close(finished)
 	}()
@@ -171,14 +185,17 @@ func Run(parent context.Context, root string) (result error) {
 	case err := <-served:
 		return err
 	}
-	if err := runtime.WaitForAgent(startup, installation.UserID, installation.DeviceID); err != nil {
+	if err := runtime.WaitForAgent(startup, installation.UserID, agentDeviceID); err != nil {
 		return err
 	}
-	if err := runtime.ActivateWork(installation.UserID, installation.DeviceID); err != nil {
+	if err := runtime.ActivateWork(installation.UserID, agentDeviceID); err != nil {
 		return err
 	}
 	select {
 	case <-finished:
+		if restart.Load() {
+			return nil
+		}
 		return errors.Join(errors.New("embedded agent stopped"), agentErr)
 	case <-ctx.Done():
 		return nil
