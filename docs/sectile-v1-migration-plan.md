@@ -312,7 +312,7 @@ domain and workspace UI regressions cover the idle-session case.
 
 | Combination | Evidence now available | Qualification |
 | --- | --- | --- |
-| Current Go branch and Electron client suites | On Go commit `5f809481`, `go test ./...` passes across all packages, `npm --prefix desktop test` passes the Electron unit suite, and `node --test --test-concurrency=1 --test-reporter=dot desktop/tests/*.ui.cjs` exits successfully on the full Electron UI suite. | Current-source unit and Electron UI regression suites pass. This does not qualify a live Electron session against the current Go server or external tracker mutations. |
+| Current Go branch and Electron client suites | On Go commit `1ee27b4b`, `go test ./...` passes across all packages, `npm --prefix desktop test` passes all 315 Electron unit tests, and `npm --prefix desktop run test:ui` passes all 137 Electron UI tests. | Current-source unit and Electron UI regression suites pass. This does not qualify a live Electron session against the current Go server or external tracker mutations. |
 | Local companion binary from Go `7dea9140` | Fresh isolated macOS smoke using an ephemeral data root: local profile sign-in, one-time pairing with owner/device identity check, embedded agent readiness, authenticated `/api/projects` and clean SIGTERM shutdown | Pass for the current-source companion binary and backend lifecycle. This does not qualify provider/MCP execution on the default port. |
 | Tauri + Local companion + embedded backend from this branch | Existing macOS managed-install migration; fresh isolated Tauri Local launch from Go `7dea9140` source with a test-only alternate port; native profile, fake tracker/project, folder association, Codex and Claude Code prompts, tool events and MCP connection. An isolated bundle from Go `560f1f4a` plus Tauri `bc48a02` then cold-started on 52964, connected a Local profile, created a folder project with the synthetic `local` tracker and displayed its prompt-ready board without remote tracker controls. Current-source Tauri UI also reattached to the existing Local workspace on the default port. | Pass for the isolated macOS Local startup, provider projection and UI path. The user's production companion on 52963 was not restarted, so current-Go process startup on that exact port remains unqualified. The fixed port contract itself remains covered by Go tests. |
 | Tauri current agent + live Fleet backend | Agent `dev` from Go commit `7dea9140` paired through a temporary one-time code to live server `660-main` (`b8fabf44aa7a`); the local gateway reported connected, `/api/me` matched the pairing owner, and `/api/projects` succeeded. The visual check confirmed Fleet-backed project listing and local-folder/project-link controls. OAuth setup reports unsupported by this Fleet backend version. The workstation page remained at four devices and did not identify a distinct test record, so no existing device was revoked. | Real pairing and authenticated project access pass. The newer isolated visual pairing test verifies Fleet profile email/name hydration in current Tauri; live-backend OAuth support and safe cleanup of a uniquely identified live test device remain open. No tracker writes were attempted |
@@ -367,6 +367,21 @@ passed (2/2) and the full `npm run test:ui` suite passed (137/137, no failures o
 cancellations). This qualifies the current Electron UI suite on the tested
 macOS host and source revision; it does not by itself qualify an Electron/Go
 mixed-version pair.
+
+Current compatibility refresh (2026-10-29, Go commit `1ee27b4b`):
+`go test ./...` passed across all Go packages; the Electron source suite passed
+315 unit and 137 UI tests. `python3
+scripts/compatibility/test-v076-server-current-agent.py` also passed against
+this commit in both directions: the current agent connected to the released
+v0.7.6 server, and the released v0.7.6 agent connected to the current server.
+The harness exercised the 21-tool MCP catalog, project reads, fake GitHub issue
+creation and stage synchronization with a test personal token, run lifecycle,
+task status, task-spec worktree creation, and authenticated `skills_status` /
+`init_git` agent operations. All databases, homes, tracker endpoints and Git
+repositories were isolated and removed by the harness. This is stronger mixed-
+binary evidence for the named pair, but does not qualify live external tracker
+writes, provider execution, the Electron window against this server, or any
+other released version pair.
 
 Until these gates close, compatibility claims are limited to the tested source
 revision and platform evidence above. The versioned server/agent contract is
