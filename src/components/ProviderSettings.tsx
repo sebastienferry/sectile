@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 type ProviderStatus = { installed: boolean; path?: string; authentication: "connected" | "disconnected" | "unknown" };
 export function ProviderSettings({projects=[]}:{projects?:{id:string;name:string}[]}) {
   const [statuses, setStatuses] = useState<Record<string, ProviderStatus>>({});
+  const [statusErrors, setStatusErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
@@ -16,8 +17,20 @@ export function ProviderSettings({projects=[]}:{projects?:{id:string;name:string
     if (checking.current) return;
     checking.current = true; setPending(true);
     try {
-      const entries = await Promise.all(["claude", "codex"].map(async provider => [provider, await invoke<ProviderStatus>("provider_status", { provider })] as const));
-      if (mounted.current) { setStatuses(Object.fromEntries(entries)); setError(""); }
+      const providers = ["claude", "codex"] as const;
+      const results = await Promise.allSettled(providers.map(provider => invoke<ProviderStatus>("provider_status", { provider })));
+      if (mounted.current) {
+        const nextStatuses: Record<string, ProviderStatus> = {};
+        const nextErrors: Record<string, string> = {};
+        results.forEach((result, index) => {
+          const provider = providers[index];
+          if (result.status === "fulfilled") nextStatuses[provider] = result.value;
+          else nextErrors[provider] = String(result.reason);
+        });
+        setStatuses(nextStatuses);
+        setStatusErrors(nextErrors);
+        setError("");
+      }
     } catch (cause) { if (mounted.current) setError(String(cause)); }
     finally { checking.current = false; if (mounted.current) setPending(false); }
   }
@@ -46,7 +59,8 @@ export function ProviderSettings({projects=[]}:{projects?:{id:string;name:string
     <div className="provider-grid">{([ ["claude", "Claude Code"], ["codex", "Codex"] ] as const).map(([provider, name]) => {
       const status = statuses[provider];
       return <section className="provider-card" key={provider}><div className="provider-symbol"><Icon name={provider === "claude" ? "agent" : "terminal"} /></div><h3>{name}</h3>
-        <p>{!status ? "Détection en cours…" : !status.installed ? "CLI non détectée" : status.authentication === "connected" ? "CLI détectée · connecté" : status.authentication === "disconnected" ? "CLI détectée · connexion requise" : "CLI détectée · état de connexion indéterminé"}</p>
+        <p>{!status ? statusErrors[provider] ? "État de la CLI indisponible" : "Détection en cours…" : !status.installed ? "CLI non détectée" : status.authentication === "connected" ? "CLI détectée · connecté" : status.authentication === "disconnected" ? "CLI détectée · connexion requise" : "CLI détectée · état de connexion indéterminé"}</p>
+        {statusErrors[provider] && <p role="alert" className="error">{name} : {statusErrors[provider]}</p>}
         {status?.path && <details className="provider-details"><summary>Détails de l’installation</summary><code>{status.path}</code></details>}
         {status && !status.installed && <p>Installez la CLI officielle, puis relancez la détection. <code>{provider === "claude" ? "https://code.claude.com/docs/en/setup" : "https://developers.openai.com/codex/cli"}</code></p>}
         <button className={status?.authentication === "connected" ? "" : "primary"} disabled={pending || !status?.installed} onClick={() => void login(provider)}>{status?.authentication === "connected" ? `Reconnecter ${name}` : `Se connecter à ${name}`}</button>

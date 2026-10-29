@@ -22,3 +22,16 @@ test("refresh reads the CLI result before displaying connected", async () => {
  fireEvent.click(screen.getByRole("button",{name:"Détecter / vérifier les connexions"}));
  await screen.findAllByText("CLI détectée · connecté");
 });
+test("one failed CLI check does not hide the other provider's state", async () => {
+ vi.mocked(invoke).mockImplementation(async (_command, args) => (args as {provider:string}).provider === "claude" ? Promise.reject(new Error("CLI inaccessible")) : {installed:true,authentication:"connected"});
+ render(<ProviderSettings />);
+ expect(await screen.findByText("État de la CLI indisponible")).toBeTruthy();
+ expect(screen.getByText("Claude Code : Error: CLI inaccessible")).toBeTruthy();
+ expect(screen.getByText("CLI détectée · connecté")).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Se connecter à Claude Code"}).hasAttribute("disabled")).toBe(true);
+ expect(screen.getByRole("button",{name:"Reconnecter Codex"}).hasAttribute("disabled")).toBe(false);
+ vi.mocked(invoke).mockResolvedValue({installed:true,authentication:"connected"});
+ fireEvent.click(screen.getByRole("button",{name:"Détecter / vérifier les connexions"}));
+ await screen.findAllByText("CLI détectée · connecté");
+ await waitFor(() => expect(screen.queryByText("Claude Code : Error: CLI inaccessible")).toBeNull());
+});

@@ -691,6 +691,17 @@ companion, reopening restored the project folder, completed answer,
 `gpt-6-astra` model and Execution mode. The transcript remained Ready and
 contained no false restart-pause notice.
 
+A later settings review found two ownership and readiness gaps. Fleet Services
+described every agent as managed by another installation, even when Tauri had
+paired and started its own agent. The text now distinguishes paired and attached
+agents. Jira OAuth guidance now asks Fleet members to have an administrator add
+the Jira site, since shared tracker creation is admin-only. In provider setup,
+one failed CLI status request previously discarded the other provider's result
+and left both cards looking as if detection were still running. Claude Code and
+Codex now report independent results and errors, and a later refresh clears a
+recovered provider's error. The 124 UI tests, TypeScript check and production
+build pass on 2026-10-29.
+
 Returning from Settings to a Local project exposed a transient board
 misclassification: while its context or ticket read was pending, Tauri showed
 remote tracker search and an “Aucun ticket distant” empty state. The board now
