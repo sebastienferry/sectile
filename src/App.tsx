@@ -20,6 +20,13 @@ import { ProjectProfiles } from "./components/ProjectProfiles";
 import { LocalSettings } from "./components/LocalSettings";
 import { Icon } from "./components/Icon";
 import { readPreference, savePreference, useAppearance } from "./lib/appearance";
+import {
+  createWorkspaceDestination,
+  resolveLaunchDestination,
+  serializeWorkspaceDestination,
+  type WorkspaceDestination,
+  type WorkspaceViewName,
+} from "./lib/workspace-preference";
 import { useConversation } from "./lib/conversation-controller";
 import { CommandPalette } from "./components/CommandPalette";
 import "./App.css";
@@ -28,7 +35,7 @@ import "./workspace-polish.css";
 const WorkflowTask = lazy(()=>import("./components/WorkflowTask").then(module=>({default:module.WorkflowTask})));
 const ProjectPrompt = lazy(() => import("./components/ProjectPrompt"));
 
-type View = "prompt" | "board" | "executions" | "orchestration" | "launch" | "settings" | "project-settings" | "task";
+type View = WorkspaceViewName | "settings";
 interface WorkspaceView {
   id: string;
   projectId: string;
@@ -77,12 +84,23 @@ function Workspace() {
   const { snapshot, fresh, refresh: refreshExecutions } = useExecutionMonitor();
   const request = useRef(0);
   const initialized = useRef(false);
+  const pendingRunRestore = useRef<WorkspaceDestination | null>(null);
   const navigate = useCallback(
     (project: Project, view: View, runId?: string, taskId?: string) => {
       if (view === "settings" && currentRef.current?.view !== "settings") {
         workspaceBeforeSettings.current = currentRef.current;
       }
-      setCurrent({ id: `${project.id}:${view}:${runId ?? ""}:${taskId ?? ""}`, projectId: project.id, view, runId, taskId });
+      const destination: WorkspaceView = {
+        id: `${project.id}:${view}:${runId ?? ""}:${taskId ?? ""}`,
+        projectId: project.id,
+        view,
+        runId,
+        taskId,
+      };
+      if (view !== "settings") {
+        savePreference("workspace", serializeWorkspaceDestination(createWorkspaceDestination(project.id, view, runId, taskId)));
+      }
+      setCurrent(destination);
     }, []);
   const returnToWorkspace = useCallback(() => {
     const previous = workspaceBeforeSettings.current;
@@ -103,9 +121,9 @@ function Workspace() {
       setProjects(items);
       if (!initialized.current && items.length) {
         initialized.current = true;
-        const first = items[0];
-        const id = `${first.id}:board:`;
-        setCurrent((previous) => previous ?? { id, projectId: first.id, view: "board" });
+        const destination = resolveLaunchDestination(readPreference("workspace", ""), items);
+        if (destination?.runId) pendingRunRestore.current = destination;
+        setCurrent((previous) => previous ?? destination);
       }
       if (!items.length) setCurrent(previous => previous ?? { id: "settings", projectId: "settings", view: "settings" });
     } catch (cause) {
@@ -123,6 +141,22 @@ function Workspace() {
       request.current++;
     };
   }, []);
+  useEffect(() => {
+    const pending = pendingRunRestore.current;
+    if (!pending || !fresh) return;
+    if (current?.id !== pending.id) {
+      pendingRunRestore.current = null;
+      return;
+    }
+    const restoredRun = snapshot?.runs.find((run) => run.id === pending.runId);
+    if (restoredRun && (pending.view !== "prompt" || restoredRun.conversation)) {
+      pendingRunRestore.current = null;
+      return;
+    }
+    const project = projects.find((item) => item.id === pending.projectId);
+    pendingRunRestore.current = null;
+    if (project) navigate(project, "board");
+  }, [current?.id, fresh, navigate, projects, snapshot?.runs]);
   const connected = fresh && snapshot?.status.connected;
   const settingsHasWorkspace = current?.view === "settings" && Boolean(workspaceBeforeSettings.current);
   const showProjectSidebar = sidebar && (current?.view !== "settings" || !settingsHasWorkspace);

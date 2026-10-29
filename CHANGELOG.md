@@ -7,6 +7,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 ### Added
 
 - Include MIT and third-party dependency notices in packaged Tauri applications, with Go notices checked against the selected Go source dependency graph.
+- Restore the last valid project and workspace view on desktop launch, falling back to a project board when the saved conversation is no longer available.
 
 ### Fixed
 

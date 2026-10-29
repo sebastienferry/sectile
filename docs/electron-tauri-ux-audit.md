@@ -211,14 +211,13 @@ navigation lot.
 ### Current-source visual baseline (source measurements only)
 
 The token and layout comparison below records values from the current source;
-it is not a replacement for the matched screenshots required by lot 1. The
-Electron app's existing UI harness can return stable tracker/task fixtures, but
-it deliberately launches hidden windows. Tauri routes the same views through a
-managed Go companion and native Local/Fleet setup, so the Electron stand-in
-server cannot be reused as its backend. The currently open production windows
-also contain different projects and tracker modes. Therefore no populated
-state has yet been captured from equivalent fixtures, and the visual gate
-remains open.
+it is not a replacement for matched screenshots. A disposable Electron copy
+and a development-only Tauri fixture now provide the same project and three
+Jira ticket records without reading or changing production app data. The
+Electron copy uses a fake loopback agent and a separate user-data directory;
+the Tauri fixture rejects unsupported commands and never contacts a tracker or
+provider. The current production apps remain unsuitable for comparison because
+their project and tracker modes differ.
 
 | Measurement | Electron source | Tauri source | Review note |
 | --- | --- | --- | --- |
@@ -230,13 +229,38 @@ remains open.
 | Light accent / selected | `#0f766e` / `#e3f2ef` | `#167d69` / `#e0eee9` | Values differ; rendered contrast and visual weight still need matched captures. |
 | Light danger | `#b42318` danger, `#a8243d` danger text | `#a8243d` danger, `#fce9ed` danger background | Token names and roles differ, so compare semantic actions rather than matching variable names. |
 
-Lot 1 should next provide a shared fixture contract for project, ticket,
-conversation/tool events, waiting question, run/diff and settings. Keep any
-fixture path test-only and isolated from Local/Fleet user data. Capture the
-available matched states at 800px and 1280px in light and dark mode, then list
-the exact states still blocked by native setup or backend-specific ownership.
-Only close the gate when every required surface is captured or a specific
-surface cannot be represented in both apps without changing product behavior.
+The board and settings hierarchy have now been inspected with isolated data in
+dark mode at approximately 1240 CSS pixels wide. Tauri's board was also
+inspected in light and dark mode at 800px. Its 530px workspace keeps the prompt
+and project actions visible, and the 942px board content scrolls horizontally;
+all ticket columns remain present in the accessibility tree. Electron's
+800px capture is still missing, so this is not a matched narrow-window review.
+The screenshots are visible in the review thread, and this fixture state is repeatable from
+`tests/fixtures/ux-baseline.json` with `npm run dev:ux-fixture`. The shared
+ticket titles and keys match. The applications intentionally group the board
+differently: Electron offers workflow-stage columns, while Tauri's default is
+the remote tracker's three statuses. Tauri retains the workflow stage on each
+remote ticket. Do not force those column semantics to match.
+
+The settings capture confirms that both apps use a left-side settings index
+and a main content region. Their inventories and ownership are intentionally
+different: Electron's workstation settings describe a paired server, whereas
+Tauri's native page configures Local/Fleet-owned services and providers. The
+Electron fixture does not contain provider installation/readiness evidence
+equivalent to Tauri's synthetic ready profile. Compare navigation and
+hierarchy, not readiness-card detail or copy. Tauri runtime strings remain
+French and Electron's remain English; this is a product-localization
+difference, not a reason to translate one app during a styling change.
+
+Conversation, waiting-question and execution/diff states cannot be matched
+between the current products without changing their behavior: Electron opens
+CLI sessions in its console/terminal, while Tauri hosts the conversation and
+tool transcript in its own renderer. Tauri fixtures capture those surfaces for
+internal consistency, but they are not Electron parity targets. The matched
+shared-surface gate is therefore closed for navigation, project board and
+settings hierarchy. At 800px and in light mode, captures remain to be done
+before the final visual-token lot; the current screenshots are an evidence
+baseline, not pixel-approval for those conditions.
 
 The first isolated capture used the same `workspace` name and
 `/private/tmp/sectile-ux-fixture/workspace` path in current Tauri and Electron
@@ -326,6 +350,11 @@ disposable test data.
 - A failed ticket refresh now preserves the last successful board and labels it
   as previous data alongside the read error. A UI regression exercises a
   successful read followed by a failed refresh.
+- The desktop now restores its last valid project view after launch. A removed
+  project falls back to the first available board, an unavailable saved
+  conversation falls back to its project board, and an empty project list
+  opens Local setup. Unit and UI regressions cover saved destinations,
+  conversation availability and first-project fallback.
 - An empty remote board now says that the tracker returned no tickets and
   offers the associated local folder as a separate prompt path. A UI regression
   verifies remote board controls remain visible for Jira.
@@ -374,10 +403,13 @@ disposable test data.
 
 ## Remaining convergence work
 
-The plan above follows the previous source audit and tested parity changes.
-Matched current-source populated screenshots are still required before visual
-normalization; current Electron and Tauri production windows do not contain
-equivalent task/activity state. The work should be reviewed against the
-acceptance criteria in sequence, preserving tracker-authoritative ticket state,
-existing Go execution/MCP contracts, accessible focus behavior, the no-tabs
-decision and the fast standalone Local path.
+The plan above follows the source audit and tested parity changes. Current
+source has matched dark-mode captures for the populated ticket board and the
+settings hierarchy at normal desktop width; production windows remain
+unsuitable for comparison because their projects and tracker modes differ.
+The remaining matched capture work is light mode and the 800px minimum window
+in Electron before final visual-token normalization. Conversation and execution
+surfaces remain Tauri-only by product design. Continue in plan order, preserving
+tracker-authoritative ticket state, existing Go execution/MCP contracts,
+accessible focus behavior, the no-tabs decision and the fast standalone Local
+path.

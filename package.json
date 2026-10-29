@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:ux-fixture": "vite --mode ux-fixture --host 127.0.0.1 --port 1422",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",

@@ -39,6 +39,42 @@ test("sidebar navigation replaces the view without canceling a run", async () =>
   expect(screen.queryByText("Live output")).toBeNull();
   expect(api.stopRun).not.toHaveBeenCalled();
 });
+test("launch restores the last project board instead of selecting the first project", async () => {
+  vi.mocked(api.listProjects).mockResolvedValue([
+    { id: "p", name: "Example" },
+    { id: "q", name: "Second project" },
+  ]);
+  localStorage.setItem("sectile-tauri.workspace", JSON.stringify({ projectId: "q", view: "board" }));
+  render(<App />);
+  await screen.findByRole("heading", { name: "Second project" });
+  expect(screen.getByRole("button", { name: "Second project" })).toBeTruthy();
+});
+test("launch restores a saved conversation when the agent still has it", async () => {
+  vi.mocked(api.listProjects).mockResolvedValue([
+    { id: "p", name: "Example" },
+    { id: "q", name: "Second project" },
+  ]);
+  vi.mocked(api.executionSnapshot).mockResolvedValue({
+    status: { connected: true, capabilities: [] },
+    runs: [{ id: "conversation-7", projectId: "q", conversation: true, title: "Saved conversation", provider: "claude", status: "completed", createdAt: "2026-10-28" }],
+  });
+  localStorage.setItem("sectile-tauri.workspace", JSON.stringify({ projectId: "q", view: "prompt", runId: "conversation-7" }));
+  render(<App />);
+  await screen.findByText("Free prompt for q");
+  expect(screen.getByRole("heading", { name: "Second project" })).toBeTruthy();
+});
+test("launch falls back to the project board when the saved conversation is gone", async () => {
+  vi.mocked(api.executionSnapshot).mockResolvedValue({
+    status: { connected: true, capabilities: [] },
+    runs: [],
+  });
+  vi.mocked(api.listProjects).mockResolvedValue([{ id: "p", name: "Example", path: "/work/example" }]);
+  vi.mocked(workspace.projectContext).mockResolvedValue({ configured: true, path: "/work/example", skills: [], policy: {}, board: { trackers: [] } });
+  localStorage.setItem("sectile-tauri.workspace", JSON.stringify({ projectId: "p", view: "prompt", runId: "removed-conversation" }));
+  render(<App />);
+  await screen.findByRole("heading", { name: "Votre projet local est prêt" });
+  expect(screen.queryByText("Free prompt for p")).toBeNull();
+});
 test("theme selection remains available without tabs", async () => {
   render(<App />);
   await screen.findByRole("button", { name: "Example" });
