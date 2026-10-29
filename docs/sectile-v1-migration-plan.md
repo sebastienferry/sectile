@@ -303,8 +303,10 @@ bundle and temporary worktree. Generated services were restored from the clean
 Go source afterward. This verifies the Tauri Local path with a test-only port
 override; it does not replace the clean default-port bundle launch qualification.
 During this smoke the conversation detail reported `Prêt`, while the sidebar
-labels still said `En cours` after both answers completed. Carry this status
-label discrepancy into the deferred Electron-to-Tauri UX convergence phase.
+labels still said `En cours` after both answers completed. Tauri commit
+`620c2d8` resolves this by showing the loaded turn state in project navigation
+and labeling an unloaded, long-lived provider process `Session active`. The
+domain and workspace UI regressions cover the idle-session case.
 
 ### Stage 5 compatibility evidence
 
