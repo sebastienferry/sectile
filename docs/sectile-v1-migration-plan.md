@@ -1,12 +1,12 @@
 # Sectile V1.0.0 migration plan
 
 Date: 2026-10-29
-Status: product direction confirmed; Local companion runtime and managed upgrade
-are implemented on dedicated branches. Stage 5 compatibility qualification is
-underway. Stage 6's product transition, optional headless server distribution,
-feature ownership inventory and interim client transition paths are defined.
-Compatibility gates, final client support windows, roadmapping and UX
-convergence decisions remain open. This is not a V1 release.
+Status: product direction and V1 ownership are confirmed; Local companion runtime
+and managed upgrade are implemented on dedicated branches. macOS is the V1
+target, Linux is experimental and Windows is deferred. Stage 5 compatibility
+qualification remains underway. Web planning remains the V1 planning owner and
+is unchanged in this release. Remaining compatibility, signing and UX
+convergence gates are documented below. This is not a V1 release.
 
 ## 1. Product destination
 
@@ -20,9 +20,10 @@ tracker synchronization, workflow rules, execution coordination, authorization,
 state and background jobs. "Headless" does not mean removing that logic or
 reimplementing it in React.
 
-Broader product planning and roadmapping are candidates for another tool.
-V1 does not aim to port every Electron/web feature into Tauri. The exact external
-roadmapping tool and its integration contract remain to be selected.
+Broader product planning and roadmapping remain in the existing web application
+for V1. V1 does not aim to port every Electron/web feature into Tauri. The web
+planning surfaces and data remain unchanged, and there is no web deprecation in
+this release.
 
 This document is the product-level migration roadmap. The reviewed technical
 subplan is [Local/Fleet runtime extraction](local-fleet-runtime-plan.md), with
@@ -40,7 +41,7 @@ phase 0 engineering contracts are in its Go repository at
 | Tracker integration and workflow decisions | Shared Go backend library | Reuse existing adapters, identity attribution and business rules |
 | Agent-facing tools | Go MCP surface | Same business operations and caller/run binding in Local and Fleet |
 | Authentication and credential lifecycle | Go authorization components | Preserve current Jira OAuth; keep runtime topology independent from auth method |
-| Product strategy, portfolio and long-term roadmaps | External tool, integration to be defined | Inventory existing consumers/data before any extraction or removal |
+| Product strategy, portfolio and long-term roadmaps | Existing Sectile web application for V1 | Keep its planning features and data unchanged; no deprecation or extraction in this release |
 | Current web/Electron clients | Compatibility consumers during migration | No silent API deletion, shared MCP takeover or automatic credential migration |
 
 High-level work items, macros and specifications can participate in execution
@@ -103,7 +104,7 @@ binary. The already configured OAuth prototype remains supported.
 | 4. Managed upgrade and native modes | Connection-bound Local/Fleet configuration; journaled upgrade of the prototype; native setup in both modes | Histories, folders, identities and current OAuth preserved; precommit rollback tested; Fleet pairing/setup qualified; pairing or attachment cannot silently replace a selected runtime; no implicit transfer |
 | 5. Compatibility and measured delivery | Local/Fleet/Electron test matrix, packaged artifacts and performance comparison | Required behavior and supported versions documented before removing old Local startup |
 | 6. Product/UI transition | Tauri becomes the primary agentic board; a headless backend distribution is defined | Operational features and existing consumers have an explicit migration path |
-| 7. Roadmapping separation | Ownership inventory and an agreed external-tool contract | Data/links and remaining clients preserved; deprecations reviewed before removal |
+| 7. Roadmapping ownership | Confirmed V1 owner and coexistence contract for web planning and the operational desktop | Web planning remains V1-owned and unchanged; no data move or deprecation in this release |
 | 8. V1 release qualification | Agreed support/migration/deprecation boundaries and operational documentation | Release checklist and explicit release approval completed |
 
 Stage 0 is complete. Stages 1-3 are implemented on the dedicated Go branch: the
@@ -310,7 +311,7 @@ label discrepancy into the deferred Electron-to-Tauri UX convergence phase.
 | Combination | Evidence now available | Qualification |
 | --- | --- | --- |
 | Local companion binary from Go `7dea9140` | Fresh isolated macOS smoke using an ephemeral data root: local profile sign-in, one-time pairing with owner/device identity check, embedded agent readiness, authenticated `/api/projects` and clean SIGTERM shutdown | Pass for the current-source companion binary and backend lifecycle. This does not qualify provider/MCP execution on the default port. |
-| Tauri + Local companion + embedded backend from this branch | Existing macOS managed-install migration; fresh isolated Tauri Local launch from Go `7dea9140` source with a test-only alternate port; native profile, fake tracker/project, folder association, Codex and Claude Code prompts, tool events and MCP connection. Current-source Tauri UI reopened and reattached to the existing Local workspace on the default port; packaged Go resource hashes match the current manifest. | Pass for current-source UI reattachment and the isolated Local bootstrap/provider path with the alternate port. The default-port companion process was already running from an earlier bundle, so current-Go cold startup and provider execution at 52963 remain unqualified. |
+| Tauri + Local companion + embedded backend from this branch | Existing macOS managed-install migration; fresh isolated Tauri Local launch from Go `7dea9140` source with a test-only alternate port; native profile, fake tracker/project, folder association, Codex and Claude Code prompts, tool events and MCP connection. An isolated bundle from Go `560f1f4a` plus Tauri `bc48a02` then cold-started on 52964, connected a Local profile, created a folder project with the synthetic `local` tracker and displayed its prompt-ready board without remote tracker controls. Current-source Tauri UI also reattached to the existing Local workspace on the default port. | Pass for the isolated macOS Local startup, provider projection and UI path. The user's production companion on 52963 was not restarted, so current-Go process startup on that exact port remains unqualified. The fixed port contract itself remains covered by Go tests. |
 | Tauri current agent + live Fleet backend | Agent `dev` from Go commit `7dea9140` paired through a temporary one-time code to live server `660-main` (`b8fabf44aa7a`); the local gateway reported connected, `/api/me` matched the pairing owner, and `/api/projects` succeeded. The visual check confirmed Fleet-backed project listing and local-folder/project-link controls. OAuth setup reports unsupported by this Fleet backend version. The workstation page remained at four devices and did not identify a distinct test record, so no existing device was revoked. | Real pairing and authenticated project access pass. The newer isolated visual pairing test verifies Fleet profile email/name hydration in current Tauri; live-backend OAuth support and safe cleanup of a uniquely identified live test device remain open. No tracker writes were attempted |
 | Tauri + legacy attached Fleet agent | An isolated `com.sebferry.sectile.tauri.fleetcheck` macOS bundle used the native “attach existing agent” flow, reported `Agent local · backend Fleet`, loaded 19 live projects, and read 390 tickets from the Sectile project (2026-10-29). It attached to the existing v0.7.6 workstation agent without creating tracker writes or replacing the active Local profile. A read-only `/api/me` request through that agent gateway returned `401`, so this legacy connection cannot supply the authenticated user profile required for native API setup. | Live attachment, backend mode display, project discovery and tracker-backed board reads verified. Native setup through this legacy connection still requires a newly paired desktop credential. |
 | Existing Electron/Go workstation + live backend | The installed Electron agent is `v0.7.6` (`ac74004102c0`). Its `sectile-agent mcp` bridge connected to live server `660-main` (`b8fabf44aa7a`), listed 21 tools and completed a read-only `list_projects` call (2026-10-29); 315 Electron unit tests and 137 Electron UI tests pass on Go commit `7dea9140` | Live MCP bridge behavior is verified for this installed client/server pair. Current-branch Electron/server compatibility remains unqualified |
@@ -321,10 +322,10 @@ label discrepancy into the deferred Electron-to-Tauri UX convergence phase.
 | Cross-version agent operation dispatch | The same harness connects a current agent to the v0.7.6 server and a released v0.7.6 agent to the current server. Each pairing calls authenticated `skills-status` and `init-git` routes. MCP `prepare_task_spec_worktree` creates a registered, distinct worktree on a task branch through the server-agent WebSocket in both pairings; the test verifies its path, branch and Git registration. | Pass for read, mutation and task specification workspace operations over the server-agent WebSocket in both directions. Cancellation, provider execution and Electron registration remain unqualified. |
 | Go service cross-builds | On 2026-10-29 at Go commit `3ea74cbb`, built `cmd/companion`, `cmd/agent` and `cmd/server` for both `linux/amd64` and `windows/amd64`; `file` confirmed ELF and PE x86-64 outputs. | Go service compilation passes for both targets. This does not qualify the Tauri package, native startup, migration, process execution or installers on either OS. |
 | Optional headless server artifact | At Go commit `7dea9140`, `make build-server-headless` produced `bin/server-headless` without invoking Node. The opt-in `sectile_headless` build retains API/MCP/auth routes and returns 404 for browser paths; isolated runtime smoke verified `/api/health` (200), browser paths (404), and an unauthenticated unknown API route (JSON 401). Both default and tagged `cmd/server`/`internal/webui` tests pass. | Linux/amd64 ELF and Windows/amd64 PE headless binaries cross-compile. This qualifies the optional artifact and its no-web behavior on the current macOS host, not native Linux/Windows runtime or release distribution. |
-| Local workspace board metadata | A live Tauri review found that Local projects carry a synthetic `local` tracker row; the older desktop projection dropped provider identity, leaving remote-only ticket filters visible. The Go response now includes provider per selected tracker, and Tauri uses it to hide remote board controls for Local-only projects, with a bounded fallback for older agents. Tauri workspace tests (15), TypeScript check, the targeted Rust metadata test and focused Go projection test pass; Go DB tests also passed. | Current source and regression behavior are qualified. The already-running production companion is older and was left untouched, so this UI state still needs an isolated packaged launch with the new Go bundle. |
-| Native platforms | macOS live migration and unsigned bundle build; Linux ARM64 `.deb` build and manifest/hash/version verification at Tauri `0988d58`/Go `7dea9140`, followed by Debian install and visible X11 window under Xvfb/DBus at Tauri `446285c`/Go `7dea9140`; Windows companion and Go handler test binary cross-build; Linux and Windows Go service cross-builds above | Linux package build/install and simulated startup smoke pass; real desktop interaction, migration/provider execution, other distributions and Windows runtime/migration remain unqualified |
+| Local workspace board metadata | A live Tauri review found that Local projects carry a synthetic `local` tracker row; the older desktop projection dropped provider identity, leaving remote-only ticket filters visible. Go commit `560f1f4a` includes provider per selected tracker; Tauri commit `bc48a02` hides remote controls for Local-only projects and includes a bounded older-agent fallback. An isolated macOS Tauri bundle with a separate app identifier and port started the current Go companion, saved a synthetic Local profile, created a folder-backed project whose DB tracker provider was `local`, and rendered “Votre projet local est prêt” without remote search, grouping or status controls. | End-to-end Local behavior passes in isolation. The production companion and its data were not touched; disposable app data and the 52964 process were removed after the check. |
+| Native platforms | User-selected V1 support is macOS-first; Linux is experimental; Windows is deferred. macOS Local/Fleet migration and isolated Local startup/provider paths have live desktop evidence. Linux ARM64 `.deb` was built and installed with a visible X11 window under Xvfb/DBus at Tauri `446285c`/Go `7dea9140`; Windows and Linux Go services cross-build. | macOS runtime behavior is qualified except for a clean default-port cold-start/provider rerun and signed/notarized distribution. Linux remains experimental: real user desktop/provider/migration and distro breadth are unqualified. Windows remains deferred after cross-build only. |
 | macOS signing | `security find-identity -v -p codesigning` returned zero valid identities on the qualification host (2026-10-29) | No signed macOS artifact can be qualified on this host; a valid signing identity is required |
-| Open-source package provenance | Tauri repository has an MIT `LICENSE`; the Go checkout has no license file, while `prepare:services` builds and bundles the Go server, agent and companion | Public binary redistribution remains unqualified until the Go services' licensing and required notices are explicit |
+| Open-source package provenance | The user selected MIT for both repositories. Tauri has an MIT `LICENSE`; Go commit `5f809481` adds the MIT grant to the services repository and updates its README. | Repository licensing is resolved. Keep third-party notices and signed macOS distribution in the release checklist. |
 
 Cross-version harness re-run (2026-10-29, Go commit `7dea9140`):
 `python3 scripts/compatibility/test-v076-server-current-agent.py` passed. It
@@ -371,7 +372,9 @@ binary pair. V1 must publish a tested server/agent version matrix and desktop
 platform support table before release.
 
 Stages 6 and 7 are product-direction work, not authorization to remove existing
-web pages, API routes or domain data during stages 0-5. The current client and
+web pages, API routes or domain data during stages 0-5. The user selected the
+existing web application as the V1 planning owner, with no web deprecation in
+this release. The current client and
 feature ownership evidence is recorded in
 [the V1 feature ownership inventory](v1-feature-ownership-inventory.md). It
 identifies the existing web/Electron planning and operational capabilities and
@@ -394,8 +397,9 @@ the optional headless build (API, MCP and authentication) for deployments that
 do not need the web application. Tauri Local continues to use the companion,
 which embeds the backend with the execution agent. This completes the Stage 6
 product-transition definition and headless artifact; Stage 5 still gates
-supported platform packaging, and Stage 7 governs any future web/Electron
-deprecation or roadmapping replacement.
+supported macOS packaging and compatibility. Stage 7 now records that web
+planning remains the V1 owner, with no web changes or deprecation in this
+release.
 
 The post-change default-server smoke also passed with disposable SQLite: the
 default binary returned a healthy `/api/health` response and retained its
@@ -437,22 +441,21 @@ client migration are separate qualifications.
 - Use reviewable increments with both repositories' compatibility/version
   expectations recorded. Do not publish a partially migrated binary combination.
 
-## 7. Open product decisions
+## 7. Confirmed product decisions and remaining release gates
 
-1. Exact operational feature inventory required before Tauri is the default board.
-2. External roadmapping tool, data ownership and linking/synchronization contract.
-3. Deprecation/support window for current web/Electron experiences and consumers.
-4. Whether/when to operate an OAuth-only service for public desktop distribution.
-5. Supported platforms, backend versions and installation/update model for V1.
+- The user selected MIT licensing for both the Tauri and Go repositories.
+- V1 targets macOS first; Linux is experimental and Windows is deferred.
+- Existing web planning remains the V1 owner and is unchanged in this release;
+  no web deprecation, data move or replacement is authorized for V1.
+- The separate companion, temporary internal HTTP/WebSocket transport and
+  continued support for current OAuth remain confirmed decisions.
 
-The separate companion, temporary internal HTTP/WebSocket transport and continued
-support for current OAuth are confirmed decisions, not open questions.
-
-Roadmapping transition decision (2026-10-29): the user wants the web application
-and its roadmap features left unchanged for now. Do not remove, replace or alter
-those web surfaces as part of this migration. No external tool or retirement
-date has been selected; a future support window remains open for a separate
-decision.
+Stage 7's ownership decision is complete. Before V1 release, finish the exact
+operational feature inventory, publish the tested backend compatibility range,
+define packaging/update behavior, qualify macOS signing/notarization, complete
+remaining Fleet/Electron compatibility checks, record third-party notices and
+finish the UX convergence plan. These gates do not authorize changes to the
+existing web application.
 
 ## 8. Release meaning
 

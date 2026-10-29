@@ -49,3 +49,7 @@
   `mcpServer/elicitation/request`, not command-execution approval.
 
 - Phase 0 approved 2026-10-29: separate Local companion, internal HTTP/WebSocket retained initially, and current OAuth must keep working (including reconnect/refresh). Runtime topology and tracker auth are independent. The Go companion implementation and Tauri Local/Fleet integration are in the dedicated branches `refactor/embedded-local-backend` and `feat/local-fleet-modes`; see docs/phase0-runtime-baseline.md and docs/sectile-v1-migration-plan.md for current qualification and remaining V1 gates.
+- V1 decisions: MIT in both repositories; macOS first, Linux experimental,
+  Windows later; current web planning remains V1-owned and unchanged. The isolated
+  Go provider projection plus local-only Tauri board was visually verified at
+  port 52964. Never stop the active user companion on port 52963 for a smoke test.

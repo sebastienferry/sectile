@@ -56,9 +56,13 @@ verification record remains the evidence for those flows.
   agent does not expose tracker providers in its board metadata. That explains
   why the existing runtime still showed remote controls despite the earlier
   source guard. A new UI regression covers both the additive current-agent
-  provider field and fallback through `issueTracker` for an older agent. The
-  production Local companion was left running; its screen has not yet been
-  visually rechecked against a rebuilt Go bundle with provider metadata.
+  provider field and fallback through `issueTracker` for an older agent. An
+  isolated current-source package was then launched with a separate identity
+  and port. A native folder picker created a temporary local project whose DB
+  tracker provider was `local`; its board visibly showed “Votre projet local
+  est prêt” and omitted ticket search, grouping and remote status. The 52964
+  companion, app data, folder, bundle and worktrees were removed afterward; the
+  production Local companion on 52963 was left running.
 - Electron's searchable settings dialog and Tauri's native settings page were
   inspected side by side. Electron exposes General, Appearance, Agent
   connection, Execution defaults, AI engines, Skills, Deployment, Agent logs
@@ -93,10 +97,10 @@ verification record remains the evidence for those flows.
 
 ## Remaining convergence order
 
-1. Launch an isolated package containing the updated Go provider projection and
-   visually verify the contextual toolbar and local-only board state. The UI
-   regressions cover Local and Jira-backed projects; also recheck a remote
-   project with no tickets and failed/stale ticket reads in the isolated app.
+1. Recheck the contextual toolbar for a tracker-backed project with no tickets
+   and for failed/stale ticket reads in an isolated app. The Local-only board
+   state is now visually verified against a rebuilt Go bundle, and UI
+   regressions cover Local and Jira-backed projects.
 2. Capture matched light and dark screenshots of Electron and Tauri at the same
    window size and with equivalent project/activity data. Normalize typography,
    surface contrast, control height, spacing and selected/hover states from
