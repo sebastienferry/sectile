@@ -9,10 +9,12 @@ import signal
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
 import zipfile
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 def run(args, cwd, env=None):
@@ -100,6 +102,13 @@ func main() {
     result, err := session.CallTool(ctx, &mcp.CallToolParams{Name:"list_projects", Arguments:map[string]any{}})
     if err != nil { panic(err) }
     if result.IsError { panic("list_projects returned an MCP error") }
+    createResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name:"create_task", Arguments:map[string]any{"projectId":os.Args[4], "title":"Cross-version tracker issue", "description":"Created by isolated compatibility test"}})
+    if err != nil { panic(err) }
+    if createResult.IsError { panic("create_task returned an MCP error") }
+    createdRaw, err := json.Marshal(createResult.StructuredContent)
+    if err != nil { panic(err) }
+    var created struct { Task struct { ID string `json:"id"`; Key string `json:"key"` } `json:"task"` }
+    if err := json.Unmarshal(createdRaw, &created); err != nil || created.Task.ID == "" || created.Task.Key != "#42" { panic("create_task did not return the confirmed remote issue") }
     taskID := os.Args[3]
     started, err := session.CallTool(ctx, &mcp.CallToolParams{Name:"start_run", Arguments:map[string]any{"taskKey":taskID, "skill":"compatibility-check"}})
     if err != nil { panic(err) }
@@ -125,10 +134,51 @@ func main() {
     if err != nil { panic(err) }
     var taskState struct { Task struct { Status string `json:"status"` } `json:"task"` }
     if err := json.Unmarshal(taskRaw, &taskState); err != nil || taskState.Task.Status != "clarified" { panic("transition_stage did not persist clarified status") }
-    output := map[string]any{"toolCount":len(tools.Tools), "listProjectsCall":"passed", "runLifecycle":"passed", "taskStatus":taskState.Task.Status, "runStatus":finishedActivity.Status}
+    output := map[string]any{"toolCount":len(tools.Tools), "listProjectsCall":"passed", "trackerCreate":"passed", "runLifecycle":"passed", "taskStatus":taskState.Task.Status, "runStatus":finishedActivity.Status}
     if err := json.NewEncoder(os.Stdout).Encode(output); err != nil { panic(fmt.Sprint(err)) }
 }
 '''
+
+
+class FakeGitHubHandler(BaseHTTPRequestHandler):
+    requests = []
+
+    def respond(self, status, body):
+        encoded = json.dumps(body).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(length).decode() if length else ""
+        self.requests.append((self.command, self.path, self.headers.get("Authorization"), body))
+        if self.path == "/repos/acme/app/issues":
+            payload = json.loads(body)
+            return self.respond(201, {
+                "number": 42,
+                "title": payload["title"],
+                "body": payload.get("body", ""),
+                "state": "open",
+                "html_url": "https://github.com/acme/app/issues/42",
+                "labels": [],
+            })
+        return self.respond(201, {})
+
+    def do_GET(self):
+        self.requests.append((self.command, self.path, self.headers.get("Authorization"), ""))
+        return self.respond(200, {"number": 42, "title": "Cross-version tracker issue", "state": "open", "labels": []})
+
+    def do_PATCH(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        body = self.rfile.read(length).decode() if length else ""
+        self.requests.append((self.command, self.path, self.headers.get("Authorization"), body))
+        return self.respond(200, {})
+
+    def log_message(self, _format, *_args):
+        pass
 
 
 def main():
@@ -139,6 +189,11 @@ def main():
     home_agent = work / "agent-home"
     for path in (old_source, home_server, home_agent):
         path.mkdir(parents=True, exist_ok=True)
+    FakeGitHubHandler.requests = []
+    fake_tracker = ThreadingHTTPServer(("127.0.0.1", 0), FakeGitHubHandler)
+    fake_tracker_thread = threading.Thread(target=fake_tracker.serve_forever, daemon=True)
+    fake_tracker_thread.start()
+    fake_tracker_url = f"http://127.0.0.1:{fake_tracker.server_port}"
 
     server_log_path = work / "server.log"
     agent_log_path = work / "agent.log"
@@ -165,9 +220,11 @@ func main() {
  if err = d.EnsureUser(db.ImplicitUserID); err != nil { panic(err) }
  project, err := d.CreateProject(models.CreateProjectRequest{Name:"Compatibility", IssueTracker:"local"}); if err != nil { panic(err) }
  task, err := d.CreateTask(models.CreateTaskRequest{ProjectID:project.ID, Title:"Cross-version MCP run", Status:models.StatusToClarify}); if err != nil { panic(err) }
+ githubProject, err := d.CreateProject(models.CreateProjectRequest{Name:"GitHub compatibility", IssueTracker:"github", GithubRepo:"acme/app", GithubApiUrl:os.Getenv("COMPAT_GITHUB_API_URL")}); if err != nil { panic(err) }
+ if err = d.SetUserTrackerCredential(db.ImplicitUserID, "github", "", "", "compatibility-token", ""); err != nil { panic(err) }
  key, _, err := d.CreateAPIKey(db.ImplicitUserID, "binary-compatibility-test", db.DefaultAPIKeyTTL); if err != nil { panic(err) }
  session, _, err := d.CreateWebSession(db.ImplicitUserID); if err != nil { panic(err) }
- if err = json.NewEncoder(os.Stdout).Encode(map[string]string{"apiKey":key,"session":session,"taskID":task.ID}); err != nil { panic(err) }
+ if err = json.NewEncoder(os.Stdout).Encode(map[string]string{"apiKey":key,"session":session,"taskID":task.ID,"githubProjectID":githubProject.ID}); err != nil { panic(err) }
 }
 ''',
             encoding="utf-8",
@@ -217,6 +274,7 @@ func main() {
         database_path = work / "tasks.db"
         seed_env = isolated_environment(home_server)
         seed_env["DB_PATH"] = str(database_path)
+        seed_env["COMPAT_GITHUB_API_URL"] = fake_tracker_url
         credentials = json.loads(run([str(seed_binary)], old_source, seed_env))
 
         port_socket = socket.socket()
@@ -296,7 +354,10 @@ func main() {
         else:
             raise RuntimeError("The v0.7.6 server did not register the current agent.")
 
-        old_mcp = json.loads(run([str(current_mcp_client), base_url, credentials["apiKey"], credentials["taskID"]], work))
+        old_mcp = json.loads(run([
+            str(current_mcp_client), base_url, credentials["apiKey"],
+            credentials["taskID"], credentials["githubProjectID"],
+        ], work))
         old_mcp["client"] = "current"
         old_mcp["server"] = "v0.7.6"
 
@@ -317,7 +378,7 @@ func main() {
         (current_seed_dir / "main.go").write_text(
             '''package main
 import ("encoding/json"; "os"; "tasks/internal/db"; "tasks/internal/models")
-func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err != nil { panic(err) }; defer d.Close(); if err = d.EnsureUser(db.ImplicitUserID); err != nil { panic(err) }; project, err := d.CreateProject(models.CreateProjectRequest{Name:"Compatibility", IssueTracker:"local"}); if err != nil { panic(err) }; task, err := d.CreateTask(models.CreateTaskRequest{ProjectID:project.ID, Title:"Cross-version MCP run", Status:models.StatusToClarify}); if err != nil { panic(err) }; key, _, err := d.CreateAPIKey(db.ImplicitUserID, "binary-compatibility-test", db.DefaultAPIKeyTTL); if err != nil { panic(err) }; if err = json.NewEncoder(os.Stdout).Encode(map[string]string{"apiKey":key,"taskID":task.ID}); err != nil { panic(err) } }
+func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err != nil { panic(err) }; defer d.Close(); if err = d.EnsureUser(db.ImplicitUserID); err != nil { panic(err) }; project, err := d.CreateProject(models.CreateProjectRequest{Name:"Compatibility", IssueTracker:"local"}); if err != nil { panic(err) }; task, err := d.CreateTask(models.CreateTaskRequest{ProjectID:project.ID, Title:"Cross-version MCP run", Status:models.StatusToClarify}); if err != nil { panic(err) }; githubProject, err := d.CreateProject(models.CreateProjectRequest{Name:"GitHub compatibility", IssueTracker:"github", GithubRepo:"acme/app", GithubApiUrl:os.Getenv("COMPAT_GITHUB_API_URL")}); if err != nil { panic(err) }; if err = d.SetUserTrackerCredential(db.ImplicitUserID, "github", "", "", "compatibility-token", ""); err != nil { panic(err) }; key, _, err := d.CreateAPIKey(db.ImplicitUserID, "binary-compatibility-test", db.DefaultAPIKeyTTL); if err != nil { panic(err) }; if err = json.NewEncoder(os.Stdout).Encode(map[string]string{"apiKey":key,"taskID":task.ID,"githubProjectID":githubProject.ID}); err != nil { panic(err) } }
 ''', encoding="utf-8")
         try:
             current_seed_binary = work / "compat-seed-current"
@@ -326,6 +387,7 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
             shutil.rmtree(current_seed_dir, ignore_errors=True)
         current_env = isolated_environment(current_home)
         current_env["DB_PATH"] = str(current_db)
+        current_env["COMPAT_GITHUB_API_URL"] = fake_tracker_url
         current_credentials = json.loads(run([str(current_seed_binary)], repo, current_env))
         current_port_socket = socket.socket()
         current_port_socket.bind(("127.0.0.1", 0))
@@ -351,7 +413,10 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
         else:
             raise RuntimeError("The current Go server did not become healthy.")
         current_mcp_result = json.loads(
-            run([str(old_mcp_client), current_url, current_credentials["apiKey"], current_credentials["taskID"]], work)
+            run([
+                str(old_mcp_client), current_url, current_credentials["apiKey"],
+                current_credentials["taskID"], current_credentials["githubProjectID"],
+            ], work)
         )
         current_mcp_result["client"] = "v0.7.6"
         current_mcp_result["server"] = "current"
@@ -359,6 +424,12 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
         server_process = None
         server_log.close()
         server_log = None
+        create_requests = [
+            request for request in FakeGitHubHandler.requests
+            if request[0] == "POST" and request[1] == "/repos/acme/app/issues"
+        ]
+        if len(create_requests) != 2 or any(request[2] != "Bearer compatibility-token" for request in create_requests):
+            raise RuntimeError(f"Cross-version tracker creation did not use both personal tokens: {create_requests}")
 
         legacy_test_env = isolated_environment(home_agent)
         legacy_test_env["SECTILE_V076_AGENT_BINARY"] = str(old_agent)
@@ -376,6 +447,7 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
                     "currentAgentToV076Server": reverse_result,
                     "v076AgentToCurrentServer": {"connected": True},
                     "mcpCompatibility": [old_mcp, current_mcp_result],
+                    "trackerWrites": {"createdIssues": len(create_requests), "personalTokenUsed": True},
                 }
             )
         )
@@ -395,6 +467,9 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
             agent_log.close()
         if server_log:
             server_log.close()
+        fake_tracker.shutdown()
+        fake_tracker.server_close()
+        fake_tracker_thread.join(timeout=3)
         shutil.rmtree(work, ignore_errors=True)
 
 
