@@ -333,3 +333,8 @@ agent readiness, SIGTERM exit and readiness after relaunch with the same data.
 This is an experimental composition target; the Tauri launcher still starts
 its existing two services. Provider workflows, crash recovery, complete drain
 admission and packaging/migration qualification remain acceptance gates.
+
+Real Claude Code and Codex free-conversation execution, tool tracking,
+interruption and SIGKILL recovery have now passed on the combined executable.
+See [provider qualification](companion-provider-qualification.md) for the models,
+90-second delayed-tool checks, preserved state and scope limits.
