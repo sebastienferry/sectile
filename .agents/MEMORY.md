@@ -44,4 +44,4 @@
   entry in the companion process only. MCP consent arrives as
   `mcpServer/elicitation/request`, not command-execution approval.
 
-- Phase 0 approved 2026-10-29: separate Local companion, internal HTTP/WebSocket retained initially, and current OAuth must keep working (including reconnect/refresh). Runtime topology and tracker auth are independent. See docs/phase0-runtime-baseline.md and docs/sectile-v1-migration-plan.md. Backend embedding has not been implemented.
+- Phase 0 approved 2026-10-29: separate Local companion, internal HTTP/WebSocket retained initially, and current OAuth must keep working (including reconnect/refresh). Runtime topology and tracker auth are independent. The Go companion implementation and Tauri Local/Fleet integration are in the dedicated branches `refactor/embedded-local-backend` and `feat/local-fleet-modes`; see docs/phase0-runtime-baseline.md and docs/sectile-v1-migration-plan.md for current qualification and remaining V1 gates.
