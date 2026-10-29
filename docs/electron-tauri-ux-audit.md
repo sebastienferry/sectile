@@ -32,7 +32,7 @@ verification record remains the evidence for those flows.
 | A local-only project shows tracker controls even though it has no remote tickets. | In the live Tauri window, `workspace` has a local path and zero tickets, while the board toolbar still says “Statuts du tracker · lecture seule” and offers tracker grouping/search. Go represents a local workspace with a synthetic `local` tracker row, but the desktop board projection omitted the provider, so the renderer could not distinguish it from a remote tracker. | Include tracker providers in the additive desktop board projection. Hide remote controls when a project has no trackers or only the synthetic local tracker; preserve remote controls for GitHub, GitLab and Jira. Keep “Nouveau prompt” as the single primary action. |
 | The local-project empty state repeats the primary prompt action. | The project toolbar already has “Nouveau prompt”; the empty board adds “Commencer une conversation”. The live screenshot shows both at once. | Keep the global project action and remove the duplicate empty-state button; use the empty state to explain that the local project is ready for prompts. |
 | The project toolbar offers navigation to the view already open. | The live board screenshot shows a “Tableau” button beside the current project; `App.tsx` always renders it, and its handler navigates to the same board view. | Hide the current-view action while the board is open. Keep “Tableau” available from prompts and execution views so navigation remains direct. |
-| Attached folders were hidden behind a disclosure in the prompt context. | `PromptFolders` listed the active directory in the toolbar, while the additional project folders were only visible after opening “Dossiers”. | Show attached folder names under the active directory with full paths available on hover; keep detailed roles and paths in the existing disclosure. |
+| The prompt folder action obscured its project-wide scope. | `PromptFolders` listed the active directory and project attachments together; its “Ajouter un dossier” action did not explain that the selected folder is shared with every project conversation. | Call the action “Attacher au projet,” label the disclosure “Dossiers du projet,” and state that the attachment is shared across conversations. Keep detailed roles and paths in the disclosure. |
 | The current live Electron/Tauri windows are not a valid populated-state visual comparison. | Both windows were captured at the same desktop size, but Electron was showing a long historical conversation and orchestration sidebar while Tauri showed the empty Local `Documents` board. | Use these captures only for shell/navigation comparison. Before tuning typography, spacing or colors, capture equivalent screens, themes and data states; do not infer style changes from the mismatched content. |
 
 ## Current source and runtime status
@@ -78,6 +78,9 @@ verification record remains the evidence for those flows.
 - Prompt context now surfaces attached folder names immediately. The full path
   and role remain available in the details disclosure. Typecheck and production
   build passed for this change; a matched live visual review is still pending.
+- The prompt action now names its project-wide scope before opening the native
+  picker, and the disclosure says attached folders are shared across project
+  conversations. Focused UI tests verify the label and scope copy.
 - The duplicate workspace color overrides have been removed. Tauri now uses
   the same canonical dark/light background, surface and selection colors as
   Electron; exact appearance still needs review in the rebuilt app once the
