@@ -1392,6 +1392,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	}
 
 	if payload.RunID != "" {
+		envVars = d.runControlEnv(sessionID, envVars)
 		if _, err := d.terminal.manager.GetOrCreateSession(sessionID, workDir, envVars); err != nil {
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 			return
@@ -1445,7 +1446,25 @@ func (d *agentDaemon) startLaunchConversation(run *controlledRun, entry desktopR
 	}
 }
 
+func (d *agentDaemon) runControlEnv(sessionID string, envVars map[string]string) map[string]string {
+	// Keep the run-control credential out of the shell command and PTY history.
+	// Each controlled run has its own session; agent-exec removes the variable
+	// before launching the provider child.
+	d.queue.read(sessionID, func(run *controlledRun) {
+		if run.token != "" {
+			copyEnv := make(map[string]string, len(envVars)+1)
+			for key, value := range envVars {
+				copyEnv[key] = value
+			}
+			copyEnv["SECTILE_RUN_TOKEN"] = run.token
+			envVars = copyEnv
+		}
+	})
+	return envVars
+}
+
 func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]string, fullLine string) error {
+	envVars = d.runControlEnv(sessionID, envVars)
 	sess, err := d.terminal.manager.GetOrCreateSession(sessionID, workDir, envVars)
 	if err != nil {
 		log.Printf("[Agent] Failed to create PTY session: %v", err)

@@ -163,10 +163,9 @@ func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {
 			prefix = "& "
 		}
 		return prefix + quote(binary) + " agent-exec --url " + quote(endpoint) +
-			" --token " + quote(run.token) +
 			" --command-base64 " + base64.StdEncoding.EncodeToString([]byte(command)), nil
 	}
-	return quoteShell(binary) + " agent-exec --url " + quoteShell(endpoint) + " --token " + quoteShell(run.token) + " --command " + quoteShell(command), nil
+	return quoteShell(binary) + " agent-exec --url " + quoteShell(endpoint) + " --command " + quoteShell(command), nil
 }
 
 func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {

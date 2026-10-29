@@ -121,6 +121,7 @@ func (d *agentDaemon) handleMacroDispatch(ctx context.Context, conn *websocket.C
 		"SECTILE_LOOPBACK_URL":     d.loopback.url,
 	}
 	sessionID := payload.RunID
+	envVars = d.runControlEnv(sessionID, envVars)
 	if d.terminal.manager == nil {
 		launchFailure = fmt.Errorf("terminal manager unavailable")
 		return

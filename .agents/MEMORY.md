@@ -1,5 +1,15 @@
 # Project Knowledge Base (MEMORY.md)
 
+### PTY Run-Control Credential (2026-10-29)
+
+- Controlled console commands must not include the per-run control token in their
+  shell line: PTY history and the desktop console show that line. The token is
+  supplied through `SECTILE_RUN_TOKEN` to the test-owned shell, and `agent-exec`
+  removes it before starting the provider child.
+- `launchConsole`, macro dispatch and remote skill dispatch pre-create their PTY
+  session before `runInPty`. Add run-control environment at that first session
+  creation; adding it only inside `runInPty` cannot update an existing shell.
+
 ### Managed Tauri Local Companion Migration (2026-10-29)
 
 - Embedded provider children cannot rely on the standalone agent's global

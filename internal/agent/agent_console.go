@@ -218,6 +218,7 @@ func (d *agentDaemon) launchConsole(run *controlledRun, command string, folders 
 		wrapped, err = d.wrapRun("", run.desktop.ID, command)
 		if err == nil {
 			env := d.consoleEnv(run, folders)
+			env = d.runControlEnv(run.desktop.ID, env)
 			_, err = d.terminal.manager.GetOrCreateSession(run.desktop.ID, run.root, env)
 			if err == nil {
 				d.queue.mu.Lock()

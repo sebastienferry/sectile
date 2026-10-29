@@ -28,6 +28,7 @@ test fixtures or internal plumbing.
 
 ### Security
 
+- Keep each local execution's temporary control token out of the visible console command and provider process environment.
 - Keep the desktop-to-agent gateway credential out of provider CLI and shell child process environments.
 
 ### Added

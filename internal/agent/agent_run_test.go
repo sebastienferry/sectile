@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"tasks/internal/agentexec"
+	"tasks/internal/terminal"
 	"testing"
 	"time"
 )
@@ -40,6 +41,52 @@ func TestRunControlAuthentication(t *testing.T) {
 	case <-d.queue.runs["run"].exited:
 	default:
 		t.Fatal("exit not acknowledged")
+	}
+}
+
+func TestWrapRunDoesNotExposeControlTokenInTerminalCommand(t *testing.T) {
+	d := &agentDaemon{}
+	line, err := d.wrapRun("task", "run", "true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(line, d.queue.runs["run"].token) || strings.Contains(line, "--token") {
+		t.Fatal("run-control credential appeared in the terminal command")
+	}
+}
+
+func TestWrappedPTYRunKeepsControlTokenOutOfConsoleAndProvider(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("this PTY fixture uses a POSIX shell")
+	}
+	root := t.TempDir()
+	manager := terminal.NewManager()
+	d := &agentDaemon{terminal: terminalChoice{manager: manager}}
+	server := httptest.NewServer(http.HandlerFunc(d.handleRunControl))
+	defer server.Close()
+	d.loopback.url = server.URL
+	marker := filepath.Join(root, "provider-env.txt")
+	line, err := d.wrapRun("task", "run", `if [ -z "$SECTILE_RUN_TOKEN" ]; then printf CLEAN > `+quoteShell(marker)+`; else printf LEAK > `+quoteShell(marker)+`; fi`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := d.queue.runs["run"]
+	defer manager.CloseSession("run")
+	if err := d.runInPty("run", root, nil, line); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-run.exited:
+	case <-time.After(10 * time.Second):
+		t.Fatal("wrapped command did not report its exit")
+	}
+	content, err := os.ReadFile(marker)
+	if err != nil || string(content) != "CLEAN" {
+		t.Fatalf("provider inherited run token: %q, %v", content, err)
+	}
+	history, ok := manager.TapOutput("run", func([]byte) {})
+	if !ok || strings.Contains(string(history), run.token) {
+		t.Fatal("run-control token appeared in PTY history")
 	}
 }
 

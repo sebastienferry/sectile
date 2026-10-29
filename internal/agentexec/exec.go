@@ -30,6 +30,12 @@ func Run(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
+	if *token == "" {
+		*token = os.Getenv("SECTILE_RUN_TOKEN")
+	}
+	if *token == "" {
+		return fmt.Errorf("run control token is missing")
+	}
 	if *encoded != "" {
 		raw, err := base64.StdEncoding.DecodeString(*encoded)
 		if err != nil {
@@ -83,6 +89,12 @@ func Run(args []string) error {
 		return fmt.Errorf("execution canceled before launch")
 	}
 	cmd := exec.Command("bash", "-lc", *command)
+	// The provider does not need the short-lived run-control credential.
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "SECTILE_RUN_TOKEN=") {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	restore, err := StartControlled(cmd)
 	if err != nil {
