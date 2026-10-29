@@ -3,8 +3,9 @@
 Date: 2026-10-29
 Status: product direction confirmed; Local companion runtime and managed upgrade
 are implemented on dedicated branches. Stage 5 compatibility qualification is
-underway. This is not a V1 release: remaining compatibility, product inventory,
-UX convergence and release qualification gates are open.
+underway. Stage 6/7 feature ownership inventory is recorded, while client
+migration, roadmapping and UX convergence decisions remain open. This is not a
+V1 release.
 
 ## 1. Product destination
 
@@ -199,8 +200,13 @@ binary pair. V1 must publish a tested server/agent version matrix and desktop
 platform support table before release.
 
 Stages 6 and 7 are product-direction work, not authorization to remove existing
-web pages, API routes or domain data during stages 0-5. A headless distribution
-can omit website assets without immediately deleting the current web server.
+web pages, API routes or domain data during stages 0-5. The current client and
+feature ownership evidence is recorded in
+[the V1 feature ownership inventory](v1-feature-ownership-inventory.md). It
+identifies the existing web/Electron planning and operational capabilities and
+the current Tauri components, but does not select a replacement roadmapping
+tool or grant authority to deprecate any client. A headless distribution can
+omit website assets without immediately deleting the current web server.
 
 ## 5. Non-regression and upgrade gates
 
