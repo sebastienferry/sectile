@@ -97,7 +97,7 @@ binary. The already configured OAuth prototype remains supported.
 | 1. Shared backend assembly | Reusable Go package first consumed by the existing standalone server | Fleet contracts unchanged; website assets remain outside the shared package |
 | 2. Lifecycle ownership | Explicit construction, admission, stop/join, restart and store exclusivity | Concurrency, partial startup and crash tests prove stores are not shared unsafely |
 | 3. Fresh Local companion | One Go process combining backend and execution on disposable data | Full prompt/workflow/MCP behavior works before existing data is touched |
-| 4. Managed upgrade and native modes | Connection-bound Local/Fleet configuration; journaled upgrade of the prototype | Histories, folders, identities and current OAuth preserved; precommit rollback tested; Fleet pairing and safe mode switching qualified |
+| 4. Managed upgrade and native modes | Connection-bound Local/Fleet configuration; journaled upgrade of the prototype; native setup in both modes | Histories, folders, identities and current OAuth preserved; precommit rollback tested; Fleet pairing/setup qualified; pairing or attachment cannot silently replace a selected runtime; no implicit transfer |
 | 5. Compatibility and measured delivery | Local/Fleet/Electron test matrix, packaged artifacts and performance comparison | Required behavior and supported versions documented before removing old Local startup |
 | 6. Product/UI transition | Tauri becomes the primary agentic board; a headless backend distribution is defined | Operational features and existing consumers have an explicit migration path |
 | 7. Roadmapping separation | Ownership inventory and an agreed external-tool contract | Data/links and remaining clients preserved; deprecations reviewed before removal |
@@ -117,8 +117,10 @@ validating its live connection. The shared Electron discovery file is no longer
 a silent fallback. Paired Fleet connections now expose native profile, personal
 tracker credential, project and OAuth account setup through the selected backend;
 OAuth app secrets and shared tracker administration remain server-admin tasks.
-Stage 4 remains open for live Fleet qualification, active-work-safe mode
-switching and conversation/backend identity adoption. Stage 5 remains open: qualify the
+Stage 4 remains open for live Fleet qualification and conversation/backend
+identity adoption. Runtime switching is deliberately unsupported: selecting a
+second mode requires a future explicit migration flow, and this turn closes an
+attachment path that could replace an already selected Fleet identity. Stage 5 remains open: qualify the
 Fleet/Electron compatibility matrix,
 supported versions, other-platform migration and measured process/memory/startup
 and package behavior. An unsigned optimized macOS `.app` has now been measured

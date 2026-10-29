@@ -4,8 +4,11 @@ Date: 2026-10-29
 Status: independently reviewed; separate companion and internal HTTP/WebSocket
 accepted. Phases 0-3 completed. Managed Local migration and native launcher
 switch are implemented and verified on macOS. Tauri now has explicit Local/Fleet
-selection, one-time-code Fleet pairing and private attachment for an already
-paired workstation. Fleet runtime validation and mode migration remain open.
+selection, one-time-code Fleet pairing, private attachment for an already paired
+workstation and native Fleet setup. Pairing or attachment cannot replace an
+already selected mode. Fleet runtime validation and conversation identity
+qualification remain open; mode switching and data transfer are intentionally
+deferred to an explicit migration design.
 
 Product roadmap: [Sectile V1.0.0 migration](sectile-v1-migration-plan.md).
 Phase 0 evidence: [baseline and contracts](phase0-runtime-baseline.md).
@@ -430,7 +433,7 @@ The first cross-surface check slice passes:
 | Go companion and shared runtime | `go test -race ./cmd/companion ./internal/companion ./internal/agent ./internal/backend`; Windows `GOOS=windows GOARCH=amd64 go build ./cmd/companion` | Pass on macOS host; companion packages are race-clean and Windows compilation succeeds. Windows live migration and execution are not qualified. |
 | Go child-process credentials | `go test ./internal/runner ./internal/agent ./cmd/agent ./cmd/companion`; Windows builds of `cmd/agent` and `cmd/companion` | Pass; the local desktop gateway credential is removed from spawned CLI and shell environments. This is a compile/unit check, not Windows process-window verification. |
 | Electron renderer | `desktop/npm test` | 315 tests pass after installing the lockfile dependencies. No Electron UI or live shared-MCP registration was changed in this work. |
-| Tauri renderer/native layer | `npm run check`, `npm test`, `npm run test:ui`, `npm run test:rust`, `npm run build` | Pass on the current branch: 8 domain tests, 85 UI tests and 30 Rust tests. The Rust tests cover explicit Local/Fleet file routing, private credential storage, Fleet URL policy and pairing HTTP contract handling. |
+| Tauri renderer/native layer | `npm run check`, `npm test`, `npm run test:ui`, `npm run test:rust`, `npm run build` | Pass on the current branch: 8 domain tests, 86 UI tests and 32 Rust tests. The Rust tests cover explicit Local/Fleet file routing, private credential storage, Fleet URL policy, pairing HTTP contract handling and rejection of replacement pairings for a selected runtime. |
 | Tauri Fleet pairing | Native validation, UI tests, and a loopback HTTP contract fixture; bundled agent/companion built from the Go worktree | The fixture verifies the exact pairing route and payload, accepted credential response, expired-code response, incomplete response and backend failure. TLS policy, Go-compatible private settings format and automatic agent startup code are covered by checks. A real remote Fleet pairing and desktop session are not yet qualified. |
 | Existing native Local install | Managed macOS migration verification and real Jira/Claude/Codex/MCP requests | Pass; details above. |
 | macOS release bundle | `npm run tauri -- build --bundles app --no-sign` | Pass; the unsigned release `.app` is 101.69 MiB versus the recorded 133.1 MiB debug app. It still contains the companion (40 MiB), legacy server (36 MiB) and legacy agent (20 MiB) for migration/recovery. This is an unsigned macOS app bundle, not a release artifact or a cross-platform size comparison. |

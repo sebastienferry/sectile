@@ -6,6 +6,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Fleet attachment can no longer replace an already selected Local or Fleet runtime without an explicit migration.
+
 - Saved OAuth client identifiers no longer reach the renderer; configuration fields stay empty and masked, retaining saved credentials when left blank.
 - Jira OAuth now recognizes tracker sources before they are linked to a project.
 - Jira desktop sign-in now uses the Go backend’s fixed callback on port 52963; native configuration consumes the backend callback instead of constructing it.

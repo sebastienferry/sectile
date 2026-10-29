@@ -810,6 +810,13 @@ fn runtime_mode_from_root(root: &Path) -> Result<Option<RuntimeMode>, String> {
         .map_err(|_| "Configuration du mode incompatible".into())
 }
 
+fn require_unconfigured_runtime(mode: Option<RuntimeMode>) -> Result<(), String> {
+    if mode.is_some() {
+        return Err("Un mode d’exécution est déjà sélectionné. Sa migration doit être effectuée explicitement.".into());
+    }
+    Ok(())
+}
+
 pub async fn resume(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<LocalRuntime>();
     let _lock = state.2.lock().await;
@@ -950,9 +957,7 @@ pub async fn pair_fleet_agent(
     let state = app.state::<LocalRuntime>();
     let settings_lock = state.0.lock().await;
     let root = root(&app)?;
-    if runtime_mode(&app)?.is_some() {
-        return Err("Un mode d’exécution est déjà sélectionné. Sa migration doit être effectuée explicitement.".into());
-    }
+    require_unconfigured_runtime(runtime_mode(&app)?)?;
     let pairing_code = pairing_code.trim();
     if pairing_code.is_empty() || pairing_code.len() > 256 {
         return Err("Code de jumelage requis.".into());
@@ -981,9 +986,7 @@ pub async fn attach_fleet_agent(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
     let root = root(&app)?;
-    if runtime_mode(&app)? == Some(RuntimeMode::Local) {
-        return Err("Une installation locale est déjà sélectionnée. Le changement de mode demande une migration explicite.".into());
-    }
+    require_unconfigured_runtime(runtime_mode(&app)?)?;
     let legacy = app
         .path()
         .home_dir()
@@ -1751,6 +1754,13 @@ mod oauth_privacy_tests {
 
 #[cfg(test)]
 mod generation_tests {
+    #[test]
+    fn selected_local_or_fleet_runtime_cannot_be_replaced_by_pairing_or_attachment() {
+        assert!(super::require_unconfigured_runtime(None).is_ok());
+        assert!(super::require_unconfigured_runtime(Some(super::RuntimeMode::Local)).is_err());
+        assert!(super::require_unconfigured_runtime(Some(super::RuntimeMode::Fleet)).is_err());
+    }
+
     use super::*;
 
     #[test]

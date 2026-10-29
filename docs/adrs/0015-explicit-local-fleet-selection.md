@@ -34,18 +34,23 @@ or Go pairing behavior.
   process arguments or child-process environment.
 - Ordinary requests use only the selected mode's private connection file. An
   absent or failed connection is an error; it never triggers a fallback.
-- The native Local profile, tracker, OAuth and project bootstrap screens remain
-  disabled in Fleet mode because those operations are owned by the selected
-  Fleet backend and are not implemented in this desktop setup flow yet.
+- Native profile, personal tracker credential, OAuth account and project
+  bootstrap screens use the selected Fleet backend after pairing. OAuth app
+  secrets and shared tracker administration remain server-admin operations.
+- Once a runtime mode is selected, pairing or attaching another runtime is
+  rejected. Local/Fleet data is never transferred implicitly; live switching
+  requires a separately designed migration flow.
 
 ## Consequences
 
 This closes silent Electron/Tauri connection reuse and supports both first-time
-Fleet pairing and migration from an already paired workstation. Active-work-safe
-mode switching, conversation/backend identity adoption and a full native Fleet
-profile/tracker/project setup remain stage 4 work under the [runtime
-plan](../local-fleet-runtime-plan.md). Local and Fleet connections are not
-merged, and the Go/Electron behavior remains unchanged.
+Fleet pairing and attachment of an already paired workstation. Native Fleet
+setup uses the selected backend without exposing its API credential to the
+renderer. Existing modes cannot be replaced by pairing or attachment; runtime
+switching and data transfer remain unsupported until an explicit migration is
+designed. Local and Fleet connections are not merged, and the Go/Electron
+behavior remains unchanged. Conversation identity adoption remains a separate
+qualification gate under the [runtime plan](../local-fleet-runtime-plan.md).
 
 ## Security
 
