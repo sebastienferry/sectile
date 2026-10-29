@@ -1348,7 +1348,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	// is consumed whatever the workstation view says.
 	marked := d.conversationViews.take(taskRef, task.ID)
 	if opensConversation(autonomous, models.NormalizeSkillID(payload.Action), marked, d.workstationConsoleView(), config) {
-		model, first, origin := conversationModel(config), "", "It runs in this task's worktree. Stop it to end the discussion."
+		model, first, origin := conversationModel(config), "", "Elle s’exécute dans le worktree de cette tâche. Arrêtez-la pour terminer la discussion."
 		var extraDirs []string
 		if payload.SkillID != "discuss" {
 			launch := agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders), Skill: choice}
@@ -1365,7 +1365,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			if skillModel, modelErr := LaunchModel(config, payload.SkillID, payload.Model); modelErr == nil && strings.TrimSpace(skillModel) != "" {
 				model = skillModel
 			}
-			origin = "It runs the " + payload.SkillID + " skill in this task's worktree. Stop it once the skill is done."
+			origin = "Elle exécute le skill " + payload.SkillID + " dans le worktree de cette tâche. Arrêtez-la lorsque le skill est terminé."
 		}
 		d.startLaunchConversation(run, desktopRun{ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, Directory: workDir, Folders: runFolders(workDir, folders), Branch: branch}, model, conversationOrigin(config, origin), first, envVars, extraDirs, liveProvider(config))
 		launched = true

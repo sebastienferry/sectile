@@ -353,7 +353,7 @@ printf '%s\n' '{"type":"result","is_error":false,"result":"Hello","session_id":"
 	}
 	// This agent has no server to read the project from: each turn says it
 	// runs without the attached folders, and still runs.
-	if strings.Count(text, "Attached folders could not be read for this message") != 2 || strings.Contains(string(args), "--add-dir") {
+	if strings.Count(text, "Les dossiers joints n’ont pas pu être lus pour ce message") != 2 || strings.Contains(string(args), "--add-dir") {
 		t.Fatalf("an unreadable project must be reported and carry no folder: %s %s", text, args)
 	}
 	w := conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private")
@@ -593,7 +593,7 @@ func TestConversationInterruptKeepsTheConversation(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	lines, _ := run.trace.snapshot()
-	if text := strings.Join(lines, "\n"); !strings.Contains(text, `"text":"Interrupted"`) || strings.Contains(text, `"kind":"error"`) {
+	if text := strings.Join(lines, "\n"); !strings.Contains(text, `"text":"Interrompu"`) || strings.Contains(text, `"kind":"error"`) {
 		t.Fatalf("unexpected transcript: %s", text)
 	}
 	if w := conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private"); strings.Contains(w.Body.String(), `"readOnly":true`) {

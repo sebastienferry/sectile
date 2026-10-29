@@ -88,7 +88,7 @@ func conversationOrigin(config agentconfig.Config, where string) string {
 	if strings.TrimSpace(config.AICommandTemplate) == "" {
 		return where
 	}
-	return where + " The engine's launch template does not apply here: only its model is kept."
+	return where + " Le modèle de lancement du moteur ne s’applique pas ici : seul son modèle IA est conservé."
 }
 
 // conversationStoppedStatus is how a stopped conversation ends: a ticket

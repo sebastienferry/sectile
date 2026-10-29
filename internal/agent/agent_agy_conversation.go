@@ -420,7 +420,7 @@ func (s *agyStreamState) handleLine(line string, trace *runTrace, onPartial func
 			}
 		}
 		if len(res.DeniedActions) > 0 {
-			conversationWrite(trace, "notice", "Antigravity skipped actions requiring approval", formatAgyDeniedActions(res.DeniedActions))
+			conversationWrite(trace, "notice", "Antigravity a ignoré des actions demandant une approbation", formatAgyDeniedActions(res.DeniedActions))
 		}
 		return true
 	}
@@ -642,7 +642,7 @@ func (d *agentDaemon) agyConversationTurn(run *controlledRun, prompt string) {
 	d.queue.mu.Unlock()
 	folders, env, err := d.conversationFolders(projectID, directory)
 	if err != nil {
-		conversationWrite(run.trace, "notice", "Attached folders could not be read for this message", err.Error())
+		conversationWrite(run.trace, "notice", "Les dossiers joints n’ont pas pu être lus pour ce message", err.Error())
 	}
 	dirs := folderMapDirs(folders)
 
@@ -670,7 +670,7 @@ func (d *agentDaemon) agyConversationTurn(run *controlledRun, prompt string) {
 		if err != nil {
 			c.busy = false
 			d.queue.mu.Unlock()
-			conversationWrite(run.trace, "error", "Failed to open Antigravity input", err.Error())
+			conversationWrite(run.trace, "error", "Impossible d’ouvrir l’entrée d’Antigravity", err.Error())
 			return
 		}
 		input = &conversationInput{w: stdin}
@@ -720,7 +720,7 @@ func (d *agentDaemon) agyConversationTurn(run *controlledRun, prompt string) {
 		c.input = nil
 		c.busy = false
 		d.queue.mu.Unlock()
-		conversationWrite(run.trace, "error", "Failed to start Antigravity", err.Error())
+		conversationWrite(run.trace, "error", "Impossible de démarrer Antigravity", err.Error())
 		return
 	}
 	defer release()
@@ -734,7 +734,7 @@ func (d *agentDaemon) agyConversationTurn(run *controlledRun, prompt string) {
 			c.input = nil
 			c.busy = false
 			d.queue.mu.Unlock()
-			conversationWrite(run.trace, "error", "Failed to send message to Antigravity", err.Error())
+			conversationWrite(run.trace, "error", "Impossible d’envoyer le message à Antigravity", err.Error())
 			return
 		}
 		// Close stdin once the prompt frame is written so agy exits cleanly at
@@ -820,7 +820,7 @@ func (d *agentDaemon) agyConversationTurn(run *controlledRun, prompt string) {
 		return
 	}
 	if interrupted && !canceled {
-		conversationWrite(run.trace, "notice", "Turn stopped", "")
+		conversationWrite(run.trace, "notice", "Réponse arrêtée", "")
 		return
 	}
 	if (waitErr != nil || state.resultStatus == "ERROR") && !canceled {
@@ -831,7 +831,7 @@ func (d *agentDaemon) agyConversationTurn(run *controlledRun, prompt string) {
 		if detail == "" && waitErr != nil {
 			detail = waitErr.Error()
 		}
-		conversationWrite(run.trace, "notice", "Antigravity turn ended with an error", detail)
+		conversationWrite(run.trace, "notice", "La réponse Antigravity s’est terminée avec une erreur", detail)
 	}
 }
 

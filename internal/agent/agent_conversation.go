@@ -281,7 +281,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		if source.desktop.Provider == "agy" {
 			defaultMode = defaultAgyMode
 		}
-		run, err := d.newConversationLocked(source.desktop.ProjectID, source.desktop.Directory, model, defaultMode, "This conversation is independent of the selected execution and uses the same directory.", source.desktop.Provider)
+		run, err := d.newConversationLocked(source.desktop.ProjectID, source.desktop.Directory, model, defaultMode, "Cette conversation est indépendante de l’exécution sélectionnée et utilise le même dossier.", source.desktop.Provider)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
@@ -553,15 +553,15 @@ func startConversationLocked(run *controlledRun, model, mode, origin string, pro
 	if run.desktop.Provider == "codex" {
 		run.conversation.mode = "workspace-write"
 		run.conversation.commands = []conversationSlash{}
-		conversationWrite(run.trace, "notice", "Codex conversation · experimental", "Codex uses its sandbox and asks for approval when needed. "+origin)
+		conversationWrite(run.trace, "notice", "Conversation Codex", "Codex utilise son bac à sable et demande une approbation si nécessaire. "+origin)
 		return
 	}
 	if run.desktop.Provider == "agy" {
 		run.conversation.mode = providerConversationMode("agy", mode)
-		conversationWrite(run.trace, "notice", "Antigravity conversation · experimental", "Workspace edits are accepted by default; choose Auto-approve all tools in the composer when a turn needs commands or external tools that would otherwise be skipped in headless mode. "+origin)
+		conversationWrite(run.trace, "notice", "Conversation Antigravity", "Les modifications du dossier sont autorisées par défaut ; choisissez l’approbation automatique des outils dans la zone de saisie si une réponse doit lancer des commandes ou des outils externes. "+origin)
 		return
 	}
-	conversationWrite(run.trace, "notice", "Claude Code conversation · experimental", "Sectile's tools are accepted; what your rules and the chosen mode do not allow asks for your approval. "+origin)
+	conversationWrite(run.trace, "notice", "Conversation Claude Code", "Les outils autorisés par Sectile sont disponibles ; Claude Code demande votre accord pour les autres actions selon vos règles et le mode choisi. "+origin)
 }
 
 // claudeConversationCommand is one turn's Claude. Each of dirs is one
@@ -685,7 +685,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	// Claude may read, they never decide whether it answers.
 	folders, env, err := d.conversationFolders(projectID, directory)
 	if err != nil {
-		conversationWrite(run.trace, "notice", "Attached folders could not be read for this message", err.Error())
+		conversationWrite(run.trace, "notice", "Les dossiers joints n’ont pas pu être lus pour ce message", err.Error())
 	}
 	dirs := folderMapDirs(folders)
 	// Each turn is a new Claude: it reads the project's values as they are
@@ -839,7 +839,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 					conversationWrite(run.trace, "command_output", result, "")
 				}
 				if len(frame.Denials) > 0 {
-					conversationWrite(run.trace, "notice", "Some tool calls were denied.", "")
+					conversationWrite(run.trace, "notice", "Certains appels d’outils ont été refusés.", "")
 				}
 			}
 			return
@@ -912,18 +912,18 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	run.conversation.input = nil
 	if pending := len(run.conversation.approvals); pending > 0 {
 		run.conversation.approvals = nil
-		conversationWrite(run.trace, "notice", "The turn ended before its tool calls were answered", "")
+		conversationWrite(run.trace, "notice", "La réponse s’est terminée avant la validation des appels d’outils", "")
 	}
 	markApprovalWaitLocked(run)
 	preserveConversationDraft(run)
 	if interrupted && !run.canceled {
-		conversationWrite(run.trace, "notice", "Interrupted", "Claude Code stopped this answer. Send a message to continue the conversation.")
+		conversationWrite(run.trace, "notice", "Interrompu", "Claude Code a arrêté cette réponse. Envoyez un message pour poursuivre la conversation.")
 	} else if run.canceled {
 		run.desktop.Status = conversationStoppedStatus(run)
 		if !run.resumeAfterShutdown || run.pausedTurnOnShutdown {
-			notice := "Conversation stopped"
+			notice := "Conversation arrêtée"
 			if run.resumeAfterShutdown {
-				notice = "Conversation paused for agent restart"
+				notice = "Conversation suspendue pour le redémarrage de l’agent"
 			}
 			conversationWrite(run.trace, "notice", notice, "")
 		}
@@ -931,11 +931,11 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 		d.updateConversationJournalLocked(run)
 		run.once.Do(func() { close(run.exited) })
 	} else if err != nil {
-		conversationWrite(run.trace, "error", fmt.Sprintf("Claude Code failed: %v", err), "")
+		conversationWrite(run.trace, "error", fmt.Sprintf("Échec de Claude Code : %v", err), "")
 	} else if !resultSeen {
-		conversationWrite(run.trace, "error", "Claude Code exited without a final result.", "")
+		conversationWrite(run.trace, "error", "Claude Code s’est arrêté sans résultat final.", "")
 	} else if !resultFailed {
-		conversationWrite(run.trace, "notice", "Ready for your next message", "")
+		conversationWrite(run.trace, "notice", "Prêt pour votre prochain message", "")
 	}
 	run.conversation.busy = false
 	run.conversation.partial = ""

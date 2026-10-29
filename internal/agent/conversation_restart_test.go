@@ -83,7 +83,7 @@ func TestCodexRestartUsesStoredThreadAndSettings(t *testing.T) {
 	}
 	waitCodex(t, d, id, func(c *providerConversation) bool { return !c.busy })
 	d.stopConversations()
-	if lines, _ := d.queue.runs[id].trace.snapshot(); strings.Contains(strings.Join(lines, "\n"), "Conversation paused for agent restart") {
+	if lines, _ := d.queue.runs[id].trace.snapshot(); strings.Contains(strings.Join(lines, "\n"), "Conversation suspendue pour le redémarrage de l’agent") {
 		t.Fatal("idle Codex conversation was reported as interrupted during shutdown")
 	}
 	d.persistRuns()

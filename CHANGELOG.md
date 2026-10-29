@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- Desktop conversations now show Sectile's own start, progress, interruption and restart notices in French across Claude Code, Codex and Antigravity.
 - GitLab tracker connections now accept an instance website address as well as its explicit `/api/v4` endpoint, including previously saved desktop configurations.
 - Reopening an idle Codex conversation after a desktop or agent restart no longer says its finished response was paused.
 - Local tracker synchronization now uses the connected installation account, including its Jira OAuth grant or personal API token, without requiring a separate server credential.

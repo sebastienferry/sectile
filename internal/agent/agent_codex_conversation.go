@@ -271,7 +271,7 @@ func (d *agentDaemon) codexConversationTurn(run *controlledRun, prompt string) {
 		err = d.initializeCodexConversation(run, state)
 	}
 	if err != nil {
-		err = fmt.Errorf("Codex conversation could not start; check your Codex installation and sign-in: %w", err)
+		err = fmt.Errorf("La conversation Codex n’a pas pu démarrer ; vérifiez son installation et sa connexion : %w", err)
 		return
 	}
 	d.queue.mu.Lock()
@@ -302,9 +302,9 @@ func (d *agentDaemon) codexConversationTurn(run *controlledRun, prompt string) {
 				// A turn acknowledgement can leave unified-exec tools running.
 				// Retire this provider tree; the next turn resumes c.session.
 				if stopErr := agentexec.StopTree(cmd); stopErr != nil {
-					err = fmt.Errorf("Codex tool termination could not be confirmed: %w", stopErr)
+					err = fmt.Errorf("L’arrêt des outils Codex n’a pas pu être confirmé : %w", stopErr)
 				} else {
-					conversationWrite(run.trace, "notice", "Interrupted", "Codex and its local tools were terminated. Send a message to resume.")
+					conversationWrite(run.trace, "notice", "Interrompu", "Codex et ses outils locaux ont été arrêtés. Envoyez un message pour reprendre.")
 					err = nil
 				}
 				return
@@ -329,7 +329,7 @@ func (d *agentDaemon) codexConversationTurn(run *controlledRun, prompt string) {
 				}
 				d.queue.mu.Unlock()
 				if !ended {
-					conversationWrite(run.trace, "error", "The message could not join Codex's answer", err.Error())
+					conversationWrite(run.trace, "error", "Le message n’a pas pu rejoindre la réponse de Codex", err.Error())
 				}
 				continue
 			}
@@ -343,7 +343,7 @@ func (d *agentDaemon) codexConversationTurn(run *controlledRun, prompt string) {
 				c.busy = false
 				c.partial = ""
 				d.queue.mu.Unlock()
-				conversationWrite(run.trace, "error", "Codex could not start this answer", startErr.Error())
+				conversationWrite(run.trace, "error", "Codex n’a pas pu démarrer cette réponse", startErr.Error())
 			}
 		}
 	}
@@ -406,7 +406,7 @@ func (d *agentDaemon) startCodexTurn(run *controlledRun, state *codexConversatio
 	reviewer := d.workstationCodexReviewer()
 	folders, _, err := d.conversationFolders(run.desktop.ProjectID, run.desktop.Directory)
 	if err != nil {
-		conversationWrite(run.trace, "notice", "Attached folders could not be read for this message", err.Error())
+		conversationWrite(run.trace, "notice", "Les dossiers joints n’ont pas pu être lus pour ce message", err.Error())
 	}
 	d.queue.mu.Lock()
 	c := run.conversation
@@ -472,15 +472,15 @@ func (d *agentDaemon) endCodexConversation(run *controlledRun, state *codexConve
 	c.approvals = nil
 	markApprovalWaitLocked(run)
 	if len(c.next) > 0 {
-		conversationWrite(run.trace, "notice", "Unsent messages were not retried", "Send them again to resume the conversation.")
+		conversationWrite(run.trace, "notice", "Les messages non envoyés n’ont pas été relancés", "Envoyez-les de nouveau pour poursuivre la conversation.")
 		c.next = nil
 	}
 	if run.canceled {
 		run.desktop.Status = conversationStoppedStatus(run)
 		if !run.resumeAfterShutdown || run.pausedTurnOnShutdown {
-			notice := "Conversation stopped"
+			notice := "Conversation arrêtée"
 			if run.resumeAfterShutdown {
-				notice = "Conversation paused for agent restart"
+				notice = "Conversation suspendue pour le redémarrage de l’agent"
 			}
 			conversationWrite(run.trace, "notice", notice, "")
 		}
@@ -540,7 +540,7 @@ func (d *agentDaemon) codexNotification(run *controlledRun, state *codexConversa
 		approval, ok := codexApproval(frame)
 		if !ok {
 			_ = state.rpc.input.send(map[string]any{"id": frame.ID, "error": map[string]any{"code": -32601, "message": "Sectile does not support this Codex request"}})
-			conversationWrite(run.trace, "notice", "Codex requested an unsupported interaction", frame.Method)
+			conversationWrite(run.trace, "notice", "Codex a demandé une interaction non prise en charge", frame.Method)
 			return
 		}
 		c.approvals = append(c.approvals, approval)
@@ -568,9 +568,9 @@ func (d *agentDaemon) codexNotification(run *controlledRun, state *codexConversa
 		if params.Turn.Error != nil {
 			conversationWrite(run.trace, "error", params.Turn.Error.Message, "")
 		} else if params.Turn.Status == "interrupted" {
-			conversationWrite(run.trace, "notice", "Interrupted", "Codex stopped this answer. Send a message to continue.")
+			conversationWrite(run.trace, "notice", "Interrompu", "Codex a arrêté cette réponse. Envoyez un message pour poursuivre.")
 		} else if params.Turn.Status == "completed" {
-			conversationWrite(run.trace, "notice", "Ready for your next message", "")
+			conversationWrite(run.trace, "notice", "Prêt pour votre prochain message", "")
 		}
 		c.interrupted = false
 	case "item/agentMessage/delta", "item/plan/delta":
