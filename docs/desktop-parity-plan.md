@@ -112,3 +112,26 @@ configuration; no tabs or additional runtime dependencies were added.
   changed by these UI checks.
 - Main JavaScript entry is approximately 299 KB (90 KB gzip); terminal and Markdown
   payloads remain separately loaded. This preserves the lightweight controller.
+
+## Visual convergence follow-up
+
+The feature lots above are implemented, but this does not mean the Electron
+experience has been visually reproduced. A live comparison on 2026-10-29 showed
+Electron on its Activities & Execution Queue and Tauri on a project execution
+view with no local runs. Both windows were healthy and connected. The comparison
+is useful for shell and navigation, not for comparing populated activity data.
+
+Electron's sidebar exposes Views, workflow stages with counts, source filters,
+project groupings and team workload. Tauri currently exposes a project list and
+an execution-focused project view. Its empty state leaves most of the central
+surface unused, while Electron keeps its activity summary, filters and run card
+visible. The Tauri screenshot also shows a larger-feeling title/header area and
+more prominent project controls; these observations should be checked at matched
+window sizes before changing layout values.
+
+Before visual convergence work, capture both apps at the same window size and
+theme, with equivalent populated activity and project states. Then review the
+sidebar hierarchy, typography, spacing, header density, empty states and
+execution-card treatment. Preserve Tauri's native setup and lightweight local
+runtime; do not reintroduce tabs. Treat this as the next UX phase after the
+remaining Local/Fleet and Electron compatibility qualification is closed.
