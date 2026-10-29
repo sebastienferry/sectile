@@ -16,6 +16,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Local projects without trackers now show a prompt-ready empty state instead of tracker filters and read-only tracker status; the duplicate prompt button has been removed.
+
 - The connection status distinguishes the Fleet backend from the locally running agent.
 
 - Simplified project configuration to show the working directory and default conversation profile first, with profile management and advanced settings in collapsible sections that retain drafts.

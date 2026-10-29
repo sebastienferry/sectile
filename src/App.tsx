@@ -354,8 +354,9 @@ function ProjectPane({
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
   const [grouping,setGrouping] = useState("tracker");
-  const [context,setContext] = useState<ProjectContext>();
-  useEffect(()=>{let current=true;void projectContext(selection.projectId).then(data=>{if(current)setContext(data);}).catch(()=>{});return()=>{current=false;};},[selection.projectId]);
+  const [contextState,setContextState] = useState<{projectId:string;value:ProjectContext}>();
+  const context = contextState?.projectId === selection.projectId ? contextState.value : undefined;
+  useEffect(()=>{let current=true;void projectContext(selection.projectId).then(data=>{if(current)setContextState({projectId:selection.projectId,value:data});}).catch(()=>{});return()=>{current=false;};},[selection.projectId]);
   const [selectedRun, setSelectedRun] = useState(selection.runId ?? "");
   const request = useRef(0);
   async function refresh() {
@@ -376,6 +377,14 @@ function ProjectPane({
     return () => { request.current++; };
   }, [selection.projectId, selection.view]);
   const remoteColumns = trackerColumns(tasks, query);
+  const hasRemoteTasks = trackerColumns(tasks).some(column => column.tasks.length > 0);
+  const localOnlyProject = Boolean(
+    context?.board &&
+    (context.board.trackers?.length ?? 0) === 0 &&
+    !hasRemoteTasks &&
+    !error &&
+    !busy,
+  );
   const visibleTasks = remoteColumns.flatMap(column=>column.tasks);
   const columns = grouping === "stage" ? [...stages.map(stage=>({name:stageLabels[stage],tasks:visibleTasks.filter(task=>taskStage(task,context?.board)===stage)})),...(visibleTasks.some(task=>!taskStage(task,context?.board))?[{name:"Étape inconnue",tasks:visibleTasks.filter(task=>!taskStage(task,context?.board))}]:[])] : remoteColumns;
   const count = columns.reduce((n, c) => n + c.tasks.length, 0);
@@ -423,7 +432,7 @@ function ProjectPane({
       )}
       {selection.view === "project-settings" ? <ProjectProfiles key={selection.projectId} projectId={selection.projectId} after={<section className="project-advanced" aria-label="Options avancées du projet"><h2>Options avancées</h2><details className="additional-folder-settings"><summary>Dossiers supplémentaires<small>Contexte partagé entre les conversations du projet</small></summary><AttachedFolderSettings projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/></details><AdvancedFolders projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/><WorkflowSettings projectId={selection.projectId}/><OrchestrationSettings projectId={selection.projectId} onSupervise={()=>{if(project)navigate(project,"orchestration");}}/></section>}>{project && <ProjectFolderSetup variant="settings" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}</ProjectProfiles> : selection.view === "task" && selection.taskId ? <Suspense fallback={<p>Ouverture du workflow…</p>}><WorkflowTask projectId={selection.projectId} taskId={selection.taskId} onBack={()=>{if(project)navigate(project,"board");}} onSetup={()=>{if(project)navigate(project,"settings");}}/></Suspense> : selection.view === "board" ? (
         <div className="board-workspace">
-          <div className="board-toolbar">
+          {!localOnlyProject && <div className="board-toolbar">
             <label className="search">
               <Icon name="search" />
               <input
@@ -436,7 +445,7 @@ function ProjectPane({
             <label>Regrouper<select aria-label="Regrouper les tickets" value={grouping} onChange={e=>setGrouping(e.target.value)}><option value="tracker">Par statut tracker</option><option value="stage">Par étape du workflow</option></select></label>
             <span className="badge">{count} tickets</span>
             <span className="muted">Statuts du tracker · lecture seule</span>
-          </div>
+          </div>}
           {busy && (
             <p className="hint" role="status">
               Actualisation des tickets…
@@ -481,9 +490,8 @@ function ProjectPane({
           {!busy && !error && !count && (
             <div className="empty">
               <Icon name="board" />
-              <h2>{project?.path && !query ? "Votre projet, prêt à démarrer" : "Aucun ticket distant"}</h2>
-              <p>{project?.path && !query ? "Posez une question, explorez le code ou lancez une tâche dans votre dossier local." : "Essayez une autre recherche ou vérifiez la synchronisation du projet."}</p>
-              {project && !query && <button className="primary" onClick={()=>navigate(project,"prompt")}><Icon name="chat" />Commencer une conversation</button>}
+              <h2>{localOnlyProject ? project?.path ? "Votre projet local est prêt" : "Aucune source de tickets configurée" : project?.path && !query ? "Votre projet, prêt à démarrer" : "Aucun ticket distant"}</h2>
+              <p>{localOnlyProject ? project?.path ? "Aucun tracker n’est associé. Lancez un prompt pour travailler dans votre dossier local." : "Associez un dossier local au projet pour lancer un prompt." : project?.path && !query ? "Posez une question, explorez le code ou lancez une tâche dans votre dossier local." : "Essayez une autre recherche ou vérifiez la synchronisation du projet."}</p>
             </div>
           )}
         </div>
