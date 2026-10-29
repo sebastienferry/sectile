@@ -13,6 +13,7 @@ func TestRuntimeDependencyBoundaries(t *testing.T) {
 	}{
 		{"../agent", []string{"tasks/internal/db", "tasks/internal/handlers", "tasks/internal/webui", "modernc.org/sqlite"}},
 		{"../server", []string{"tasks/internal/runner", "tasks/internal/workspace", "tasks/internal/terminal"}},
+		{"../../internal/backend", []string{"tasks/internal/agent", "tasks/internal/webui", "tasks/internal/runner", "tasks/internal/workspace", "tasks/internal/terminal"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.command, func(t *testing.T) {

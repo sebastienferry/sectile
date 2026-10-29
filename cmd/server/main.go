@@ -18,11 +18,10 @@ import (
 	"time"
 
 	"tasks/internal/auth"
+	"tasks/internal/backend"
 	"tasks/internal/db"
 	"tasks/internal/handlers"
-	"tasks/internal/httpgzip"
 	"tasks/internal/localruntime"
-	"tasks/internal/metrics"
 	"tasks/internal/trackerapi"
 	"tasks/internal/version"
 	"tasks/internal/webui"
@@ -164,16 +163,21 @@ func alreadyServing(baseURL string) bool {
 }
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	if len(os.Args) == 2 && os.Args[1] == "--local-runtime-info" {
 		_ = json.NewEncoder(os.Stdout).Encode(localruntime.Info())
-		return
+		return nil
 	}
 	// .env.local last: it overrides nothing already exported, but is the usual
 	// place for a machine-specific secret.
-	// Le répertoire courant d'abord, pour la boucle de développement, puis le
-	// dossier de données : une application lancée depuis n'importe où n'a pas de
-	// répertoire courant qui lui appartienne. La première valeur trouvée gagne,
-	// donc un développeur garde la main depuis son dépôt.
+	// Search the working directory first for development, then the application
+	// data directory for launches from arbitrary locations. The first value
+	// found wins, so a developer can override it from the checkout.
 	loadDotEnv(".env", ".env.local", filepath.Join(appDataDir(), ".env"))
 	for _, warning := range trackerapi.RemovedTokenVariableWarnings(os.Getenv) {
 		log.Printf("⚠️  %s", warning)
@@ -194,7 +198,7 @@ func main() {
 	if len(os.Args) > 1 {
 		if isVersionArgument(os.Args[1]) {
 			fmt.Println("sectile-server " + version.String())
-			return
+			return nil
 		}
 		log.Fatal("sectile-server accepts configuration through environment variables; use sectile-agent for local execution and MCP")
 	}
@@ -212,25 +216,6 @@ func main() {
 		log.Fatalf("Database configuration: %v", err)
 	}
 
-	// A PostgreSQL configuration that cannot open must stop the server rather
-	// than fall back to SQLite. Falling back would serve an empty board out of
-	// an unexpected store, which reads as data loss to whoever is looking at it.
-	database, err := db.Open(dbConfig)
-	if err != nil {
-		log.Fatalf("Fatal database error: %v", err)
-	}
-	defer database.Close()
-
-	// Where the other instances reach this one's internal endpoints, when the
-	// store can be shared. See internal/db/presence.go.
-	internalPort := internalPortFromEnv(osGetenv)
-	if database.Shared() {
-		database.SetInstanceAddress(internalURL(osGetenv, internalPort))
-	}
-
-	// This process is one serving instance among those that may share the
-	// database: it keeps its row fresh and reclaims the work of instances that
-	// went away. See internal/db/instances.go.
 	if err := applyInstanceTiming(osGetenv); err != nil {
 		log.Fatalf("Configuration: %v", err)
 	}
@@ -238,171 +223,52 @@ func main() {
 	if err != nil {
 		log.Fatalf("Configuration: %v", err)
 	}
-	stopInstance, err := database.StartInstance()
-	if err != nil {
-		log.Fatalf("Fatal database error: %v", err)
-	}
-	log.Printf("   instance : %s", database.InstanceID())
-	// Live updates and cancellations made through another instance reach this
-	// one's browsers and jobs. See internal/db/bus.go.
-	if _, err := database.StartEventBus(); err != nil {
-		log.Fatalf("Fatal database error: %v", err)
+
+	// A declared identity provider must be reachable before the backend starts.
+	var provider *auth.Provider
+	if auth.Configured() {
+		provider, err = auth.Discover(context.Background())
+		if err != nil {
+			log.Fatalf("Identity provider: %v", err)
+		}
+		log.Printf("🔐 Sign-in enabled through %s", provider.Issuer())
 	}
 
-	h := handlers.NewHandler(database)
+	internalPort := internalPortFromEnv(osGetenv)
+	instanceAddress := ""
+	if dbConfig.Driver == db.DriverPostgres {
+		instanceAddress = internalURL(osGetenv, internalPort)
+	}
+	// An unavailable PostgreSQL store must fail rather than fall back to an
+	// empty SQLite board. Local store ownership will precede Open in phase 2.
+	runtime, err := backend.Open(backend.Config{
+		Database:         dbConfig,
+		DataDir:          appDataDir(),
+		InstanceAddress:  instanceAddress,
+		IdentityProvider: provider,
+	})
+	if err != nil {
+		log.Fatalf("Fatal backend error: %v", err)
+	}
+	defer runtime.Close()
+	database := runtime.Database
+	h := runtime.Handler
+	log.Printf("   instance : %s", database.InstanceID())
 	if database.Shared() {
 		startInternalListener(h, internalPort)
 	}
-	h.SetDataDir(appDataDir())
-	h.SetPullOnConnect(true)
 	if os.Getenv("SECTILE_SERVER_TOKEN") != "" {
 		log.Printf("⚠️  %s", handlers.SharedServerTokenWarning)
 	}
 
-	// A declared provider that cannot be reached is a configuration error:
-	// starting without it would silently serve the interface to everyone.
-	if auth.Configured() {
-		provider, err := auth.Discover(context.Background())
-		if err != nil {
-			log.Fatalf("Identity provider: %v", err)
-		}
-		h.SetIdentityProvider(provider)
-		log.Printf("🔐 Sign-in enabled through %s", provider.Issuer())
-	}
-
-	// Pull active running/queued tasks from any available local agent on startup.
-	h.TryPullLocalAgentTasks()
-
-	// Boucle de synchronisation de fond. Elle ne fait rien tant que le réglage
-	// est éteint, et ne lit ensuite que ce qui a changé depuis sa passe
-	// précédente.
-	database.StartAutoSync()
-
 	mux := http.NewServeMux()
 
-	// API Routes
-	mux.HandleFunc(handlers.HealthPath, h.HandleHealth)
-	mux.HandleFunc(handlers.ReadyPath, h.HandleReady)
-	mux.HandleFunc(handlers.VersionPath, h.HandleVersion)
-	mux.HandleFunc(handlers.ChangelogPath, h.HandleChangelog)
-	mux.HandleFunc("/api/cli-status", h.HandleCliStatus)
-	mux.HandleFunc("/api/git-status", h.HandleGitStatus)
-	mux.HandleFunc("/api/git/status", h.HandleGitStatus)
-	mux.HandleFunc("/api/git/branches", h.HandleGitBranches)
-	mux.HandleFunc("/api/git-branches", h.HandleGitBranches)
-	mux.HandleFunc("/api/git/branches/clean", h.HandleGitCleanBranches)
-	mux.HandleFunc("/api/git/branches/delete", h.HandleGitDeleteBranch)
-	mux.HandleFunc("/api/git/checkout", h.HandleGitCheckout)
-	mux.HandleFunc("/api/git-checkout", h.HandleGitCheckout)
-	mux.HandleFunc("/api/sync/all", h.HandleSyncAll)
-	mux.HandleFunc("/api/sync/github", h.HandleSyncGithub)
-	mux.HandleFunc("/api/sync/jira", h.HandleSyncJira)
-	mux.HandleFunc("/api/sync/gitlab", h.HandleSyncGitlab)
-	mux.HandleFunc("/api/sync/auto", h.HandleAutoSyncStatus)
-	mux.HandleFunc("/api/setup/tracker", h.HandleTrackerSetup)
-	mux.HandleFunc("/api/setup/tracker/check", h.HandleTrackerSetup)
-	mux.HandleFunc("/api/skills", h.HandleSkills)
-	mux.HandleFunc("/api/spec-framework/status", h.HandleSpecFrameworkStatus)
-	mux.HandleFunc("/api/spec-framework/install", h.HandleSpecFrameworkInstall)
-	mux.HandleFunc("/api/projects", h.HandleProjects)
-	mux.HandleFunc("/api/projects/", h.HandleProjectDetail)
-	mux.HandleFunc("/api/tasks", h.HandleTasks)
-	mux.HandleFunc("/api/tasks/stage", h.HandleTasks)
-	mux.HandleFunc("/api/tasks/transition", h.HandleTasks)
-	mux.HandleFunc("/api/tasks/postback", h.HandleTaskPostBack)
-	mux.HandleFunc("/api/events", h.HandleEventsSSE)
-	mux.HandleFunc("/api/events/sse", h.HandleEventsSSE)
-	mux.HandleFunc("/api/tasks/facets", h.HandleTaskFacets)
-	mux.HandleFunc("/api/teams", h.HandleTeams)
-	mux.HandleFunc("/api/teams/", h.HandleTeams)
-	mux.HandleFunc("/api/tasks/pins", h.HandleTaskPins)
-	mux.HandleFunc("/api/tasks/", h.HandleTaskDetail)
-	mux.HandleFunc("/api/activities", h.HandleActivities)
-	mux.HandleFunc("/api/activities/", h.HandleActivityDetail)
-	mux.HandleFunc("/api/settings", h.HandleSettings)
-	mux.HandleFunc("/api/open-editor", h.HandleOpenEditor)
-	mux.HandleFunc("/api/editor/open", h.HandleOpenEditor)
-	mux.HandleFunc("/api/open-terminal", h.HandleOpenExternalTerminal)
-	mux.HandleFunc("/api/terminal/external", h.HandleOpenExternalTerminal)
+	backend.RegisterRoutes(mux, h)
 
-	// Interactive PTY Terminal Routes & WebSocket
-	mux.HandleFunc("/ws/terminal", h.HandleTerminalWs)
-	mux.HandleFunc("/api/terminal/sessions", h.HandleTerminalSessions)
-	mux.HandleFunc("/api/terminal/send", h.HandleTerminalSend)
-	mux.HandleFunc("/api/terminal/reset", h.HandleTerminalReset)
-
-	// Sign-in routes exist only when a provider is configured; the interface
-	// asks /api/me which of the two modes it is in.
-	mux.HandleFunc("/auth/login", h.HandleLogin)
-	mux.HandleFunc("/auth/callback", h.HandleAuthCallback)
-	mux.HandleFunc(handlers.DesktopOAuthPath, h.HandleDesktopOAuth)
-	mux.HandleFunc(handlers.DesktopOAuthStartPath, h.HandleDesktopOAuthStart)
-	mux.HandleFunc(handlers.JiraOAuthCallbackPath, h.HandleJiraOAuthCallback)
-	mux.HandleFunc(handlers.GithubOAuthCallbackPath, h.HandleGithubOAuthCallback)
-	mux.HandleFunc(handlers.GitlabOAuthCallbackPath, h.HandleGitlabOAuthCallback)
-	mux.HandleFunc("/auth/logout", h.HandleLogout)
-	// Local sign-in exists only without a provider: an e-mail, no password, the
-	// temporary mode of a team that has not connected its identity provider yet.
-	mux.HandleFunc("/auth/local", h.HandleLocalSignIn)
-	// Desktop and `sectile-agent pair` sign in through the browser: a session hands a pairing code to a loopback port (#717).
-	mux.HandleFunc("/auth/workstation", h.HandleWorkstationSignIn)
-	mux.HandleFunc("/api/me", h.HandleCurrentUser)
-	mux.HandleFunc("/api/me/tracker-credentials", h.HandleUserTrackerCredentials)
-	mux.HandleFunc("/api/me/tracker-credentials/", h.HandleUserTrackerCredentials)
-	mux.HandleFunc("/api/me/assignee-identities", h.HandleAssigneeIdentities)
-	mux.HandleFunc("/api/me/project-bookmarks", h.HandleUserProjectBookmarks)
-	mux.HandleFunc("/api/me/project-bookmarks/", h.HandleUserProjectBookmarks)
-	mux.HandleFunc("/api/me/board-views", h.HandleBoardViews)
-	mux.HandleFunc("/api/me/board-views/", h.HandleBoardViews)
-	// The admin's users view: list accounts and change roles.
-	mux.HandleFunc("/api/users", h.HandleUsers)
-	mux.HandleFunc("/api/users/", h.HandleUsers)
-	mux.HandleFunc(handlers.AdminStatsPath, h.HandleAdminStats)
-	// The server credential of each tracker provider, an admin's to set.
-	mux.HandleFunc(handlers.ServerTrackerCredentialsPath, h.HandleServerTrackerCredentials)
-	mux.HandleFunc(handlers.ServerTrackerCredentialsPath+"/", h.HandleServerTrackerCredentials)
-	// Trackers are configured by an admin, picked and synchronised by members
-	// (#741).
-	mux.HandleFunc(handlers.AdminTrackersPath, h.HandleAdminTrackers)
-	mux.HandleFunc(handlers.AdminTrackersPath+"/", h.HandleAdminTrackers)
-	mux.HandleFunc(handlers.TrackersPath, h.HandleTrackers)
-	mux.HandleFunc(handlers.TrackersPath+"/", h.HandleTrackers)
-	mux.HandleFunc(handlers.JiraOAuthAppPath, h.HandleJiraOAuthApp)
-	mux.HandleFunc(handlers.GithubOAuthAppPath, h.HandleGithubOAuthApp)
-	mux.HandleFunc(handlers.GitlabOAuthAppPath, h.HandleGitlabOAuthApp)
-
-	// Prometheus metrics. Outside /api/, so the session guard leaves them
-	// public; registered before the interface's catch-all.
-	build := version.Current()
-	serverMetrics := metrics.New(database, db.ActiveUserWindow, metrics.Build{Version: build.Version, Commit: build.Commit})
-	mux.Handle(metrics.Path, serverMetrics.Handler())
-
-	mux.Handle("/mcp", h.MCPHandler())
-	mux.HandleFunc("/api/mcp/sessions", h.HandleMCPSessions)
-	// Pairing binds one workstation to one user; the code is the only
-	// unauthenticated credential, and it is single use and short lived.
-	mux.HandleFunc("/api/pairing-codes", h.HandlePairingCode)
-	mux.HandleFunc("/api/devices", h.HandleDeviceCredentials)
-	mux.HandleFunc("/api/v1/devices", h.HandleDeviceCredentials)
-	mux.HandleFunc("/api/v1/agent/pair", h.HandleAgentPair)
-	mux.Handle("/api/v1/agent/identity", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentIdentity)))
-	mux.Handle("/api/v1/agent/config", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentConfig)))
-	mux.Handle("/api/v1/agent/projects", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentProjects)))
-	mux.Handle("/api/v1/agent/execution-seed", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentExecutionSeed)))
-	mux.Handle("/api/v1/agent/capabilities", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentCapabilities)))
-	mux.Handle("/api/v1/agent/run-output", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentRunOutput)))
-
-	// Remote Agent WebSocket & Dispatch Routes
-	mux.HandleFunc("/ws/agent-connect", h.HandleAgentConnect)
-	mux.HandleFunc("/api/agent/status", h.HandleAgentStatus)
-	mux.HandleFunc("/api/agent/dispatch", h.HandleAgentDispatch)
-	mux.HandleFunc("/api/agent/pull", h.HandleAgentPull)
-
-	// Interface : la copie embarquée d'abord, le dossier de build ensuite.
+	// Serve embedded website assets first, then the development build directory.
 	//
-	// L'embarqué est ce qui fait tenir l'application dans un fichier. Le repli
-	// disque sert la boucle de développement, où l'on rebuild le front sans
-	// recompiler le serveur.
+	// Embedded assets keep the server self-contained. The disk fallback allows
+	// frontend rebuilds without recompiling the server during development.
 	uiFS, uiEmbedded := webui.FS()
 	webDistDir := "./internal/webui/dist"
 	if !uiEmbedded {
@@ -436,7 +302,7 @@ func main() {
 				name = "index.html"
 			}
 			if _, err := fs.Stat(uiFS, name); err != nil {
-				// Route de l'application : c'est index.html qui la résout.
+				// Let index.html resolve website application routes.
 				index, err := fs.ReadFile(uiFS, "index.html")
 				if err != nil {
 					http.Error(w, "interface indisponible", http.StatusInternalServerError)
@@ -475,13 +341,13 @@ func main() {
 	// just inside it, so every answer, the refusals included, leaves compressed
 	// for a client that accepts it.
 
-	handlerWithCORS := serverMetrics.Instrument(httpgzip.Handler(h.EnableCORS(h.RequireSession(mux))), routeOf(mux))
+	handlerWithCORS := backend.WrapHTTP(mux, h, database)
 
 	handlerWithCORS = localRuntimeProbe(handlerWithCORS, os.Getenv("SECTILE_LOCAL_RUNTIME_KEY"))
 
 	addr, err := listenAddress(os.Getenv("SECTILE_SERVER_HOST"), port)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	urlHost := os.Getenv("SECTILE_SERVER_HOST")
 	if urlHost == "" {
@@ -493,9 +359,9 @@ func main() {
 	if err != nil {
 		if alreadyServing(url) {
 			log.Printf("Sectile is already running at %s.", url)
-			return
+			return nil
 		}
-		log.Fatalf("Port %s indisponible et occupé par autre chose que Sectile: %v", addr, err)
+		return fmt.Errorf("Port %s indisponible et occupé par autre chose que Sectile: %w", addr, err)
 	}
 
 	log.Printf("🚀 Sectile Server listening on %s", url)
@@ -510,9 +376,13 @@ func main() {
 	go func() { served <- server.Serve(listener) }()
 	select {
 	case err := <-served:
-		log.Fatalf("Server failed: %v", err)
+		h.BeginDrain()
+		h.CloseAgentConnections()
+		_ = server.Close()
+		return fmt.Errorf("Server failed: %w", err)
 	case <-stopping.Done():
 		stopSignals()
-		drain(h, stopInstance, server, shutdownGrace)
+		drain(h, runtime.StopInstance, server, shutdownGrace)
 	}
+	return nil
 }

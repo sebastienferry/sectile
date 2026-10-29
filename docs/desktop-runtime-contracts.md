@@ -1,7 +1,7 @@
 # Local/Fleet runtime contracts: phase 0
 
 Date: 2026-10-29
-Status: design baseline for the approved extraction; implementation pending.
+Status: approved design baseline; phase 1 backend extraction implemented, later phases pending.
 
 ## Approved scope and ownership
 
@@ -257,8 +257,22 @@ secret is not a postcommit rollback mechanism.
 
 ## Phase boundaries
 
-Phase 0 records these contracts and a reproducible prototype baseline. It does
-not claim these structures or guarantees are implemented. Phase 1 extracts backend
-assembly with the standalone server as its first consumer. Lifecycle work and
-fresh-data composition precede migration of the current installation. Independent
-plan review findings remain implementation acceptance gates, not completed tests.
+Phase 0 records these contracts and a reproducible prototype baseline. Phase 1
+extracts API/MCP/auth route registration, middleware, metrics and database/handler
+assembly into `internal/backend`, with the standalone server as its first caller.
+The server command still owns deployment configuration, web assets, listeners and
+signals. The backend runtime has a close path and cleans up partial open failures;
+the complete stop/join and exclusive Local store ownership contract remains phase
+2 work. No combined executable, connection identity or migration is implemented
+by phase 1. Independent plan review findings remain acceptance gates, not
+completed tests.
+
+Phase 1 verification: `go test` passed for `cmd/server`, `internal/backend`,
+`internal/taskmcp` and `internal/agentmcp`; a built server started on disposable
+SQLite, passed readiness and local sign-in, served an authenticated project read,
+and rejected unauthenticated MCP with HTTP 401. The wider Go run passed its other
+selected packages but `internal/handlers` reproduced the previously observed
+`TestTryPullLocalAgentTasks` temporary-directory cleanup race; that test passes
+in isolation. `DB.Close` currently drains counted jobs without joining all queue
+and auto-sync workers, so phase 2 must close this lifecycle gap before treating
+the complete suite as a clean acceptance result.
