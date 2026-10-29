@@ -221,6 +221,11 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	connectionID, err := desktopConnectionID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	id := r.URL.Query().Get("id")
 	// A conversation created here starts in the workstation default mode,
 	// read before the queue lock is taken.
@@ -241,6 +246,9 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		Interrupt bool `json:"interrupt"`
 		// CheckMCP checks again whether Claude reaches Sectile's MCP server.
 		CheckMCP bool `json:"checkMcp"`
+		// AdoptConnection explicitly binds a legacy history to this desktop's
+		// selected runtime before allowing it to resume.
+		AdoptConnection bool `json:"adoptConnection"`
 		// Approval answers a tool call the turn is waiting on.
 		Approval *struct {
 			ID       string            `json:"id"`
@@ -262,6 +270,10 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 			http.Error(w, "Select an execution with a local directory", http.StatusNotFound)
 			return
 		}
+		if connectionID != "" && source.desktop.ConnectionID != "" && source.desktop.ConnectionID != connectionID {
+			http.Error(w, "Cette exécution appartient à une autre connexion du desktop.", http.StatusNotFound)
+			return
+		}
 		model := ""
 		if source.desktop.Provider == "claude" || source.desktop.Provider == "codex" || source.desktop.Provider == "agy" {
 			model = source.desktop.Model
@@ -275,6 +287,8 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 			return
 		}
 		run.desktop.Branch = source.desktop.Branch
+		run.desktop.ConnectionID = connectionID
+		d.updateConversationJournalLocked(run)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		_ = json.NewEncoder(w).Encode(run.desktop)
@@ -285,9 +299,15 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Conversation not found", http.StatusNotFound)
 		return
 	}
+	if connectionID != "" && run.desktop.ConnectionID != "" && run.desktop.ConnectionID != connectionID {
+		http.Error(w, "Cette conversation appartient à une autre connexion du desktop.", http.StatusNotFound)
+		return
+	}
 	if r.Method == http.MethodGet {
 		lines, version := run.trace.snapshot()
-		response := map[string]any{"provider": run.desktop.Provider, "id": id, "version": version, "busy": false, "readOnly": run.restored || run.canceled || run.conversation == nil, "title": run.desktop.Title, "canRename": run.desktop.TaskID == "" && d.store != nil}
+		unboundConnection := connectionID != "" && run.desktop.ConnectionID == ""
+		persistenceFailed := run.journal.err() != nil
+		response := map[string]any{"provider": run.desktop.Provider, "id": id, "version": version, "busy": false, "readOnly": run.restored || run.canceled || run.conversation == nil || unboundConnection || persistenceFailed, "title": run.desktop.Title, "canRename": run.desktop.TaskID == "" && d.store != nil, "connectionId": run.desktop.ConnectionID, "canAdoptConnection": unboundConnection && !persistenceFailed && !run.canceled && run.desktop.TaskID == "" && run.conversation != nil && d.store != nil}
 		if run.journal.err() != nil {
 			response["persistenceError"] = "La sauvegarde locale est indisponible. Les dernières sorties risquent d’être perdues."
 		}
@@ -324,6 +344,32 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(response)
+		return
+	}
+	if connectionID != "" && run.desktop.ConnectionID == "" {
+		if !input.AdoptConnection || run.canceled || run.desktop.TaskID != "" || run.conversation == nil || d.store == nil || run.journal.err() != nil {
+			http.Error(w, "Associez d’abord cet historique à la connexion sélectionnée.", http.StatusConflict)
+			return
+		}
+		run.desktop.ConnectionID = connectionID
+		d.updateConversationJournalLocked(run)
+		if run.journal == nil {
+			run.desktop.ConnectionID = ""
+			http.Error(w, "Impossible d’enregistrer l’identité de cette conversation.", http.StatusInternalServerError)
+			return
+		}
+		run.journal.checkpoint()
+		if err := run.journal.err(); err != nil {
+			http.Error(w, "Impossible d’enregistrer l’identité de cette conversation.", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]bool{"accepted": true})
+		return
+	}
+	if input.AdoptConnection {
+		http.Error(w, "Cette conversation est déjà associée à une autre connexion.", http.StatusConflict)
 		return
 	}
 	if input.CheckMCP {

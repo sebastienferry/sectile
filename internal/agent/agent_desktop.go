@@ -82,13 +82,16 @@ func fileSha256(path string) string {
 }
 
 type desktopRun struct {
-	Conversation    bool      `json:"conversation,omitempty"`
-	EngineID        string    `json:"engineId,omitempty"`
-	EngineName      string    `json:"engineName,omitempty"`
-	Branch          string    `json:"branch,omitempty"`
-	Kind            string    `json:"kind,omitempty"`
-	Provider        string    `json:"provider,omitempty"`
-	Model           string    `json:"model,omitempty"`
+	Conversation bool   `json:"conversation,omitempty"`
+	EngineID     string `json:"engineId,omitempty"`
+	EngineName   string `json:"engineName,omitempty"`
+	Branch       string `json:"branch,omitempty"`
+	Kind         string `json:"kind,omitempty"`
+	Provider     string `json:"provider,omitempty"`
+	Model        string `json:"model,omitempty"`
+	// ConnectionID binds a desktop conversation to the selected Local or Fleet
+	// runtime. It is an opaque identifier, never a credential.
+	ConnectionID    string    `json:"connectionId,omitempty"`
 	CancelRequested bool      `json:"cancelRequested,omitempty"`
 	QueueSequence   uint64    `json:"queueSequence,omitempty"`
 	CreatedAt       time.Time `json:"createdAt"`

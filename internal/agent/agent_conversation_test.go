@@ -27,6 +27,83 @@ func conversationRequest(d *agentDaemon, method, path, body, token string) *http
 	return w
 }
 
+func conversationRequestForConnection(d *agentDaemon, method, path, body, token, connectionID string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.Header.Set("Authorization", "Bearer "+token)
+	r.Header.Set("X-Sectile-Connection-ID", connectionID)
+	w := httptest.NewRecorder()
+	d.desktopHandler(w, r)
+	return w
+}
+
+func TestConversationConnectionIdentityScopesResumeButKeepsLegacyClientsCompatible(t *testing.T) {
+	d, id := conversationFixture(t)
+	const selected = "11111111-1111-4111-8111-111111111111"
+	const other = "22222222-2222-4222-8222-222222222222"
+	d.queue.mu.Lock()
+	d.queue.runs[id].desktop.ConnectionID = selected
+	d.updateConversationJournalLocked(d.queue.runs[id])
+	d.queue.mu.Unlock()
+
+	if got := conversationRequestForConnection(d, "GET", "/desktop/conversation?id="+id, "", "private", other); got.Code != http.StatusNotFound {
+		t.Fatalf("another connection read the conversation: %d %s", got.Code, got.Body.String())
+	}
+	if got := conversationRequestForConnection(d, "POST", "/desktop/conversation?id="+id, `{"message":"resume"}`, "private", other); got.Code != http.StatusNotFound {
+		t.Fatalf("another connection resumed the conversation: %d %s", got.Code, got.Body.String())
+	}
+	if got := conversationRequestForConnection(d, "GET", "/desktop/conversation?id="+id, "", "private", selected); got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"connectionId":"`+selected+`"`) {
+		t.Fatalf("selected connection could not read its conversation identity: %d %s", got.Code, got.Body.String())
+	}
+	if got := conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private"); got.Code != http.StatusOK {
+		t.Fatalf("legacy client lost access to an existing conversation: %d %s", got.Code, got.Body.String())
+	}
+}
+
+func TestUnboundConversationIsReadableButNeedsExplicitConnectionAdoptionToResume(t *testing.T) {
+	d, id := conversationFixture(t)
+	const selected = "11111111-1111-4111-8111-111111111111"
+	d.store = testRunStore(t)
+	d.queue.mu.Lock()
+	d.queue.runs[id].conversation.session = "provider-session"
+	d.updateConversationJournalLocked(d.queue.runs[id])
+	d.queue.mu.Unlock()
+	read := conversationRequestForConnection(d, "GET", "/desktop/conversation?id="+id, "", "private", selected)
+	var snapshot map[string]any
+	if err := json.Unmarshal(read.Body.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if read.Code != http.StatusOK || snapshot["readOnly"] != true || snapshot["canAdoptConnection"] != true {
+		t.Fatalf("legacy conversation state = %d %s", read.Code, read.Body.String())
+	}
+	if got := conversationRequestForConnection(d, "POST", "/desktop/conversation?id="+id, `{"message":"resume"}`, "private", selected); got.Code != http.StatusConflict {
+		t.Fatalf("unbound conversation resumed without adoption: %d %s", got.Code, got.Body.String())
+	}
+	if got := conversationRequestForConnection(d, "POST", "/desktop/conversation?id="+id, `{"adoptConnection":true}`, "private", selected); got.Code != http.StatusAccepted {
+		t.Fatalf("explicit adoption failed: %d %s", got.Code, got.Body.String())
+	}
+	if got := conversationRequestForConnection(d, "GET", "/desktop/conversation?id="+id, "", "private", selected); got.Code != http.StatusOK || !strings.Contains(got.Body.String(), `"connectionId":"`+selected+`"`) {
+		t.Fatalf("adopted conversation did not persist its identity: %d %s", got.Code, got.Body.String())
+	}
+	var saved *storedRun
+	for _, record := range openRunStore(d.store.dir).load() {
+		if record.Run.ID == id {
+			saved = &record
+			break
+		}
+	}
+	if saved == nil || saved.Run.ConnectionID != selected {
+		t.Fatalf("adopted identity was not written to durable history: %#v", saved)
+	}
+}
+
+func TestDesktopConnectionIDRequiresUUID(t *testing.T) {
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("X-Sectile-Connection-ID", "not-an-id")
+	if _, err := desktopConnectionID(r); err == nil {
+		t.Fatal("invalid desktop connection identity was accepted")
+	}
+}
+
 func conversationFixture(t *testing.T) (*agentDaemon, string) {
 	t.Helper()
 	d := &agentDaemon{loopback: loopbackServer{desktopToken: "private"}}

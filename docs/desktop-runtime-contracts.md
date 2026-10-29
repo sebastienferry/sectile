@@ -59,6 +59,13 @@ permitted origin, private data root and credential references. Discovery and run
 snapshots/journals carry this binding. Project IDs and provider session IDs alone
 are insufficient provenance. Credential material is never used as an identifier.
 
+The native Tauri client sends its opaque connection UUID in the authenticated
+loopback header `X-Sectile-Connection-ID`. The agent persists it in new run
+records and conversation journals. Requests from another Tauri connection cannot
+read or resume a bound conversation. An unbound legacy history remains readable;
+Tauri requires an explicit adoption action before resuming it. Clients that omit
+the optional header retain the existing Electron behavior.
+
 ### Authentication and adoption rules
 
 - A claimed `backendId` is an assertion, not proof of identity. Authenticate the

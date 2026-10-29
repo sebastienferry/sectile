@@ -15,6 +15,18 @@ import (
 // consoleRunKind marks a free console run, which holds no background worker capacity.
 const consoleRunKind = "console"
 
+func desktopConnectionID(r *http.Request) (string, error) {
+	value := strings.TrimSpace(r.Header.Get("X-Sectile-Connection-ID"))
+	if value == "" {
+		return "", nil
+	}
+	parsed, err := uuid.Parse(value)
+	if err != nil {
+		return "", fmt.Errorf("Identité de connexion du desktop invalide")
+	}
+	return parsed.String(), nil
+}
+
 // consoleCommand opens a built-in provider without an initial prompt.
 func consoleCommand(provider, model string) (string, error) {
 	switch provider {
@@ -29,6 +41,11 @@ func consoleCommand(provider, model string) (string, error) {
 func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	connectionID, err := desktopConnectionID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	var input struct {
@@ -111,6 +128,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		run.desktop.EngineID, run.desktop.EngineName = engine.ID, engine.Name
+		run.desktop.ConnectionID = connectionID
 		if input.EngineID != "" && engine.ConversationMode != "" {
 			run.conversation.mode = "plan"
 			if engine.ConversationMode == "execute" {
@@ -138,6 +156,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	run.desktop.Kind, run.desktop.Provider = consoleRunKind, provider
+	run.desktop.ConnectionID = connectionID
 	// The engine the console opens decides whether a folder attached from it
 	// is typed in (#689); a template whose provider is Claude counts as Claude.
 	run.interactiveProvider = liveProvider(agentconfig.Config{AIProvider: provider})
