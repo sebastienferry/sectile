@@ -133,9 +133,12 @@ Fleet/Electron compatibility matrix,
 supported versions, other-platform migration and measured process/memory/startup
 and package behavior. The current unsigned optimized macOS `.app` measures
 101.72 MiB. One isolated arm64 macOS cold launch showed its first native window
-at 1.09 seconds and the React setup screen accessible by 3.5 seconds (an upper
-bound from a single manual observation). Repeated startup, signed artifact and
-cross-platform measurements remain open. Do not claim stages 6-8 complete or
+at 1.09 seconds. Three subsequent process relaunches using the same unconfigured
+profile and warm filesystem cache showed 207–245 ms to the first window. The
+React setup screen was manually accessible by about 3.5 seconds on the initial
+launch (an upper bound from a two-second observation interval, not automated UI
+readiness). Repeated true cold-start, signed artifact and cross-platform
+measurements remain open. Do not claim stages 6-8 complete or
 infer that this branch constitutes a V1 release.
 
 The first compatibility slice passed: standalone `cmd/agent` and `cmd/server`

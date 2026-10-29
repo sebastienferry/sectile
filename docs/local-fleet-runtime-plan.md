@@ -441,7 +441,7 @@ The first cross-surface check slice passes:
 | Existing native Local install | Managed macOS migration verification and real Jira/Claude/Codex/MCP requests | Pass; details above. |
 | Existing Electron/Go Fleet connection | Read-only calls to the existing workstation agent's authenticated `/desktop/status`, `/desktop/version` and `/desktop/projects` routes | The agent reports v0.7.6, connected, no contract error, and 19 projects (2026-10-29). This verifies the existing connection only; no Tauri mode or server data was changed. |
 | macOS release bundle | `npm run tauri -- build --bundles app --no-sign` | Pass on the current commit (2026-10-29); the unsigned release `.app` is 101.72 MiB versus the recorded 133.1 MiB debug app. It contains about 95 MiB of Go binaries: companion (40 MiB), legacy server (36 MiB) and legacy agent (20 MiB) for migration/recovery. This is an unsigned macOS app bundle, not a release artifact or a cross-platform size comparison. |
-| macOS cold start | Isolated unsigned optimized app with a fresh profile; first native window and UI readiness observed separately | One arm64 macOS 27.0.1 sample: first native window at 1.09 s; React setup screen accessible by about 3.5 s (upper bound from a manual two-second observation interval). At 33 s, app RSS was 94.7 MiB and no companion was running. One sample only; not a startup SLA. |
+| macOS startup | Isolated unsigned optimized app under a separate bundle ID; first native window timed independently from UI readiness | On arm64 macOS 27.0.1, the initial launch showed its first native window at 1.09 s. Three subsequent process relaunches with the same unconfigured profile and warm filesystem cache took 207–245 ms to first window. The setup screen was manually accessible by about 3.5 s on the initial launch (upper bound from a two-second observation interval); this was not automated UI-ready timing. At 33 s, initial-launch app RSS was 94.7 MiB and no companion was running. These samples do not establish a startup SLA or true repeated cold-boot performance. |
 
 The idle Go service process count is now one. At the earlier captured idle sample,
 `sectile-companion` used about 40.7 MiB RSS, compared with the phase 0 server and
@@ -453,8 +453,9 @@ were not controlled, so this is a point-in-time observation, not a baseline.
 The rebuilt debug `.app` occupies 133.1 MiB versus the 92.9 MiB phase 0 debug
 app, an increase of about 40.2 MiB. It bundles the companion plus the legacy
 server and agent migration executables. A signed release artifact and repeated
-cold native startup measurements are still required before claiming a smaller
-or faster delivery.
+true cold-start measurements are still required before claiming a
+smaller or faster delivery; the process-relaunch samples above use a warm
+filesystem cache.
 
 The isolated native service test was attempted after preparing fresh Go binaries,
 but its fixed port reservation failed because port 52963 was occupied. The
@@ -488,4 +489,6 @@ no release app was launched over its data directory. The isolated cold-start
 probe used a separate app identifier and fresh profile; the first native window
 appeared at 1.09 seconds, and the setup UI was accessible by about 3.5 seconds
 (one manual upper-bound observation). At 33 seconds, process RSS was 94.7 MiB;
-no companion was started. Repeated launches and a signed artifact remain open.
+no companion was started. Three subsequent relaunches produced first-window
+times of 207–245 ms with the filesystem cache warm. They do not replace repeated
+true cold-start measurements; a signed artifact also remains open.
