@@ -37,3 +37,9 @@ for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; d
     CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w ${version_flags}" -o "$out" "./cmd/${component}"
   done
 done
+
+# Keep dependency attributions beside the independently distributed binaries.
+test -s THIRD_PARTY_NOTICES.md || { echo "third-party notices are missing" >&2; exit 1; }
+test -d third_party_licenses || { echo "third-party license texts are missing" >&2; exit 1; }
+tar -czf "${outdir}/sectile-third-party-notices-${version}.tar.gz" \
+  -C . THIRD_PARTY_NOTICES.md third_party_licenses

@@ -60,6 +60,13 @@ trap 'rm -rf "$work"' EXIT
 app=Sectile-${platform}-${electron_arch}
 test -f "${work}/${app}/${bundled}" || { echo "the package has no agent at ${app}/${bundled}" >&2; exit 1; }
 
+# The archive distributes both the desktop app and the bundled Go agent, so
+# keep the Go dependency notices adjacent to the app in the extracted folder.
+test -s "${root}/THIRD_PARTY_NOTICES.md" || { echo "third-party notices are missing" >&2; exit 1; }
+test -d "${root}/third_party_licenses" || { echo "third-party license texts are missing" >&2; exit 1; }
+cp "${root}/THIRD_PARTY_NOTICES.md" "${work}/${app}/THIRD_PARTY_NOTICES.md"
+cp -R "${root}/third_party_licenses" "${work}/${app}/third_party_licenses"
+
 # The agent was stamped with the tag, and the app it ships in reports the same
 # release. It can only be run here for the runner's own platform, which is
 # where the Linux archive is built.

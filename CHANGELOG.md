@@ -30,6 +30,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Go binary releases now include dependency license notices; Sectile Desktop archives keep the same notices beside the bundled agent.
+
 - Desktop board metadata now identifies each selected tracker provider so clients can distinguish local workspaces from remote tracker boards.
 
 - Build an API/MCP-only server binary without web assets or Node.js using `make build-server-headless`.

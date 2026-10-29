@@ -23,8 +23,8 @@
 #     as the image, for bare-metal installs. On a vX.Y.Z tag and on the default
 #     branch the same package also gets Sectile Desktop,
 #     `sectile-desktop-<os>-<arch>.zip|.tar.gz` for darwin-arm64, darwin-amd64,
-#     linux-amd64 and windows-amd64, each bundling its agent, and SHA256SUMS
-#     covers every file of the package.
+#     linux-amd64 and windows-amd64, each bundling its agent, a Go dependency
+#     notice archive, and SHA256SUMS covers every file of the package.
 #
 #     A tag is a release: its package version is the tag, and the binaries
 #     report it. This is one of two release streams. The public repository

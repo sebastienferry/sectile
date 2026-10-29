@@ -118,6 +118,10 @@ scoop update sectile
 
 Prebuilt archives for macOS (`arm64`, `amd64`), Linux (`amd64`), and Windows
 (`amd64`) are also published on every GitHub Release with `SHA256SUMS`.
+Each release includes Go dependency attributions and license texts in a
+`sectile-third-party-notices-<version>.tar.gz` archive. The same notices are
+included beside the bundled agent in each Sectile Desktop archive. See
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ### Run from source
 

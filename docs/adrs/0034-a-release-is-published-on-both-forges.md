@@ -56,8 +56,10 @@ each stream publishes the whole release set.**
 
 ## Consequences
 
-- **A tag produces fifteen files in each place**: ten Go binaries, four desktop
-  archives and `SHA256SUMS`, with no manual step.
+- **A tag produces sixteen files in each place**: ten Go binaries, one Go
+  dependency-notice archive, four desktop archives and `SHA256SUMS`, with no
+  manual step. Each desktop archive also contains the dependency notices beside
+  the app and bundled agent.
 - **Two builds, two sets of checksums.** A user checks an archive against the
   `SHA256SUMS` of the place they downloaded it from, never across forges. The
   install guide says so.

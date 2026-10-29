@@ -138,8 +138,9 @@ does not have.
 The tag is published twice, by two independent builds:
 
 - the GitLab tag pipeline builds and publishes the server image under
-  `vX.Y.Z`, and uploads the agent and server binaries, the four Sectile Desktop
-  archives and `SHA256SUMS` to the package `sectile`, version `vX.Y.Z`;
+  `vX.Y.Z`, and uploads the agent and server binaries, the Go dependency
+  notice archive, the four Sectile Desktop archives and `SHA256SUMS` to the
+  package `sectile`, version `vX.Y.Z`;
 - the GitHub workflow `.github/workflows/release.yml` builds the same files on
   GitHub's runners and creates the GitHub Release of the tag, with the tag's
   changelog section as its notes.

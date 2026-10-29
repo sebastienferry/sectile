@@ -2,8 +2,8 @@
 #
 # A release tag vX.Y.Z pushed to this repository is built here, on GitHub's
 # runners, and published as the GitHub Release of that tag: the four Sectile
-# Desktop archives, the agent and server binaries, and SHA256SUMS over them,
-# with the tag's CHANGELOG.md section as the notes.
+# Desktop archives, the agent and server binaries, dependency license notices,
+# and SHA256SUMS over them, with the tag's CHANGELOG.md section as the notes.
 #
 # This is one of two release streams. The GitLab mirror builds the same tag
 # again and publishes it to its package registry (.gitlab-ci.yml). Both run
@@ -145,14 +145,14 @@ jobs:
         with:
           path: release
           merge-multiple: true
-      # Ten binaries, four archives and the checksums: the release set, and
-      # nothing else.
+      # Ten binaries, one Go dependency-notice archive, four desktop archives
+      # and the checksums: the release set, and nothing else.
       - name: Write the checksums
         working-directory: release
         run: |
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
-          test "$(ls | wc -l)" -eq 15
+          test "$(ls | wc -l)" -eq 16
       - name: Write the notes
         run: node scripts/release/changelog-section.mjs "${TAG#v}" > "$RUNNER_TEMP/notes.md"
       # A re-run replaces the files and the notes of the release it already
