@@ -1,7 +1,6 @@
 /* Workspace surfaces follow Sectile Desktop's restrained hierarchy. Shared
    execution/console components retain their existing base styles in App.css. */
-:root { --bg:#11151c; --surface:#1a212d; --sunken:#151b25; --selected:#203336; --divider:color-mix(in srgb,var(--border) 60%,transparent); }
-:root[data-theme="light"] { --bg:#fafbfc; --surface:#fff; --sunken:#f0f2f5; --selected:#e6f1ee; }
+:root { --divider:color-mix(in srgb,var(--border) 60%,transparent); }
 body { -webkit-font-smoothing:antialiased; }
 button { font-weight:500; }
 button, input, select, textarea { border-radius:8px; }
