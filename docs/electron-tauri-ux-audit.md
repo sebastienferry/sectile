@@ -44,9 +44,10 @@ verification record remains the evidence for those flows.
 - The open installed Tauri window was inspected after those source commits and
   still displayed the older board toolbar and duplicate prompt action. Treat
   that window as a stale bundle, not as evidence that the committed source
-  correction failed. Rebuild/relaunch in an isolated profile before claiming
-  visual qualification; the computer became locked before the Electron window
-  could be inspected in this continuation.
+  correction failed. A current-source app has since been built in isolation at
+  `/tmp/sectile-tauri-ux-audit/release/bundle/macos/Sectile UX Audit.app` with a
+  separate bundle identifier; it has not yet been launched because the Mac is
+  locked. The Electron window could not be inspected for the same reason.
 - Prompt context now surfaces attached folder names immediately. The full path
   and role remain available in the details disclosure. Typecheck and production
   build passed for this change; a matched live visual review is still pending.

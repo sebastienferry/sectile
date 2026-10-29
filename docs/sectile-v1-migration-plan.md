@@ -175,6 +175,14 @@ resources; each is a Darwin arm64 `dev` binary. This qualifies package contents
 on this host, not a reproducible version-pinned service set. The active Local
 installation and its companion remained running during those checks.
 
+Current UX-source bundle check (2026-10-29, Tauri commit `8803eff`): an isolated
+unsigned optimized app was built with bundle identifier
+`com.sebferry.sectile.tauri.uxaudit` under `/tmp`, measured 101.72 MiB, and
+contained arm64 Mach-O `sectile-agent`, `sectile-companion` and `sectile-server`
+resources. `npm run check`, the production frontend build and native release
+compilation passed. The Mac was locked during this check, so the app was not
+launched and no visual or runtime behavior is qualified by this build.
+
 ### Stage 5 compatibility evidence
 
 | Combination | Evidence now available | Qualification |
