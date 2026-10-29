@@ -113,6 +113,11 @@ absent 104.6 seconds after the start. This closes the built-in Electron
 project-prompt cancellation slice; tracked-ticket and Fleet execution remain
 open.
 
+Go PTY credential qualification (2026-10-29): commit `f5984122` keeps the
+temporary run-control token out of the console command and provider child
+environment. A real wrapped PTY test checks both surfaces, and `go test ./...`
+passes. An updated arm64 app/DMG bundles this Go commit, as recorded below.
+
 Current-source package verification (2026-10-29): clean Go commit
 `22c33ec19707c400612715e233e4554b77bfb0f2` and Tauri commit `f54571c`
 produced a 102.28 MiB arm64 app and 51.69 MiB DMG.
@@ -127,3 +132,11 @@ notarization, Gatekeeper, clean-user installation, complete upgrade retention,
 full Fleet/Electron workflows and live tracker/provider qualification remain
 open. Linux remains experimental and Windows is deferred; neither is a V1
 qualification gate. No V1 release is ready to publish.
+
+Updated package verification (2026-10-29): Tauri source after `fecaa3b` and
+clean Go commit `f598412218d4127823d976eacce551faa907c758` produced a
+102.28 MiB arm64 app and 51.70 MiB DMG. The post-build verifier and
+`hdiutil verify` passed; the manifest reports default port 52963, 52 license
+files, `goDirty: false` and `releaseEligible: false`. DMG SHA-256:
+`c770aa7e2a7e050aee433fed7718e4b2af58de57bed650b876ee7b0ff99c6c24`.
+Signing, notarization and clean-user installation remain open.
