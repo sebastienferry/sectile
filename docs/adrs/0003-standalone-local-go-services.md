@@ -91,6 +91,8 @@ adds two local processes and requires explicit lifecycle handling. A Rust rewrit
 can be considered later for a measured requirement, with contract tests and an
 incremental migration; it is not a prerequisite for a standalone desktop.
 
-The new repository is MIT. Upstream Go code remains an external dependency under
-its own licensing status; this decision does not authorize relicensing or
-redistributing it.
+The new repository is MIT. The Go checkout currently has no license file, and
+the desktop build bundles binaries built from that source. The Tauri MIT license
+does not grant rights to the Go services. Public binary distribution therefore
+requires an explicit license for the Go source and any corresponding third-party
+notices. Do not infer relicensing or redistribution rights from this decision.
