@@ -129,6 +129,17 @@ retains its chunk-size warning. These are source and fixture checks; the
 release-binary, external OAuth, live native tracker write and signing gates
 remain open.
 
+An isolated clean worktree at Tauri `4bcb4e2` bundled clean Go `45940914`
+without replacing the user's running desktop. `npm run package:macos` and the
+resource verifier passed for the 103.31 MiB arm64 app and 56,331,700-byte DMG.
+Both bundles contain the fixed port 52963 companion and 52 license files;
+`hdiutil verify` passed. DMG SHA-256:
+`02f31a53ac8f23adb3d5e6491c52c011111af054619266fd618d701df89b665a`.
+The manifest reports `dirty: false` and `releaseEligible: false` because this
+is an untagged development build. Signing, notarization, clean-user installation
+and release-binary provider execution remain open. `codesign -dv` reports an
+ad hoc linker signature with no Team ID; `spctl --assess` rejects the app.
+
 Current-source Local provider qualification (2026-10-29): Tauri commit
 `ecac630` ran `npm run test:services` with all three services built from Go
 commit `5274a160` in a disposable worktree whose only source difference was a

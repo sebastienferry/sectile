@@ -9,7 +9,7 @@ binary checks in the [release checklist](v1-release-checklist.md).
 
 | Target | V1 position | Current evidence and limit |
 | --- | --- | --- |
-| macOS arm64 | First release target | A 103.30 MiB app and 56,315,588-byte DMG built from Tauri `f479b86` and clean Go `fe3a98c8` bundle the fixed companion port 52963. The resource verifier and DMG checksum pass. The artifact is unsigned and unnotarized, so installation, Gatekeeper and clean-user launch are not qualified. |
+| macOS arm64 | First release target | An isolated worktree built a 103.31 MiB app and 56,331,700-byte DMG from Tauri `4bcb4e2` and clean Go `45940914`. The resource verifier found the fixed companion port 52963 and 52 license files in both bundles; `hdiutil verify` and the DMG SHA-256 check pass. The app has only an ad hoc signature and Gatekeeper rejects it; notarization and clean-user launch are not qualified. |
 | macOS x86_64 | Not promised for the first release | No native package or runtime qualification is recorded. |
 | Linux | Experimental | A Debian ARM64 package opened a visible window under Xvfb/DBus. Real user desktop, provider and migration workflows across distributions remain unqualified. |
 | Windows | Deferred | Go services cross-build, but native desktop startup, migration, process execution and installer behavior remain unqualified. |
