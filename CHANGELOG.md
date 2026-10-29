@@ -21,6 +21,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 - Show conversation turn readiness in project navigation instead of treating an idle provider session as an active response.
 - Distinguish Fleet-backed settings and agent status from settings kept on the local workstation.
 - Label prompt folder selection as a project-wide attachment so its scope is clear before adding it.
+- Distinguish an empty remote tracker board from a local project with no tracker.
 - Choose an existing project's local folder with the native picker instead of entering an absolute path manually.
 - Match the Electron dark and light workspace surface palette and remove duplicate Tauri color overrides.
 - Show attached workspace folders in the prompt context so users can see what the agent will use without opening the folder details.

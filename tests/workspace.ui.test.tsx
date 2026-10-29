@@ -91,6 +91,18 @@ test("tracker-backed projects retain board search, grouping and ticket status",a
  expect(screen.getByText("Remote issue")).toBeTruthy();
 });
 
+test("an empty remote tracker board names the missing tickets and keeps its local prompt path",async()=>{
+ vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
+ vi.mocked(api.listTasks).mockResolvedValue([]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
+ render(<App />);
+ await screen.findByRole("heading",{name:"Aucun ticket distant"});
+ expect(screen.getByText("Le tracker ne remonte aucun ticket. Vous pouvez lancer un prompt dans le dossier local associé.")).toBeTruthy();
+ expect(screen.getByRole("textbox",{name:"Rechercher des tickets"})).toBeTruthy();
+ expect(screen.getByRole("combobox",{name:"Regrouper les tickets"})).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Nouveau prompt"})).toBeTruthy();
+});
+
 test("a failed ticket refresh identifies the retained board data as stale",async()=>{
  vi.mocked(api.listTasks)
   .mockResolvedValueOnce([{id:"t",key:"APP-2",title:"Previous ticket read",source:"jira",trackerStatus:"To Do",status:"to_clarify"}])
