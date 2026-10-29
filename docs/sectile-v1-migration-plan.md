@@ -173,9 +173,10 @@ returned `connection closed: client is closing`; this does not qualify the
 post-migration MCP call. See
 [the runtime plan](local-fleet-runtime-plan.md) for the scope of this evidence.
 
-Current Tauri verification (2026-10-29): `npm run check`, `npm test` (9 tests),
-`npm run test:ui` (87 tests), `cargo fmt --check` and `cargo test` (35 tests) all
-pass. Two isolated macOS release bundles built successfully with unique bundle
+Current Tauri verification (2026-10-29, Tauri commit `7f96e6e`): `npm run
+check`, `npm test` (9 tests), `npm run test:ui` (89 tests), `cargo fmt --check`,
+`cargo test --locked` (35 tests), and `node --check
+scripts/build-services.mjs` all pass. Two isolated macOS release bundles built successfully with unique bundle
 identifiers for live Fleet checks; each measured 101.72 MiB. The Fleet Pair Test
 bundle contains byte-identical copies of all three `src-tauri/binaries` service
 resources; each is a Darwin arm64 `dev` binary. At Tauri commit `2206473` and Go
