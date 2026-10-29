@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -22,6 +23,35 @@ func announcedBuild(version, commit string, without ...string) AgentBuild {
 		}
 	}
 	return build
+}
+
+// The query fixture records the connection URL shape produced by the v0.7.6
+// agent's buildWSURL implementation. It guards the current server's parser
+// against regressions with an already released Fleet agent.
+func TestCurrentServerParsesV076AgentConnectFixture(t *testing.T) {
+	raw, err := os.ReadFile("testdata/agent-v0.7.6-connect-query.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	query, err := url.ParseQuery(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query.Get("projectId") != "project-v076" || query.Get("deviceId") != "agent-v076" {
+		t.Fatalf("fixture identity = %q / %q", query.Get("projectId"), query.Get("deviceId"))
+	}
+	build := ParseAgentBuild(query)
+	if !build.Announced || build.Version != "v0.7.6" || build.Outdated() {
+		t.Fatalf("v0.7.6 build = %+v", build)
+	}
+	if len(build.Operations) != len(agentprotocol.Operations) {
+		t.Fatalf("fixture operations = %d, current server operations = %d", len(build.Operations), len(agentprotocol.Operations))
+	}
+	for _, operation := range agentprotocol.Operations {
+		if !build.Supports(operation) {
+			t.Errorf("v0.7.6 fixture does not support %q", operation)
+		}
+	}
 }
 
 func TestParseAgentBuildTellsAnAnnouncingAgentFromALegacyOne(t *testing.T) {

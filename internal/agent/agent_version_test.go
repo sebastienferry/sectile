@@ -114,6 +114,42 @@ func TestDialURLAnnouncesTheBuildAndTheOperations(t *testing.T) {
 	}
 }
 
+// parseV076AgentBuild mirrors the parser in the v0.7.6 server tag. Keep this
+// source-level compatibility check separate from the current parser tests.
+func parseV076AgentBuild(query url.Values) (string, map[string]bool) {
+	operations := map[string]bool{}
+	for _, operation := range strings.Split(query.Get("operations"), ",") {
+		if operation = strings.TrimSpace(operation); operation != "" {
+			operations[operation] = true
+		}
+	}
+	return query.Get("agentVersion"), operations
+}
+
+func TestV076ServerParserAcceptsCurrentAgentAnnouncement(t *testing.T) {
+	restoreVersion, restoreCommit := version.Version, version.Commit
+	t.Cleanup(func() { version.Version, version.Commit = restoreVersion, restoreCommit })
+	version.Version, version.Commit = "v1.0.0", "current-build"
+	d := &agentDaemon{link: serverLink{serverURL: "https://sectile.example.com", projectID: "project", deviceID: "desktop"}}
+	raw, err := d.buildWSURL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	versionString, operations := parseV076AgentBuild(u.Query())
+	if versionString != "v1.0.0" || len(operations) != len(agentprotocol.Operations) {
+		t.Fatalf("v0.7.6 parser read version %q and %d operations", versionString, len(operations))
+	}
+	for _, operation := range agentprotocol.Operations {
+		if !operations[operation] {
+			t.Errorf("v0.7.6 parser missed current operation %q", operation)
+		}
+	}
+}
+
 // Every announced operation is one the agent dispatches, and an action outside
 // the list is still refused with the text legacy servers already expect.
 func TestEveryAnnouncedOperationPassesTheDispatchList(t *testing.T) {
