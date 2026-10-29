@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Fixed
+
+- Agents no longer drop and reconnect, or fail to discover their projects ("context deadline exceeded"), while a server synchronises large trackers; server instances sharing one database no longer take each other for dead during those synchronisations, and an agent whose session was lost that way reconnects on its own instead of having its project inventory refused until it restarts.
+
 ## [0.7.6] - 2026-10-28
 
 ### Added

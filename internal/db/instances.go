@@ -228,11 +228,26 @@ func (d *DB) StartInstance() (stop func(), err error) {
 	}
 	d.sweepIdleUnlocks(time.Now().UTC())
 	done := make(chan struct{})
-	finished := make(chan struct{})
+	var loops sync.WaitGroup
+	// The heartbeat has a goroutine of its own. Sharing one with the reclaim
+	// and the sweep, which wait for the store lock, let a long import delay the
+	// heartbeat past the bound and the other instances take this one for dead.
+	loops.Add(2)
 	go func() {
-		defer close(finished)
+		defer loops.Done()
 		heartbeat := time.NewTicker(instanceHeartbeatEvery)
 		defer heartbeat.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-heartbeat.C:
+				d.heartbeatInstance(time.Now().UTC())
+			}
+		}
+	}()
+	go func() {
+		defer loops.Done()
 		reclaim := time.NewTicker(instanceReclaimEvery)
 		defer reclaim.Stop()
 		unlockSweep := time.NewTicker(unlockSweepEvery)
@@ -241,8 +256,6 @@ func (d *DB) StartInstance() (stop func(), err error) {
 			select {
 			case <-done:
 				return
-			case <-heartbeat.C:
-				d.heartbeatInstance(time.Now().UTC())
 			case <-reclaim.C:
 				ended, err := d.reclaimDeadInstances(time.Now().UTC())
 				if err != nil {
@@ -259,7 +272,7 @@ func (d *DB) StartInstance() (stop func(), err error) {
 	return func() {
 		once.Do(func() {
 			close(done)
-			<-finished
+			loops.Wait()
 			d.mu.Lock()
 			defer d.mu.Unlock()
 			_, _ = d.conn.Exec(`DELETE FROM server_instances WHERE id = ?`, d.instanceID)
@@ -269,8 +282,7 @@ func (d *DB) StartInstance() (stop func(), err error) {
 
 func (d *DB) registerInstance(now time.Time) error {
 	hostname, _ := os.Hostname()
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	defer d.lockInstanceRow()()
 	if _, err := d.conn.Exec(`INSERT INTO server_instances (id, hostname, pid, started_at, last_seen, address) VALUES (?, ?, ?, ?, ?, ?)`,
 		d.instanceID, hostname, os.Getpid(), now, now, d.instanceAddress); err != nil {
 		return fmt.Errorf("registering server instance %s: %w", d.instanceID, err)
@@ -278,14 +290,28 @@ func (d *DB) registerInstance(now time.Time) error {
 	return nil
 }
 
+// lockInstanceRow takes the store lock around a write of this instance's own
+// row, and returns its release. On a shared database it takes nothing: the
+// row is one statement on a row no other writer of this process touches, and
+// waiting for the lock behind a long import is what made a busy instance miss
+// its heartbeat and be taken for dead by the others. A single-process engine
+// keeps the lock, which serialises its writers.
+func (d *DB) lockInstanceRow() func() {
+	if d.Shared() {
+		return func() {}
+	}
+	d.mu.Lock()
+	return d.mu.Unlock
+}
+
 // heartbeatInstance refreshes this instance's row. A row that is gone means
 // another instance took this one for dead, after a silence longer than the
 // bound, and has already reclaimed its work: the instance says so and registers
 // again, since it is plainly still serving.
 func (d *DB) heartbeatInstance(now time.Time) {
-	d.mu.Lock()
+	unlock := d.lockInstanceRow()
 	result, err := d.conn.Exec(`UPDATE server_instances SET last_seen = ? WHERE id = ?`, now, d.instanceID)
-	d.mu.Unlock()
+	unlock()
 	if err != nil {
 		log.Printf("⚠️  Signal de vie de l'instance %s : %v", d.instanceID, err)
 		return

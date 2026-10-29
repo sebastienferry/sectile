@@ -38,6 +38,12 @@ func (d *DB) WorkstationConnected(l AgentLocation) (AgentLocation, bool, error) 
 	return old, had, tx.Commit()
 }
 
+// ErrWorkstationSessionGone reports a relay session whose presence row is no
+// longer in the directory: another instance took this one for dead and
+// forgot the sessions it held. Nothing written for that session can land until
+// the agent connects again and registers a new one.
+var ErrWorkstationSessionGone = errors.New("inactive workstation session")
+
 func (d *DB) WorkstationInventory(id string, projects []string, now time.Time) error {
 	raw, err := json.Marshal(projects)
 	if err != nil {
@@ -49,13 +55,22 @@ func (d *DB) WorkstationInventory(id string, projects []string, now time.Time) e
 	}
 	count, err := result.RowsAffected()
 	if err == nil && count != 1 {
-		return errors.New("inactive workstation session")
+		return ErrWorkstationSessionGone
 	}
 	return err
 }
+
+// WorkstationPing dates the last sign of life of a relay session, and reports
+// ErrWorkstationSessionGone when the session is no longer in the directory.
 func (d *DB) WorkstationPing(id string, now time.Time) error {
-	_, err := d.conn.Exec(`UPDATE agent_workstation_presence SET last_ping_at=? WHERE connection_id=? AND instance_id=?`, now, id, d.instanceID)
-	return err
+	result, err := d.conn.Exec(`UPDATE agent_workstation_presence SET last_ping_at=? WHERE connection_id=? AND instance_id=?`, now, id, d.instanceID)
+	if err != nil {
+		return err
+	}
+	if count, err := result.RowsAffected(); err == nil && count != 1 {
+		return ErrWorkstationSessionGone
+	}
+	return nil
 }
 
 func (d *DB) WorkstationDisconnected(id string) error {
