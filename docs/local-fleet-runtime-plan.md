@@ -497,6 +497,12 @@ qualification and repeated true cold-start measurements. The qualification host 
 code-signing identities. Do not infer these from unit tests or
 from the migrated Local installation.
 
+A later isolated current-Go check on 2026-10-29 qualified personal-token
+GitHub and GitLab create/update paths against the user-approved Sectile and
+Taskativ repositories. Both temporary issues were deleted and their absence
+confirmed. This narrows the earlier live-tracker gap; Jira, fresh OAuth,
+native tracker-write UI and deployed Fleet remain unqualified.
+
 Existing workstation connection qualification (2026-10-29): the saved local
 agent connection was used for read-only authenticated calls. The v0.7.6 agent
 returned `connected: true`, an empty `contractError`, and 19 projects. This

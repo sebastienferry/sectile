@@ -103,6 +103,17 @@ provider OAuth consent and native tracker writes remain separate release gates.
 
 ## Current qualification status
 
+Live tracker writes (2026-10-29): `npm run test:live-trackers` used a disposable
+Go `45940914` server on port 52965 with personal tokens and the user-approved
+`sebastienferry/sectile` GitHub repository and
+`smartadserver/private/shared-platform/taskativ` GitLab project. Sectile
+created GitHub issue #898 and GitLab issue !112, queued a title change for
+each, and a direct provider read confirmed the changed titles. The test
+deleted both issues, and independent provider reads confirmed their absence.
+The private server and database were removed. This qualifies these Go
+personal-token write paths, not fresh OAuth consent, the native Tauri form,
+Jira writes or a deployed Fleet installation.
+
 The existing-project tracker association was exercised on 2026-10-29 against
 Go `45940914` through an isolated server and agent on port 52965. A folder-only
 project kept its agent folder mapping after joining a registered GitLab fixture
