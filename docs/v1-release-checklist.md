@@ -52,6 +52,11 @@ or create a Git tag.
 - [ ] Replace an earlier Tauri app bundle with the release app. Verify that the
   Local database, credentials, OAuth records, projects, folders and conversation
   history remain readable and that managed-runtime migration recovers safely.
+  An isolated macOS bundle replacement smoke on 2026-10-29 verified a saved
+  Local profile, folder-backed project and folder association across bundles
+  with the same identifier and data directory. Credentials, OAuth records,
+  conversation history and managed-runtime recovery remain unverified; see the
+  migration plan.
 - [ ] Confirm manual update instructions and release notes identify required
   migration behavior and any incompatible Fleet server/agent combinations.
 
@@ -72,9 +77,10 @@ or create a Git tag.
 ## Current qualification status
 
 The migration plan records a valid unsigned arm64 DMG, current-source Local
-onboarding and provider-supervision tests, Go/Electron regression suites, and
-current/v0.7.6 agent/server protocol tests. The latest app bundle reports
+onboarding and provider-supervision tests, Go/Electron regression suites,
+current/v0.7.6 agent/server protocol tests, and an isolated Local profile/project
+bundle-replacement smoke. The latest app bundle reports
 `releaseEligible: false`. Signing/notarization, clean-user installation and
-upgrade retention, default-port cold start with the current binary, and the
-remaining live Fleet/Electron checks are still open. No V1 release is ready to
-publish.
+complete upgrade retention, default-port cold start with the current binary,
+and the remaining live Fleet/Electron checks are still open. No V1 release is
+ready to publish.
