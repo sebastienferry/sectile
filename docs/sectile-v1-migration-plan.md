@@ -140,16 +140,15 @@ unsupported: selecting a second mode requires a future explicit migration flow.
 Stage 5 remains open: qualify the
 Fleet/Electron compatibility matrix,
 supported versions, other-platform migration and measured process/memory/startup
-and package behavior. A Linux ARM64 Debian package now builds successfully in a
-Debian Bookworm ARM64 container from Tauri commit `0988d58` and Go commit
-`7dea9140`. The 49.11 MiB `.deb` contains an ARM64 Tauri executable and all
+and package behavior. Linux ARM64 Debian packages built in a Debian Bookworm
+ARM64 container from Tauri commits `0988d58` and `446285c`, each using Go commit
+`7dea9140`. The first 49.11 MiB `.deb` contains an ARM64 Tauri executable and all
 three Go services; each embedded service reports the expected Go commit, and
-the build manifest SHA-256 and size values verify. This is package construction
-and artifact integrity evidence. The package also installed successfully in the
-same Debian environment, and the application created a visible X11 window under
-Xvfb/DBus before it was stopped cleanly. This is a simulated ARM64 startup
-smoke, not qualification on a real Linux desktop: interactive UI, migration,
-provider execution and behavior across distributions remain unqualified. The
+the build manifest SHA-256 and size values verify. The follow-up package was
+installed successfully in Debian and the application created a visible X11
+window under Xvfb/DBus before it was stopped cleanly. This is a simulated ARM64
+startup smoke, not qualification on a real Linux desktop: interactive UI,
+migration, provider execution and behavior across distributions remain unqualified. The
 current unsigned optimized macOS `.app` measures
 101.72 MiB. One isolated arm64 macOS cold launch showed its first native window
 at 1.09 seconds. Three subsequent process relaunches using the same unconfigured
@@ -162,9 +161,9 @@ infer that this branch constitutes a V1 release.
 
 The first compatibility slice passed: standalone `cmd/agent` and `cmd/server`
 tests, race-enabled companion/backend/agent tests, a Windows companion
-cross-build, 315 Electron unit tests, and the Tauri typecheck/build plus 86 UI
-and 34 Rust tests. Fleet-native setup also passes its Go handler/backend tests;
-this is contract coverage, not a live remote Fleet qualification. The migrated macOS install preserved its ten original
+cross-build, 315 Electron unit tests, and the Tauri typecheck/build plus 9 domain,
+89 UI and 35 Rust tests. Fleet-native setup also passes its Go handler/backend
+tests. The migrated macOS install preserved its ten original
 projects, trackers, OAuth key and 25 conversation histories; live Jira,
 Claude/Codex prompt and embedded MCP calls succeeded. One idle companion used
 about 40.7 MiB RSS against 55.7 MiB combined server/agent phase 0 medians. The
@@ -175,9 +174,11 @@ unsigned release app measures 101.72 MiB and includes the companion and both
 legacy binaries. One initial launch and three process relaunch samples are
 recorded in the runtime plan; repeated true cold-start measurements and a signed
 release artifact remain unqualified; this host has zero valid macOS code-signing
-identities. Remote Fleet pairing and a post-migration Electron live MCP call
-remain unqualified. Cross-version tracker/workflow API behavior has since passed
-against an isolated mock; live external tracker behavior remains unqualified.
+identities. Real Fleet one-time pairing and a live Electron MCP list-projects
+call have since passed for the tested server/agent combination; native setup
+screens and the Electron UI suite remain unqualified. Cross-version
+tracker/workflow API behavior has passed against an isolated mock; live external
+tracker writes remain unqualified.
 The Sectile MCP connector was retried read-only on 2026-10-29 and
 returned `connection closed: client is closing`; this does not qualify the
 post-migration MCP call. See
@@ -222,7 +223,7 @@ launched and no visual or runtime behavior is qualified by this build.
 | Cross-version agent operation dispatch | The same harness connects a current agent to the v0.7.6 server and a released v0.7.6 agent to the current server. Each pairing calls authenticated `skills-status` and `init-git` routes. MCP `prepare_task_spec_worktree` creates a registered, distinct worktree on a task branch through the server-agent WebSocket in both pairings; the test verifies its path, branch and Git registration. | Pass for read, mutation and task specification workspace operations over the server-agent WebSocket in both directions. Cancellation, provider execution and Electron registration remain unqualified. |
 | Go service cross-builds | On 2026-10-29 at Go commit `3ea74cbb`, built `cmd/companion`, `cmd/agent` and `cmd/server` for both `linux/amd64` and `windows/amd64`; `file` confirmed ELF and PE x86-64 outputs. | Go service compilation passes for both targets. This does not qualify the Tauri package, native startup, migration, process execution or installers on either OS. |
 | Optional headless server artifact | At Go commit `7dea9140`, `make build-server-headless` produced `bin/server-headless` without invoking Node. The opt-in `sectile_headless` build retains API/MCP/auth routes and returns 404 for browser paths; isolated runtime smoke verified `/api/health` (200), browser paths (404), and an unauthenticated unknown API route (JSON 401). Both default and tagged `cmd/server`/`internal/webui` tests pass. | Linux/amd64 ELF and Windows/amd64 PE headless binaries cross-compile. This qualifies the optional artifact and its no-web behavior on the current macOS host, not native Linux/Windows runtime or release distribution. |
-| Native platforms | macOS live migration and unsigned bundle build; Linux ARM64 `.deb` built from Tauri `0988d58` and Go `7dea9140`, with ARM64 executable inspection, embedded service manifest/hash/version verification, successful Debian installation and visible X11 window under Xvfb/DBus; Windows companion and Go handler test binary cross-build; Linux and Windows Go service cross-builds above | Linux package build/install and simulated startup smoke pass; real desktop interaction, migration/provider execution, other distributions and Windows runtime/migration remain unqualified |
+| Native platforms | macOS live migration and unsigned bundle build; Linux ARM64 `.deb` build and manifest/hash/version verification at Tauri `0988d58`/Go `7dea9140`, followed by Debian install and visible X11 window under Xvfb/DBus at Tauri `446285c`/Go `7dea9140`; Windows companion and Go handler test binary cross-build; Linux and Windows Go service cross-builds above | Linux package build/install and simulated startup smoke pass; real desktop interaction, migration/provider execution, other distributions and Windows runtime/migration remain unqualified |
 | macOS signing | `security find-identity -v -p codesigning` returned zero valid identities on the qualification host (2026-10-29) | No signed macOS artifact can be qualified on this host; a valid signing identity is required |
 | Open-source package provenance | Tauri repository has an MIT `LICENSE`; the Go checkout has no license file, while `prepare:services` builds and bundles the Go server, agent and companion | Public binary redistribution remains unqualified until the Go services' licensing and required notices are explicit |
 

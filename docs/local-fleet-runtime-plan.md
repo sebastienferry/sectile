@@ -433,14 +433,15 @@ The first cross-surface check slice passes:
 | Surface | Evidence | Result and limit |
 | --- | --- | --- |
 | Go Fleet/server boundaries | `go test ./cmd/agent ./cmd/server` | Pass; both independent entry points still build and server tests pass. This is not the full old/new client-version matrix. |
-| Go companion and shared runtime | `go test -race ./cmd/companion ./internal/companion ./internal/agent ./internal/backend`; 2026-10-29 cross-builds of `cmd/companion`, `cmd/agent` and `cmd/server` for `linux/amd64` and `windows/amd64` | Pass on macOS host; all six outputs have the expected ELF/PE x86-64 formats. This proves Go compilation only; Linux/Windows Tauri packaging, startup, migration, execution and process-window behavior remain unqualified. |
+| Go companion and shared runtime | `go test -race ./cmd/companion ./internal/companion ./internal/agent ./internal/backend`; 2026-10-29 cross-builds of `cmd/companion`, `cmd/agent` and `cmd/server` for `linux/amd64` and `windows/amd64` | Pass on macOS host; all six outputs have the expected ELF/PE x86-64 formats. Linux ARM64 Tauri package/startup evidence is recorded separately below; Windows Tauri packaging, startup, migration and execution remain unqualified. |
 | Go child-process credentials | `go test ./internal/runner ./internal/agent ./cmd/agent ./cmd/companion`; Windows builds of `cmd/agent` and `cmd/companion` | Pass; the local desktop gateway credential is removed from spawned CLI and shell environments. This is a compile/unit check, not Windows process-window verification. |
 | Electron renderer | `desktop/npm test` | 315 tests pass after installing the lockfile dependencies. No Electron UI or live shared-MCP registration was changed in this work. |
-| Tauri renderer/native layer | `npm run check`, `npm test`, `npm run test:ui`, `npm run test:rust`, `npm run build` | Pass on the current branch: 9 domain tests, 87 UI tests and 35 Rust tests. The Rust tests cover explicit Local/Fleet file routing, private credential storage, Fleet URL policy, pairing HTTP contract handling, account identity binding, selected-runtime replacement rejection, runtime-mode status and durable connection UUID migration. |
-| Tauri Fleet | Pairing contract fixture plus an isolated macOS bundle pointed at the existing Fleet workstation agent | The contract fixture covers pairing request/response and errors. The live Tauri dashboard loaded 19 projects from the v0.7.6 agent and displayed the Fleet backend identity without writing remotely. One-time-code pairing, the native attach button, Fleet profile/API setup and OAuth on the live backend remain unqualified. Conversation identity and explicit legacy association are covered by local Go/Rust/UI tests, not a live Fleet session. |
+| Tauri renderer/native layer | `npm run check`, `npm test`, `npm run test:ui`, `npm run test:rust`, `npm run build` | Pass on the current branch: 9 domain tests, 89 UI tests and 35 Rust tests. The Rust tests cover explicit Local/Fleet file routing, private credential storage, Fleet URL policy, pairing HTTP contract handling, account identity binding, selected-runtime replacement rejection, runtime-mode status and durable connection UUID migration. |
+| Tauri Fleet | Pairing contract fixture, isolated macOS bundle, and live one-time pairing against Fleet server `660-main` | Live pairing with a temporary one-time code succeeded; `/api/me` matched the pairing owner and `/api/projects` succeeded. The temporary device was revoked and its absence verified. A separate isolated bundle attached to the existing v0.7.6 agent and loaded 19 projects and 390 read-only tickets. Native profile/tracker/project setup, OAuth and tracker writes remain unqualified on the live Fleet backend. Conversation identity and legacy association also have Go/Rust/UI test coverage. |
 | Existing native Local install | Managed macOS migration verification and real Jira/Claude/Codex/MCP requests | Pass; details above. |
 | Existing Electron/Go Fleet connection | Read-only calls to the existing workstation agent's authenticated `/desktop/status`, `/desktop/version` and `/desktop/projects` routes | The agent reports v0.7.6, connected, no contract error, and 19 projects (2026-10-29). This verifies the existing connection only; no Tauri mode or server data was changed. |
 | macOS release bundle | `npm run tauri -- build --bundles app --no-sign` | Pass on the current commit (2026-10-29); the unsigned release `.app` is 101.72 MiB versus the recorded 133.1 MiB debug app. It contains about 95 MiB of Go binaries: companion (40 MiB), legacy server (36 MiB) and legacy agent (20 MiB) for migration/recovery. This is an unsigned macOS app bundle, not a release artifact or a cross-platform size comparison. |
+| Linux ARM64 desktop package | Tauri `0988d58`/Go `7dea9140` package build with embedded service manifest/hash/version verification; follow-up Tauri `446285c`/Go `7dea9140` package installed with `dpkg -i`, then launched under Xvfb/DBus and checked for a visible X11 window with `xdotool` | The 49.11 MiB ARM64 package builds; the follow-up package installs, opens a visible X11 window and stops cleanly. This is simulated Linux startup evidence, not interactive desktop, provider execution, migration or multi-distribution qualification. |
 | macOS startup | Isolated unsigned optimized app under a separate bundle ID; first native window timed independently from UI readiness | On arm64 macOS 27.0.1, the initial launch showed its first native window at 1.09 s. Three subsequent process relaunches with the same unconfigured profile and warm filesystem cache took 207–245 ms to first window. The setup screen was manually accessible by about 3.5 s on the initial launch (upper bound from a two-second observation interval); this was not automated UI-ready timing. At 33 s, initial-launch app RSS was 94.7 MiB and no companion was running. These samples do not establish a startup SLA or true repeated cold-boot performance. |
 
 The idle Go service process count is now one. At the earlier captured idle sample,
@@ -484,24 +485,27 @@ server/agent pairing and verifies Git initialized the expected path; it restores
 the original temporary metadata afterward. This qualifies one mutating agent
 operation. Task worktree operations, cancellation, provider execution, live
 GitHub/Jira/GitLab behavior and Electron registration remain unqualified. Stage 5 remains
-open for a live Fleet pairing/setup session, an Electron live MCP call after the
-Tauri migration, signed-package qualification and repeated true cold-start
-measurements. The qualification host currently has zero valid macOS
+open for native Fleet setup screens and tracker writes, Windows runtime/migration,
+provider execution in packaged Linux, supported-version boundaries, signed-package
+qualification and repeated true cold-start measurements. The qualification host currently has zero valid macOS
 code-signing identities. Do not infer these from unit tests or
 from the migrated Local installation.
 
 Existing workstation connection qualification (2026-10-29): the saved local
 agent connection was used for read-only authenticated calls. The v0.7.6 agent
-returned `connected: true`, an empty `contractError`, and 19 projects. This is
-not evidence of Tauri one-time-code pairing, project creation through the new
-API route, or a live MCP call after Local migration.
+returned `connected: true`, an empty `contractError`, and 19 projects. This
+specific check is not evidence of Tauri one-time-code pairing or project
+creation through the new API route; those are covered by the separate live
+pairing check below.
 
-Fleet pairing contract qualification (2026-10-29): the Tauri native exchange
-was extracted behind a small HTTP boundary and verified against a loopback
-fixture. The tests assert the POST path, one-time-code payload, device/user/API
-credential decoding, expired-code error, incomplete success payload and backend
-error. They do not redeem a real Fleet code, validate remote TLS deployment, or
-prove a paired workstation's reconnection behavior.
+Fleet pairing qualification (2026-10-29): the Tauri native exchange was
+verified against a loopback fixture for the POST path, one-time-code payload,
+device/user/API credential decoding, expired-code error, incomplete success
+payload and backend error. A separate live test redeemed a temporary code
+against Fleet server `660-main`; `/api/me` matched the pairing owner and
+`/api/projects` succeeded. The temporary workstation credential was revoked
+and its absence verified. This does not qualify remote TLS deployment,
+reconnection behavior, or the native profile/tracker/project setup forms.
 
 Release bundle measurement (2026-10-29): a clean optimized Tauri build completed
 with signing disabled and produced a 101.72 MiB macOS `.app`. The bundle still
@@ -524,5 +528,5 @@ operation list. The reproducible Go harness also starts a v0.7.6 server from an
 isolated SQLite database and accepts a current `dev` agent with all 27 operations
 and `outdated=false`. Both results qualify handshake compatibility only; tracker,
 MCP and workflow API parity remain open. Windows cross-compilation also passed
-for the Go companion and handler test binary; Windows runtime and Linux native
-execution remain untested.
+for the Go companion and handler test binary; Windows runtime/migration and real
+Linux desktop interaction, migration and provider execution remain untested.
