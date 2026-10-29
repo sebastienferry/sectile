@@ -9,7 +9,7 @@ const outcome: Record<string,string> = {
   no_site: "Aucun site Jira configuré n’a été autorisé. Vérifiez vos sources de tickets et le consentement.",
   failed: "La connexion a échoué. Vérifiez la configuration de l’application OAuth.",
 };
-export function OAuthConnections({ onConnected, credentials = [] }: { onConnected: () => void; credentials?: {tracker:string;account?:string;kind?:string;disconnected?:boolean}[] }) {
+export function OAuthConnections({ onConnected, credentials = [], serverManaged = false }: { onConnected: () => void; credentials?: {tracker:string;account?:string;kind?:string;disconnected?:boolean}[]; serverManaged?: boolean }) {
   const [apps,setApps] = useState<Record<string,api.OAuthApp>>({});
   const [error,setError] = useState("");
   async function reload() { try { setApps(await api.oauthApps()); setError(""); } catch(e) { setError(String(e)); } }
@@ -17,12 +17,12 @@ export function OAuthConnections({ onConnected, credentials = [] }: { onConnecte
   return <article>
     <h2>Connexion aux comptes</h2>
     <p>Connectez-vous dans votre navigateur habituel. Les accès seront enregistrés automatiquement, sans copier de jeton personnel.</p>
-    <p className="muted">Chaque fournisseur nécessite une application OAuth configurée une fois pour cette installation. Pour Jira, ajoutez aussi votre site dans les sources de tickets ci-dessous.</p>
+    <p className="muted">{serverManaged ? "Les applications OAuth et leurs rappels sont gérés par le backend Fleet. Pour Jira, ajoutez aussi votre site dans les sources de tickets ci-dessous." : "Chaque fournisseur nécessite une application OAuth configurée une fois pour cette installation. Pour Jira, ajoutez aussi votre site dans les sources de tickets ci-dessous."}</p>
     {error && <p role="alert" className="error">{error}<button onClick={()=>void reload()}>Réessayer</button></p>}
-    {Object.entries(names).map(([provider,name])=>apps[provider] && <OAuthProvider key={provider} provider={provider} name={name} configuration={apps[provider]} account={credentials.find(c=>c.tracker===provider && c.kind==="oauth" && !c.disconnected)?.account} onSaved={()=>void reload()} onConnected={onConnected} />)}
+    {Object.entries(names).map(([provider,name])=>apps[provider] && <OAuthProvider key={provider} provider={provider} name={name} configuration={apps[provider]} serverManaged={serverManaged} account={credentials.find(c=>c.tracker===provider && c.kind==="oauth" && !c.disconnected)?.account} onSaved={()=>void reload()} onConnected={onConnected} />)}
   </article>;
 }
-function OAuthProvider({provider,name,configuration,account,onSaved,onConnected}:{provider:string;name:string;configuration:api.OAuthApp;account?:string;onSaved:()=>void;onConnected:()=>void}) {
+function OAuthProvider({provider,name,configuration,serverManaged,account,onSaved,onConnected}:{provider:string;name:string;configuration:api.OAuthApp;serverManaged:boolean;account?:string;onSaved:()=>void;onConnected:()=>void}) {
   const [clientId,setClientId]=useState("");
   const [secret,setSecret]=useState("");
   const [pending,setPending]=useState(false);
@@ -45,7 +45,7 @@ function OAuthProvider({provider,name,configuration,account,onSaved,onConnected}
         const value=await api.oauthStatus(flow);
         if(disposed)return;
         if(value.status!=="waiting"&&value.status!=="completing") {
-          terminal=true; setFlow(""); setMessage(outcome[value.status]??outcome.failed);
+          terminal=true; setFlow(""); setMessage(value.status === "connected" && serverManaged ? "Compte connecté. Vos accès sont enregistrés sur le backend Fleet." : outcome[value.status]??outcome.failed);
           if(value.status==="connected")connected.current();
           return;
         }
@@ -67,14 +67,14 @@ function OAuthProvider({provider,name,configuration,account,onSaved,onConnected}
     }catch(e){if(mounted.current)setError(String(e));}
     finally{busy.current=false;if(mounted.current)setPending(false);}
   }
-  const configured=configuration.configured && configuration.redirectUrl===configuration.expectedRedirectUrl;
+  const configured=configuration.configured && (serverManaged ? Boolean(configuration.redirectUrl) : configuration.redirectUrl===configuration.expectedRedirectUrl);
   return <section className="oauth-provider">
     <div className="oauth-heading"><h3>{name}</h3><button className="primary" disabled={pending||!!flow||!configured} onClick={()=>void begin()}>Se connecter à {name}</button></div>
     {account && <p>Compte connecté : {account}</p>}
     {message&&<p role="status">{message}</p>}
     {error&&<p role="alert" className="error">{error}</p>}
     {flow&&<button onClick={()=>void api.cancelOAuth(flow).then(()=>{setFlow("");setMessage(outcome.cancelled);}).catch(e=>setError(String(e)))}>Annuler la connexion</button>}
-    <details ref={settings} onToggle={event=>{if(!event.currentTarget.open){setClientId("");setSecret("");}}}>
+    {serverManaged ? <p className="muted">L’application OAuth et l’URL de rappel sont administrées sur le backend Fleet.</p> : <details ref={settings} onToggle={event=>{if(!event.currentTarget.open){setClientId("");setSecret("");}}}>
       <summary>{configured?"Application OAuth configurée · modifier":"Configurer l’application OAuth"}</summary>
       <p>Enregistrez cette URL de rappel dans l’application {name} :</p>
       <input aria-label={`URL de rappel ${name}`} readOnly value={configuration.expectedRedirectUrl} onFocus={e=>e.target.select()} />
@@ -90,6 +90,6 @@ function OAuthProvider({provider,name,configuration,account,onSaved,onConnected}
           <button type="submit">Enregistrer l’application {name}</button>
         </fieldset>
       </form>
-    </details>
+    </details>}
   </section>;
 }

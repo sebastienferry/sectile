@@ -44,7 +44,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     mounted.current = true;
     void refresh().then(next => {
       if (!mounted.current) return;
-      if (!navigated.current) setSection(!next.enabled || !next.ready ? "services" : !next.signedIn ? "profile" : "engines");
+      if (!navigated.current) setSection(!next.enabled || !next.ready ? "services" : next.mode === "fleet" && next.apiSetupAvailable === false ? "engines" : !next.signedIn ? "profile" : "engines");
       setEmail(next.profile?.email ?? "");
       setDisplayName(next.profile?.displayName ?? "");
     }).catch(cause => { if (mounted.current) setError(String(cause)); });
@@ -69,7 +69,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
   function submit(event: FormEvent, action: () => Promise<unknown>, message: string) {
     event.preventDefault(); void perform(action, message);
   }
-  const ready = setup?.ready && setup.signedIn && setup.mode !== "fleet";
+  const ready = setup?.ready && setup.signedIn && setup.apiSetupAvailable !== false;
   return <section className="settings local-settings">
     <header className="settings-heading"><span className="eyebrow">VOTRE ESPACE LOCAL</span><h1>Configuration du poste</h1>
     <p>Connectez vos outils. Choisissez vos projets. Tout se configure ici.</p></header>
@@ -79,8 +79,8 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     {!setup && !error && <p>Lecture de la configuration…</p>}
     <div className="settings-layout">
     <nav className="settings-navigation" aria-label="Sections des paramètres">
-     {sections.map(item => <button key={item.id} aria-current={section === item.id ? "page" : undefined} disabled={(item.id === "profile" && !setup?.ready) || (["connections","projects"].includes(item.id) && (!ready || setup?.mode === "fleet"))} onClick={() => {navigated.current=true;setSection(item.id);}}><Icon name={item.icon} />{item.label}{section === item.id && <Icon name="chevron" />}</button>)}
-     <p>Configuration conservée sur ce poste.</p>
+     {sections.map(item => <button key={item.id} aria-current={section === item.id ? "page" : undefined} disabled={(item.id === "profile" && (!setup?.ready || setup.mode === "fleet" && setup.apiSetupAvailable === false)) || (["connections","projects"].includes(item.id) && !ready)} onClick={() => {navigated.current=true;setSection(item.id);}}><Icon name={item.icon} />{item.label}{section === item.id && <Icon name="chevron" />}</button>)}
+     <p>{setup?.mode === "fleet" ? "Les comptes et projets sont conservés sur le backend Fleet." : "Configuration conservée sur ce poste."}</p>
     </nav>
     <div className="settings-content">
     <header className="settings-section-heading"><h2>{sections.find(item=>item.id===section)?.label}</h2><p>{sections.find(item=>item.id===section)?.description}</p></header>
@@ -88,6 +88,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     <div hidden={section !== "services"}><article>
       <h2>Services locaux</h2>
       <p>{setup?.mode === "fleet" ? `Mode Fleet · ${setup.agentReady ? "agent connecté" : "agent déconnecté"}${setup.fleetServer ? ` · ${setup.fleetServer}` : ""}` : !setup?.enabled ? "Choisissez un mode pour connecter ce desktop à Sectile." : setup.ready ? `Mode Local · compagnon prêt · ${setup.agentReady ? "exécution prête" : "en attente du profil"}` : "Le compagnon local ne répond pas."}</p>
+      {setup?.mode === "fleet" && setup.apiSetupAvailable === false && <p className="muted">Cet agent a été attaché sans identifiant API du poste. Configurez les comptes et projets sur le backend Fleet.</p>}
       {setup?.dataDirectory && <p className="muted runtime-path">{setup.dataDirectory}</p>}
       <p className="muted">{setup?.mode === "fleet" ? "L’agent Fleet reste géré par son installation habituelle." : "Le compagnon démarre automatiquement. Il continue en arrière-plan lorsque vous fermez le desktop, pour laisser les tâches se terminer."}</p>
       {setup?.mode !== "fleet" && <button disabled={pending} onClick={() => void perform(api.enableLocalRuntime, "Compagnon local démarré et mode Local sélectionné.")}>{setup?.enabled ? "Vérifier / démarrer le compagnon local" : "Démarrer en mode Local"}</button>}
@@ -105,7 +106,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       {setup?.mode === "fleet" && <p className="muted">Les profils, trackers et projets Fleet se configurent sur le backend Sectile. Cette page ne modifie que le compagnon Local.</p>}
       <button disabled={pending} onClick={() => void perform(async () => {}, "Configuration actualisée.")}>Actualiser</button>
     </article></div>
-    <div hidden={section !== "profile"}>{setup?.ready && setup.mode !== "fleet" && <article>
+    <div hidden={section !== "profile"}>{setup?.ready && setup.apiSetupAvailable !== false && (setup.mode !== "fleet" || setup.signedIn) && <article>
       <h2>Profil local</h2>
       <form onSubmit={e => submit(e, () => api.saveLocalProfile(email, displayName), "Profil enregistré et agent associé.")}>
         <fieldset disabled={pending}>
@@ -117,7 +118,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       </form>
     </article>}</div>
     {ready && <>
-      <div hidden={section !== "connections"}><OAuthConnections credentials={setup.credentials?.credentials} onConnected={() => { void refresh(); onChanged(); }} />
+      <div hidden={section !== "connections"}><OAuthConnections serverManaged={setup.mode === "fleet"} credentials={setup.credentials?.credentials} onConnected={() => { void refresh(); onChanged(); }} />
       <article>
         <details><summary>Accès manuel par jeton · option avancée</summary>
         <form onSubmit={e => submit(e, async () => {
@@ -129,7 +130,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
             <label>URL du site ou de l’API<input type="url" required={provider !== "github"} placeholder={provider === "jira" ? "https://votre-site.atlassian.net" : provider === "gitlab" ? "https://gitlab.com" : "https://api.github.com"} value={site} onChange={e => setSite(e.target.value)} /></label>
             <label>E-mail du compte<input type="email" required={provider === "jira"} value={trackerEmail} onChange={e => setTrackerEmail(e.target.value)} /></label>
             <label>Jeton personnel<input type="password" required autoComplete="off" value={token} onChange={e => setToken(e.target.value)} /></label>
-            <p className="muted">Le jeton est chiffré par le serveur local. L’enregistrement remplace l’accès personnel de ce fournisseur.</p>
+            <p className="muted">Le jeton est chiffré par {setup.mode === "fleet" ? "le backend Fleet" : "le serveur local"}. L’enregistrement remplace l’accès personnel de ce fournisseur.</p>
             <button type="submit">Enregistrer l’accès</button>
           </fieldset>
         </form>
@@ -138,7 +139,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       </article>
       <article>
         <h2>Sources de tickets</h2>
-        <form onSubmit={e => submit(e, async () => { await api.createLocalTracker({ name: trackerName, provider, site, scope }); setTrackerName(""); setScope(""); }, "Tracker ajouté.")}>
+        {setup.mode !== "fleet" || setup.profile?.role === "admin" ? <form onSubmit={e => submit(e, async () => { await api.createLocalTracker({ name: trackerName, provider, site, scope }); setTrackerName(""); setScope(""); }, "Tracker ajouté.")}>
           <fieldset disabled={pending}>
             <label>Fournisseur de la source<select value={provider} onChange={e => {setProvider(e.target.value);setSite("");}}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
             <label>Adresse de la source<input type="url" required={provider==="jira"} placeholder={provider==="jira"?"https://votre-site.atlassian.net":"URL facultative pour l’instance publique"} value={site} onChange={e=>setSite(e.target.value)} /></label>
@@ -146,7 +147,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
             <label>Dépôt ou clé du projet<input required placeholder={provider === "jira" ? "PROJET" : "organisation/depot"} value={scope} onChange={e => setScope(e.target.value)} /></label>
             <button type="submit">Ajouter le tracker</button>
           </fieldset>
-        </form>
+        </form> : <p className="muted">Les trackers sont partagés dans Fleet. Demandez à un administrateur du serveur d’enregistrer une nouvelle source.</p>}
         <ul className="setup-list">{setup.trackers?.map(t => <li key={t.id}><span>{t.name} <small>{t.provider} · {t.scope}</small></span><button disabled={pending} onClick={() => void perform(() => api.syncLocalTracker(t.id), "Synchronisation demandée. Les tickets apparaîtront après traitement.")}>Synchroniser</button></li>)}</ul>
       </article></div>
       <div hidden={section !== "projects"}>

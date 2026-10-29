@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { LocalSettings } from "../src/components/LocalSettings";
 import * as api from "../src/lib/local";
-vi.mock("../src/components/OAuthConnections", () => ({ OAuthConnections: () => <div>OAuth connections</div> }));
+vi.mock("../src/components/OAuthConnections", () => ({ OAuthConnections: ({serverManaged}:{serverManaged?:boolean}) => <div data-server-managed={String(serverManaged??false)}>OAuth connections</div> }));
 vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), enableLocalRuntime: vi.fn(), attachFleetAgent: vi.fn(), pairFleetAgent: vi.fn(), saveLocalProfile: vi.fn(), saveLocalCredential: vi.fn(), createLocalTracker: vi.fn(), createLocalProject: vi.fn(), mapLocalProject: vi.fn(), syncLocalTracker: vi.fn() }));
 const ready = { enabled: true, ready: true, signedIn: true, agentReady: true, profile: { email: "fixture@example.invalid", displayName: "Fixture" }, trackers: [{id:"t",name:"Tracker",provider:"github",scope:"fixture/repo"}], projects: [{id:"p",name:"Project"}] };
 beforeEach(() => { vi.resetAllMocks(); });
@@ -20,13 +20,15 @@ test("Local activation waits for the local server before exposing profile setup"
   finish();
   await screen.findByLabelText("Adresse e-mail");
 });
-test("Fleet is attached explicitly and hides Local-only setup", async () => {
+test("Fleet attachment enables backend setup and hides Local-only controls", async () => {
   vi.mocked(api.localSetupStatus).mockResolvedValueOnce({ enabled: false, mode: "unconfigured" }).mockResolvedValue({ enabled: true, ready: true, signedIn: true, agentReady: true, mode: "fleet", fleetServer: "https://fleet.example.invalid" });
   vi.mocked(api.attachFleetAgent).mockResolvedValue();
   render(<LocalSettings onChanged={vi.fn()} />);
   fireEvent.click(await screen.findByRole("button",{name:"Associer l’agent Fleet existant"}));
   await waitFor(() => expect(api.attachFleetAgent).toHaveBeenCalledOnce());
-  expect(screen.queryByLabelText("Adresse e-mail")).toBeNull();
+  expect(await screen.findByLabelText("Adresse e-mail")).toBeTruthy();
+  expect((screen.getByRole("button",{name:"Comptes et trackers"}) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole("button",{name:"Projets"}) as HTMLButtonElement).disabled).toBe(false);
   await waitFor(() => expect(screen.queryByRole("button",{name:"Associer l’agent Fleet existant"})).toBeNull());
 });
 test("Fleet pairing sends the one-time code to native code and clears it after failure", async () => {
@@ -40,6 +42,24 @@ test("Fleet pairing sends the one-time code to native code and clears it after f
   await waitFor(() => expect(api.pairFleetAgent).toHaveBeenCalledWith("https://fleet.example.invalid","one-time-code"));
   await screen.findByRole("alert");
   await waitFor(() => expect((code as HTMLInputElement).value).toBe(""));
+});
+test("paired Fleet enables native setup while keeping shared tracker creation admin-only", async () => {
+  vi.mocked(api.localSetupStatus).mockResolvedValue({
+    enabled: true, ready: true, signedIn: true, agentReady: true, apiSetupAvailable: true,
+    mode: "fleet", fleetServer: "https://fleet.example.invalid",
+    profile: {email:"fixture@example.invalid",displayName:"Fixture",role:"member"},
+    trackers: [{id:"t",name:"Tracker",provider:"github",scope:"fixture/repo"}],
+    projects: [{id:"p",name:"Project"}],
+  });
+  render(<LocalSettings onChanged={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button",{name:"Comptes et trackers"}));
+  expect(screen.getByText("OAuth connections").getAttribute("data-server-managed")).toBe("true");
+  expect(screen.getByText(/Les trackers sont partagés dans Fleet/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:"Projets"}));
+  fireEvent.change(await screen.findByLabelText("Nom du projet"),{target:{value:"New Fleet project"}});
+  fireEvent.change(screen.getByLabelText("Tracker"),{target:{value:"t"}});
+  fireEvent.click(screen.getByRole("button",{name:"Créer le projet"}));
+  await waitFor(() => expect(api.createLocalProject).toHaveBeenCalledWith("New Fleet project","t"));
 });
 test("a credential is sent only on submission and its input is cleared after failure", async () => {
   vi.mocked(api.localSetupStatus).mockResolvedValue(ready);

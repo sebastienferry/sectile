@@ -114,9 +114,11 @@ Jira verification and native Claude/Codex prompts plus MCP reads succeeded after
 the switch. Stage 4 has explicit Local/Fleet selection; Tauri can pair Fleet with
 a one-time code or privately attach an existing, already paired agent after
 validating its live connection. The shared Electron discovery file is no longer
-a silent fallback. Stage 4 remains open for live Fleet qualification,
-active-work-safe mode switching, conversation/backend identity adoption and full
-Fleet-native profile/tracker/project setup. Stage 5 remains open: qualify the
+a silent fallback. Paired Fleet connections now expose native profile, personal
+tracker credential, project and OAuth account setup through the selected backend;
+OAuth app secrets and shared tracker administration remain server-admin tasks.
+Stage 4 remains open for live Fleet qualification, active-work-safe mode
+switching and conversation/backend identity adoption. Stage 5 remains open: qualify the
 Fleet/Electron compatibility matrix,
 supported versions, other-platform migration and measured process/memory/startup
 and package behavior. An unsigned optimized macOS `.app` has now been measured
@@ -126,8 +128,9 @@ V1 release.
 
 The first compatibility slice passed: standalone `cmd/agent` and `cmd/server`
 tests, race-enabled companion/backend/agent tests, a Windows companion
-cross-build, 315 Electron unit tests, and the Tauri typecheck/build plus 85 UI
-and 30 Rust tests. The migrated macOS install preserved its ten original
+cross-build, 315 Electron unit tests, and the Tauri typecheck/build plus 86 UI
+and 31 Rust tests. Fleet-native setup also passes its Go handler/backend tests;
+this is contract coverage, not a live remote Fleet qualification. The migrated macOS install preserved its ten original
 projects, trackers, OAuth key and 25 conversation histories; live Jira,
 Claude/Codex prompt and embedded MCP calls succeeded. One idle companion used
 about 40.7 MiB RSS against 55.7 MiB combined server/agent phase 0 medians. The

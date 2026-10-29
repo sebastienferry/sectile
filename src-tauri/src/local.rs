@@ -89,27 +89,7 @@ fn mode_path(root: &Path) -> PathBuf {
 
 pub fn runtime_mode(app: &tauri::AppHandle) -> Result<Option<RuntimeMode>, String> {
     let root = root(app)?;
-    let path = mode_path(&root);
-    if !path.exists() {
-        // A previously committed managed installation is unambiguously Local.
-        // Do not infer Fleet from the legacy shared discovery file.
-        let selected = active_root(&root)?;
-        return Ok(selected
-            .join("installation.json")
-            .exists()
-            .then_some(RuntimeMode::Local));
-    }
-    let value: Value =
-        serde_json::from_slice(&fs::read(path).map_err(|_| "Mode d’exécution illisible")?)
-            .map_err(|_| "Mode d’exécution invalide")?;
-    if value["protocol"] != 1
-        || (value["mode"] == "fleet" && value["server"].as_str().is_none_or(str::is_empty))
-    {
-        return Err("Configuration du mode incompatible".into());
-    }
-    serde_json::from_value(value["mode"].clone())
-        .map(Some)
-        .map_err(|_| "Mode d’exécution incompatible".into())
+    runtime_mode_from_root(&root)
 }
 
 fn save_mode(root: &Path, mode: RuntimeMode, server: Option<&str>) -> Result<(), String> {
@@ -727,6 +707,109 @@ async fn request(
     Ok(value)
 }
 
+fn read_fleet_credentials(root: &Path) -> Result<FleetCredentials, String> {
+    let fleet_root = fleet_root(root)?;
+    let credentials: FleetCredentials = serde_json::from_slice(
+        &fs::read(fleet_root.join("settings.json"))
+            .map_err(|_| "Les identifiants API Fleet sont absents. Associez ce poste avec un code de jumelage.".to_string())?,
+    )
+    .map_err(|_| "Configuration API Fleet illisible".to_string())?;
+    let normalized = normalize_fleet_server_url(&credentials.server)?;
+    if normalized != credentials.server
+        || credentials.api_key.is_empty()
+        || credentials.device_id.is_empty()
+        || credentials.server != selected_fleet_server(root)?
+    {
+        return Err("Configuration API Fleet incompatible".into());
+    }
+    Ok(credentials)
+}
+
+async fn fleet_request(
+    root: &Path,
+    method: Method,
+    route: &str,
+    body: Option<Value>,
+) -> Result<Value, String> {
+    let credentials = read_fleet_credentials(root)?;
+    let base = reqwest::Url::parse(&credentials.server).map_err(|_| "Adresse Fleet invalide")?;
+    let endpoint = base
+        .join(route.trim_start_matches('/'))
+        .map_err(|_| "Route Fleet invalide")?;
+    if endpoint.origin() != base.origin() || !endpoint.path().starts_with("/api/") {
+        return Err("Route Fleet refusée".into());
+    }
+    let mut request = client()?
+        .request(method, endpoint)
+        .bearer_auth(&credentials.api_key);
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|_| "Le backend Fleet est inaccessible. Vérifiez sa connexion.")?;
+    let status = response.status();
+    if status == reqwest::StatusCode::NO_CONTENT {
+        return Ok(Value::Null);
+    }
+    if !status.is_success() {
+        return Err(match status {
+            reqwest::StatusCode::UNAUTHORIZED => {
+                "Le jeton Fleet a expiré ou a été révoqué. Réassociez ce poste.".into()
+            }
+            reqwest::StatusCode::FORBIDDEN => {
+                "Votre profil Fleet n’est pas autorisé à effectuer cette action.".into()
+            }
+            reqwest::StatusCode::NOT_FOUND => {
+                "Cette opération n’est pas disponible sur cette version du backend Fleet.".into()
+            }
+            _ => format!(
+                "Le backend Fleet a refusé cette action (HTTP {}).",
+                status.as_u16()
+            ),
+        });
+    }
+    response
+        .json()
+        .await
+        .map_err(|_| "Réponse du backend Fleet illisible".into())
+}
+
+async fn selected_request(
+    root: &Path,
+    method: Method,
+    route: &str,
+    body: Option<Value>,
+) -> Result<Value, String> {
+    match runtime_mode_from_root(root)? {
+        Some(RuntimeMode::Fleet) => fleet_request(root, method, route, body).await,
+        Some(RuntimeMode::Local) => request(&read_installation(root)?, method, route, body).await,
+        None => Err("Choisissez un mode d’exécution dans les paramètres.".into()),
+    }
+}
+
+fn runtime_mode_from_root(root: &Path) -> Result<Option<RuntimeMode>, String> {
+    let path = mode_path(root);
+    if !path.exists() {
+        return Ok(active_root(root)?
+            .join("installation.json")
+            .exists()
+            .then_some(RuntimeMode::Local));
+    }
+    let value: Value =
+        serde_json::from_slice(&fs::read(path).map_err(|_| "Mode d’exécution illisible")?)
+            .map_err(|_| "Mode d’exécution invalide")?;
+    if value["protocol"] != 1
+        || (value["mode"] == "fleet" && value["server"].as_str().is_none_or(str::is_empty))
+    {
+        return Err("Configuration du mode incompatible".into());
+    }
+    serde_json::from_value(value["mode"].clone())
+        .map(Some)
+        .map_err(|_| "Configuration du mode incompatible".into())
+}
+
 pub async fn resume(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<LocalRuntime>();
     let _lock = state.2.lock().await;
@@ -817,8 +900,21 @@ pub async fn local_setup_status(app: tauri::AppHandle) -> Result<Value, String> 
         if value["server"] != selected_fleet_server(&root)? {
             return Err("L’agent Fleet répond avec une autre identité de serveur".into());
         }
+        if !fleet_root(&root)?.join("settings.json").exists() {
+            return Ok(json!({"enabled":true,"ready":true,"signedIn":false,
+                "agentReady":value["connected"],"mode":"fleet","fleetServer":value["server"],
+                "apiSetupAvailable":false}));
+        }
+        let profile = fleet_request(&root, Method::GET, "/api/me", None).await?;
+        let credentials =
+            fleet_request(&root, Method::GET, "/api/me/tracker-credentials", None).await?;
+        let trackers = fleet_request(&root, Method::GET, "/api/trackers", None).await?;
+        let projects = fleet_request(&root, Method::GET, "/api/projects", None).await?;
         return Ok(
-            json!({"enabled":true,"ready":true,"signedIn":true,"agentReady":value["connected"],"mode":"fleet","fleetServer":value["server"]}),
+            json!({"enabled":true,"ready":true,"signedIn":profile["signedIn"] == true,
+            "agentReady":value["connected"],"mode":"fleet","fleetServer":value["server"],
+            "apiSetupAvailable":true,
+            "profile":profile,"credentials":credentials,"trackers":trackers,"projects":projects}),
         );
     }
     if !root.join("installation.json").exists() {
@@ -956,6 +1052,17 @@ pub async fn save_local_profile(
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
     let root = root(&app)?;
+    if runtime_mode(&app)? == Some(RuntimeMode::Fleet) {
+        let _installation_lock = installation_lock(&root)?;
+        selected_request(
+            &root,
+            Method::PATCH,
+            "/api/me",
+            Some(json!({"displayName":display_name})),
+        )
+        .await?;
+        return Ok(());
+    }
     let _installation_lock = installation_lock(&root)?;
     let mut installation = read_installation(&root)?;
     ensure_server(&app, &root, &installation).await?;
@@ -1053,8 +1160,8 @@ pub async fn save_local_credential(
     }
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
-    let installation = read_installation(&root(&app)?)?;
-    request(&installation,Method::PUT,"/api/me/tracker-credentials",Some(json!({"tracker":input.tracker,"siteUrl":input.site_url,"email":input.email,"token":input.token}))).await?;
+    let root = root(&app)?;
+    selected_request(&root,Method::PUT,"/api/me/tracker-credentials",Some(json!({"tracker":input.tracker,"siteUrl":input.site_url,"email":input.email,"token":input.token}))).await?;
     Ok(())
 }
 #[derive(Deserialize)]
@@ -1073,8 +1180,8 @@ pub async fn create_local_tracker(
     remote_provider(&input.provider)?;
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
-    let installation = read_installation(&root(&app)?)?;
-    request(&installation,Method::POST,"/api/admin/trackers",Some(json!({"name":input.name,"provider":input.provider,"site":input.site,"scope":input.scope,"autoSyncEnabled":true,"autoSyncIntervalMin":5}))).await
+    let root = root(&app)?;
+    selected_request(&root,Method::POST,"/api/admin/trackers",Some(json!({"name":input.name,"provider":input.provider,"site":input.site,"scope":input.scope,"autoSyncEnabled":true,"autoSyncIntervalMin":5}))).await
 }
 #[tauri::command]
 pub async fn create_local_project(
@@ -1087,8 +1194,8 @@ pub async fn create_local_project(
     }
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
-    let installation = read_installation(&root(&app)?)?;
-    request(&installation,Method::POST,"/api/projects",Some(json!({"name":name,"trackers":[{"trackerId":tracker_id}],"defaultTrackerId":tracker_id}))).await
+    let root = root(&app)?;
+    selected_request(&root,Method::POST,"/api/projects",Some(json!({"name":name,"trackers":[{"trackerId":tracker_id}],"defaultTrackerId":tracker_id}))).await
 }
 #[tauri::command]
 pub async fn sync_local_tracker(app: tauri::AppHandle, tracker_id: String) -> Result<(), String> {
@@ -1097,9 +1204,9 @@ pub async fn sync_local_tracker(app: tauri::AppHandle, tracker_id: String) -> Re
     }
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
-    let installation = read_installation(&root(&app)?)?;
-    request(
-        &installation,
+    let root = root(&app)?;
+    selected_request(
+        &root,
         Method::POST,
         &format!("/api/trackers/{tracker_id}/sync"),
         Some(json!({})),
@@ -1218,6 +1325,34 @@ mod tests {
     }
 
     #[test]
+    fn fleet_api_requests_use_the_paired_key_without_leaking_it_in_errors() {
+        let (server, request) = pairing_fixture("200 OK", r#"{"signedIn":true}"#);
+        let root = std::env::temp_dir().join(format!("sectile-fleet-api-{}", uuid::Uuid::new_v4()));
+        let credentials = FleetCredentials {
+            server: server.clone(),
+            api_key: "private-api-key".into(),
+            device_id: "device-1".into(),
+        };
+        let runtime = FleetRuntime {
+            server: server.clone(),
+            desktop_token: "private-desktop-token".into(),
+            user_id: "user-1".into(),
+        };
+        write_fleet_credentials(&root, &credentials, &runtime).unwrap();
+        save_mode(&root, RuntimeMode::Fleet, Some(&server)).unwrap();
+        let response = run_async(fleet_request(&root, Method::GET, "/api/me", None)).unwrap();
+        assert_eq!(response["signedIn"], true);
+        let request = request.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(request.starts_with("GET /api/me HTTP/1.1\r\n"));
+        assert!(
+            request
+                .lines()
+                .any(|line| line.eq_ignore_ascii_case("authorization: Bearer private-api-key"))
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn installation_credentials_are_private_and_round_trip() {
         let root = std::env::temp_dir().join(format!("sectile-local-{}", uuid::Uuid::new_v4()));
         private_dir(&root).unwrap();
@@ -1281,8 +1416,17 @@ fn public_oauth_app(value: &Value) -> Value {
 }
 #[tauri::command]
 pub async fn oauth_apps(app: tauri::AppHandle) -> Result<Value, String> {
-    let installation = read_installation(&root(&app)?)?;
+    let root = root(&app)?;
     let mut apps = serde_json::Map::new();
+    if runtime_mode(&app)? == Some(RuntimeMode::Fleet) {
+        let configured =
+            selected_request(&root, Method::GET, "/api/desktop-oauth/apps", None).await?;
+        for provider in ["github", "gitlab", "jira"] {
+            apps.insert(provider.into(), public_oauth_app(&configured[provider]));
+        }
+        return Ok(Value::Object(apps));
+    }
+    let installation = read_installation(&root)?;
     for provider in ["github", "gitlab", "jira"] {
         let value = request(
             &installation,
@@ -1305,7 +1449,13 @@ pub async fn save_oauth_app(
     remote_provider(&provider)?;
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
-    let installation = read_installation(&root(&app)?)?;
+    let root = root(&app)?;
+    if runtime_mode(&app)? == Some(RuntimeMode::Fleet) {
+        return Err(
+            "Les applications OAuth sont gérées par l’administrateur du backend Fleet.".into(),
+        );
+    }
+    let installation = read_installation(&root)?;
     let client_id = if client_id.trim().is_empty() {
         let current = request(
             &installation,
@@ -1333,14 +1483,14 @@ pub async fn save_oauth_app(
 }
 // Only a server-issued one-use ticket can open a browser. No arbitrary URL or
 // program reaches this native command from the renderer.
-fn browser_ticket_url(installation: &Installation, value: &Value) -> Result<String, String> {
+fn browser_ticket_url(server: &str, value: &Value) -> Result<String, String> {
     let path = value["startPath"]
         .as_str()
         .ok_or("Lien de connexion absent")?;
-    let parsed = reqwest::Url::parse(&format!("{}{path}", installation.url()))
-        .map_err(|_| "Lien de connexion invalide")?;
+    let base = reqwest::Url::parse(server).map_err(|_| "Lien de connexion invalide")?;
+    let parsed = base.join(path).map_err(|_| "Lien de connexion invalide")?;
     let pairs: Vec<_> = parsed.query_pairs().collect();
-    if parsed.origin().ascii_serialization() != installation.url()
+    if parsed.origin() != base.origin()
         || parsed.path() != "/auth/desktop-oauth/start"
         || parsed.fragment().is_some()
         || pairs.len() != 1
@@ -1355,28 +1505,41 @@ fn browser_ticket_url(installation: &Installation, value: &Value) -> Result<Stri
 pub async fn begin_oauth(app: tauri::AppHandle, provider: String) -> Result<String, String> {
     use tauri_plugin_opener::OpenerExt;
     remote_provider(&provider)?;
-    let installation = read_installation(&root(&app)?)?;
-    let configured = request(
-        &installation,
-        Method::GET,
-        &format!("/api/admin/{provider}-oauth"),
-        None,
-    )
-    .await?;
-    if configured["configured"] != true
-        || configured["expectedRedirectUrl"]
-            .as_str()
-            .filter(|url| !url.is_empty())
-            .is_none()
-        || configured["redirectUrl"] != configured["expectedRedirectUrl"]
-    {
+    let root = root(&app)?;
+    let mode = runtime_mode(&app)?;
+    let base = match mode {
+        Some(RuntimeMode::Fleet) => selected_fleet_server(&root)?,
+        Some(RuntimeMode::Local) => read_installation(&root)?.url(),
+        None => return Err("Choisissez un mode d’exécution dans les paramètres.".into()),
+    };
+    let configured = if mode == Some(RuntimeMode::Fleet) {
+        let apps = selected_request(&root, Method::GET, "/api/desktop-oauth/apps", None).await?;
+        let app = &apps[provider.as_str()];
+        app["configured"] == true
+            && app["redirectUrl"]
+                .as_str()
+                .is_some_and(|url| !url.is_empty())
+    } else {
+        let app = selected_request(
+            &root,
+            Method::GET,
+            &format!("/api/admin/{provider}-oauth"),
+            None,
+        )
+        .await?;
+        app["configured"] == true
+            && app["expectedRedirectUrl"]
+                .as_str()
+                .is_some_and(|url| !url.is_empty())
+            && app["redirectUrl"] == app["expectedRedirectUrl"]
+    };
+    if !configured {
         return Err(
-            "Configurez l’application OAuth avec l’URL de rappel affichée avant de vous connecter."
-                .into(),
+            "Configurez l’application OAuth sur le backend avant de vous connecter.".into(),
         );
     }
-    let flow = request(
-        &installation,
+    let flow = selected_request(
+        &root,
         Method::POST,
         "/api/desktop-oauth",
         Some(json!({"provider":provider})),
@@ -1389,10 +1552,10 @@ pub async fn begin_oauth(app: tauri::AppHandle, provider: String) -> Result<Stri
     if uuid::Uuid::parse_str(&id).is_err() {
         return Err("Identifiant de connexion invalide".into());
     }
-    let url = browser_ticket_url(&installation, &flow)?;
+    let url = browser_ticket_url(&base, &flow)?;
     if app.opener().open_url(url, None::<&str>).is_err() {
-        let _ = request(
-            &installation,
+        let _ = selected_request(
+            &root,
             Method::DELETE,
             &format!("/api/desktop-oauth?id={id}"),
             None,
@@ -1407,9 +1570,9 @@ pub async fn oauth_status(app: tauri::AppHandle, id: String) -> Result<Value, St
     if uuid::Uuid::parse_str(&id).is_err() {
         return Err("Identifiant de connexion invalide".into());
     }
-    let installation = read_installation(&root(&app)?)?;
-    request(
-        &installation,
+    let root = root(&app)?;
+    selected_request(
+        &root,
         Method::GET,
         &format!("/api/desktop-oauth?id={id}"),
         None,
@@ -1421,9 +1584,9 @@ pub async fn cancel_oauth(app: tauri::AppHandle, id: String) -> Result<(), Strin
     if uuid::Uuid::parse_str(&id).is_err() {
         return Err("Identifiant de connexion invalide".into());
     }
-    let installation = read_installation(&root(&app)?)?;
-    request(
-        &installation,
+    let root = root(&app)?;
+    selected_request(
+        &root,
         Method::DELETE,
         &format!("/api/desktop-oauth?id={id}"),
         None,
@@ -1436,20 +1599,20 @@ pub async fn cancel_oauth(app: tauri::AppHandle, id: String) -> Result<(), Strin
 mod oauth_url_tests {
     use super::*;
     #[test]
-    fn browser_opening_only_accepts_one_use_local_tickets() {
-        let installation = Installation {
-            port: 45678,
-            key: uuid::Uuid::new_v4().to_string(),
-            token: String::new(),
-            device_id: String::new(),
-            agent_device_id: String::new(),
-            user_id: String::new(),
-            email: String::new(),
-        };
+    fn browser_opening_accepts_only_one_use_tickets_from_the_selected_server() {
+        let local_server = "http://127.0.0.1:45678";
+        let fleet_server = "https://fleet.example.invalid";
         let ticket = uuid::Uuid::new_v4();
         assert!(
             browser_ticket_url(
-                &installation,
+                local_server,
+                &json!({"startPath":format!("/auth/desktop-oauth/start?ticket={ticket}")})
+            )
+            .is_ok()
+        );
+        assert!(
+            browser_ticket_url(
+                fleet_server,
                 &json!({"startPath":format!("/auth/desktop-oauth/start?ticket={ticket}")})
             )
             .is_ok()
@@ -1461,7 +1624,7 @@ mod oauth_url_tests {
             "/auth/desktop-oauth/start?ticket=bad&url=https://evil.example",
             "/api/me",
         ] {
-            assert!(browser_ticket_url(&installation, &json!({"startPath":path})).is_err());
+            assert!(browser_ticket_url(fleet_server, &json!({"startPath":path})).is_err());
         }
     }
 }

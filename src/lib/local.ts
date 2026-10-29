@@ -6,8 +6,9 @@ export interface LocalSetup {
   ready?: boolean;
   signedIn?: boolean;
   agentReady?: boolean;
+  apiSetupAvailable?: boolean;
   dataDirectory?: string;
-  profile?: { email: string; displayName: string };
+  profile?: { email: string; displayName: string; role?: string };
   trackers?: { id: string; name: string; provider: string; scope: string }[];
   credentials?: { credentials: { tracker: string; siteUrl?: string; account?: string; kind?: string; disconnected?: boolean }[] };
   projects?: { id: string; name: string }[];

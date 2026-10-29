@@ -112,10 +112,17 @@ needs to be copied into the form. For an agent already paired through another
 Sectile installation, use **Associer l’agent Fleet existant** to copy its local
 connection into Tauri's private directory without modifying that installation.
 The normal request path only reads the selected mode's private connection; it
-never falls back to the shared Electron connection file. Fleet profile, tracker
-and project administration remains on the selected backend in this iteration.
-Only `http://127.0.0.1:<port>` workstation-agent origins are accepted by Tauri;
-redirects and proxies are disabled.
+never falls back to the shared Electron connection file. With a one-time-code
+pairing, native settings can manage the signed-in profile, personal tracker
+credentials, project setup and OAuth account connections through the selected
+Fleet backend. OAuth app credentials and shared tracker administration remain
+server-admin operations. Fleet OAuth browser tickets are opened only on the
+selected backend origin. Tauri keeps the API credential in private native
+storage and does not return it to the renderer. An explicitly attached legacy
+agent that has no native API credential continues to use the backend for
+profile, tracker and project setup. Only `http://127.0.0.1:<port>`
+workstation-agent origins are accepted by Tauri; redirects and proxies are
+disabled.
 
 `npm run dev` starts a browser preview of the shell. Native integration is intentionally
 unavailable there and displays an explanatory message. Use `npm run tauri dev` for live data.
