@@ -97,7 +97,8 @@ func main() {
     tools, err := session.ListTools(ctx, nil)
     if err != nil { panic(err) }
     found := false
-    for _, tool := range tools.Tools { if tool.Name == "list_projects" { found = true } }
+    supportsTaskSpecWorktree := false
+    for _, tool := range tools.Tools { if tool.Name == "list_projects" { found = true }; if tool.Name == "prepare_task_spec_worktree" { supportsTaskSpecWorktree = true } }
     if !found { panic("MCP catalog does not contain list_projects") }
     result, err := session.CallTool(ctx, &mcp.CallToolParams{Name:"list_projects", Arguments:map[string]any{}})
     if err != nil { panic(err) }
@@ -143,7 +144,17 @@ func main() {
     if err != nil { panic(err) }
     var taskState struct { Task struct { Status string `json:"status"` } `json:"task"` }
     if err := json.Unmarshal(taskRaw, &taskState); err != nil || taskState.Task.Status != "clarified" { panic("transition_stage did not persist clarified status") }
-    output := map[string]any{"toolCount":len(tools.Tools), "listProjectsCall":"passed", "trackerCreate":"passed", "trackerTransition":trackerTransitionResult.TrackerSync, "runLifecycle":"passed", "taskStatus":taskState.Task.Status, "runStatus":finishedActivity.Status}
+    output := map[string]any{"toolCount":len(tools.Tools), "listProjectsCall":"passed", "trackerCreate":"passed", "trackerTransition":trackerTransitionResult.TrackerSync, "runLifecycle":"passed", "taskStatus":taskState.Task.Status, "runStatus":finishedActivity.Status, "taskSpecWorktreeSupported":supportsTaskSpecWorktree}
+    if supportsTaskSpecWorktree {
+        specResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name:"prepare_task_spec_worktree", Arguments:map[string]any{"taskKey":taskID}})
+        if err != nil { panic(err) }
+        if specResult.IsError { panic(fmt.Sprintf("prepare_task_spec_worktree returned an MCP error: %v", specResult.Content[0].(*mcp.TextContent).Text)) }
+        specRaw, err := json.Marshal(specResult.StructuredContent)
+        if err != nil { panic(err) }
+        var specWorkspace struct { Repository string `json:"repository"`; Path string `json:"path"`; Branch string `json:"branch"`; Worktree bool `json:"worktree"`; Distinct bool `json:"distinct"` }
+        if err := json.Unmarshal(specRaw, &specWorkspace); err != nil || specWorkspace.Repository != os.Args[5] || specWorkspace.Path == "" || specWorkspace.Branch == "" || !specWorkspace.Worktree || !specWorkspace.Distinct { panic(fmt.Sprintf("prepare_task_spec_worktree returned unexpected result: %s (%v)", specRaw, err)) }
+        output["taskSpecWorktree"] = specWorkspace
+    }
     if err := json.NewEncoder(os.Stdout).Encode(output); err != nil { panic(fmt.Sprint(err)) }
 }
 '''
@@ -248,6 +259,37 @@ def agent_operation_evidence(base_url, session, repo_path, version):
     }
 
 
+def configure_issue_spec_folder(home, project_root, spec_root, project_id):
+    settings_path = home / ".config" / "sectile" / "settings.json"
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(
+        json.dumps({
+            "layout": 7,
+            "projectSettings": {project_id: {"path": str(project_root), "issueSpecPath": str(spec_root)}},
+            "seeded": {"projects": {project_id: "compatibility-test"}},
+            "engines": {},
+        }),
+        encoding="utf-8",
+    )
+
+
+def verify_task_spec_worktree(result, repo_path, server_version):
+    workspace = result["taskSpecWorktree"]
+    if pathlib.Path(workspace["repository"]).resolve() != repo_path.resolve():
+        raise RuntimeError(f"{server_version} task spec worktree used an unexpected repository: {workspace}")
+    path = pathlib.Path(workspace["path"])
+    if not path.is_dir() or path.resolve() == repo_path.resolve():
+        raise RuntimeError(f"{server_version} task spec worktree was not created separately: {workspace}")
+    top_level = run(["git", "-C", str(path), "rev-parse", "--show-toplevel"], repo_path).strip()
+    branch = run(["git", "-C", str(path), "branch", "--show-current"], repo_path).strip()
+    if pathlib.Path(top_level).resolve() != path.resolve() or branch != workspace["branch"]:
+        raise RuntimeError(f"{server_version} task spec worktree did not check out its reported branch: {workspace}")
+    listed = run(["git", "-C", str(repo_path), "worktree", "list", "--porcelain"], repo_path)
+    if f"worktree {path}" not in listed:
+        raise RuntimeError(f"{server_version} task spec worktree is not registered with its Git repository: {workspace}")
+    return {"server": server_version, "created": True, "branchCheckedOut": branch, "distinct": True}
+
+
 def main():
     repo = pathlib.Path(__file__).resolve().parents[2]
     work = pathlib.Path(tempfile.mkdtemp(prefix="sectile-current-agent-v076-server-"))
@@ -255,7 +297,9 @@ def main():
     home_server = work / "server-home"
     home_agent = work / "agent-home"
     agent_root = work / "agent-repository"
-    for path in (old_source, home_server, home_agent):
+    issue_spec_root = work / "issue-specifications"
+    v076_agent_home = work / "v076-agent-home"
+    for path in (old_source, home_server, home_agent, issue_spec_root, v076_agent_home):
         path.mkdir(parents=True, exist_ok=True)
     agent_root.mkdir()
     FakeGitHubHandler.requests = []
@@ -272,7 +316,16 @@ def main():
     server_process = None
     agent_process = None
     try:
-        run(["git", "init", "-q", str(agent_root)], repo)
+        for git_root, description in (
+            (agent_root, "Temporary code repository"),
+            (issue_spec_root, "Temporary issue specifications"),
+        ):
+            run(["git", "init", "-q", "-b", "main", str(git_root)], repo)
+            run(["git", "-C", str(git_root), "config", "user.name", "Compatibility Test"], repo)
+            run(["git", "-C", str(git_root), "config", "user.email", "compatibility@example.invalid"], repo)
+            (git_root / "README.md").write_text(f"# {description}\n", encoding="utf-8")
+            run(["git", "-C", str(git_root), "add", "README.md"], repo)
+            run(["git", "-C", str(git_root), "commit", "-q", "-m", "Initialize temporary test repository"], repo)
         archive = work / "v076.zip"
         run(
             ["git", "archive", "--format=zip", f"--output={archive}", "v0.7.6"],
@@ -295,7 +348,7 @@ func main() {
  if err = d.SetUserTrackerCredential(db.ImplicitUserID, "github", "", "", "compatibility-token", ""); err != nil { panic(err) }
  key, _, err := d.CreateAPIKey(db.ImplicitUserID, "binary-compatibility-test", db.DefaultAPIKeyTTL); if err != nil { panic(err) }
  session, _, err := d.CreateWebSession(db.ImplicitUserID); if err != nil { panic(err) }
- if err = json.NewEncoder(os.Stdout).Encode(map[string]string{"apiKey":key,"session":session,"taskID":task.ID,"githubProjectID":githubProject.ID}); err != nil { panic(err) }
+ if err = json.NewEncoder(os.Stdout).Encode(map[string]string{"apiKey":key,"session":session,"projectID":project.ID,"taskID":task.ID,"githubProjectID":githubProject.ID}); err != nil { panic(err) }
 }
 ''',
             encoding="utf-8",
@@ -347,6 +400,8 @@ func main() {
         seed_env["DB_PATH"] = str(database_path)
         seed_env["COMPAT_GITHUB_API_URL"] = fake_tracker_url
         credentials = json.loads(run([str(seed_binary)], old_source, seed_env))
+        configure_issue_spec_folder(home_agent, agent_root, issue_spec_root, credentials["projectID"])
+        configure_issue_spec_folder(v076_agent_home, agent_root, issue_spec_root, credentials["projectID"])
 
         port_socket = socket.socket()
         port_socket.bind(("127.0.0.1", 0))
@@ -427,7 +482,7 @@ func main() {
 
         old_mcp = json.loads(run([
             str(current_mcp_client), base_url, credentials["apiKey"],
-            credentials["taskID"], credentials["githubProjectID"],
+            credentials["taskID"], credentials["githubProjectID"], str(issue_spec_root),
         ], work))
         old_mcp["client"] = "current"
         old_mcp["server"] = "v0.7.6"
@@ -452,7 +507,7 @@ func main() {
         (current_seed_dir / "main.go").write_text(
             '''package main
 import ("encoding/json"; "os"; "tasks/internal/db"; "tasks/internal/models")
-func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err != nil { panic(err) }; defer d.Close(); if err = d.EnsureUser(db.ImplicitUserID); err != nil { panic(err) }; project, err := d.CreateProject(models.CreateProjectRequest{Name:"Compatibility", IssueTracker:"local"}); if err != nil { panic(err) }; task, err := d.CreateTask(models.CreateTaskRequest{ProjectID:project.ID, Title:"Cross-version MCP run", Status:models.StatusToClarify}); if err != nil { panic(err) }; githubProject, err := d.CreateProject(models.CreateProjectRequest{Name:"GitHub compatibility", IssueTracker:"github", GithubRepo:"acme/app", GithubApiUrl:os.Getenv("COMPAT_GITHUB_API_URL")}); if err != nil { panic(err) }; if err = d.SetUserTrackerCredential(db.ImplicitUserID, "github", "", "", "compatibility-token", ""); err != nil { panic(err) }; key, _, err := d.CreateAPIKey(db.ImplicitUserID, "binary-compatibility-test", db.DefaultAPIKeyTTL); if err != nil { panic(err) }; session, _, err := d.CreateWebSession(db.ImplicitUserID); if err != nil { panic(err) }; if err = json.NewEncoder(os.Stdout).Encode(map[string]string{"apiKey":key,"session":session,"taskID":task.ID,"githubProjectID":githubProject.ID}); err != nil { panic(err) } }
+func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err != nil { panic(err) }; defer d.Close(); if err = d.EnsureUser(db.ImplicitUserID); err != nil { panic(err) }; project, err := d.CreateProject(models.CreateProjectRequest{Name:"Compatibility", IssueTracker:"local"}); if err != nil { panic(err) }; task, err := d.CreateTask(models.CreateTaskRequest{ProjectID:project.ID, Title:"Cross-version MCP run", Status:models.StatusToClarify}); if err != nil { panic(err) }; githubProject, err := d.CreateProject(models.CreateProjectRequest{Name:"GitHub compatibility", IssueTracker:"github", GithubRepo:"acme/app", GithubApiUrl:os.Getenv("COMPAT_GITHUB_API_URL")}); if err != nil { panic(err) }; if err = d.SetUserTrackerCredential(db.ImplicitUserID, "github", "", "", "compatibility-token", ""); err != nil { panic(err) }; key, _, err := d.CreateAPIKey(db.ImplicitUserID, "binary-compatibility-test", db.DefaultAPIKeyTTL); if err != nil { panic(err) }; session, _, err := d.CreateWebSession(db.ImplicitUserID); if err != nil { panic(err) }; if err = json.NewEncoder(os.Stdout).Encode(map[string]string{"apiKey":key,"session":session,"projectID":project.ID,"taskID":task.ID,"githubProjectID":githubProject.ID}); err != nil { panic(err) } }
 ''', encoding="utf-8")
         try:
             current_seed_binary = work / "compat-seed-current"
@@ -463,6 +518,7 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
         current_env["DB_PATH"] = str(current_db)
         current_env["COMPAT_GITHUB_API_URL"] = fake_tracker_url
         current_credentials = json.loads(run([str(current_seed_binary)], repo, current_env))
+        configure_issue_spec_folder(v076_agent_home, agent_root, issue_spec_root, current_credentials["projectID"])
         current_port_socket = socket.socket()
         current_port_socket.bind(("127.0.0.1", 0))
         current_port = current_port_socket.getsockname()[1]
@@ -487,8 +543,6 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
         else:
             raise RuntimeError("The current Go server did not become healthy.")
         v076_agent_log = work / "v076-agent.log"
-        v076_agent_home = work / "v076-agent-home"
-        v076_agent_home.mkdir()
         v076_agent_log_handle = v076_agent_log.open("w", encoding="utf-8")
         agent_process = subprocess.Popen(
             [
@@ -520,11 +574,14 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
         current_mcp_result = json.loads(
             run([
                 str(old_mcp_client), current_url, current_credentials["apiKey"],
-                current_credentials["taskID"], current_credentials["githubProjectID"],
+                current_credentials["taskID"], current_credentials["githubProjectID"], str(issue_spec_root),
             ], work)
         )
         current_mcp_result["client"] = "v0.7.6"
         current_mcp_result["server"] = "current"
+        task_spec_worktrees = [{"server": "v0.7.6", "supported": old_mcp["taskSpecWorktreeSupported"]}]
+        if current_mcp_result["taskSpecWorktreeSupported"]:
+            task_spec_worktrees.append(verify_task_spec_worktree(current_mcp_result, issue_spec_root, "current"))
         v076_agent_operation = agent_operation_evidence(current_url, current_credentials["session"], agent_root, "v0.7.6")
         stop(agent_process)
         agent_process = None
@@ -554,6 +611,7 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
                     "mcpCompatibility": [old_mcp, current_mcp_result],
                     "trackerWrites": [old_tracker_evidence, current_tracker_evidence],
                     "agentOperations": [old_agent_operation, v076_agent_operation],
+                    "taskSpecWorktrees": task_spec_worktrees,
                 }
             )
         )
