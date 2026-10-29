@@ -426,6 +426,23 @@ additive within V1, but that rule alone does not prove any particular mixed
 binary pair. V1 must publish a tested server/agent version matrix and desktop
 platform support table before release.
 
+### V1 compatibility claim rule
+
+V1 support is declared per exact Tauri, Go server and Go agent release
+combination; do not infer support for an untested version range from additive
+protocol rules. Local mode is paired to the exact Go companion source commit in
+the Tauri package manifest. Fleet mode requires an explicitly listed server
+and agent pair for the features that release exposes. A pair that passes MCP or
+agent protocol checks alone is compatibility-tested for those operations, not
+qualified for all native Fleet setup.
+
+The current/v0.7.6 mixed pair passes the common 21-tool MCP catalog, selected
+workflow operations, agent dispatch and the real stdio MCP bridge in both
+directions. That evidence does not qualify the older server's OAuth
+administration or the complete native Tauri setup surface. Until a tagged Go
+backend and its Tauri Fleet setup are qualified together, no Go version range
+is declared as generally supported by a V1 Fleet desktop.
+
 Stages 6 and 7 are product-direction work, not authorization to remove existing
 web pages, API routes or domain data during stages 0-5. The user selected the
 existing web application as the V1 planning owner, with no web deprecation in

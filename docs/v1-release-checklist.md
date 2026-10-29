@@ -28,6 +28,9 @@ or create a Git tag.
   texts.
 - [ ] Record the Tauri release commit, Go release commit, app version, package
   architecture and supported server/agent combinations in the release notes.
+- [ ] List only exact Tauri/server/agent combinations qualified for the
+  features enabled in that release. Do not promote the v0.7.6/current protocol
+  tests into a general Fleet setup support claim.
 - [ ] Run the Go suite, Tauri TypeScript/domain/UI/Rust suites, Electron unit/UI
   suites and the cross-version compatibility harness. Keep the tested pairings
   and their limitations in the [migration plan](sectile-v1-migration-plan.md).
