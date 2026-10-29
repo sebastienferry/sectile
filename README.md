@@ -315,8 +315,8 @@ and desktop app. See [`AGENTS.md`](./AGENTS.md) for the release procedure and
 
 ## License
 
-No license is currently declared for this repository. Contact the repository
-owner before redistributing or reusing the code.
+This repository is licensed under the MIT License. See [`LICENSE`](./LICENSE)
+for the full text.
 
 ### Isolated desktop companions
 

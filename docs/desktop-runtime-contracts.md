@@ -1,7 +1,7 @@
 # Local/Fleet runtime contracts: phase 0
 
 Date: 2026-10-29
-Status: phases 1-3 implemented; managed Local migration and native launcher integration are implemented and qualified on macOS. Fleet/Electron compatibility matrix and cross-platform live migration remain open.
+Status: phases 1-3 implemented; managed Local migration and native launcher integration are implemented and qualified on macOS. V1 is macOS-first; Linux is experimental and Windows is deferred. Fleet/Electron compatibility matrix and cross-platform live migration remain open.
 
 ## Approved scope and ownership
 
