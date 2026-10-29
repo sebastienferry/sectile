@@ -73,6 +73,22 @@ func newGitlabSite(t *testing.T) *gitlabSite {
 	return site
 }
 
+func TestGitlabWebsiteAddressUsesAPIRootForSavedTrackerAndCredentialCheck(t *testing.T) {
+	site := newGitlabSite(t)
+	site.json(http.MethodGet, "/user", `{"username":"fixture"}`)
+	client := &Client{HTTP: site.server.Client(), GitlabURL: DefaultGitlabURL, Resolve: func(string) Credentials {
+		return Credentials{GitlabURL: site.server.URL}
+	}}
+	resolved := client.For("existing-tracker")
+	if resolved.GitlabURL != site.server.URL+"/api/v4" {
+		t.Fatalf("resolved GitLab API URL = %q", resolved.GitlabURL)
+	}
+	account, err := resolved.CheckGitlab(context.Background(), site.server.URL, "gl-secret")
+	if err != nil || account != "fixture" {
+		t.Fatalf("credential check = %q, %v", account, err)
+	}
+}
+
 func (s *gitlabSite) on(method, path string, handler http.HandlerFunc) {
 	s.routes[method+" /api/v4"+path] = handler
 }

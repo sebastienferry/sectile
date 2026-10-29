@@ -225,6 +225,9 @@ store sealed server-side tracker credentials for background synchronization,
 while users connect their accounts, or seal their own personal tokens, in
 **Profile → Tracker Credentials** so everything they do is published under
 their own identity.
+GitLab tracker and personal-credential URLs may be the instance website
+address or its explicit `/api/v4` endpoint; the API client resolves either
+form to the REST API root.
 
 The standalone Local companion has one installation identity. Its manual and
 scheduled tracker synchronization uses that identity's OAuth grant or personal

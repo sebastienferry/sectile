@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- GitLab tracker connections now accept an instance website address as well as its explicit `/api/v4` endpoint, including previously saved desktop configurations.
 - Reopening an idle Codex conversation after a desktop or agent restart no longer says its finished response was paused.
 - Local tracker synchronization now uses the connected installation account, including its Jira OAuth grant or personal API token, without requiring a separate server credential.
 - Stopping a built-in local console or tracked task now terminates its delegated tools before they can continue in the background; Codex consoles use a private provider server for cancellation.

@@ -356,7 +356,7 @@ func NewClient() *Client {
 		HTTP:          &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 		GithubURL:     strings.TrimRight(gh, "/"),
 		GithubToken:   os.Getenv(GithubTokenVar),
-		GitlabURL:     strings.TrimRight(gl, "/"),
+		GitlabURL:     gitlabAPIBase(gl),
 		GitlabProject: os.Getenv("SECTILE_GITLAB_PROJECT"),
 		GitlabToken:   os.Getenv(GitlabTokenVar),
 		JiraURL:       jiraBaseURL(os.Getenv(JiraURLVar)),
@@ -386,7 +386,7 @@ func (c *Client) For(trackerID string) *Client {
 		resolved.GithubToken = cred.GithubToken
 	}
 	if cred.GitlabURL != "" {
-		resolved.GitlabURL = strings.TrimRight(cred.GitlabURL, "/")
+		resolved.GitlabURL = gitlabAPIBase(cred.GitlabURL)
 	}
 	if cred.GitlabProject != "" {
 		resolved.GitlabProject = cred.GitlabProject
@@ -729,7 +729,24 @@ func (c *Client) CheckGithub(ctx context.Context, apiURL, token string) (string,
 }
 
 func (c *Client) CheckGitlab(ctx context.Context, apiURL, token string) (string, error) {
-	return c.checkAccount(ctx, defaulted(apiURL, DefaultGitlabURL), "/user", "Bearer "+strings.TrimSpace(token), "username")
+	return c.checkAccount(ctx, defaulted(gitlabAPIBase(apiURL), DefaultGitlabURL), "/user", "Bearer "+strings.TrimSpace(token), "username")
+}
+
+// gitlabAPIBase accepts a GitLab website address as well as an explicit REST
+// API root. Older desktop setup screens stored the website address verbatim.
+func gitlabAPIBase(site string) string {
+	site = strings.TrimRight(strings.TrimSpace(site), "/")
+	if site == "" {
+		return ""
+	}
+	u, err := url.Parse(site)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return site
+	}
+	if !strings.HasSuffix(u.Path, "/api/v4") {
+		u.Path = strings.TrimRight(u.Path, "/") + "/api/v4"
+	}
+	return strings.TrimRight(u.String(), "/")
 }
 
 func (c *Client) checkAccount(ctx context.Context, apiURL, path, token, field string) (string, error) {
