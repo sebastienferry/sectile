@@ -2,7 +2,7 @@
 
 This file covers the Go executables built from this repository: the server, workstation agent, and Local companion. It records the module dependency graph used by those commands. The license texts are retained under [`third_party_licenses/`](third_party_licenses/).
 
-The inventory was generated from the command dependency graphs on 2026-10-29. `go-licenses` could not classify `modernc.org/mathutil` automatically even though its module contains a BSD-style `LICENSE`; that license was inspected and included manually. Go assembly/C source caused scanner warnings because it cannot inspect non-Go files, so module-level license files were included for the reported modules.
+The inventory was generated from the command dependency graphs on 2026-10-29. The analyzed `go.mod` SHA-256 is `aee7fa8103544ef843a80ebee2b4c7569f6435938522e56f7fbad149b5a7d876`. `go-licenses` could not classify `modernc.org/mathutil` automatically even though its module contains a BSD-style `LICENSE`; that license was inspected and included manually. Go assembly/C source caused scanner warnings because it cannot inspect non-Go files, so module-level license files were included for the reported modules.
 
 ## Go standard library
 
