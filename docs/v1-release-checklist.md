@@ -85,11 +85,14 @@ The binary compatibility harness was re-run on 2026-10-29 against Go commit
 specific protocol slice; it does not close full Electron UI compatibility,
 live tracker/provider behavior or Fleet reconnection.
 
-The migration plan records a fresh unsigned arm64 DMG built from Tauri commit
-`cb72229` and clean Go commit `df1d846c`. `hdiutil verify` passed, all three
-service hashes match the embedded manifest, required notices and license texts
-are present, and the DMG SHA-256 is
-`ad89aa24613982afc0c8428a80feb1514b8bbb7803bd7d1c1ff6b5f49b93e02b`. Its
+The migration plan records a fresh unsigned arm64 DMG built with
+`npm run package:macos` from clean Tauri commit `cc378ac` and clean Go commit
+`df1d846c`. The post-build verifier passed for both app and DMG, and
+`hdiutil verify` passed. All three service hashes match the embedded manifest.
+The fixed 52963 contract is present, and required notices and license texts are
+included.
+The DMG SHA-256 is
+`eeb502f5ffb33e51c9a755c1d8430749c809d00e603ffa99cdf20cc1078f7873`. Its
 manifest reports `releaseEligible: false`. Signing/notarization, clean-user
 installation and complete upgrade retention, default-port cold start with the
 current binary, full Fleet/Electron workflows, and live tracker/provider
