@@ -428,8 +428,10 @@ The first cross-surface check slice passes:
 | --- | --- | --- |
 | Go Fleet/server boundaries | `go test ./cmd/agent ./cmd/server` | Pass; both independent entry points still build and server tests pass. This is not the full old/new client-version matrix. |
 | Go companion and shared runtime | `go test -race ./cmd/companion ./internal/companion ./internal/agent ./internal/backend`; Windows `GOOS=windows GOARCH=amd64 go build ./cmd/companion` | Pass on macOS host; companion packages are race-clean and Windows compilation succeeds. Windows live migration and execution are not qualified. |
+| Go child-process credentials | `go test ./internal/runner ./internal/agent ./cmd/agent ./cmd/companion`; Windows builds of `cmd/agent` and `cmd/companion` | Pass; the local desktop gateway credential is removed from spawned CLI and shell environments. This is a compile/unit check, not Windows process-window verification. |
 | Electron renderer | `desktop/npm test` | 315 tests pass after installing the lockfile dependencies. No Electron UI or live shared-MCP registration was changed in this work. |
-| Tauri renderer/native layer | TypeScript check, production Vite build, 83 UI tests and 24 Rust tests | Pass before the latest UX audit changes; the latest palette/sidebar changes pass TypeScript and production build. |
+| Tauri renderer/native layer | `npm run check`, `npm test`, `npm run test:ui`, `npm run test:rust`, `npm run build` | Pass on the current branch: 8 domain tests, 85 UI tests and 28 Rust tests. The Rust tests cover explicit Local/Fleet file routing, private credential storage and Fleet URL policy. |
+| Tauri Fleet pairing | Native validation and UI tests; bundled agent/companion built from the Go worktree | The one-time-code form, TLS policy, Go-compatible private settings format and automatic agent startup code are covered by checks. A real remote Fleet pairing and desktop session are not yet qualified. |
 | Existing native Local install | Managed macOS migration verification and real Jira/Claude/Codex/MCP requests | Pass; details above. |
 
 The idle Go service process count is now one. At the captured idle sample,
@@ -442,7 +444,12 @@ companion plus the legacy server and agent migration executables. A release
 artifact size and cold native startup measurement are still required before
 claiming a smaller or faster delivery.
 
+The isolated native service test was attempted after preparing fresh Go binaries,
+but its fixed port reservation failed because port 52963 was occupied. The
+existing service was left running. The test must be repeated after that service
+stops.
+
 Stage 5 remains open for explicit old-agent/new-server and new-agent/supported
-server protocol fixtures, a remote Fleet desktop session, an Electron live MCP
-call after the Tauri migration, and packaged release measurements. Do not infer
-these from unit tests or from the migrated Local installation.
+server protocol fixtures, a real remote Fleet desktop session, an Electron live
+MCP call after the Tauri migration, and packaged release measurements. Do not
+infer these from unit tests or from the migrated Local installation.
