@@ -85,29 +85,13 @@ The binary compatibility harness was re-run on 2026-10-29 against Go commit
 specific protocol slice; it does not close full Electron UI compatibility,
 live tracker/provider behavior or Fleet reconnection.
 
-The migration plan records a fresh unsigned arm64 DMG built with
-`npm run package:macos` from clean Tauri commit `cc378ac` and clean Go commit
-`df1d846c`. The post-build verifier passed for both app and DMG, and
-`hdiutil verify` passed. All three service hashes match the embedded manifest.
-The fixed 52963 contract is present, and required notices and license texts are
-included.
-The DMG SHA-256 is
-`eeb502f5ffb33e51c9a755c1d8430749c809d00e603ffa99cdf20cc1078f7873`. Its
-manifest reports `releaseEligible: false`. Signing/notarization, clean-user
-installation and complete upgrade retention, default-port cold start with the
-current binary, full Fleet/Electron workflows, and live tracker/provider
-qualification remain open. Linux remains experimental and Windows is deferred,
-so neither is a V1 qualification gate. No V1 release is ready to publish.
-
-Current source test refresh (2026-10-29): Go commit `df1d846c` passes `go test
-./...` and the v0.7.6/current compatibility harness in both directions.
-Electron 0.7.5 built against that Go checkout and passed 315 unit tests plus
-137 UI tests. Tauri commit `239d7c1` passes typecheck, 14 domain tests, 101 UI
-tests, 35 Rust tests and its production build. The Electron live UI check is
-read-only on isolated data; the mixed-version harness uses a fake tracker.
-These results qualify the named test combinations and operations only. They do
-not close the listed Fleet setup, live provider/tracker or release-installation
-gates.
+Current source test refresh (2026-10-29): Go commit `5274a160` passes `go test
+./...`. Electron passes 315 unit tests and 137 UI tests. Tauri commit `f02e511`
+passes `npm test` (14 tests), `npm run test:ui` (101 tests), `npm run check`,
+`npm run test:rust` (35 tests) and `npm run build`. The compatibility harness
+and live service/provider qualifications are recorded in the migration plan;
+they cover only the named source pairings and operations, not every Fleet,
+Electron, OAuth or external tracker combination.
 
 Current-source Local provider qualification (2026-10-29): Tauri commit
 `ecac630` ran `npm run test:services` with all three services built from Go
@@ -122,12 +106,15 @@ Temporary data and services were removed. This closes that current-source Local
 service/provider slice, not release-binary qualification.
 
 Current-source package verification (2026-10-29): clean Go commit `5274a160`
-and Tauri commit `ecac630` produced a 102.28 MiB arm64 app and 51.69 MiB DMG.
+and clean Tauri source produced a 102.28 MiB arm64 app and 51.69 MiB DMG.
 The manifest names the clean Go source, all three service hashes, fixed port
 52963, 52 license files and `releaseEligible: false`. The verifier and
 `hdiutil verify` passed. DMG SHA-256:
 `0d894ed2591779451bc175be21c380dd636d88dabd82232264e7a453e4aa708b`. The
-artifact remains unsigned; `security find-identity -v -p codesigning` found
-zero valid identities. The app was not launched because the user's companion
-owns the fixed port, and signing, notarization, Gatekeeper and clean-user
-installation remain open.
+manifest reports `releaseEligible: false`; `security find-identity -v -p
+codesigning` found zero valid identities. The production companion owns the
+fixed port, so a clean default-port launch was not attempted. Signing,
+notarization, Gatekeeper, clean-user installation, complete upgrade retention,
+full Fleet/Electron workflows and live tracker/provider qualification remain
+open. Linux remains experimental and Windows is deferred; neither is a V1
+qualification gate. No V1 release is ready to publish.
