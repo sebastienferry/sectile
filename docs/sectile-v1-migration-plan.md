@@ -384,6 +384,12 @@ client migration are separate qualifications.
 The separate companion, temporary internal HTTP/WebSocket transport and continued
 support for current OAuth are confirmed decisions, not open questions.
 
+Roadmapping transition decision (2026-10-29): the user wants the web application
+and its roadmap features left unchanged for now. Do not remove, replace or alter
+those web surfaces as part of this migration. No external tool or retirement
+date has been selected; a future support window remains open for a separate
+decision.
+
 ## 8. Release meaning
 
 V1.0.0 names the product destination and its eventual compatibility commitment.
