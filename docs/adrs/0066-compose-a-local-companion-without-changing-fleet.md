@@ -1,7 +1,7 @@
 # ADR 0066: Compose a Local companion without changing Fleet boundaries
 
 - Date: 2026-10-29
-- Status: Accepted architecture; backend extraction implemented, lifecycle work in progress
+- Status: Accepted and implemented; platform and release qualification in progress
 
 ## Context
 
@@ -34,13 +34,18 @@ forward recovery so external effects or refresh rotation cannot be replayed.
 
 ## Consequences
 
-One long-lived Local Go process replaces two after the migration is implemented.
+One long-lived Local Go companion replaces the former server and agent pair.
 Provider CLI, guard and MCP bridge children remain normal execution processes.
 The companion binary includes backend dependencies; Fleet's agent does not.
-A separate artifact adds packaging/version compatibility obligations.
+Tauri owns the companion lifecycle and performs a journaled upgrade of the
+prototype installation. A separate artifact adds packaging/version
+compatibility obligations.
 
 The shared runtime extraction changes no tracker source of truth and does not
-merge Local and Fleet data. Existing Go licensing remains unchanged. Phase 1
-added `internal/backend`; phase 2 added an OS-owned Local store lock,
-context-owned shutdown paths and an authenticated-agent startup gate. No
-combined Local process is deployed and no running installation is migrated yet.
+merge Local and Fleet data. Phase 1 added `internal/backend`; phase 2 added an
+OS-owned Local store lock, context-owned shutdown paths and an authenticated-
+agent startup gate. The Go repository is MIT licensed. macOS migration and
+Local/Fleet runtime paths have isolated qualification evidence in the Tauri
+repository's V1 migration plan. Signing, notarization, clean-user installation
+and the remaining compatibility matrix are release gates; this ADR does not
+claim that the desktop is ready for V1 release.
