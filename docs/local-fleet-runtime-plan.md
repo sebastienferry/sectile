@@ -176,9 +176,9 @@ backend runtime closes its instance and event bus and cleans up partial open
 failures. Complete worker joining, Local store exclusivity and embedded agent
 ownership remain phase 2; no current installation is migrated by this change.
 The focused server/backend/MCP tests and a disposable SQLite HTTP smoke test pass.
-The wider Go run still reproduces the known `TestTryPullLocalAgentTasks` cleanup
-race in the handlers suite; it passes in isolation. Resolve that worker-lifecycle
-gap in phase 2 before calling the broad regression gate clean.
+The wider phase 1 Go run reproduced the known `TestTryPullLocalAgentTasks` cleanup
+race. Phase 2 found an asynchronous postback callback reaching SQLite after
+close and now joins those callbacks; the full handlers suite passes.
 
 - Move shared API route registration and middleware composition from
   `cmd/server/main.go` into an embeddable backend package.
@@ -195,6 +195,16 @@ Acceptance: the existing server is the consumer of the extracted runtime and
 passes unchanged Fleet API/MCP contracts before a Local consumer is added.
 
 ### 2. Make backend and execution lifecycles embeddable
+
+Implementation status (2026-10-29): in progress on the Go branch. The backend
+now holds a Local OS store lock before `db.Open`, drains queue jobs and callbacks,
+joins auto-sync/MCP and agent WebSocket work, and closes SQL before releasing ownership.
+The agent has a context-owned `RunEmbedded` entry point with explicit private
+paths and an owner restart callback; explicit settings operations and generated
+Claude settings stay within the Local root. A restart test confirms its gateway stops
+first. The Fleet internal listener also has a stop/join path. The Local
+composition root and its authenticated self-connection/readiness barrier are
+still pending, so this is not yet the phase 2 acceptance result.
 
 - Separate agent flag parsing, signals and process restart from construction and
   execution. Keep `agent.Run` as the Fleet CLI adapter with existing defaults.
