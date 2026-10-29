@@ -344,3 +344,11 @@ clarified, specified, implemented and reviewed on the combined process, with
 real Git push, tests, MR evidence and completed run reporting. The first failed
 attempt and its recovery are recorded in
 [workflow qualification](companion-mcp-workflow-qualification.md).
+
+Migration implementation checkpoint: `companion.PrepareMigration` can prepare
+an offline private backup of the installation manifest, discovery, server store,
+agent settings and run journals. It refuses live source listeners and non-regular
+files, holds the Local lifetime lock, hashes every copied file, verifies the
+backup and refuses corrupted retries. It does not select a candidate generation
+or authorize a launcher switch. Native source shutdown/ownership validation,
+durable commit selection, failure recovery and desktop integration remain required.
