@@ -77,6 +77,8 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .settings-section-heading p { color:var(--muted); font-size:12px; margin:0; }
 .local-settings article { margin:0 0 20px; padding:22px; border-color:var(--divider); border-radius:12px; background:var(--surface); }
 .local-settings article h2 { margin:0 0 8px; font-weight:600; font-size:14px; }
+.existing-project-folder { margin-top:22px; padding-top:18px; border-top:1px solid var(--divider); }
+.existing-project-folder h3 { margin:0 0 8px; font-size:13px; font-weight:600; }
 .local-settings article p { font-size:12px; line-height:1.7; }
 .local-settings article > p { color:var(--muted); }
 .local-settings fieldset { gap:16px; margin:18px 0 0; }

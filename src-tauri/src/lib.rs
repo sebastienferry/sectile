@@ -43,7 +43,6 @@ pub fn run() {
             agent::rename_conversation,
             agent::read_conversation,
             agent::control_conversation,
-            agent::map_local_project,
             local::choose_project_folder,
             local::choose_attached_folder,
             agent::project_folders,

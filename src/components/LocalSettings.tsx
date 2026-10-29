@@ -32,7 +32,6 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
   const [projectName, setProjectName] = useState("");
   const [trackerId, setTrackerId] = useState("");
   const [projectId, setProjectId] = useState("");
-  const [path, setPath] = useState("");
   const busy = useRef(false);
   const mounted = useRef(true);
   async function refresh() {
@@ -50,11 +49,12 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     }).catch(cause => { if (mounted.current) setError(String(cause)); });
     return () => { mounted.current = false; };
   }, []);
-  async function perform(action: () => Promise<unknown>, message: string) {
+  async function perform(action: () => Promise<unknown>, message: string, isCancelled?: (result: unknown) => boolean) {
     if (busy.current) return;
     busy.current = true; setPending(true); setError(""); setNotice("");
     try {
-      await action();
+      const result = await action();
+      if (isCancelled?.(result)) return;
       if (mounted.current) setNotice(message);
       const next = await refresh();
       setSection(previous => previous === "services" && next.ready && !next.signedIn ? "profile" : previous === "profile" && !setup?.signedIn && next.signedIn ? "engines" : previous);
@@ -162,13 +162,13 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
             <button type="submit">Créer le projet</button>
           </fieldset>
         </form>
-        <form onSubmit={e => submit(e, () => api.mapLocalProject(projectId, path), "Dépôt local associé au projet.")}>
+        <div className="existing-project-folder">
+          <h3>Associer un dossier à un projet existant</h3>
           <fieldset disabled={pending || !setup.agentReady}>
             <label>Projet à associer<select required value={projectId} onChange={e => setProjectId(e.target.value)}><option value="">Choisir un projet</option>{setup.projects?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-            <label>Chemin absolu du dépôt Git<input required placeholder="/chemin/vers/depot" value={path} onChange={e => setPath(e.target.value)} /></label>
-            <button type="submit">Associer le dépôt</button>
+            <button type="button" disabled={!projectId} onClick={() => void perform(() => api.chooseProjectFolder(projectId), "Dossier local associé au projet.", result => result === null)}>Choisir un dossier</button>
           </fieldset>
-        </form>
+        </div>
       </article></div>
     </>}
     </div></div>

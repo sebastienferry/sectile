@@ -16,6 +16,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Choose an existing project's local folder with the native picker instead of entering an absolute path manually.
 - Match the Electron dark and light workspace surface palette and remove duplicate Tauri color overrides.
 - Show attached workspace folders in the prompt context so users can see what the agent will use without opening the folder details.
 - Project navigation hides the “Tableau” action while the board is already open.

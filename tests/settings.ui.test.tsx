@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { LocalSettings } from "../src/components/LocalSettings";
 import * as api from "../src/lib/local";
 vi.mock("../src/components/OAuthConnections", () => ({ OAuthConnections: ({serverManaged}:{serverManaged?:boolean}) => <div data-server-managed={String(serverManaged??false)}>OAuth connections</div> }));
-vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), enableLocalRuntime: vi.fn(), attachFleetAgent: vi.fn(), pairFleetAgent: vi.fn(), saveLocalProfile: vi.fn(), saveLocalCredential: vi.fn(), createLocalTracker: vi.fn(), createLocalProject: vi.fn(), mapLocalProject: vi.fn(), syncLocalTracker: vi.fn() }));
+vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), enableLocalRuntime: vi.fn(), attachFleetAgent: vi.fn(), pairFleetAgent: vi.fn(), saveLocalProfile: vi.fn(), saveLocalCredential: vi.fn(), createLocalTracker: vi.fn(), createLocalProject: vi.fn(), chooseProjectFolder: vi.fn(), syncLocalTracker: vi.fn() }));
 const ready = { enabled: true, ready: true, signedIn: true, agentReady: true, profile: { email: "fixture@example.invalid", displayName: "Fixture" }, trackers: [{id:"t",name:"Tracker",provider:"github",scope:"fixture/repo"}], projects: [{id:"p",name:"Project"}] };
 beforeEach(() => { vi.resetAllMocks(); });
 afterEach(() => cleanup());
@@ -75,16 +75,32 @@ test("a credential is sent only on submission and its input is cleared after fai
   expect((token as HTMLInputElement).value).toBe("");
   expect(api.saveLocalCredential).toHaveBeenCalledWith({tracker:"github",siteUrl:"",email:"",token:"fixture-secret"});
 });
-test("repository mapping retries independently of project creation", async () => {
+test("existing projects use the native folder picker for repository mapping", async () => {
   vi.mocked(api.localSetupStatus).mockResolvedValue(ready);
-  vi.mocked(api.mapLocalProject).mockRejectedValue(new Error("Invalid repository"));
-  render(<LocalSettings onChanged={vi.fn()} />);
+  vi.mocked(api.chooseProjectFolder).mockResolvedValue("/fixture/repo");
+  const onChanged=vi.fn();
+  render(<LocalSettings onChanged={onChanged} />);
   fireEvent.click(await screen.findByRole("button",{name:"Projets"}));
   fireEvent.change(await screen.findByLabelText("Projet à associer"),{target:{value:"p"}});
-  fireEvent.change(screen.getByLabelText("Chemin absolu du dépôt Git"),{target:{value:"/fixture/repo"}});
-  fireEvent.click(screen.getByRole("button",{name:"Associer le dépôt"}));
-  await waitFor(()=>expect(api.mapLocalProject).toHaveBeenCalledWith("p","/fixture/repo"));
-  await screen.findByRole("alert");
+  fireEvent.click(screen.getByRole("button",{name:"Choisir un dossier"}));
+  await screen.findByText("Dossier local associé au projet.");
+  expect(api.chooseProjectFolder).toHaveBeenCalledWith("p");
+  expect(onChanged).toHaveBeenCalledOnce();
+  expect(api.createLocalProject).not.toHaveBeenCalled();
+});
+
+test("cancelling the native folder picker leaves the project unchanged", async () => {
+  vi.mocked(api.localSetupStatus).mockResolvedValue(ready);
+  vi.mocked(api.chooseProjectFolder).mockResolvedValue(null);
+  const onChanged=vi.fn();
+  render(<LocalSettings onChanged={onChanged} />);
+  fireEvent.click(await screen.findByRole("button",{name:"Projets"}));
+  fireEvent.change(await screen.findByLabelText("Projet à associer"),{target:{value:"p"}});
+  fireEvent.click(screen.getByRole("button",{name:"Choisir un dossier"}));
+  await waitFor(()=>expect(api.chooseProjectFolder).toHaveBeenCalledWith("p"));
+  await waitFor(()=>expect(screen.queryByRole("status")).toBeNull());
+  expect(api.localSetupStatus).toHaveBeenCalledOnce();
+  expect(onChanged).not.toHaveBeenCalled();
   expect(api.createLocalProject).not.toHaveBeenCalled();
 });
 

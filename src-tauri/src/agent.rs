@@ -653,28 +653,6 @@ mod tests {
 }
 
 #[tauri::command]
-pub async fn map_local_project(
-    app: tauri::AppHandle,
-    project_id: String,
-    path: String,
-) -> Result<Value, String> {
-    if crate::local::discovery_path(&app).is_none() {
-        return Err("Activez l’installation locale".into());
-    }
-    if !std::path::Path::new(&path).is_absolute() {
-        return Err("Un chemin absolu vers le dépôt Git est requis".into());
-    }
-    request_agent(
-        app,
-        reqwest::Method::POST,
-        "/desktop/projects",
-        &[],
-        Some(serde_json::json!({"projectId":project_id,"path":path})),
-    )
-    .await
-}
-
-#[tauri::command]
 pub async fn create_conversation(
     app: tauri::AppHandle,
     project_id: String,

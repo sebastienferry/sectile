@@ -21,7 +21,7 @@ export const saveLocalProfile = (email: string, displayName: string) => invoke<v
 export const saveLocalCredential = (input: { tracker: string; siteUrl: string; email: string; token: string }) => invoke<void>("save_local_credential", { input });
 export const createLocalTracker = (input: { name: string; provider: string; site: string; scope: string }) => invoke("create_local_tracker", { input });
 export const createLocalProject = (name: string, trackerId: string) => invoke("create_local_project", { name, trackerId });
-export const mapLocalProject = (projectId: string, path: string) => invoke("map_local_project", { projectId, path });
+export const chooseProjectFolder = (projectId: string) => invoke<string | null>("choose_project_folder", { projectId });
 export const syncLocalTracker = (trackerId: string) => invoke("sync_local_tracker", { trackerId });
 export interface OAuthApp { configured: boolean; clientIdSet?: boolean; secretSet?: boolean; redirectUrl?: string; expectedRedirectUrl: string }
 export const oauthApps = () => invoke<Record<string, OAuthApp>>("oauth_apps");
