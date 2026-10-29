@@ -35,8 +35,13 @@ startup or memory improvement.
 
 The development binaries measured 42,003,778 bytes for the companion versus
 37,279,250 bytes for the separate server and 20,632,386 bytes for the agent
-(57,911,636 bytes combined). The current macOS package still includes all
-three Go binaries for Local/Fleet compatibility, so this binary comparison is
-not a package-size reduction. The latest arm64 app is 102.28 MiB and its DMG
-is 51.70 MiB; the [release checklist](v1-release-checklist.md) records its
-source commit and checksum.
+(57,911,636 bytes combined). The macOS package still includes all three Go
+binaries for Local/Fleet compatibility, so this binary comparison is not a
+package-size reduction.
+
+The latest clean, unsigned package check built Tauri `4bcb4e2` with Go
+`45940914`: the arm64 app is 103.31 MiB and the DMG is 56,331,700 bytes
+(53.72 MiB). The resource verifier, DMG hash and `hdiutil verify` passed; the
+[release checklist](v1-release-checklist.md) records its checksum and open
+signing gates. This newer package size is not a repeat of the startup/RSS
+benchmark above, which still uses Go `f5984122` without a desktop renderer.
