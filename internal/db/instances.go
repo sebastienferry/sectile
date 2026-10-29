@@ -44,6 +44,38 @@ const interruptedByRestart = "Interrupted by server restart"
 // after any other disconnection (#408).
 const interruptedClientRun = "Interrupted by server restart: " + models.RunDisconnectNote
 
+// undispatchedAgentRun is the summary of an agent run whose instance died after
+// admitting it and before sending it to the workstation. It reads as the
+// cancellation before dispatch it is, worded as CancelUndispatchedRun words it.
+const undispatchedAgentRun = "Exécution annulée avant l’envoi au poste : le serveur s’est arrêté"
+
+// reclaimUndispatchedAgentRuns settles the agent runs an instance left halfway
+// through their dispatch, which the agent cannot report on. A run still
+// admitted was never sent, so it is canceled. A run caught dispatching may have
+// reached the agent, exactly like a launch whose confirmation never came, so it
+// is marked dispatched as that launch is: the supervisor's snapshot on
+// reconnection then keeps it or closes it. Left as they were, both stayed
+// active forever and held a slot of the project's orchestration capacity.
+//
+// where narrows the rows to those of dead instances; it is empty when the
+// whole store belongs to the process that restarted.
+func reclaimUndispatchedAgentRuns(conn activityExecutor, now time.Time, where string, args ...any) (int64, error) {
+	const unfinished = ` WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action = ?`
+	canceled, err := conn.Exec(`UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ?, waiting_since = NULL, waiting_session = ''`+
+		unfinished+` AND dispatch_state = 'admitted'`+where,
+		append([]any{undispatchedAgentRun, now, RunActionAgent}, args...)...)
+	if err != nil {
+		return 0, fmt.Errorf("canceling undispatched agent runs: %w", err)
+	}
+	if _, err := conn.Exec(`UPDATE task_activities SET dispatch_state = 'dispatched'`+
+		unfinished+` AND dispatch_state = 'dispatching'`+where,
+		append([]any{RunActionAgent}, args...)...); err != nil {
+		return 0, fmt.Errorf("settling interrupted agent dispatches: %w", err)
+	}
+	count, _ := canceled.RowsAffected()
+	return count, nil
+}
+
 // SetInstanceTiming replaces the liveness bounds: how often an instance says it
 // is alive, how long its silence lasts before its work is reclaimed, and how
 // often a live instance looks for that work. Only a test harness shortens them,
@@ -155,6 +187,9 @@ func (d *DB) recoverInterruptedRuns() {
 	// merely became unknowable.
 	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ?, waiting_since = NULL, waiting_session = '' WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action != ?;",
 		interruptedClientRun, time.Now(), RunActionAgent)
+	if _, err := reclaimUndispatchedAgentRuns(d.conn, time.Now(), ""); err != nil {
+		log.Printf("⚠️  Reprise des exécutions interrompues : %v", err)
+	}
 	if err := d.keepAgentPresenceInUnlocks(time.Now().UTC()); err != nil {
 		log.Printf("⚠️  Présence des agents avant redémarrage : %v", err)
 	}
@@ -186,6 +221,11 @@ func (d *DB) reclaimDeadInstances(now time.Time) (int64, error) {
 	}
 	// Agent-dispatched runs are left alone, as a restart leaves them: their
 	// supervisor reports the real outcome whichever instance it reconnects to.
+	// Only the dispatch the instance left unfinished is settled.
+	undispatched, err := reclaimUndispatchedAgentRuns(d.conn, now, orphaned, cutoff)
+	if err != nil {
+		return 0, err
+	}
 	runs, err := d.conn.Exec(`UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ?, waiting_since = NULL, waiting_session = ''
 		WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action != ?`+orphaned,
 		interruptedClientRun, now, RunActionAgent, cutoff)
@@ -208,7 +248,7 @@ func (d *DB) reclaimDeadInstances(now time.Time) (int64, error) {
 	}
 	ended, _ := jobs.RowsAffected()
 	canceled, _ := runs.RowsAffected()
-	return ended + canceled, nil
+	return ended + canceled + undispatched, nil
 }
 
 // StartInstance registers this process as a serving instance, then keeps its

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isOrchestrationSession, orchestrationGroups, orchestrationProfileRuns, orchestrationProfileState } from '../src/orchestration.mjs'
+import { isOrchestrationSession, orchestrationGroups, orchestrationProfileRuns, orchestrationProfileState, orchestrationReportSummary } from '../src/orchestration.mjs'
 
 const prompt='Backlog orchestration: preflight\nProject eligibility guidelines (mandatory):\nOrchestration agent: Docs [docs]\n\nPolicy'
 const projects=[{id:'p',name:'Project',orchestratorEnabled:true},{id:'q',name:'Disabled'},{id:'gone',name:'Disconnected',disconnected:true,orchestratorEnabled:true}]
@@ -37,4 +37,13 @@ test('policy evaluation state remains independent of worker failures and waiting
  assert.deepEqual(orchestrationProfileState(workers,{pending:true}),{id:'queued',label:'Evaluating backlog'})
  assert.equal(orchestrationProfileState(workers,{error:'Unavailable'}).label,'Needs attention')
  assert.equal(orchestrationProfileState(workers).label,'Ready')
+})
+
+test('an evaluation refused for lack of capacity says so instead of reporting zero launches',()=>{
+ const refused=orchestrationReportSummary({activeRunsBefore:3,maxConcurrent:2,availableSlots:0,launched:[],skipped:[]})
+ assert.equal(refused.counts,'0 launched · 0 skipped')
+ assert.match(refused.capacity,/^Capacity reached: 3 \/ 2 runs already active on this project/)
+ assert.equal(orchestrationReportSummary({activeRunsBefore:0,maxConcurrent:2,availableSlots:2,launched:[],skipped:[]}).capacity,undefined)
+ assert.equal(orchestrationReportSummary({activeRunsBefore:1,maxConcurrent:2,availableSlots:0,launched:[{key:'A-1'}],skipped:[]}).capacity,undefined)
+ assert.equal(orchestrationReportSummary({launched:[],skipped:[]}).capacity,undefined)
 })

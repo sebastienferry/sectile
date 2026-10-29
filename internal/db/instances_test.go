@@ -254,3 +254,95 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+func seedAgentRun(t *testing.T, d *DB, id, dispatchState, instanceID string) {
+	t.Helper()
+	seedOwnedActivity(t, d, id, "remote_run", RunActionAgent, "running", instanceID)
+	if _, err := d.conn.Exec(`UPDATE task_activities SET dispatch_state = ? WHERE id = ?`, dispatchState, id); err != nil {
+		t.Fatalf("seeding the dispatch state of %s: %v", id, err)
+	}
+}
+
+func dispatchState(t *testing.T, d *DB, id string) string {
+	t.Helper()
+	state, err := d.RunDispatchState(id)
+	if err != nil {
+		t.Fatalf("reading the dispatch state of %s: %v", id, err)
+	}
+	return state
+}
+
+// An agent run its instance left halfway through the dispatch is the one the
+// agent cannot report on: never sent, it is canceled; perhaps sent, it waits
+// for the supervisor's snapshot as an unconfirmed launch does. Either way it no
+// longer holds a slot of the project's capacity forever.
+func TestReclaimSettlesAgentRunsCaughtMidDispatch(t *testing.T) {
+	d, _ := newInstanceTestDB(t)
+	now := time.Now().UTC()
+	seedInstances(t, d, now)
+
+	seedAgentRun(t, d, "admitted-stale", "admitted", "stale")
+	seedAgentRun(t, d, "admitted-live", "admitted", "live")
+	seedAgentRun(t, d, "dispatching-stale", "dispatching", "stale")
+	seedAgentRun(t, d, "dispatching-live", "dispatching", "live")
+	seedAgentRun(t, d, "dispatched-stale", "dispatched", "stale")
+	seedAgentRun(t, d, "legacy-stale", "", "stale")
+
+	ended, err := d.reclaimDeadInstances(now)
+	if err != nil {
+		t.Fatalf("reclaiming: %v", err)
+	}
+	if ended != 1 {
+		t.Errorf("ended = %d, want 1 (the run that was never sent)", ended)
+	}
+	for id, want := range map[string][2]string{
+		"admitted-stale":    {"canceled", "admitted"},
+		"admitted-live":     {"running", "admitted"},
+		"dispatching-stale": {"running", "dispatched"},
+		"dispatching-live":  {"running", "dispatching"},
+		"dispatched-stale":  {"running", "dispatched"},
+		"legacy-stale":      {"running", ""},
+	} {
+		if got := activityStatus(t, d, id); got != want[0] {
+			t.Errorf("%s: status = %q, want %q", id, got, want[0])
+		}
+		if got := dispatchState(t, d, id); got != want[1] {
+			t.Errorf("%s: dispatch state = %q, want %q", id, got, want[1])
+		}
+	}
+	var summary string
+	if err := d.conn.QueryRow(`SELECT summary FROM task_activities WHERE id = 'admitted-stale'`).Scan(&summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary != undispatchedAgentRun {
+		t.Errorf("canceled run summary = %q, want %q", summary, undispatchedAgentRun)
+	}
+}
+
+// A SQLite restart settles every unfinished dispatch, since the process that
+// was dispatching is the one that restarted.
+func TestSQLiteStartSettlesUnfinishedDispatches(t *testing.T) {
+	d, path := newInstanceTestDB(t)
+	seedAgentRun(t, d, "admitted", "admitted", d.InstanceID())
+	seedAgentRun(t, d, "dispatching", "dispatching", d.InstanceID())
+	seedAgentRun(t, d, "dispatched", "dispatched", d.InstanceID())
+	d.Close()
+
+	restarted, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("restarting: %v", err)
+	}
+	defer restarted.Close()
+	for id, want := range map[string][2]string{
+		"admitted":    {"canceled", "admitted"},
+		"dispatching": {"running", "dispatched"},
+		"dispatched":  {"running", "dispatched"},
+	} {
+		if got := activityStatus(t, restarted, id); got != want[0] {
+			t.Errorf("%s: status = %q after a restart, want %q", id, got, want[0])
+		}
+		if got := dispatchState(t, restarted, id); got != want[1] {
+			t.Errorf("%s: dispatch state = %q after a restart, want %q", id, got, want[1])
+		}
+	}
+}
