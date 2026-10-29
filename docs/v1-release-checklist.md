@@ -168,6 +168,16 @@ creation/stage writes. These checks use isolated data. No Developer ID
 Application identity is installed on the test Mac, so signing and notarization
 cannot be qualified until one is provisioned.
 
+Branded package check (2026-10-29): Tauri source subsequently committed as
+`e2a9c2b` produced an arm64 app and DMG with clean Go `25a8e77d`. The macOS
+bundle's `icon.icns` has the same SHA-256 as the Electron Sectile icon;
+`npm run package:macos`, the app/DMG resource verifier and `hdiutil verify`
+passed. The DMG is 56,309,465 bytes with SHA-256
+`76f13b6830a334b8d825ee9d268ba2eec7d13dd2818098b7a5c71da4dae51e28`.
+This build preceded the Tauri source commit, so a release still needs a build
+from clean selected commits. Its manifest reports `releaseEligible: false`;
+signing, notarization and clean-user installation remain open.
+
 Desktop OAuth contract check (2026-10-29): focused Go handler tests passed
 complete fake-provider GitHub, GitLab and Jira callback exchanges and the fixed
 Local Jira callback contract. Real provider consent and tracker reads from a
