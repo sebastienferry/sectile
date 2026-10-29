@@ -168,7 +168,10 @@ post-migration MCP call. See
 Current Tauri verification (2026-10-29): `npm run check`, `npm test` (9 tests),
 `npm run test:ui` (87 tests), `cargo fmt --check` and `cargo test` (35 tests) all
 pass. Two isolated macOS release bundles built successfully with unique bundle
-identifiers for live Fleet checks; each measured 101.72 MiB. The active Local
+identifiers for live Fleet checks; each measured 101.72 MiB. The Fleet Pair Test
+bundle contains byte-identical copies of all three `src-tauri/binaries` service
+resources; each is a Darwin arm64 `dev` binary. This qualifies package contents
+on this host, not a reproducible version-pinned service set. The active Local
 installation and its companion remained running during those checks.
 
 ### Stage 5 compatibility evidence
