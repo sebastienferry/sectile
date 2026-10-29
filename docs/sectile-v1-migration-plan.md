@@ -155,7 +155,8 @@ because the upgrade build still bundles both legacy migration executables. An
 unsigned release app measures 101.72 MiB and includes the companion and both
 legacy binaries. One initial launch and three process relaunch samples are
 recorded in the runtime plan; repeated true cold-start measurements and a signed
-release artifact remain unqualified. The reverse current-agent/old-server binary direction, a remote Fleet session,
+release artifact remain unqualified; this host has zero valid macOS code-signing
+identities. The reverse current-agent/old-server binary direction, a remote Fleet session,
 and a post-migration Electron live MCP call remain unqualified. The Sectile MCP connector was retried read-only on 2026-10-29 and
 returned `connection closed: client is closing`; this does not qualify the
 post-migration MCP call. See
@@ -172,7 +173,8 @@ post-migration MCP call. See
 | Source-level v0.7.6 protocol fixtures | The current server parses a pinned v0.7.6 agent connection query; a parser copied from the v0.7.6 server source parses the current agent announcement. Focused agent/handler tests also cover operation dispatch. | Pass on this source revision. These tests do not execute either released binary. |
 | Released agent binary to current Go server | The `v0.7.6` agent built from the Git tag connected to the current server WebSocket handler in an isolated process test; its version and operation list were accepted. | Pass for this direction and handshake only; it does not exercise the full Fleet API. |
 | Current agent to supported Go server binary | Current agent connects to a parser reproduced from `v0.7.6` source in a source-level fixture. | The real old-server binary and full API path remain untested; no two-way binary compatibility claim yet. |
-| Native platforms | macOS live migration and unsigned bundle build; Windows companion cross-build | Windows runtime/migration and Linux native builds remain unqualified |
+| Native platforms | macOS live migration and unsigned bundle build; Windows companion and Go handler test binary cross-build | Windows runtime/migration and Linux native builds remain unqualified |
+| macOS signing | `security find-identity -v -p codesigning` returned zero valid identities on the qualification host (2026-10-29) | No signed macOS artifact can be qualified on this host; a valid signing identity is required |
 | Open-source package provenance | Tauri repository has an MIT `LICENSE`; the Go checkout has no license file, while `prepare:services` builds and bundles the Go server, agent and companion | Public binary redistribution remains unqualified until the Go services' licensing and required notices are explicit |
 
 Until these gates close, compatibility claims are limited to the tested source

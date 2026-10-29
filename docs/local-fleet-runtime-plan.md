@@ -466,7 +466,8 @@ Stage 5 now has one binary handshake direction qualified: a released v0.7.6
 agent connected to the current Go server handler. It remains open for the reverse
 current-agent/supported-server binary path, a live Fleet pairing/setup session,
 an Electron live MCP call after the Tauri migration, signed-package
-qualification and repeated true cold-start measurements. Do not infer these from unit tests or
+qualification and repeated true cold-start measurements. The qualification host
+currently has zero valid macOS code-signing identities. Do not infer these from unit tests or
 from the migrated Local installation.
 
 Existing workstation connection qualification (2026-10-29): the saved local
@@ -500,4 +501,5 @@ source accepts the current agent announcement. Separately, a real v0.7.6 agent
 binary connected to the current server WebSocket handler in an isolated test
 with a temporary database and HOME; the server accepted its version and complete
 operation list. The reverse binary direction and full Fleet API compatibility
-remain open.
+remain open. Windows cross-compilation also passed for the Go companion and
+handler test binary; Windows runtime and Linux native execution remain untested.
