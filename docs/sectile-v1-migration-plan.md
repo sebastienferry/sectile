@@ -153,15 +153,16 @@ unsupported: selecting a second mode requires a future explicit migration flow.
 Stage 5 remains open: qualify the
 Fleet/Electron compatibility matrix,
 supported versions, other-platform migration and measured process/memory/startup
-and package behavior. Linux ARM64 Debian packages built in a Debian Bookworm
-ARM64 container from Tauri commits `0988d58` and `446285c`, each using Go commit
-`7dea9140`. The first 49.11 MiB `.deb` contains an ARM64 Tauri executable and all
-three Go services; each embedded service reports the expected Go commit, and
-the build manifest SHA-256 and size values verify. The follow-up package was
-installed successfully in Debian and the application created a visible X11
-window under Xvfb/DBus before it was stopped cleanly. This is a simulated ARM64
-startup smoke, not qualification on a real Linux desktop: interactive UI,
-migration, provider execution and behavior across distributions remain unqualified. The
+and package behavior. A fresh Linux ARM64 Debian package was built from Tauri
+commit `ab8c7a7` and clean Go commit `7dea9140` in a Debian Bookworm ARM64
+container. The 49.11 MiB `.deb` contains an ARM64 Tauri executable and all three
+Go services; each embedded service is an ARM64 ELF binary, its SHA-256 matches
+the package manifest, and it reports the expected Go commit. The package
+installed successfully with `dpkg -i` in Debian Bookworm ARM64 and opened a
+visible X11 window under Xvfb/DBus before it was stopped cleanly. This is a
+simulated ARM64 startup smoke, not qualification on a real Linux desktop:
+interactive UI, migration, provider execution and behavior across distributions
+remain unqualified. The
 current unsigned optimized macOS `.app` measures
 101.72 MiB. One isolated arm64 macOS cold launch showed its first native window
 at 1.09 seconds. Three subsequent process relaunches using the same unconfigured
@@ -197,10 +198,9 @@ returned `connection closed: client is closing`; this does not qualify the
 post-migration MCP call. See
 [the runtime plan](local-fleet-runtime-plan.md) for the scope of this evidence.
 
-Current Tauri verification (2026-10-29, Tauri commit `7f96e6e`): `npm run
-check`, `npm test` (9 tests), `npm run test:ui` (89 tests), `cargo fmt --check`,
-`cargo test --locked` (35 tests), and `node --check
-scripts/build-services.mjs` all pass. Two isolated macOS release bundles built successfully with unique bundle
+Current Tauri verification (2026-10-29, Tauri commit `ab8c7a7`): `npm run
+check`, `npm test` (9 tests), `npm run test:ui` (90 tests), `npm run build`, and
+`npm run test:rust` (35 tests) all pass. Two isolated macOS release bundles built successfully with unique bundle
 identifiers for live Fleet checks; each measured 101.72 MiB. The Fleet Pair Test
 bundle contains byte-identical copies of all three `src-tauri/binaries` service
 resources; each is a Darwin arm64 `dev` binary. At Tauri commit `2206473` and Go
