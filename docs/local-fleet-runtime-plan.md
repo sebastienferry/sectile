@@ -206,8 +206,10 @@ first. The Fleet internal listener also has a stop/join path. The Local
 backend now gates work and auto-sync until the expected authenticated agent
 WebSocket connects and the embedded agent reports its connection setup. The
 gate closes again if that connection disappears; a real embedded-agent test
-covers startup without deadlock. The Local composition root still must own
-listener drain, process failure and restart, so this is not yet the phase 2
+covers startup without deadlock. Profile sign-in and agent pairing remain
+available through the gate for first-run onboarding. The Local composition root
+still must own listener drain, process failure and restart, so this is not yet
+the phase 2
 acceptance result.
 
 - Separate agent flag parsing, signals and process restart from construction and
