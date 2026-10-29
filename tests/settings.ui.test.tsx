@@ -116,6 +116,24 @@ test("a credential is sent only on submission and its input is cleared after fai
   expect((token as HTMLInputElement).value).toBe("");
   expect(api.saveLocalCredential).toHaveBeenCalledWith({tracker:"github",siteUrl:"",email:"",token:"fixture-secret"});
 });
+test("tracker source and personal credential keep independent provider and site drafts", async () => {
+  vi.mocked(api.localSetupStatus).mockResolvedValue(ready);
+  vi.mocked(api.createLocalTracker).mockResolvedValue({});
+  render(<LocalSettings onChanged={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", {name:"Comptes et trackers"}));
+  fireEvent.click(screen.getByText("Accès manuel par jeton · option avancée"));
+  fireEvent.change(screen.getByLabelText("Fournisseur"), {target:{value:"jira"}});
+  fireEvent.change(screen.getByLabelText("URL du site ou de l’API"), {target:{value:"https://personal.atlassian.net"}});
+  fireEvent.change(screen.getByLabelText("Fournisseur de la source"), {target:{value:"gitlab"}});
+  fireEvent.change(screen.getByLabelText("Adresse de la source"), {target:{value:"https://gitlab.example.invalid"}});
+  expect((screen.getByLabelText("Fournisseur") as HTMLSelectElement).value).toBe("jira");
+  expect((screen.getByLabelText("URL du site ou de l’API") as HTMLInputElement).value).toBe("https://personal.atlassian.net");
+  fireEvent.change(screen.getByLabelText("Nom du tracker"), {target:{value:"Engineering"}});
+  fireEvent.change(screen.getByLabelText("Dépôt ou clé du projet"), {target:{value:"team/engineering"}});
+  fireEvent.click(screen.getByRole("button", {name:"Ajouter le tracker"}));
+  await waitFor(() => expect(api.createLocalTracker).toHaveBeenCalledWith({name:"Engineering",provider:"gitlab",site:"https://gitlab.example.invalid",scope:"team/engineering"}));
+  expect(api.saveLocalCredential).not.toHaveBeenCalled();
+});
 test("existing projects use the native folder picker for repository mapping", async () => {
   vi.mocked(api.localSetupStatus).mockResolvedValue(ready);
   vi.mocked(api.chooseProjectFolder).mockResolvedValue("/fixture/repo");

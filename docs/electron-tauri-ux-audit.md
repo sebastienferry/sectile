@@ -619,3 +619,10 @@ installation account having a Jira OAuth grant. Go ADR 0068 now makes Local
 sync read with that identity while preserving the Fleet server-credential
 contract. A simulated Jira OAuth sync and a personal-token GitHub sync pass
 without server credentials; a live Jira recheck remains necessary.
+
+The native credential and ticket-source forms used the same React provider and
+site state. Switching one provider silently reset the other's site draft and
+could submit a source under the wrong provider. Their drafts are now separate,
+with a UI regression covering both forms. The Fleet service copy now describes
+the backend-owned profile and project controls exposed on this page instead of
+claiming that the page only changes the Local companion.

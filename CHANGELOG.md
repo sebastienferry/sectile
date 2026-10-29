@@ -31,6 +31,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Personal credential and ticket-source forms now keep separate provider and site drafts, so configuring one cannot silently change the other.
 - Desktop packages and browser previews use Sectile's existing app icon instead of the Tauri starter icon.
 - Tracker setup now follows each requested synchronization through to completion or failure, including the number of tickets read when available.
 - Lay out project prompt controls in a compact two-row grid on narrow windows so model and mode guidance remains readable.

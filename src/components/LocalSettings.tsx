@@ -23,10 +23,12 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
   const [displayName, setDisplayName] = useState("");
   const [fleetUrl, setFleetUrl] = useState("");
   const [fleetCode, setFleetCode] = useState("");
-  const [provider, setProvider] = useState("github");
-  const [site, setSite] = useState("");
+  const [credentialProvider, setCredentialProvider] = useState("github");
+  const [credentialSite, setCredentialSite] = useState("");
   const [trackerEmail, setTrackerEmail] = useState("");
   const [token, setToken] = useState("");
+  const [sourceProvider, setSourceProvider] = useState("github");
+  const [sourceSite, setSourceSite] = useState("");
   const [trackerName, setTrackerName] = useState("");
   const [scope, setScope] = useState("");
   const [projectName, setProjectName] = useState("");
@@ -116,7 +118,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
         </form>
         <details><summary>J’ai déjà associé un agent sur ce poste</summary><p className="muted">Tauri peut reprendre explicitement l’agent existant sans modifier son installation partagée.</p><button disabled={pending} onClick={() => void perform(api.attachFleetAgent, "Agent Fleet associé à ce desktop.", undefined, true)}>Associer l’agent Fleet existant</button></details>
       </article>}
-      {setup?.mode === "fleet" && <p className="muted">Les profils, trackers et projets Fleet se configurent sur le backend Sectile. Cette page ne modifie que le compagnon Local.</p>}
+      {setup?.mode === "fleet" && <p className="muted">Cette page configure votre profil et vos projets sur le backend Fleet sélectionné. L’agent d’exécution reste sur ce poste.</p>}
       <button disabled={pending} onClick={() => void perform(async () => {}, "Configuration actualisée.")}>Actualiser</button>
     </article></div>
     <div hidden={section !== "profile"}>{setup?.ready && setup.apiSetupAvailable !== false && (setup.mode !== "fleet" || setup.signedIn) && <article>
@@ -135,13 +137,13 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       <article>
         <details><summary>Accès manuel par jeton · option avancée</summary>
         <form onSubmit={e => submit(e, async () => {
-          try { await api.saveLocalCredential({ tracker: provider, siteUrl: site, email: trackerEmail, token }); }
+          try { await api.saveLocalCredential({ tracker: credentialProvider, siteUrl: credentialSite, email: trackerEmail, token }); }
           finally { setToken(""); }
         }, "Accès personnel enregistré. Lancez une synchronisation pour vérifier l’accès aux tickets.")}>
           <fieldset disabled={pending}>
-            <label>Fournisseur<select value={provider} onChange={e => { setProvider(e.target.value); setSite(""); setToken(""); }}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
-            <label>URL du site ou de l’API<input type="url" required={provider !== "github"} placeholder={provider === "jira" ? "https://votre-site.atlassian.net" : provider === "gitlab" ? "https://gitlab.com" : "https://api.github.com"} value={site} onChange={e => setSite(e.target.value)} /></label>
-            <label>E-mail du compte<input type="email" required={provider === "jira"} value={trackerEmail} onChange={e => setTrackerEmail(e.target.value)} /></label>
+            <label>Fournisseur<select value={credentialProvider} onChange={e => { setCredentialProvider(e.target.value); setCredentialSite(""); setToken(""); }}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
+            <label>URL du site ou de l’API<input type="url" required={credentialProvider !== "github"} placeholder={credentialProvider === "jira" ? "https://votre-site.atlassian.net" : credentialProvider === "gitlab" ? "https://gitlab.com" : "https://api.github.com"} value={credentialSite} onChange={e => setCredentialSite(e.target.value)} /></label>
+            <label>E-mail du compte<input type="email" required={credentialProvider === "jira"} value={trackerEmail} onChange={e => setTrackerEmail(e.target.value)} /></label>
             <label>Jeton personnel<input type="password" required autoComplete="off" value={token} onChange={e => setToken(e.target.value)} /></label>
             <p className="muted">Le jeton est chiffré par {setup.mode === "fleet" ? "le backend Fleet" : "le serveur local"}. L’enregistrement remplace l’accès personnel de ce fournisseur.</p>
             <button type="submit">Enregistrer l’accès</button>
@@ -152,12 +154,12 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       </article>
       <article>
         <h2>Sources de tickets</h2>
-        {setup.mode !== "fleet" || setup.profile?.role === "admin" ? <form onSubmit={e => submit(e, async () => { await api.createLocalTracker({ name: trackerName, provider, site, scope }); setTrackerName(""); setScope(""); }, "Tracker ajouté.")}>
+        {setup.mode !== "fleet" || setup.profile?.role === "admin" ? <form onSubmit={e => submit(e, async () => { await api.createLocalTracker({ name: trackerName, provider: sourceProvider, site: sourceSite, scope }); setTrackerName(""); setScope(""); }, "Tracker ajouté.")}>
           <fieldset disabled={pending}>
-            <label>Fournisseur de la source<select value={provider} onChange={e => {setProvider(e.target.value);setSite("");}}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
-            <label>Adresse de la source<input type="url" required={provider==="jira"} placeholder={provider==="jira"?"https://votre-site.atlassian.net":"URL facultative pour l’instance publique"} value={site} onChange={e=>setSite(e.target.value)} /></label>
+            <label>Fournisseur de la source<select value={sourceProvider} onChange={e => {setSourceProvider(e.target.value);setSourceSite("");}}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
+            <label>Adresse de la source<input type="url" required={sourceProvider==="jira"} placeholder={sourceProvider==="jira"?"https://votre-site.atlassian.net":"URL facultative pour l’instance publique"} value={sourceSite} onChange={e=>setSourceSite(e.target.value)} /></label>
             <label>Nom du tracker<input required value={trackerName} onChange={e => setTrackerName(e.target.value)} /></label>
-            <label>Dépôt ou clé du projet<input required placeholder={provider === "jira" ? "PROJET" : "organisation/depot"} value={scope} onChange={e => setScope(e.target.value)} /></label>
+            <label>Dépôt ou clé du projet<input required placeholder={sourceProvider === "jira" ? "PROJET" : "organisation/depot"} value={scope} onChange={e => setScope(e.target.value)} /></label>
             <button type="submit">Ajouter le tracker</button>
           </fieldset>
         </form> : <p className="muted">Les trackers sont partagés dans Fleet. Demandez à un administrateur du serveur d’enregistrer une nouvelle source.</p>}
