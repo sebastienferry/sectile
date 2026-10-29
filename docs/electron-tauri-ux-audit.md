@@ -30,6 +30,7 @@ verification record remains the evidence for those flows.
 | Settings are a full native page in Tauri and a categorized dialog in Electron. | Tauri's `LocalSettings` has separate engine, profile, connection, project and service sections; Electron groups workstation/project settings in its dialog. | Keep native Tauri setup, but align section naming, compact spacing and progressive disclosure. Do not force the dialog layout into a native page. |
 | A local-only project shows tracker controls even though it has no remote tickets. | In the live Tauri window, `Documents` has a local path and zero tickets, while the board toolbar still says “Statuts du tracker · lecture seule” and offers tracker grouping/search. `App.tsx` renders this toolbar for every project. | Make the empty local-project state describe local work and hide tracker-specific controls until the project has a tracker-backed ticket collection. Keep “Nouveau prompt” as the single primary action. |
 | The local-project empty state repeats the primary prompt action. | The project toolbar already has “Nouveau prompt”; the empty board adds “Commencer une conversation”. The live screenshot shows both at once. | Keep the global project action and remove the duplicate empty-state button; use the empty state to explain that the local project is ready for prompts. |
+| The project toolbar offers navigation to the view already open. | The live board screenshot shows a “Tableau” button beside the current project; `App.tsx` always renders it, and its handler navigates to the same board view. | Hide the current-view action while the board is open. Keep “Tableau” available from prompts and execution views so navigation remains direct. |
 | The current live Electron/Tauri windows are not a valid populated-state visual comparison. | Both windows were captured at the same desktop size, but Electron was showing a long historical conversation and orchestration sidebar while Tauri showed the empty Local `Documents` board. | Use these captures only for shell/navigation comparison. Before tuning typography, spacing or colors, capture equivalent screens, themes and data states; do not infer style changes from the mismatched content. |
 
 ## First corrections
@@ -46,19 +47,21 @@ verification record remains the evidence for those flows.
 
 ## Remaining convergence order
 
-1. Correct local-only board presentation: remove tracker-only controls when no
+1. Keep project toolbar actions contextual: hide the current-view action while
+   already on that view; preserve it from other project views.
+2. Correct local-only board presentation: remove tracker-only controls when no
    tracker data exists, and retain one clear prompt action. Cover local projects,
    tracker-backed projects with tickets, tracker-backed projects with no tickets,
    and failed/stale ticket reads.
-2. Capture matched light and dark screenshots of Electron and Tauri at the same
+3. Capture matched light and dark screenshots of Electron and Tauri at the same
    window size and with equivalent project/activity data. Normalize typography,
    surface contrast, control height, spacing and selected/hover states from
    evidence, not from a wholesale restyle.
-3. Reduce settings page density and align labels, section names and primary
+4. Reduce settings page density and align labels, section names and primary
    actions with Electron while retaining native OAuth and filesystem flows.
-4. Audit each Electron command-palette action and shortcut against Tauri's
+5. Audit each Electron command-palette action and shortcut against Tauri's
    command inventory; only expose actions Tauri can actually perform.
-5. Recheck prompt, workflow and conversation layouts at narrow and normal window
+6. Recheck prompt, workflow and conversation layouts at narrow and normal window
    sizes, including empty, active, error and waiting states.
 
 Each completed item should preserve tracker-authoritative ticket state, the
