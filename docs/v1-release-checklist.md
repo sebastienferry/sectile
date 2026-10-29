@@ -282,3 +282,14 @@ website address without `/api/v4`, then created and updated GitLab issue `!111`
 and GitHub issue `#897`; both were deleted. The regular companion on 52963 was
 untouched. The native UI, fresh OAuth consent, Jira writes, deployed Fleet
 backend and signed package are not qualified by these API tests.
+
+Native GitLab setup and read (2026-10-29): an isolated unsigned Tauri app from
+`a792fdb` and Go `45940914` used a unique bundle ID, disposable data and
+test-only port 55466. Its native window created a Local profile, GitLab source
+from the website URL, and tracker-backed project. Settings showed a completed
+sync of 106 live `taskativ` tickets, and the project board displayed them in
+remote status columns. The source stored the normalized `/api/v4` URL, and
+the folderless project's prompt offered a native folder picker. The personal
+GitLab token was injected through the isolated backend API, so native account
+connection, OAuth consent and tracker writes remain open. The test app and
+companion were removed without touching the regular 52963 companion.
