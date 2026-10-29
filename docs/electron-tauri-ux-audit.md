@@ -341,6 +341,20 @@ disposable test data.
   mappings despite one matching project label; they are not a valid matched
   content comparison. Neither observation changes tracker data or runtime
   configuration.
+- On 2026-10-29, the isolated `Sectile Upgrade Qualification` app was opened
+  after the workstation was unlocked. It was a fresh, unconfigured test
+  identity, so its companion had not yet been requested to start; the native
+  setup screen offered “Start in Local mode.” Starting Local created its
+  isolated runtime on port `52964`. The authenticated runtime health check
+  returned protocol 1, `ready: true` and `companion: true`. Saving a synthetic
+  test profile changed the desktop status to “Agent connected” and created the
+  default project. No tracker credentials, remote tracker, OAuth provider or
+  AI provider were used. This distinguishes first-run setup from companion
+  startup failure. The test bundle is an older qualification build and showed
+  an obsolete Local/Fleet setup warning on its AI-engine screen after Local
+  was connected; current source does not contain that warning. This is not
+  evidence of a current-source settings defect. The production companion on
+  port `52963` remained running and was not changed.
 - `workspace-polish.css` no longer duplicates Tauri's root palette; shared
   Tauri color tokens live in `App.css`. This is stylesheet ownership cleanup,
   not color parity: the light selection, accent, sunken surface and danger
