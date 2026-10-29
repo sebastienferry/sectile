@@ -883,5 +883,6 @@ a project, registered a fixture tracker in Settings, and attached it from that
 project's configuration. The project, folder and tracker persisted across a
 companion stop and desktop reopen, and a Codex free prompt returned its expected
 answer with the same working directory. The test also exposed English agent
-notice text in the French conversation surface; this is a distinct copy
-inconsistency to resolve without changing provider-authored responses.
+notice text in the French conversation surface. Go `5500840d` changes
+Sectile-authored conversation notices to French while leaving provider-authored
+responses untouched. A native retake with that Go commit remains open.
