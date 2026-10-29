@@ -239,12 +239,14 @@ table below.
 The remaining Stage 5 gaps are end-to-end live OAuth/tracker/provider workflows
 on the release binary and the full tracked-task/tool-activity workflow through
 the current Electron UI. The bounded project-prompt test below confirmed that
-Electron displays Codex's read-only tool activity. Its Stop check exposed a
-shell-launched child that survived the stop response. Go commit `5274a160` now
-terminates PTY process trees on session close, and a delayed-marker regression
-test passes; the isolated Electron UI stop check still needs to be repeated
-against that patched companion before the behavior is qualified. The installed
-live Fleet backend `660-main` is older than the current Go branch: pairing and
+Electron displays Codex's read-only tool activity. The repeat test against Go
+commit `5274a160` confirmed that Electron Stop changes the run to canceled while
+Codex's detached shell survives and writes its marker after 90 seconds. The Go
+PTY descendant-stop test does not cover that Codex-owned process. This legacy
+Electron PTY path remains unqualified. Separately, the structured Codex
+conversation path used by Tauri has passed interruption and delayed-marker
+checks; that evidence does not qualify Electron's PTY path. The installed live
+Fleet backend `660-main` is older than the current Go branch: pairing and
 authenticated project reads work, but its OAuth administration endpoint is
 unavailable. Do not infer support for that server from the current-source
 protocol harness. The current release package
@@ -378,6 +380,7 @@ domain and workspace UI regressions cover the idle-session case.
 
 | Combination | Evidence now available | Qualification |
 | --- | --- | --- |
+| Current-source regression suites | On Go commit `5274a160`, `go test ./...` passes. Electron `npm test` passes all 315 tests and `npm run test:ui` passes all 137 tests. On Tauri commit `f02e511`, `npm test` passes 14 tests, `npm run test:ui` passes 101 tests, `npm run check`, `npm run test:rust` (35 tests) and `npm run build` pass. Verified on 2026-10-29. | Pass for the source-level Go, Electron and Tauri suites at these revisions. These suites do not replace live tracker/OAuth/provider workflows, Electron PTY interruption, or package signing and clean installation gates. |
 | Current Go branch and Electron client suites | On Go commit `df1d846c`, `go test ./...` passes across all packages; `npm --prefix desktop run build`, `npm --prefix desktop test` (315 tests) and `npm --prefix desktop run test:ui` (137 tests) pass on 2026-10-29. The Electron renderer build reports 1.39 MB uncompressed JavaScript (427.72 kB gzip) and a Vite chunk-size warning. | Current-source Go and Electron regression suites pass. Electron UI tests use isolated fixtures and do not qualify a live Electron session against the current Go server or external tracker mutations. The bundle warning is a follow-up optimization candidate, not a release blocker by itself. |
 | Electron 0.7.5 UI to current Go server and agent | On 2026-10-29, the current Electron app was launched with a separate `SECTILE_DESKTOP_DATA_DIR` and a current Go server/agent from commit `df1d846c`. The temporary SQLite database contained one local project/task; the Electron board loaded the task as `ELECTR-1` in New. All processes, credentials and data were isolated and removed after the check. | Pass for Electron connection, project discovery and read-only ticket-board loading against the current Go API. This does not qualify Fleet server setup/reconnect, tracker adapters, execution or full workflow behavior. |
 | Electron project prompt, tool activity and interruption | On 2026-10-29, Electron `0.7.5` ran against an isolated Go server and agent from commit `5274a160`, with a temporary database, a folder-only project and disposable workspace. Codex `0.165.0` displayed its response and `1 background terminal running` while executing `sleep 90 && printf 'INTERRUPTED' > stop-marker.txt`. Electron Stop changed the run to Stopped/canceled and freed the run slot, but the shell continued and wrote `INTERRUPTED` after the full 90-second delay. Process inspection showed that Codex had delegated the shell to its shared managed app-server, outside the Go PTY process tree. The Go PTY descendant-stop regression test passes, but it does not cover this detached Codex process. | Partial: Electron launch, response display and running-tool visibility pass; real interruption fails for Codex project prompts in PTY mode. Do not qualify Stop until Codex execution is moved under a companion-owned, cancellable process/server or a supported Codex cancellation API is integrated and the delayed-marker UI test passes. Tracked-ticket tool activity, tracker mutations and live-provider workflows remain unqualified. |
