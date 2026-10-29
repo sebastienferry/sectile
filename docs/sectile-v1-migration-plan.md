@@ -201,6 +201,17 @@ launched and no visual or runtime behavior is qualified by this build.
 | macOS signing | `security find-identity -v -p codesigning` returned zero valid identities on the qualification host (2026-10-29) | No signed macOS artifact can be qualified on this host; a valid signing identity is required |
 | Open-source package provenance | Tauri repository has an MIT `LICENSE`; the Go checkout has no license file, while `prepare:services` builds and bundles the Go server, agent and companion | Public binary redistribution remains unqualified until the Go services' licensing and required notices are explicit |
 
+Cross-version harness re-run (2026-10-29, Go commit `3ea74cbb`):
+`python3 scripts/compatibility/test-v076-server-current-agent.py` passed. It
+connected current and released agents in both server directions, completed
+both MCP client/server directions with 21 tools each, exercised task and
+workflow state, run lifecycle and separate specification worktrees, and
+verified `skills_status` plus `init_git` through each agent. The GitHub issue
+creation and stage update used the harness's local fake tracker and a test
+personal token; this is protocol and compatibility evidence, not a live
+GitHub/Jira/GitLab qualification. The harness cleaned its temporary databases,
+homes and repositories and left the Go worktree clean.
+
 Until these gates close, compatibility claims are limited to the tested source
 revision and platform evidence above. The versioned server/agent contract is
 additive within V1, but that rule alone does not prove any particular mixed
