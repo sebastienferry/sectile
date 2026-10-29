@@ -361,3 +361,12 @@ The future product boundary is defined in the V1 migration plan: Tauri owns the
 primary agentic board; the headless backend retains API/MCP/auth and required
 business logic. Roadmapping separation and web-client deprecations remain
 independent product lots, not part of phases 0-5.
+
+### Experimental phase 3 checkpoint (2026-10-29)
+
+The Go branch now builds `cmd/companion`, composing backend and embedded agent
+in one process against an explicit desktop installation manifest. Profile and
+pairing bootstrap, authenticated readiness, SIGTERM shutdown and relaunch passed
+on disposable data. Tauri still launches the existing two services. Provider
+workflow/crash qualification, complete drain admission, packaging and the
+journaled migration remain pending before switching the desktop launcher.
