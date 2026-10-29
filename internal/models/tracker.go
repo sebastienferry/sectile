@@ -58,6 +58,7 @@ type Tracker struct {
 type ProjectTracker struct {
 	TrackerID           string              `json:"trackerId"`
 	Identity            string              `json:"identity"`
+	Provider            string              `json:"provider,omitempty"`
 	TrackerColumns      []TrackerColumn     `json:"trackerColumns,omitempty"`
 	TrackerStageColumns map[string][]string `json:"trackerStageColumns,omitempty"`
 	StageColumns        map[string][]string `json:"stageColumns,omitempty"`

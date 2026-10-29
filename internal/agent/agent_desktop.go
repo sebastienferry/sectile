@@ -1325,6 +1325,7 @@ const stageMoveCapability = "stage-move"
 // desktopBoardTracker is the column data of one tracker a project selects.
 type desktopBoardTracker struct {
 	TrackerID      string                 `json:"trackerId"`
+	Provider       string                 `json:"provider"`
 	TrackerColumns []models.TrackerColumn `json:"trackerColumns"`
 	StageColumns   map[string][]string    `json:"stageColumns"`
 }
@@ -1353,6 +1354,7 @@ func (d *agentDaemon) projectBoard(ctx context.Context, projectID string) (deskt
 	for _, tracker := range project.Trackers {
 		board.Trackers = append(board.Trackers, desktopBoardTracker{
 			TrackerID:      tracker.TrackerID,
+			Provider:       tracker.Provider,
 			TrackerColumns: nonNilColumns(tracker.TrackerColumns),
 			StageColumns:   nonNilMapping(tracker.StageColumns),
 		})

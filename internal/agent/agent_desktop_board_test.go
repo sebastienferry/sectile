@@ -89,8 +89,8 @@ func TestDesktopProjectCarriesTheBoard(t *testing.T) {
 		TrackerColumns: []models.TrackerColumn{{Name: "In Review", Statuses: []string{"Code Review"}}},
 		StageColumns:   map[string][]string{"implemented": {"In Review"}},
 		Trackers: []models.ProjectTracker{
-			{TrackerID: "t1", Identity: "github|x", TrackerColumns: []models.TrackerColumn{{Name: "Doing", Statuses: []string{"WIP"}}}, StageColumns: map[string][]string{"specified": {"Doing"}}},
-			{TrackerID: "t2"},
+			{TrackerID: "t1", Identity: "github|x", Provider: "github", TrackerColumns: []models.TrackerColumn{{Name: "Doing", Statuses: []string{"WIP"}}}, StageColumns: map[string][]string{"specified": {"Doing"}}},
+			{TrackerID: "t2", Provider: "local"},
 		},
 	}
 	b := newBoardTestDaemon(t, project, 200, "{}")
@@ -109,8 +109,8 @@ func TestDesktopProjectCarriesTheBoard(t *testing.T) {
 		TrackerColumns: project.TrackerColumns,
 		StageColumns:   project.StageColumns,
 		Trackers: []desktopBoardTracker{
-			{TrackerID: "t1", TrackerColumns: project.Trackers[0].TrackerColumns, StageColumns: project.Trackers[0].StageColumns},
-			{TrackerID: "t2", TrackerColumns: []models.TrackerColumn{}, StageColumns: map[string][]string{}},
+			{TrackerID: "t1", Provider: "github", TrackerColumns: project.Trackers[0].TrackerColumns, StageColumns: project.Trackers[0].StageColumns},
+			{TrackerID: "t2", Provider: "local", TrackerColumns: []models.TrackerColumn{}, StageColumns: map[string][]string{}},
 		},
 	}
 	if !reflect.DeepEqual(answer.Board, want) {
@@ -118,7 +118,7 @@ func TestDesktopProjectCarriesTheBoard(t *testing.T) {
 	}
 	// An unmapped tracker answers empty values, never null, so the desktop
 	// needs no guard per field.
-	if !strings.Contains(w.Body.String(), `"trackerId":"t2","trackerColumns":[],"stageColumns":{}`) {
+	if !strings.Contains(w.Body.String(), `"trackerId":"t2","provider":"local","trackerColumns":[],"stageColumns":{}`) {
 		t.Fatalf("unmapped tracker not answered empty: %s", w.Body.String())
 	}
 }

@@ -275,7 +275,7 @@ func (d *DB) fillProjectTrackersUnsafe(p *models.Project) error {
 	p.Trackers = []models.ProjectTracker{}
 	effective := map[string]map[string][]string{}
 	for _, t := range trackers {
-		entry := models.ProjectTracker{TrackerID: t.ID, Identity: t.Identity, TrackerColumns: t.TrackerColumns, TrackerStageColumns: t.StageColumns, StageColumns: t.StageColumns}
+		entry := models.ProjectTracker{TrackerID: t.ID, Identity: t.Identity, Provider: t.Provider, TrackerColumns: t.TrackerColumns, TrackerStageColumns: t.StageColumns, StageColumns: t.StageColumns}
 		if stages := own[t.ID]; len(stages) > 0 {
 			entry.StageColumns, entry.OwnStageColumns = stages, true
 		}

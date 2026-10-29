@@ -30,6 +30,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Desktop board metadata now identifies each selected tracker provider so clients can distinguish local workspaces from remote tracker boards.
+
 - Build an API/MCP-only server binary without web assets or Node.js using `make build-server-headless`.
 
 - Fleet-connected desktop clients can read provider OAuth readiness and callback status without exposing OAuth client identifiers or secrets.
