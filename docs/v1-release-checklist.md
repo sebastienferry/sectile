@@ -24,6 +24,13 @@ service-only comparison; release-binary desktop performance remains open.
 
 ## Source and compatibility
 
+The v0.7.6/current Go binary harness was refreshed on 2026-10-29 against
+clean Go `554374b2`. Both agent/server directions passed the 27-operation
+agent protocol, 21 MCP tools through direct and STDIO clients, run lifecycle,
+task-spec worktree creation and fake GitHub issue/stage writes using a personal
+token. The isolated test left the Go checkout clean. Live provider OAuth and
+tracker writes remain separate release gates.
+
 - [ ] Select and record the exact Go source commit used to build the companion.
 - [ ] Build only from clean, reviewable source commits. Confirm the packaged
   `build-manifest.json` names the selected Go commit, reports `dirty: false`,
