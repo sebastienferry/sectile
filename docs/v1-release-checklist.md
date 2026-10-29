@@ -85,7 +85,7 @@ The binary compatibility harness was re-run on 2026-10-29 against Go commit
 specific protocol slice; it does not close full Electron UI compatibility,
 live tracker/provider behavior or Fleet reconnection.
 
-Current source test refresh (2026-10-29): Go commit `5274a160` passes `go test
+Current source test refresh (2026-10-29): Go commit `22c33ec1` passes `go test
 ./...`. Electron passes 315 unit tests and 137 UI tests. Tauri commit `f02e511`
 passes `npm test` (14 tests), `npm run test:ui` (101 tests), `npm run check`,
 `npm run test:rust` (35 tests) and `npm run build`. The compatibility harness
@@ -105,12 +105,13 @@ remote tracker write was made; the Tauri GUI was not part of this service test.
 Temporary data and services were removed. This closes that current-source Local
 service/provider slice, not release-binary qualification.
 
-Current-source package verification (2026-10-29): clean Go commit `5274a160`
-and clean Tauri source produced a 102.28 MiB arm64 app and 51.69 MiB DMG.
+Current-source package verification (2026-10-29): clean Go commit
+`22c33ec19707c400612715e233e4554b77bfb0f2` and Tauri commit `f54571c`
+produced a 102.28 MiB arm64 app and 51.69 MiB DMG.
 The manifest names the clean Go source, all three service hashes, fixed port
 52963, 52 license files and `releaseEligible: false`. The verifier and
 `hdiutil verify` passed. DMG SHA-256:
-`0d894ed2591779451bc175be21c380dd636d88dabd82232264e7a453e4aa708b`. The
+`7a68498e44235017b36ab7a3380e2f0a488b8ea2108c636886c8b6a52b0603d0`. The
 manifest reports `releaseEligible: false`; `security find-identity -v -p
 codesigning` found zero valid identities. The production companion owns the
 fixed port, so a clean default-port launch was not attempted. Signing,
