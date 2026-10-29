@@ -22,10 +22,24 @@ export function WorkflowTask({projectId,taskId,onBack,onSetup}:{projectId:string
  const acting=useRef(false),generation=useRef(0),reading=useRef(false);
  const runs=(monitor.snapshot?.runs??[]).filter(r=>r.projectId===projectId&&r.taskId===taskId).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
  const run=runs.find(r=>r.id===selected)??runs.find(isActive)??runs[0];
- async function refresh(){if(reading.current)return;reading.current=true;const seq=++generation.current;try{const [tasks,context]=await Promise.all([listTasks(projectId),projectContext(projectId)]);if(seq!==generation.current)return;const current=tasks.find(t=>t.id===taskId);if(!current)throw new Error("Ticket unavailable");setTask(current);setProject(context);setReadError("");}catch{if(seq===generation.current)setReadError("Impossible de lire le workflow du ticket. Actualisez avant de lancer une action.");}finally{reading.current=false;}}
+ async function refresh(){
+  const seq=++generation.current;
+  reading.current=true;
+  try{
+   const [tasks,context]=await Promise.all([listTasks(projectId),projectContext(projectId)]);
+   if(seq!==generation.current)return;
+   const current=tasks.find(t=>t.id===taskId);
+   if(!current)throw new Error("Ticket unavailable");
+   setTask(current);setProject(context);setReadError("");
+  }catch{
+   if(seq===generation.current)setReadError("Impossible de lire le workflow du ticket. Actualisez avant de lancer une action.");
+  }finally{
+   if(seq===generation.current)reading.current=false;
+  }
+ }
  useEffect(()=>{void refresh();return()=>{generation.current++;};},[projectId,taskId]);
  useEffect(()=>{if(!project?.aiProvider)return;let current=true;void providerReadiness(project.aiProvider).then(value=>{if(current)setReadiness(value);}).catch(()=>{if(current)setReadiness(undefined);});return()=>{current=false;};},[project?.aiProvider]);
- useEffect(()=>{if(!run)return;let current=true;setResult(undefined);let resultReading=false;const read=()=>{if(resultReading)return;resultReading=true;void runResult(run.id).then(value=>{if(current)setResult(value);}).catch(()=>{if(current)setResult(undefined);}).finally(()=>{resultReading=false;});};read();const timer=setInterval(()=>{read();if(!acting.current)void refresh();},4000);return()=>{current=false;clearInterval(timer);};},[run?.id,run?.status]);
+ useEffect(()=>{if(!run)return;let current=true;setResult(undefined);let resultReading=false;const read=()=>{if(resultReading)return;resultReading=true;void runResult(run.id).then(value=>{if(current)setResult(value);}).catch(()=>{if(current)setResult(undefined);}).finally(()=>{resultReading=false;});};read();const timer=setInterval(()=>{read();if(!acting.current&&!reading.current)void refresh();},4000);return()=>{current=false;clearInterval(timer);};},[run?.id,run?.status]);
  useEffect(()=>{if(!submitted)return;const next=runs.find(r=>!submitted.ids.includes(r.id));if(next){setSelected(next.id);setSubmitted(undefined);setNotice("");}},[monitor.snapshot,submitted]);
  const step=task&&project?nextSkill(task,project):undefined;
  const active=runs.find(isActive);

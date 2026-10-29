@@ -538,13 +538,13 @@ function ProjectPane({
                       {project && (
                         <button
                           title="Ouvrir le workflow du ticket"
-                          aria-label={`Lancer ${task.key || task.title}`}
+                          aria-label={`Ouvrir le workflow de ${task.key || task.title}`}
                           className="icon-button"
                           onClick={() =>
                             navigate(project, "task", undefined, task.id)
                           }
                         >
-                          <Icon name="play" />
+                          <Icon name="chevron" />
                         </button>
                       )}
                     </footer>

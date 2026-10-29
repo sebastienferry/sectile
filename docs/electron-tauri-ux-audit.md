@@ -567,3 +567,18 @@ provider-catalogue service may improve that path without delaying prompt entry.
 Verify that live suggestions replace stale workstation suggestions, that the
 current and pending selections survive a refresh, and that first-prompt and
 custom-model flows remain intact.
+
+The current board fixture also exposes a misleading action: each ticket card,
+including a completed ticket, gives its workflow-navigation shortcut a play
+icon and a “Launch” accessible name, while the click only opens the workflow
+view. Keep the shortcut for fast task access, but use an open arrow and name the
+destination consistently in its tooltip and accessible label. Verify the
+completed card no longer suggests that a run will start on click.
+
+Opening that completed card in the isolated UX fixture revealed a separate
+loading race: React invalidated the first workflow read while a guard rejected
+the replacement read. The view stayed on “Loading ticket” until manual refresh.
+Allow a new navigation read to supersede an older one, let only the newest read
+update the view, and suppress overlapping periodic polls. Verify the initial
+workflow becomes usable under React's effect remount and that the completed
+ticket still has no launch action.

@@ -11,6 +11,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Opening a ticket workflow no longer gets stuck on loading when a previous request is invalidated during navigation or React remounting.
+- Ticket cards now label their workflow shortcut as navigation and use an open arrow, including for completed tickets.
 - In an active Codex conversation, model choices now follow the signed-in CLI's live catalogue while keeping the current model visible.
 - Keep waiting-question controls visible in narrow conversation layouts, while the transcript and response area handle their own scrolling.
 - Keep execution launch form styles scoped to the launch panel so a conversation opened from execution history retains its own composer layout.

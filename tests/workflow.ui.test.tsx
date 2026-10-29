@@ -1,4 +1,5 @@
 import {afterEach,beforeEach,expect,test,vi} from "vitest";
+import {StrictMode} from "react";
 import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
 import {WorkflowTask} from "../src/components/WorkflowTask";
 import * as api from "../src/lib/agent";
@@ -14,6 +15,14 @@ const project={configured:true,aiProvider:"claude",skills:[{id:"implement"},{id:
 beforeEach(()=>{vi.resetAllMocks();monitor.snapshot.runs=[];monitor.fresh=true;vi.mocked(api.listTasks).mockResolvedValue([task]);vi.mocked(context.projectContext).mockResolvedValue(project);vi.mocked(context.providerReadiness).mockResolvedValue({provider:"claude",complete:true,steps:{skills:{status:"success"},mcp:{status:"success"}}});vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true},runs:[]});vi.mocked(api.launchTask).mockResolvedValue({});});
 afterEach(cleanup);
 const show=()=>render(<WorkflowTask projectId="project" taskId="task" onBack={()=>{}} onSetup={()=>{}}/>);
+test("workflow loads after React remounts its effect during an in-flight read",async()=>{
+ let resolveFirst!:(tasks:typeof task[])=>void;
+ vi.mocked(api.listTasks).mockImplementationOnce(()=>new Promise(resolve=>{resolveFirst=resolve;})).mockResolvedValue([task]);
+ render(<StrictMode><WorkflowTask projectId="project" taskId="task" onBack={()=>{}} onSetup={()=>{}}/></StrictMode>);
+ await waitFor(()=>expect(api.listTasks).toHaveBeenCalledTimes(2));
+ resolveFirst([task]);
+ expect(await screen.findByRole("button",{name:"Étape suivante : Implémenter"})).toBeTruthy();
+});
 test("next-step launch rereads workflow state and preserves the configured chain stop in the UI",async()=>{
  show();const next=await screen.findByRole("button",{name:"Étape suivante : Implémenter"});
  await waitFor(()=>expect(next.hasAttribute("disabled")).toBe(false));
