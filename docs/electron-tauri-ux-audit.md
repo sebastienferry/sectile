@@ -56,8 +56,11 @@ verification record remains the evidence for those flows.
   Projects and Local services. The settings architectures differ as intended,
   but the terminology and information hierarchy still deserve a focused
   comparison. Electron was in English/dark mode while Tauri was in French/light
-  mode. Neither saved theme preference was changed to force a comparison, so
-  the matched language, color and spacing review remains open.
+  mode. Tauri's dark theme was briefly selected to inspect its palette, then its
+  original light preference was restored. The Electron screenshot resolved to
+  an active task rather than the settings dialog shown in its accessibility
+  tree, so the screenshots are not comparable and matched language, color and
+  spacing review remains open.
 - Prompt context now surfaces attached folder names immediately. The full path
   and role remain available in the details disclosure. Typecheck and production
   build passed for this change; a matched live visual review is still pending.
