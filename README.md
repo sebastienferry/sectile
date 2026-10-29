@@ -59,6 +59,14 @@ application resources when packaging. Go code remains an external dependency;
 this repository does not contain or relicense it. Source compatibility is required:
 an older server without the authenticated probe cannot be used as a managed service.
 
+Each service build embeds the Go source commit and commit date in `--version`.
+The ignored `src-tauri/binaries/build-manifest.json` records that identity, the
+source-tree cleanliness, release eligibility, and SHA-256 hashes for all three
+services. The manifest is packaged alongside the executables. Set
+`SECTILE_SOURCE_COMMIT` to require a specific source revision; set
+`SECTILE_REQUIRE_CLEAN_SOURCE=1` to reject a modified checkout. A build is marked
+release-eligible only when it comes from a clean commit with an exact Git tag.
+
 Open **Paramètres**, then:
 
 1. Choose **Démarrer en mode Local** to create separate local storage and start the companion. For Fleet setup, see [Connect to Fleet](#connect-to-fleet) below.
