@@ -203,7 +203,9 @@ recorded in the runtime plan; repeated true cold-start measurements and a signed
 release artifact remain unqualified; this host has zero valid macOS code-signing
 identities. Real Fleet one-time pairing and a live Electron MCP list-projects
 call have since passed for the tested server/agent combination; native setup
-screens and the Electron UI suite remain unqualified. Cross-version
+screens remain unqualified. The current Electron UI suite passes on Go commit
+`7dea9140`; the current-branch Electron/server compatibility remains
+unqualified. Cross-version
 tracker/workflow API behavior has passed against an isolated mock; live external
 tracker writes remain unqualified.
 The Sectile MCP connector was retried read-only on 2026-10-29 and
@@ -241,7 +243,7 @@ launched and no visual or runtime behavior is qualified by this build.
 | Tauri + Local companion + embedded backend from this branch | Existing macOS managed-install migration; disposable Claude Code, Codex, MCP and companion lifecycle checks | Verified on macOS for the recorded prototype; repeat against the current commit before V1 |
 | Tauri current agent + live Fleet backend | Agent `dev` from Go commit `7dea9140` paired through a temporary one-time code to live server `660-main` (`b8fabf44aa7a`); the local gateway reported connected, `/api/me` matched the pairing owner, and `/api/projects` succeeded. The visual check confirmed Fleet-backed project listing and local-folder/project-link controls. OAuth setup reports unsupported by this Fleet backend version; profile fields were blank and not saved. The workstation page remained at four devices and did not identify a distinct test record, so no existing device was revoked. | Real pairing and authenticated project access pass. Native Fleet setup is only partially qualified; OAuth/profile persistence and safe cleanup remain open. No tracker writes were attempted |
 | Tauri + legacy attached Fleet agent | An isolated `com.sebferry.sectile.tauri.fleetcheck` macOS bundle used the native “attach existing agent” flow, reported `Agent local · backend Fleet`, loaded 19 live projects, and read 390 tickets from the Sectile project (2026-10-29). It attached to the existing v0.7.6 workstation agent without creating tracker writes or replacing the active Local profile. A read-only `/api/me` request through that agent gateway returned `401`, so this legacy connection cannot supply the authenticated user profile required for native API setup. | Live attachment, backend mode display, project discovery and tracker-backed board reads verified. Native setup through this legacy connection still requires a newly paired desktop credential. |
-| Existing Electron/Go workstation + live backend | The installed Electron agent is `v0.7.6` (`ac74004102c0`). Its `sectile-agent mcp` bridge connected to live server `660-main` (`b8fabf44aa7a`), listed 21 tools and completed a read-only `list_projects` call (2026-10-29); 315 Electron unit tests pass | Live MCP bridge behavior is verified for this installed client/server pair. Current-branch Electron/server compatibility and the Electron UI suite remain unqualified |
+| Existing Electron/Go workstation + live backend | The installed Electron agent is `v0.7.6` (`ac74004102c0`). Its `sectile-agent mcp` bridge connected to live server `660-main` (`b8fabf44aa7a`), listed 21 tools and completed a read-only `list_projects` call (2026-10-29); 315 Electron unit tests and 137 Electron UI tests pass on Go commit `7dea9140` | Live MCP bridge behavior is verified for this installed client/server pair. Current-branch Electron/server compatibility remains unqualified |
 | Source-level v0.7.6 protocol fixtures | The current server parses a pinned v0.7.6 agent connection query; a parser copied from the v0.7.6 server source parses the current agent announcement. Focused agent/handler tests also cover operation dispatch. | Pass on this source revision. These tests do not execute either released binary. |
 | Released agent binary to current Go server | The Go repository harness `python3 scripts/compatibility/test-v076-server-current-agent.py` builds the `v0.7.6` agent from its tag and connects it to the current handler with isolated database, HOME and Git repositories. Re-run against Go commit `7dea9140` on 2026-10-29. | Pass for startup, WebSocket handshake, 27-operation status, task lifecycle, mocked tracker API calls, `skills_status`, `init_git` and task-spec worktree creation. |
 | Current agent binary to `v0.7.6` server binary | The same harness starts the server built from the Git tag with isolated SQLite state; the current `dev` agent connects and the server reports all 27 operations with `outdated=false`. Re-run against Go commit `7dea9140` on 2026-10-29. | Pass for startup, WebSocket handshake, task lifecycle, mocked tracker API calls, `skills_status`, `init_git` and task-spec worktree creation. |
@@ -282,10 +284,14 @@ Full Go suite re-run (2026-10-29, Go commit `7dea9140`): `go test ./...`
 passed across the server, companion, agent, backend, handlers, provider runner,
 MCP, tracker and workspace packages after adding the optional headless build.
 Electron verification on the same host: `npm test` passed all 315 unit tests.
-`npm run test:ui` did not qualify: four tests passed, six failed and 66 were
-cancelled after the appearance UI test stalled while the Mac was locked. Rerun
-the Electron UI suite in an unlocked session before treating this as a product
-failure or a compatibility pass.
+`npm run test:ui` first ran without the generated `desktop/dist/index.html`, so
+Electron opened empty windows: four tests passed, six failed on missing UI, and
+66 were cancelled after the appearance test's child process remained open. On
+2026-10-29, after `cd desktop && npm run build`, the targeted agent-log UI tests
+passed (2/2) and the full `npm run test:ui` suite passed (137/137, no failures or
+cancellations). This qualifies the current Electron UI suite on the tested
+macOS host and source revision; it does not by itself qualify an Electron/Go
+mixed-version pair.
 
 Until these gates close, compatibility claims are limited to the tested source
 revision and platform evidence above. The versioned server/agent contract is
