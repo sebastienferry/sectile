@@ -1173,6 +1173,9 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .project-advanced .attached-folder-settings > h3 { display: none; }
 .project-profiles .profile-default { margin-top: 16px; }
 .project-profiles .project-folder-settings { padding-bottom: 20px; margin-bottom: 20px; }
+.project-profiles .project-tracker-setup { padding: 0 0 24px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
+.project-profiles .project-tracker-setup h2 { margin: 0 0 8px; font-size: 22px; }
+.project-profiles .project-tracker-setup form { max-width: 520px; }
 .conversation-rename { display: flex; align-items: end; gap: 10px; padding: 12px 24px; border-bottom: 1px solid var(--border); }
 .conversation-rename label { display: grid; flex: 1; gap: 6px; }
 .prompt-heading h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

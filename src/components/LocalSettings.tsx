@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ProviderSettings } from "./ProviderSettings";
 import { OAuthConnections } from "./OAuthConnections";
 import { Icon } from "./Icon";
+import { ProjectTrackerSetup } from "./ProjectTrackerSetup";
 import * as api from "../lib/local";
 import { trackerApiSite } from "../tracker-site";
 
@@ -36,8 +37,6 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
   const [projectName, setProjectName] = useState("");
   const [trackerId, setTrackerId] = useState("");
   const [projectId, setProjectId] = useState("");
-  const [existingProjectId, setExistingProjectId] = useState("");
-  const [existingTrackerId, setExistingTrackerId] = useState("");
   const [trackerSyncs, setTrackerSyncs] = useState<Record<string,{id:string;active:boolean}>>({});
   const busy = useRef(false);
   const mounted = useRef(true);
@@ -128,9 +127,6 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     return () => { current = false; if (timer) clearTimeout(timer); };
   }, [ready, section]);
   const fleetMode = setup?.mode === "fleet";
-  const remoteTrackers = setup?.trackers?.filter(tracker => tracker.provider !== "local") ?? [];
-  const selectedProject = setup?.projects?.find(project => project.id === existingProjectId);
-  const availableTrackers = remoteTrackers.filter(tracker => !selectedProject?.trackers?.some(linked => linked.trackerId === tracker.id));
   const sectionLabel = (item: typeof sections[number]) => item.id === "services" && fleetMode ? "Connexion et services" : item.label;
   const activeSection = sections.find(item => item.id === section);
   const personalAccess = <>
@@ -225,17 +221,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       <div hidden={section !== "projects"}>
       {onConfigureProject && !!setup.projects?.length && <article><h2>Vos projets</h2><div className="profile-list">{setup.projects.map(project=><div className="profile-card" key={project.id}><strong>{project.name}</strong><button onClick={()=>onConfigureProject(project.id)}>Configurer {project.name}</button></div>)}</div></article>}
       {onOpenFolder && <article className="folder-setup"><div className="settings-illustration"><Icon name="folder" /></div><h2>Commencer avec un dossier local</h2><p>Ouvrez un dossier et lancez votre premier prompt. Vous pourrez connecter un tracker plus tard.</p><button className="primary" onClick={onOpenFolder}><Icon name="plus" />Choisir un dossier local</button></article>}
-      {!!setup.projects?.length && !!remoteTrackers.length && <article>
-        <h2>Ajouter un tracker à un projet existant</h2>
-        <p className="muted">Le dossier et les tickets locaux du projet restent associés.</p>
-        <form onSubmit={e => submit(e, async () => { await api.attachProjectTracker(existingProjectId, existingTrackerId); setExistingTrackerId(""); }, "Tracker associé au projet.")}>
-          <fieldset disabled={pending}>
-            <label>Projet existant<select required value={existingProjectId} onChange={e => {setExistingProjectId(e.target.value);setExistingTrackerId("");}}><option value="">Choisir un projet</option>{setup.projects?.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
-            <label>Tracker à ajouter<select required value={existingTrackerId} onChange={e => setExistingTrackerId(e.target.value)}><option value="">Choisir un tracker</option>{availableTrackers.map(tracker => <option key={tracker.id} value={tracker.id}>{tracker.name}</option>)}</select></label>
-            <button type="submit" disabled={!availableTrackers.length}>Associer le tracker</button>
-          </fieldset>
-        </form>
-      </article>}
+      {!!setup.projects?.length && <article><ProjectTrackerSetup setup={setup} onChanged={() => {void refresh();onChanged();}} /></article>}
       <article>
         <h2>Créer un projet avec un tracker</h2>
         <form onSubmit={e => submit(e, async () => { await api.createLocalProject(projectName, trackerId); setProjectName(""); }, "Projet créé. Associez maintenant son dépôt local.")}>

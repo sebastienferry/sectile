@@ -6,7 +6,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
-- Add a tracker to an existing local or Fleet project from desktop Settings while retaining its local board and folder.
+- Add a tracker to an existing local or Fleet project from its configuration or desktop Settings while retaining its local board and folder.
 - Read bounded Local companion or Fleet agent diagnostics directly in desktop Services, including when the service is unavailable.
 - Include MIT and third-party dependency notices in packaged Tauri applications, with Go notices checked against the selected Go source dependency graph.
 - Restore the last valid project and workspace view on desktop launch, falling back to a project board when the saved conversation is no longer available.

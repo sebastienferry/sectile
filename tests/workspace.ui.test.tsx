@@ -416,3 +416,21 @@ test("project settings can also associate the first folder",async()=>{
  await screen.findByRole("button",{name:"Changer de dossier"});
  expect(screen.getByText("/work/first",{selector:"code"})).toBeTruthy();
 });
+
+test("project settings attach a tracker directly to the selected project", async () => {
+ const attach = vi.fn().mockResolvedValue({});
+ vi.mocked(invoke).mockImplementation(async command => {
+   if (command === "conversation_profiles") return {profiles:[],defaultId:"",inherited:true};
+   if (command === "local_setup_status") return {enabled:true,ready:true,signedIn:true,projects:[{id:"p",name:"Example",trackers:[]}],trackers:[{id:"t",name:"Fixture tracker",provider:"github",scope:"fixture/repo"}]};
+   if (command === "attach_project_tracker") return attach();
+   return null;
+ });
+ render(<App />);
+ fireEvent.click(await screen.findByRole("button",{name:"Configurer le projet"}));
+ await screen.findByRole("region",{name:"Source de tickets du projet"});
+ fireEvent.change(await screen.findByLabelText("Tracker à ajouter"),{target:{value:"t"}});
+ fireEvent.click(screen.getByRole("button",{name:"Associer le tracker"}));
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith("attach_project_tracker",{projectId:"p",trackerId:"t"}));
+ expect(attach).toHaveBeenCalledOnce();
+ expect(invoke).not.toHaveBeenCalledWith("create_local_project",expect.anything());
+});

@@ -857,3 +857,11 @@ flow for compatibility. Native Settings had inverted that priority by placing
 OAuth first and hiding the token form as an advanced option. Local now shows
 personal access directly and retains OAuth in a secondary disclosure; Fleet
 continues to show backend-managed OAuth first and keeps token entry advanced.
+
+Project setup also had a broken continuation: the folder-first card promised
+that a tracker could be connected later, but the adjacent tracker form only
+created another project. The native app now adds a registered tracker to the
+existing project from either Settings or that project's configuration. The
+current source UI test covers the direct project path; an isolated Go API test
+covers folder retention and tracker selection across a server restart. A
+packaged desktop interaction and live tracker import remain separate checks.
