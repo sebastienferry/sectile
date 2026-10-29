@@ -234,8 +234,8 @@ their project and tracker modes differ.
 | --- | --- | --- | --- |
 | Base interface font | `14px system-ui` | `13px system-ui, -apple-system` | Tauri is one CSS pixel smaller. Compare rendered text at the same scale before changing it. |
 | Header | `68px` | `54px` in the consolidated Tauri `App.css` | The Electron native title-bar overlay is part of its 68px header. Compare the full native window chrome, not renderer content alone. |
-| Project rail | `280px` base, no pointer resizing in the old shell | `268px` with keyboard/pointer resizing | Width alone does not describe available work-area width; compare at equal window sizes and rail widths. |
-| Default button radius | `7px` | `8px` after polish (6px in base CSS) | Tauri's polish sheet overrides the base control radius. |
+| Project rail | `280px` initial; pointer and keyboard resizing from 210px to 520px, further capped by window width | `268px` initial; pointer and keyboard resizing from 200px to 480px | Both shells support resizing. Their initial widths and bounds differ; compare at equal window sizes and rail widths. |
+| Default button radius | `7px` | `8px` in the consolidated stylesheet (6px remains on selected base controls) | The refinement rules are consolidated in `App.css`; there is no separately imported polish sheet. |
 | Dark accent / selected | `#62d3be` / `#203033` | `#62d3be` / `#203033` | Core dark values match in source. |
 | Light accent / selected | `#0f766e` / `#e3f2ef` | `#167d69` / `#e0eee9` | Values differ; rendered contrast and visual weight still need matched captures. |
 | Light danger | `#b42318` danger, `#a8243d` danger text | `#a8243d` danger, `#fce9ed` danger background | Token names and roles differ, so compare semantic actions rather than matching variable names. |

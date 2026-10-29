@@ -1,13 +1,13 @@
 # Sectile V1.0.0 migration plan
 
 Date: 2026-10-29
-Status: product direction and V1 ownership are confirmed; implementation stages
-0-4 are delivered on dedicated branches, and Stages 6-7 are complete. Stage 5
-compatibility qualification and Stage 8 release gates remain open. macOS is the
-V1 target, Linux is experimental and Windows is deferred. Web planning remains
-the V1 owner and is unchanged in this release. The UX convergence audit is
-complete; current qualification gaps are listed below. This is not a V1
-release.
+Status: product direction and V1 ownership are confirmed. Stages 0-3 are
+delivered on dedicated branches; Stage 4 implementation is present, with Fleet
+setup qualification still open. Stages 5 and 8 are not complete. Stages 6-7
+are complete as product decisions and artifacts. macOS is the V1 target, Linux
+is experimental and Windows is deferred. Web planning remains the V1 owner and
+is unchanged in this release. The scoped UX convergence audit is complete;
+current qualification gaps are listed below. This is not a V1 release.
 
 ## 1. Product destination
 
