@@ -335,6 +335,11 @@ def verify_task_spec_worktree(result, repo_path, server_version):
 
 def main():
     repo = pathlib.Path(__file__).resolve().parents[2]
+    go_cache, go_module_cache = run(["go", "env", "GOCACHE", "GOMODCACHE"], repo).splitlines()
+    # Build caches are not application state; keep them outside the disposable HOME so
+    # read-only module files do not make fixture cleanup fail.
+    os.environ["GOCACHE"] = go_cache
+    os.environ["GOMODCACHE"] = go_module_cache
     work = pathlib.Path(tempfile.mkdtemp(prefix="sectile-current-agent-v076-server-"))
     old_source = work / "old-source"
     home_server = work / "server-home"
@@ -698,7 +703,7 @@ func main() { d, err := db.Open(db.SQLiteConfig(os.Getenv("DB_PATH"))); if err !
         fake_tracker.shutdown()
         fake_tracker.server_close()
         fake_tracker_thread.join(timeout=3)
-        shutil.rmtree(work, ignore_errors=True)
+        shutil.rmtree(work)
 
 
 if __name__ == "__main__":
