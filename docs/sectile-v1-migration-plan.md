@@ -220,6 +220,16 @@ personal token; this is protocol and compatibility evidence, not a live
 GitHub/Jira/GitLab qualification. The harness cleaned its temporary databases,
 homes and repositories and left the Go worktree clean.
 
+Live Local MCP smoke (2026-10-29): the already-running Tauri Local companion
+answered an authenticated Streamable HTTP MCP session from its existing local
+installation. The client listed 21 tools and successfully called the read-only
+`list_projects` tool. The call used the Local companion's private installation
+credential in memory; no credential was logged or changed. This verifies the
+running Local MCP route, not the isolated release bundle or Electron's separate
+MCP registration. The connected Sectile MCP client still returned
+`connection closed: client is closing`, and Electron's post-migration bridge
+call remains open.
+
 Full Go suite re-run (2026-10-29, Go commit `7dea9140`): `go test ./...`
 passed across the server, companion, agent, backend, handlers, provider runner,
 MCP, tracker and workspace packages after adding the optional headless build.
