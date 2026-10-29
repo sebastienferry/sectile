@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { LocalSettings } from "../src/components/LocalSettings";
 import * as api from "../src/lib/local";
 vi.mock("../src/components/OAuthConnections", () => ({ OAuthConnections: ({serverManaged}:{serverManaged?:boolean}) => <div data-server-managed={String(serverManaged??false)}>OAuth connections</div> }));
-vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), localServiceLog: vi.fn(), enableLocalRuntime: vi.fn(), attachFleetAgent: vi.fn(), pairFleetAgent: vi.fn(), saveLocalProfile: vi.fn(), saveLocalCredential: vi.fn(), createLocalTracker: vi.fn(), createLocalProject: vi.fn(), chooseProjectFolder: vi.fn(), syncLocalTracker: vi.fn(), trackerSyncStatus: vi.fn(), activeTrackerSyncs: vi.fn() }));
+vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), localServiceLog: vi.fn(), enableLocalRuntime: vi.fn(), attachFleetAgent: vi.fn(), pairFleetAgent: vi.fn(), saveLocalProfile: vi.fn(), saveLocalCredential: vi.fn(), createLocalTracker: vi.fn(), createLocalProject: vi.fn(), attachProjectTracker: vi.fn(), chooseProjectFolder: vi.fn(), syncLocalTracker: vi.fn(), trackerSyncStatus: vi.fn(), activeTrackerSyncs: vi.fn() }));
 const ready = { enabled: true, ready: true, signedIn: true, agentReady: true, profile: { email: "fixture@example.invalid", displayName: "Fixture" }, trackers: [{id:"t",name:"Tracker",provider:"github",scope:"fixture/repo"}], projects: [{id:"p",name:"Project"}] };
 beforeEach(() => { vi.resetAllMocks(); vi.mocked(api.localServiceLog).mockResolvedValue({path:"/test/companion.log",text:"service ready",missing:false,truncated:false}); vi.mocked(api.activeTrackerSyncs).mockResolvedValue([]); });
 afterEach(() => cleanup());
@@ -312,5 +312,18 @@ test("the projects section offers the local folder flow without a tracker", asyn
  fireEvent.click(await screen.findByRole("button",{name:"Projets"}));
  fireEvent.click(screen.getByRole("button",{name:"Choisir un dossier local"}));
  expect(open).toHaveBeenCalledOnce();
+ expect(api.createLocalProject).not.toHaveBeenCalled();
+});
+test("an existing folder project can gain a tracker without creating another project", async () => {
+ vi.mocked(api.localSetupStatus).mockResolvedValue(ready);
+ vi.mocked(api.attachProjectTracker).mockResolvedValue({});
+ const changed = vi.fn();
+ render(<LocalSettings onChanged={changed} />);
+ fireEvent.click(await screen.findByRole("button", {name:"Projets"}));
+ fireEvent.change(screen.getByLabelText("Projet existant"), {target:{value:"p"}});
+ fireEvent.change(screen.getByLabelText("Tracker à ajouter"), {target:{value:"t"}});
+ fireEvent.click(screen.getByRole("button", {name:"Associer le tracker"}));
+ await waitFor(() => expect(api.attachProjectTracker).toHaveBeenCalledWith("p", "t"));
+ await waitFor(() => expect(changed).toHaveBeenCalled());
  expect(api.createLocalProject).not.toHaveBeenCalled();
 });

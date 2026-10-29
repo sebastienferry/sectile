@@ -12,7 +12,7 @@ export interface LocalSetup {
   profile?: { email: string; displayName: string; role?: string };
   trackers?: { id: string; name: string; provider: string; scope: string }[];
   credentials?: { credentials: { tracker: string; siteUrl?: string; account?: string; kind?: string; disconnected?: boolean }[] };
-  projects?: { id: string; name: string }[];
+  projects?: { id: string; name: string; trackers?: { trackerId: string }[] }[];
 }
 export const localSetupStatus = () => invoke<LocalSetup>("local_setup_status");
 export interface ServiceLog { path: string; text: string; missing: boolean; truncated: boolean }
@@ -24,6 +24,7 @@ export const saveLocalProfile = (email: string, displayName: string) => invoke<v
 export const saveLocalCredential = (input: { tracker: string; siteUrl: string; email: string; token: string }) => invoke<void>("save_local_credential", { input });
 export const createLocalTracker = (input: { name: string; provider: string; site: string; scope: string }) => invoke("create_local_tracker", { input });
 export const createLocalProject = (name: string, trackerId: string) => invoke("create_local_project", { name, trackerId });
+export const attachProjectTracker = (projectId: string, trackerId: string) => invoke("attach_project_tracker", { projectId, trackerId });
 export const chooseProjectFolder = (projectId: string) => invoke<string | null>("choose_project_folder", { projectId });
 export interface TrackerSyncActivity { id: string; trackerId?: string; status: string; summary?: string; error?: string }
 export const syncLocalTracker = (trackerId: string) => invoke<{queued:boolean;activity:TrackerSyncActivity}>("sync_local_tracker", { trackerId });

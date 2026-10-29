@@ -91,9 +91,10 @@ Open **Paramètres**, then:
    provider's stored access. Account confirmation failures do not undo a saved token.
    GitLab website addresses entered in either form are converted to its `/api/v4`
    endpoint before they are saved.
-5. Create a project from a registered tracker, then associate an existing local
-   Git repository by absolute path. These are separate operations: a failed path
-   association can be retried without duplicating the project.
+5. Open a local folder as a project, then add a registered tracker from
+   **Projects** when needed. You can also create a tracker-backed project first
+   and associate its local folder afterward. The tracker association keeps the
+   project's existing local board and folder.
 6. Use **Synchroniser** for the tracker. Settings follows the Go activity and
    reports its completion or failure below that source; the project's board
    refreshes when the activity finishes. Background tracker synchronization is

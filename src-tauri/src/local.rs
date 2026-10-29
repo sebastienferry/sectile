@@ -1425,6 +1425,90 @@ pub async fn create_local_project(
     let root = root(&app)?;
     selected_request(&root,Method::POST,"/api/projects",Some(json!({"name":name,"trackers":[{"trackerId":tracker_id}],"defaultTrackerId":tracker_id}))).await
 }
+
+fn project_tracker_attachment(project: &Value, tracker_id: &str) -> Result<Option<Value>, String> {
+    let existing = project["trackers"]
+        .as_array()
+        .ok_or("Liste des trackers du projet illisible")?;
+    let mut trackers = Vec::with_capacity(existing.len() + 1);
+    for entry in existing {
+        let id = entry["trackerId"]
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .ok_or("Tracker existant du projet illisible")?;
+        if id == tracker_id {
+            return Ok(None);
+        }
+        trackers.push(json!({"trackerId": id}));
+    }
+    trackers.push(json!({"trackerId": tracker_id}));
+    let current_default = project["defaultTrackerId"].as_str().unwrap_or("");
+    let local_default = existing
+        .iter()
+        .any(|entry| entry["trackerId"] == current_default && entry["provider"] == "local");
+    let default_id = if current_default.is_empty()
+        || local_default && existing.iter().all(|entry| entry["provider"] == "local")
+    {
+        tracker_id
+    } else {
+        current_default
+    };
+    Ok(Some(
+        json!({"trackers":trackers,"defaultTrackerId":default_id}),
+    ))
+}
+
+#[cfg(test)]
+mod project_tracker_attachment_tests {
+    use super::*;
+
+    #[test]
+    fn keeps_local_board_and_selects_first_remote_tracker_for_new_tickets() {
+        let project = json!({"defaultTrackerId":"local-board","trackers":[{"trackerId":"local-board","provider":"local"}]});
+        let body = project_tracker_attachment(&project, "remote")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            body,
+            json!({"trackers":[{"trackerId":"local-board"},{"trackerId":"remote"}],"defaultTrackerId":"remote"})
+        );
+    }
+
+    #[test]
+    fn keeps_existing_remote_default_when_adding_another_tracker() {
+        let project = json!({"defaultTrackerId":"first","trackers":[{"trackerId":"local-board","provider":"local"},{"trackerId":"first","provider":"github"}]});
+        let body = project_tracker_attachment(&project, "second")
+            .unwrap()
+            .unwrap();
+        assert_eq!(body["defaultTrackerId"], "first");
+        assert_eq!(body["trackers"].as_array().unwrap().len(), 3);
+        assert!(
+            project_tracker_attachment(&project, "first")
+                .unwrap()
+                .is_none()
+        );
+    }
+}
+
+#[tauri::command]
+pub async fn attach_project_tracker(
+    app: tauri::AppHandle,
+    project_id: String,
+    tracker_id: String,
+) -> Result<Value, String> {
+    if uuid::Uuid::parse_str(&project_id).is_err() || uuid::Uuid::parse_str(&tracker_id).is_err() {
+        return Err("Identifiant du projet ou du tracker invalide".into());
+    }
+    let state = app.state::<LocalRuntime>();
+    let _lock = state.0.lock().await;
+    let root = root(&app)?;
+    let route = format!("/api/projects/{project_id}");
+    let project = selected_request(&root, Method::GET, &route, None).await?;
+    let Some(body) = project_tracker_attachment(&project, &tracker_id)? else {
+        return Ok(project);
+    };
+    selected_request(&root, Method::PUT, &route, Some(body)).await
+}
 #[tauri::command]
 pub async fn sync_local_tracker(
     app: tauri::AppHandle,
