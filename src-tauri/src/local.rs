@@ -64,6 +64,12 @@ struct FleetRuntime {
     desktop_token: String,
     user_id: String,
 }
+
+struct FleetPairing {
+    api_token: String,
+    device_id: String,
+    user_id: String,
+}
 impl Installation {
     fn url(&self) -> String {
         format!("http://127.0.0.1:{}", self.port)
@@ -277,6 +283,54 @@ fn client() -> Result<Client, String> {
         .timeout(Duration::from_secs(45))
         .build()
         .map_err(|_| "Connexion locale indisponible".into())
+}
+
+async fn exchange_fleet_pairing(
+    client: &Client,
+    server: &str,
+    pairing_code: &str,
+) -> Result<FleetPairing, String> {
+    let endpoint = reqwest::Url::parse(server)
+        .map_err(|_| "Adresse du serveur Fleet invalide")?
+        .join("/api/v1/agent/pair")
+        .map_err(|_| "Adresse du serveur Fleet invalide")?;
+    let response = client
+        .post(endpoint)
+        .json(&json!({"code":pairing_code,"label":"Sectile Desktop"}))
+        .timeout(Duration::from_secs(12))
+        .send()
+        .await
+        .map_err(|_| "Impossible de joindre le serveur Fleet")?;
+    if response.status() != reqwest::StatusCode::CREATED {
+        return Err(if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            "Code de jumelage invalide ou expiré. Générez-en un nouveau depuis votre profil Fleet."
+                .into()
+        } else {
+            format!(
+                "Le serveur Fleet a refusé l’association (HTTP {}).",
+                response.status().as_u16()
+            )
+        });
+    }
+    let payload: Value = response
+        .json()
+        .await
+        .map_err(|_| "Réponse de jumelage Fleet illisible")?;
+    let (Some(api_token), Some(device_id), Some(user_id)) = (
+        payload["token"].as_str(),
+        payload["deviceId"].as_str(),
+        payload["userId"].as_str(),
+    ) else {
+        return Err("Le serveur Fleet n’a pas renvoyé une association valide.".into());
+    };
+    if api_token.is_empty() || device_id.is_empty() || user_id.is_empty() {
+        return Err("Le serveur Fleet n’a pas renvoyé une association complète.".into());
+    }
+    Ok(FleetPairing {
+        api_token: api_token.to_owned(),
+        device_id: device_id.to_owned(),
+        user_id: user_id.to_owned(),
+    })
 }
 fn binary(app: &tauri::AppHandle, service: &str) -> Result<PathBuf, String> {
     let name = format!(
@@ -808,52 +862,17 @@ pub async fn pair_fleet_agent(
         return Err("Code de jumelage requis.".into());
     }
     let server = normalize_fleet_server_url(&server_url)?;
-    let endpoint = reqwest::Url::parse(&server)
-        .map_err(|_| "Adresse du serveur Fleet invalide")?
-        .join("/api/v1/agent/pair")
-        .map_err(|_| "Adresse du serveur Fleet invalide")?;
-    let response = client()?
-        .post(endpoint)
-        .json(&json!({"code":pairing_code,"label":"Sectile Desktop"}))
-        .timeout(Duration::from_secs(12))
-        .send()
-        .await
-        .map_err(|_| "Impossible de joindre le serveur Fleet")?;
-    if response.status() != reqwest::StatusCode::CREATED {
-        return Err(if response.status() == reqwest::StatusCode::UNAUTHORIZED {
-            "Code de jumelage invalide ou expiré. Générez-en un nouveau depuis votre profil Fleet."
-                .into()
-        } else {
-            format!(
-                "Le serveur Fleet a refusé l’association (HTTP {}).",
-                response.status().as_u16()
-            )
-        });
-    }
-    let payload: Value = response
-        .json()
-        .await
-        .map_err(|_| "Réponse de jumelage Fleet illisible")?;
-    let (Some(api_token), Some(device_id), Some(user_id)) = (
-        payload["token"].as_str(),
-        payload["deviceId"].as_str(),
-        payload["userId"].as_str(),
-    ) else {
-        return Err("Le serveur Fleet n’a pas renvoyé une association valide.".into());
-    };
-    if api_token.is_empty() || device_id.is_empty() || user_id.is_empty() {
-        return Err("Le serveur Fleet n’a pas renvoyé une association complète.".into());
-    }
+    let pairing = exchange_fleet_pairing(&client()?, &server, pairing_code).await?;
     let desktop_token = uuid::Uuid::new_v4().to_string();
     let credentials = FleetCredentials {
         server: server.clone(),
-        api_key: api_token.to_owned(),
-        device_id: device_id.to_owned(),
+        api_key: pairing.api_token,
+        device_id: pairing.device_id,
     };
     let runtime = FleetRuntime {
         server: server.clone(),
         desktop_token,
-        user_id: user_id.to_owned(),
+        user_id: pairing.user_id,
     };
     write_fleet_credentials(&root, &credentials, &runtime)?;
     save_mode(&root, RuntimeMode::Fleet, Some(&server))?;
@@ -1092,6 +1111,112 @@ pub async fn sync_local_tracker(app: tauri::AppHandle, tracker_id: String) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pairing_fixture(status: &str, payload: &str) -> (String, std::sync::mpsc::Receiver<String>) {
+        use std::io::Read;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let status = status.to_owned();
+        let payload = payload.to_owned();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0; 1024];
+            loop {
+                let count = stream.read(&mut chunk).unwrap();
+                if count == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..count]);
+                let text = String::from_utf8_lossy(&request);
+                if let Some((headers, body)) = text.split_once("\r\n\r\n") {
+                    let content_length = headers
+                        .lines()
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().ok())
+                                .flatten()
+                        })
+                        .unwrap_or(0);
+                    if body.len() >= content_length {
+                        break;
+                    }
+                }
+            }
+            let _ = sender.send(String::from_utf8_lossy(&request).into_owned());
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+                payload.len()
+            );
+            use std::io::Write;
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+        (format!("http://{address}"), receiver)
+    }
+
+    fn run_async<T>(future: impl std::future::Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(future)
+    }
+
+    #[test]
+    fn fleet_pairing_posts_the_one_time_code_and_decodes_the_backend_contract() {
+        let (server, request) = pairing_fixture(
+            "201 Created",
+            r#"{"token":"api-token","deviceId":"device-1","userId":"user-1"}"#,
+        );
+        let result = run_async(exchange_fleet_pairing(
+            &client().unwrap(),
+            &server,
+            "single-use-code",
+        ))
+        .unwrap();
+        assert_eq!(result.api_token, "api-token");
+        assert_eq!(result.device_id, "device-1");
+        assert_eq!(result.user_id, "user-1");
+        let request = request.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(request.starts_with("POST /api/v1/agent/pair HTTP/1.1\r\n"));
+        assert!(request.contains(r#""code":"single-use-code""#));
+        assert!(request.contains(r#""label":"Sectile Desktop""#));
+    }
+
+    #[test]
+    fn fleet_pairing_reports_expired_codes_and_rejects_incomplete_contracts() {
+        for (status, payload, expected) in [
+            (
+                "401 Unauthorized",
+                r#"{"error":"expired"}"#,
+                "Code de jumelage invalide ou expiré",
+            ),
+            (
+                "201 Created",
+                r#"{"token":"api-token","deviceId":"device-1"}"#,
+                "association valide",
+            ),
+            ("503 Service Unavailable", r#"{}"#, "HTTP 503"),
+        ] {
+            let (server, _) = pairing_fixture(status, payload);
+            let result = run_async(exchange_fleet_pairing(
+                &client().unwrap(),
+                &server,
+                "single-use-code",
+            ));
+            let error = match result {
+                Err(error) => error,
+                Ok(_) => panic!("pairing unexpectedly accepted an invalid response"),
+            };
+            assert!(
+                error.contains(expected),
+                "{error:?} did not contain {expected:?}"
+            );
+        }
+    }
+
     #[test]
     fn installation_credentials_are_private_and_round_trip() {
         let root = std::env::temp_dir().join(format!("sectile-local-{}", uuid::Uuid::new_v4()));
