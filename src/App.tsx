@@ -572,8 +572,8 @@ function ProjectPane({
           {!busy && !error && !currentContextError && !boardContextPending && !count && (
             <div className="empty">
               <Icon name="board" />
-              <h2>{localOnlyProject ? project?.path ? "Votre projet local est prêt" : "Aucune source de tickets configurée" : "Aucun ticket distant"}</h2>
-              <p>{localOnlyProject ? project?.path ? "Aucun tracker n’est associé. Lancez un prompt pour travailler dans votre dossier local." : "Associez un dossier local au projet pour lancer un prompt." : query ? "Essayez une autre recherche ou vérifiez la synchronisation du projet." : project?.path ? "Le tracker ne remonte aucun ticket. Vous pouvez lancer un prompt dans le dossier local associé." : "Vérifiez la synchronisation et le périmètre du tracker."}</p>
+              <h2>{localOnlyProject ? project?.path ? "Votre projet local est prêt" : "Choisissez un dossier pour commencer" : "Aucun ticket distant"}</h2>
+              <p>{localOnlyProject ? project?.path ? "Aucun tracker n’est associé. Lancez un prompt pour travailler dans votre dossier local." : "Lancez un prompt libre dans ce projet, sans configurer de tracker." : query ? "Essayez une autre recherche ou vérifiez la synchronisation du projet." : project?.path ? "Le tracker ne remonte aucun ticket. Vous pouvez lancer un prompt dans le dossier local associé." : "Vérifiez la synchronisation et le périmètre du tracker."}</p>
               {localOnlyProject && project && !project.path && <ProjectFolderSetup variant="board" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}
             </div>
           )}

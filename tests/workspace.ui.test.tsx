@@ -120,7 +120,8 @@ test("a folderless project can attach its folder directly from the board", async
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"",skills:[],policy:{},board:{trackers:[]}});
  vi.mocked(invoke).mockResolvedValue("/work/new-folder");
  render(<App />);
- await screen.findByRole("heading",{name:"Aucune source de tickets configurée"});
+ await screen.findByRole("heading",{name:"Choisissez un dossier pour commencer"});
+ expect(screen.getByText("Lancez un prompt libre dans ce projet, sans configurer de tracker.")).toBeTruthy();
  fireEvent.click(screen.getByRole("button",{name:"Choisir un dossier"}));
  await screen.findByRole("heading",{name:"Votre projet local est prêt"});
  expect(invoke).toHaveBeenCalledWith("choose_project_folder",{projectId:"p"});

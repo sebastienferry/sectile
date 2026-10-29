@@ -712,6 +712,7 @@ isolation is covered by the UI suite, not a native remote-tracker retake.
 
 The native retake also showed that the folderless Default Project board asked
 for a local folder but offered no action there. Its empty state now opens the
-existing native folder picker directly. A failed board refresh is shown only
+existing native folder picker directly and says that no tracker is required.
+A failed board refresh is shown only
 on the board; it no longer follows the user into a new prompt. The focused
 workspace UI suite covers both transitions.
