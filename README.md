@@ -1,0 +1,432 @@
+# Sectile Tauri
+
+An MIT-licensed, local desktop supervisor for tracker-backed development workflows.
+Built with Tauri 2, Rust, React and TypeScript. The initial integration reuses the
+existing Sectile Go server, workstation agent and MCP infrastructure.
+
+## Current scope
+
+- Single-view desktop workspace with searchable project navigation, refresh and connection diagnostics.
+- System, light and dark themes, including the streamed console.
+- Read-only board of GitHub, GitLab and Jira tickets returned by the local agent.
+- Columns use remote tracker statuses. Local tasks and unknown sources are excluded.
+- Native authenticated loopback bridge; the agent token never enters the webview.
+- Project-scoped free prompts with Claude Code or Codex, using a lightweight React controller over the Go conversation engine.
+- Task launch with project-provided skills, inherited or explicit execution mode, and optional instructions.
+- Run monitoring every three seconds, waiting/authentication states and acknowledged cancellation.
+- Read-only streamed console output with bounded scrollback and reconnect controls.
+- Launch of saved named orchestration agents with launched/skipped ticket reports.
+- Native setup for a local profile, personal tracker credentials, ticket sources and projects.
+- Automatic startup and reconnection of isolated Go services after local activation.
+- French runtime UI; English source documentation.
+
+This is a bootstrap, not feature parity with Sectile Desktop. OAuth is available
+for GitHub.com, GitLab.com and Jira Cloud through locally configured OAuth apps.
+Self-hosted forge OAuth, OS credential-vault storage, provider-app handoff and
+automatic service upgrades are not implemented.
+The Go server owns tracker authentication and synchronization. Board refresh
+rereads its synchronized data; it does not force a remote tracker synchronization.
+There is no independent local task store and no fixture data in the application.
+
+## Requirements
+
+- Node.js 22.18+ and npm
+- Stable Rust and Cargo
+- [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/)
+- Go and a compatible Sectile source checkout for local service builds, or an existing paired Sectile agent
+
+## Start development
+
+```sh
+npm ci
+npm run tauri dev
+```
+
+## Configure a standalone desktop
+
+Build the Go services from a checkout containing the local-runtime isolation
+changes and authenticated `/api/local-runtime` probe (protocol 1):
+
+```sh
+SECTILE_SOURCE_DIR=/path/to/compatible/sectile npm run prepare:services
+npm run tauri dev
+```
+
+Without `SECTILE_SOURCE_DIR`, the build script uses `../sectile`. Services are
+compiled for the current host into ignored `src-tauri/binaries/` and included as
+application resources when packaging. Go code remains an external dependency;
+this repository does not contain or relicense it. Source compatibility is required:
+an older server without the authenticated probe cannot be used as a managed service.
+
+Open **Paramètres**, then:
+
+1. **Activer l’installation locale** creates separate local storage and starts the server.
+2. Save an email and display name under **Profil local**. This creates the local
+   identity, pairs this workstation and starts its agent. It is not a provider login.
+3. Under **Connexion aux comptes**, configure each provider's OAuth application
+   once, then use **Se connecter**. Complete consent in the system browser and
+   leave Settings open until confirmation. No personal token needs copying.
+   See [OAuth setup](docs/oauth-setup.md) for registration and required scopes.
+   Manual tokens remain available under the advanced section, including for
+   self-hosted forges.
+4. Add a **Source de tickets**, naming the repository or project key. Credentials
+   are personal and shared by sources of the same provider; saving replaces that
+   provider's stored access. Account confirmation failures do not undo a saved token.
+5. Create a project from a registered tracker, then associate an existing local
+   Git repository by absolute path. These are separate operations: a failed path
+   association can be retried without duplicating the project.
+6. Use **Synchroniser** for the tracker, then refresh the project's board after
+   synchronization completes. Background tracker synchronization is also enabled.
+
+The local profile currently has one identity per installation; its display name
+can be changed. Native setup adds sources and projects; advanced editing and
+self-hosted forge OAuth are not part of this setup screen.
+
+After activation, every app launch checks the private local server and starts
+missing services. Closing the desktop leaves Go services and executions running;
+reopening reconnects to them. This is not an OS login service or a continuous
+crash-restart watchdog. **Vérifier / démarrer les services** retries startup.
+An occupied port belonging to another process is refused, not taken over.
+
+Data lives under Tauri's application data directory in `local-runtime/`, shown
+in Settings. The installation credential and discovery files stay in native code;
+tracker credentials are encrypted in the server database. On Unix the directory
+uses mode 0700 and the installation credential mode 0600. This is file-based
+credential protection, not an OS keychain. `server.log` and `agent.log` in this
+directory provide startup diagnostics. Services receive an explicit environment
+allowlist, separate configuration directories and disabled automatic MCP refresh;
+existing Sectile databases and global provider registrations are not imported.
+
+## Use an existing installation
+
+Until local setup is activated, the native layer reads
+`~/.taskflow/agent-connection.json`, as the existing Electron app does. Existing
+Go services must already be paired and running. `SECTILE_AGENT_CONNECTION_FILE`
+can override this discovery path before local activation. Once local setup is
+activated, the companion's own discovery file takes precedence and there is no
+silent fallback to the old installation. Only `http://127.0.0.1:<port>` agent
+origins are accepted; redirects and proxies are disabled.
+
+`npm run dev` starts a browser preview of the shell. Native integration is intentionally
+unavailable there and displays an explanatory message. Use `npm run tauri dev` for live data.
+
+## Start, monitor and stop work
+
+**Nouveau prompt** starts a free Claude Code or Codex conversation in the project,
+without requiring a tracker ticket. The context bar shows the actual working
+directory and **Dossiers · N**. **Ajouter un dossier** opens the native selector;
+the folder joins the project, rather than becoming a message-private upload.
+Existing conversations use it from the next message. **Configurer le projet**
+lists attached folders and offers **Détacher**, which never deletes files. Its
+advanced folder section maps declared repositories and Macro/Issue specification
+folders. Git repositories and plain folders retain Go's worktree/write semantics.
+
+A ticket card opens its guided workflow: remote status, six-stage progression,
+next skill, configured pickup stopping point, optional instructions, execution
+history and PR/MR access. The board groups the same remote tickets by tracker
+status or workflow stage. Stage labels, per-tracker mappings and statuses determine
+the presentation. The desktop stores no independent task truth.
+
+**Étape suivante** rereads the ticket, project and executions before submitting.
+An accepted request stays pending until its run appears; it is never automatically
+resent. A process exit and a skill result are displayed separately: the server's
+activity and stage must confirm completion. A missing PR at the implemented stage
+returns to the project's PR creation owner. **Lancer la chaîne** displays whether
+pickup stops at Implemented or Reviewed. Manual review validation is a separate
+explicit declaration, requires a justification and does not merge a PR.
+
+The shared execution monitor polls without overlapping requests. Stale state or a
+disconnected server blocks launches; local cancellation remains available when the
+agent is reachable. Structured conversations render questions and approvals directly;
+legacy terminal output remains read-only. **Revue des changements** reads the
+selected run folder's Git diff on demand, supports additional run folders and opens
+a configured workstation editor. Patches are rendered as text.
+
+**Paramètres → Moteurs IA → Skills et connexion MCP Sectile** separates provider
+sign-in from workflow preparation. Choose a source project to install skills.
+For the standalone local runtime, MCP is supplied to native Claude/Codex launches
+through process arguments under `sectile_companion`; shared user registrations
+remain untouched. An external agent retains its explicit registration controls
+and requires consent before replacement. No skills are installed on startup.
+Existing plugins/manual installations can be usable even when
+not verified by the companion; configuration validity is not a live MCP-session test.
+Installation may require stopping open executions first; Go reports the refusal.
+The same screen exposes explicit default permission preferences for Claude and
+Codex, while native sandbox rules remain in force. Conversations can request an
+engine-reported MCP status without sending a provider prompt; Claude's idle
+companion transport check is labelled separately. Transport readiness alone
+does not prove that an existing registration points to this companion.
+Codex MCP form consent is answered in the conversation with one-time approval or
+refusal. Boolean and enumerated form questions are supported; unsupported forms
+are refused. No approval is silently made permanent.
+
+**Configurer le projet** exposes settings progressively: the working directory and
+default conversation profile
+stay visible. Profile management and additional folders, repository/specification
+roles, workflow policy and orchestrators stay in collapsed sections. Closing a
+section preserves its draft and does not save or launch anything.
+
+Advanced configuration includes named orchestration agents with Markdown policy
+files, previews/reload, enablement and shared
+concurrency. Unsaved agent edits block leaving for supervision. Saving does not
+launch work. **Orchestration** evaluates a saved policy on demand and reports
+launched/skipped tickets, active local executions and individual stop controls.
+Capacity usage comes from the server's project state; an unavailable value is
+shown as unverified rather than inferred from workstation executions.
+There is no client-side scheduling loop. Disabling orchestration leaves existing
+runs active. Native controls do not send messages to third-party desktop apps.
+
+See [the reviewed parity plan](docs/desktop-parity-plan.md) and
+[ADR 0010](docs/adrs/0010-electron-parity-through-existing-go-contracts.md).
+
+## Validate and package
+
+```sh
+npm run check
+npm test
+npm run test:ui
+npm run build
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+npm run test:rust
+# After preparing compatible Go services:
+npm run test:services
+npm run tauri build
+```
+
+`tauri build` creates an application and platform bundles under `src-tauri/target/release/bundle`.
+Bundles include Go services when prepared locally and currently use Tauri's starter icons. Signing, notarization, automatic updates,
+and production release workflows remain future work.
+
+## Layout
+
+| Path                      | Responsibility                                   |
+| ------------------------- | ------------------------------------------------ |
+| `src/App.tsx`             | Desktop shell, project selection and board       |
+| `src/domain/board.ts`     | Tracker-only filtering and status grouping       |
+| `src/lib/agent.ts`        | Typed frontend boundary for native commands      |
+| `src-tauri/src/agent.rs`  | Discovery, token handling and fixed agent routes |
+| `src-tauri/src/local.rs` | Isolated service startup and native setup APIs    |
+| `src/components/LocalSettings.tsx` | Native onboarding forms                  |
+| `src-tauri/capabilities/` | Native window permissions                        |
+| `docs/adrs/`              | Architecture decisions and migration boundaries  |
+| `tests/`                  | Board behavior tests                             |
+
+## Direction
+
+Sectile should own orchestration, workspace isolation, progress and human checkpoints.
+Provider runtimes execute tasks through supported APIs or CLIs. Keep the execution
+adapter separate from the UI so a supported provider-app handoff can be added later.
+MCP exposes Sectile tools to agents; it does not by itself control desktop conversations.
+See [the supervisor architecture](docs/adrs/0001-local-desktop-supervisor.md) and
+[the standalone local Go decision](docs/adrs/0003-standalone-local-go-services.md).
+
+## License
+
+New code in this repository is licensed under [MIT](LICENSE). The original Sectile
+services are external dependencies and retain their own licensing status. This
+repository does not relicense or redistribute the original Go code.
+
+## Try the project prompt prototype
+
+Associate a local repository with a project in Settings and authenticate the
+chosen provider CLI on this workstation. Open **Nouveau prompt**, choose Claude
+Code or Codex, and send a request. Follow the answer, inspect tool details, allow
+or deny a tool request, and interrupt the current turn from the conversation.
+Select the conversation in the project sidebar to return to it; navigating away
+does not stop Go. Ticket-specific skill launch stays on each board card.
+
+The conversation view uses a lightweight React controller over native IPC. Go owns
+history, execution, permissions and interruption. The controller polls while a
+turn runs, preserves observation across navigation, prevents duplicate sends and
+never replays a prompt after an ambiguous connection failure. Interactive questions support choices and free answers directly in the conversation.
+Permanent tool permission grants remain unsupported. See
+[ADR 0006](docs/adrs/0006-react-conversation-controller.md) for the replacement
+of the CopilotKit experiment and measured bundle savings.
+
+When an existing project has no local folder, **Nouveau prompt** displays
+**Choisir un dossier** before the composer. Picking a folder associates it with
+that project on this workstation and opens the composer immediately; no duplicate
+project is created. Cancelling leaves setup available. Existing conversation
+histories remain accessible even if a project currently has no folder mapping.
+
+Open **Configurer le projet → Dossier local** to inspect the current association
+and use **Changer de dossier** to pick a replacement with the native selector.
+Unmapped projects offer **Choisir un dossier** in the same section. The new path
+is saved for this project on this workstation and shown immediately in its toolbar.
+Cancelling or a failed association retains the previous path. New conversations use
+the replacement; existing conversations keep their original working directory.
+
+## Project profiles and conversation names
+
+Open **Configurer le projet** from a project's toolbar (or its entry under
+**Paramètres → Projets**) to create named Claude Code/Codex profiles. Choose a
+model, Plan/execution mode, and the project's default. Profiles are shared on this
+workstation; editing one affects future prompts in projects using it. Open
+conversations retain their current settings. Workstation defaults, command-template
+profiles and profiles used by other projects/tasks cannot be deleted here.
+
+**Nouveau prompt** preselects the project's profile. You can still change the
+provider, model and mode before sending. Saving a profile never starts a task.
+Profiles use the Go engine catalogue and require the updated bundled companion
+(settings layout 7).
+
+Free conversations receive a title from the first prompt. Use **Renommer** in the
+conversation header to change it. The title is stored locally with the conversation
+journal and survives agent restarts; renaming never sends a provider message or
+changes remote tracker tickets. Existing saved histories derive titles from their
+first user message and can also be renamed.
+
+## Configure AI provider access
+
+Open **Paramètres → Moteurs IA** to detect Claude Code and Codex using the Go
+agent's executable lookup. Each card reports CLI presence and the official
+authentication status command's exit status. **Se connecter** opens the official
+CLI login in a visible terminal (and its browser flow). The desktop checks status
+every five seconds for two minutes; **Détecter / vérifier les connexions** retries
+after installation or a longer login. Opening a terminal never counts as a
+successful login. Credentials remain managed by the provider CLI.
+
+The CLI must already be installed. macOS uses Terminal, Windows uses a new command
+window, and Linux requires `x-terminal-emulator`. Older CLI versions with no
+authentication status subcommand can report an indeterminate state. Authentication
+status reflects local credentials, not a paid model request or entitlement check.
+
+Official commands: [Claude Code](https://code.claude.com/docs/en/cli-reference)
+and [Codex](https://learn.chatgpt.com/docs/developer-commands).
+
+## Open a local folder without a tracker
+
+Click **Ouvrir un dossier** in the sidebar and choose a folder in the native
+folder picker. Its name becomes the project name, its path is associated locally,
+and the free-prompt view opens immediately. Git and tracker configuration are
+optional for this conversation workflow. Reopening the same mapped folder selects
+its existing project. Cancelling creates nothing. Activate the local runtime and
+profile first; provider CLI authentication remains under **Moteurs IA**.
+
+Folder projects store project metadata in the local Go server and the path in
+workstation settings. They do not create tracker tickets. Git-based task workflows
+still require a Git repository. If creation succeeds but association fails, use
+**Réessayer l’association** to recover the existing project.
+
+## Verify real Codex interruption
+
+With Codex installed and signed in, run:
+
+```sh
+SECTILE_TEST_REAL_CODEX=1 npm run test:services
+```
+
+This opt-in test uses the workstation's Codex authentication with disposable
+server, agent and project data. It waits for a shell-written start marker,
+interrupts a 90-second delayed writer, waits 95 seconds, checks that the delayed
+file is absent and verifies that the same thread resumes with `RESUME_OK`.
+The normal service test does not send prompts to a provider.
+
+The equivalent Claude Code scenario uses:
+
+```sh
+SECTILE_TEST_REAL_CLAUDE=1 npm run test:services
+```
+
+It verifies an actual response, shell tool events and results, a running-shell
+start marker before interruption, absence of the delayed file after 95 seconds,
+and resumption of the same conversation. Any required Bash approval is granted
+only once and only when the requested command exactly matches the test command.
+
+## Read conversation output
+
+The conversation follows new output while you stay near the bottom. Scroll up
+to read earlier messages without being moved; **Aller en bas** resumes following.
+Sending your own message also returns to the latest output. The composer remains
+visible while the transcript scrolls.
+
+Assistant replies support Markdown headings, lists, tables, quotes and inline
+code. Fenced code blocks show their language and a **Copier** button, preserving
+indentation and horizontal scrolling. Raw HTML is displayed as text; remote images
+are not fetched automatically. HTTP(S) links open in the system browser.
+
+Tool calls and their results share collapsible cards. Consecutive calls are
+grouped, and results are matched by tool ID even when they arrive out of order.
+Summary labels distinguish running, completed, failed and missing results.
+Approvals remain explicit controls outside collapsed tool output.
+
+## Answer agent questions
+
+Claude Code and Codex questions appear above the composer while the agent waits.
+Choose an option, select several when the question permits it, or enter a custom
+answer. Answer every question and click **Envoyer les réponses**. A custom answer
+replaces a single choice; multiple choices and extra text are sent as comma-separated
+answers, matching the Go agent contract. **Passer la demande** remains available.
+
+The desktop sends answers to the pending question request, not as a new prompt.
+Drafts survive polling updates while the request stays the same. Duplicate sends
+are blocked; uncertain acknowledgements never trigger automatic replay.
+Codex questions marked secret use password fields and are not stored in browser
+storage; the existing Go adapter redacts them in history. Go continues to validate
+the pending request and translate question IDs for each provider. Questions must
+be emitted by the provider: the UI does not manufacture questions or change its
+execution mode.
+
+## Choose a conversation model and mode
+
+Use **Modèle** and **Mode** under **Prochain message**, both in the new-prompt form
+and in an existing conversation. A selection is sent together with the next
+message, never while the current turn is running. **Conserver** leaves the current
+choice unchanged. Accepted choices remain in that Go conversation; global engine
+settings are not changed.
+
+Model choices combine the workstation's configured provider catalogue with live
+Codex models when available. The current model is retained even if absent from
+the catalogue. **Identifiant personnalisé** accepts an explicit CLI model ID; the
+provider still decides whether that model is available to the signed-in account.
+Changing the provider before the first prompt clears pending model/mode choices.
+
+**Plan** maps to the provider's plan mode. **Exécution** maps to Claude's normal
+`default` permission mode (ask when needed), or Codex's `workspace-write` sandbox
+with approval on request and network access disabled by the existing Go policy.
+No bypass or automatic-approval mode is exposed. Existing read-only or other
+configured modes are preserved until an explicit selection changes them.
+
+## Conversation restart recovery
+
+New free Claude Code and Codex conversations preserve their transcript, provider
+session, chosen model and mode across companion agent restarts. The next message
+resumes the provider session on the same workstation. Opening a history does not
+replay prior prompts or tools. Pending messages and approvals are not resubmitted.
+
+Conversations explicitly stopped by the user and legacy histories saved without
+provider session identity stay read-only. Provider-owned local session files must
+still exist. Ticket discussions with injected environments retain read-only
+history recovery.
+
+Claude Code and Codex conversation tools follow the Go agent lifetime. On Unix,
+an independent supervisor terminates their process tree when the agent dies,
+including SIGKILL; on Windows a private kill-on-close job owns the provider and its
+descendants. Closing the desktop still leaves the agent running. Completed side
+effects are not rolled back.
+
+Conversation messages, calls, results and streamed text are synced incrementally
+before display. After a crash, unfinished text stays in history as an interrupted
+reply; the next message resumes the provider session without replaying tools.
+Periodic checkpoints compact the journal rather than defining a five-second loss
+window. Storage failures are displayed and prevent unsaved new prompt dispatch.
+See ADR 0009 for tests and Go ADR 0064 for the storage protocol.
+
+## Workspace and configuration
+
+The desktop uses compact conversation controls and settings navigation for AI
+engines, profile, accounts/trackers, projects and local services. Switching settings
+sections preserves unsaved form values and ongoing authentication polling. Open a
+local folder directly from Projects without configuring a tracker. OAuth application
+settings and CLI installation details expand only when needed.
+
+The prompt composer sends with Enter and inserts a line break with Shift+Enter.
+Suggestions fill the composer without starting execution. Model and mode choices
+still apply only when sending. Open settings with the header button,
+even with the project sidebar collapsed. Conversation navigation reuses already
+loaded transcript titles and provider/model metadata without fetching histories
+for every sidebar entry. Light, dark and system themes remain available.
+
+The Go companion owns the fixed local OAuth origin `http://127.0.0.1:52963`. Register `http://127.0.0.1:52963/auth/jira/callback` in the Atlassian developer console. Tauri discovers this contract from the bundled server and displays its callback; it does not allocate an OAuth port. If the port is occupied, startup fails rather than changing the registered callback. Older installations on a different port require migration with local services stopped. Run isolated service integration tests only with the desktop local services stopped, because they exercise the same fixed port.
+
+Saved OAuth application credentials are not prefilled in the desktop. Both editing fields are masked, cleared after submission or closing the form, and may be left empty to retain existing values. The native layer returns only presence flags for the saved client ID and secret.

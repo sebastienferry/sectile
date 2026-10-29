@@ -1,0 +1,24 @@
+import {afterEach,beforeEach,expect,test,vi} from "vitest";
+import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
+import ProjectPrompt from "../src/components/ProjectPrompt";
+import * as folders from "../src/lib/folders";
+import * as chat from "../src/lib/conversation";
+vi.mock("../src/lib/folders",()=>({projectFolders:vi.fn(),attachFolder:vi.fn()}));
+vi.mock("../src/lib/workspace",()=>({projectContext:vi.fn(async()=>({policy:{},skills:[]})),projectRepositories:vi.fn(async()=>[])}));
+vi.mock("../src/lib/profiles",()=>({conversationProfiles:vi.fn(async()=>({profiles:[],defaultId:"",inherited:true}))}));
+vi.mock("../src/lib/conversation",async original=>({...await original<typeof chat>(),providerModels:vi.fn(),createConversation:vi.fn(),readConversation:vi.fn(),controlConversation:vi.fn()}));
+beforeEach(()=>{vi.resetAllMocks();vi.mocked(folders.projectFolders).mockResolvedValue([]);vi.mocked(chat.providerModels).mockResolvedValue([]);vi.mocked(chat.createConversation).mockResolvedValue({id:"prompt-after-folder-confirmed"});vi.mocked(chat.readConversation).mockResolvedValue({id:"prompt-after-folder-confirmed",busy:false,readOnly:false});vi.mocked(chat.controlConversation).mockResolvedValue({});});afterEach(cleanup);
+test("a first prompt waits until native attachment is confirmed",async()=>{
+ let resolve!:(value:folders.FolderAttachment|null)=>void;
+ vi.mocked(folders.attachFolder).mockReturnValue(new Promise(done=>resolve=done));
+ render(<ProjectPrompt projectId="project" directory="/working" onCreated={()=>{}}/>);
+ fireEvent.change(screen.getByLabelText("Prompt libre"),{target:{value:"Use the added context"}});
+ fireEvent.click(screen.getByRole("button",{name:"Ajouter un dossier"}));
+ expect(screen.getByRole("button",{name:"Envoyer"}).hasAttribute("disabled")).toBe(true);
+ fireEvent.submit(screen.getByLabelText("Prompt libre").closest("form")!);
+ expect(chat.createConversation).not.toHaveBeenCalled();
+ resolve({path:"/context",appliesAt:"next-launch"});
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Envoyer"}).hasAttribute("disabled")).toBe(false));
+ fireEvent.click(screen.getByRole("button",{name:"Envoyer"}));
+ await waitFor(()=>expect(chat.createConversation).toHaveBeenCalledWith("project","claude"));
+});

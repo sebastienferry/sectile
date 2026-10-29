@@ -1,0 +1,26 @@
+import { invoke } from "@tauri-apps/api/core";
+export interface LocalSetup {
+  enabled: boolean;
+  ready?: boolean;
+  signedIn?: boolean;
+  agentReady?: boolean;
+  dataDirectory?: string;
+  profile?: { email: string; displayName: string };
+  trackers?: { id: string; name: string; provider: string; scope: string }[];
+  credentials?: { credentials: { tracker: string; siteUrl?: string; account?: string; kind?: string; disconnected?: boolean }[] };
+  projects?: { id: string; name: string }[];
+}
+export const localSetupStatus = () => invoke<LocalSetup>("local_setup_status");
+export const enableLocalRuntime = () => invoke<void>("enable_local_runtime");
+export const saveLocalProfile = (email: string, displayName: string) => invoke<void>("save_local_profile", { email, displayName });
+export const saveLocalCredential = (input: { tracker: string; siteUrl: string; email: string; token: string }) => invoke<void>("save_local_credential", { input });
+export const createLocalTracker = (input: { name: string; provider: string; site: string; scope: string }) => invoke("create_local_tracker", { input });
+export const createLocalProject = (name: string, trackerId: string) => invoke("create_local_project", { name, trackerId });
+export const mapLocalProject = (projectId: string, path: string) => invoke("map_local_project", { projectId, path });
+export const syncLocalTracker = (trackerId: string) => invoke("sync_local_tracker", { trackerId });
+export interface OAuthApp { configured: boolean; clientIdSet?: boolean; secretSet?: boolean; redirectUrl?: string; expectedRedirectUrl: string }
+export const oauthApps = () => invoke<Record<string, OAuthApp>>("oauth_apps");
+export const saveOAuthApp = (provider: string, clientId: string, clientSecret: string) => invoke<void>("save_oauth_app", { provider, clientId, clientSecret });
+export const beginOAuth = (provider: string) => invoke<string>("begin_oauth", { provider });
+export const oauthStatus = (id: string) => invoke<{ status: string }>("oauth_status", { id });
+export const cancelOAuth = (id: string) => invoke<void>("cancel_oauth", { id });

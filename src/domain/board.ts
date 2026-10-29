@@ -1,0 +1,36 @@
+export interface Project {
+  id: string;
+  name: string;
+  path?: string;
+}
+export interface Task {
+  id: string;
+  title: string;
+  key?: string;
+  source?: string;
+  trackerStatus?: string;
+  status: string;
+  assignee?: string;
+  labels?: string[];
+  prUrl?: string;
+  trackerId?: string;
+  description?: string;
+}
+export interface Column {
+  name: string;
+  tasks: Task[];
+}
+
+export function trackerColumns(tasks: Task[], query = ""): Column[] {
+  const groups = new Map<string, Task[]>();
+  const search = query.trim().toLocaleLowerCase();
+  for (const task of tasks) {
+    // Only known remote sources belong on this board; unknown sources fail closed.
+    if (!["github", "gitlab", "jira"].includes(task.source ?? "")) continue;
+    if (!`${task.key ?? ""} ${task.title}`.toLocaleLowerCase().includes(search))
+      continue;
+    const name = task.trackerStatus?.trim() || "Statut distant indisponible";
+    groups.set(name, [...(groups.get(name) ?? []), task]);
+  }
+  return [...groups].map(([name, tasks]) => ({ name, tasks }));
+}
