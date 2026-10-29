@@ -338,3 +338,9 @@ Real Claude Code and Codex free-conversation execution, tool tracking,
 interruption and SIGKILL recovery have now passed on the combined executable.
 See [provider qualification](companion-provider-qualification.md) for the models,
 90-second delayed-tool checks, preserved state and scope limits.
+
+A complete fixture-scoped Claude MCP pickup workflow has passed through
+clarified, specified, implemented and reviewed on the combined process, with
+real Git push, tests, MR evidence and completed run reporting. The first failed
+attempt and its recovery are recorded in
+[workflow qualification](companion-mcp-workflow-qualification.md).
