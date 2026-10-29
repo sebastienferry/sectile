@@ -203,3 +203,9 @@ the manifest names fixed port 52963, 52 license files, `goDirty: false` and
 `5961bb4d12a27dbd323b99fd9d2d9b2bfaf3851bcab29c1cf7ebb65943450031`.
 Signing, notarization, Gatekeeper, clean-user installation and native UI
 qualification of the real Jira result remain open.
+
+Electron source regression refresh (2026-10-29): Go branch `fe3a98c8`
+remained clean while the Electron source passed its 315 unit tests, 137 UI
+tests and production Vite build. The UI tests cover board, console, workflow,
+settings and MCP fixtures. This is a source regression check, not a live
+Electron session paired with the current Go binary or a remote tracker write.

@@ -259,6 +259,10 @@ byte DMG has SHA-256
 `5961bb4d12a27dbd323b99fd9d2d9b2bfaf3851bcab29c1cf7ebb65943450031`.
 The package manifest reports `releaseEligible: false`. Signing, notarization,
 clean-user installation and a native UI run from this exact package remain open.
+The Electron source on the same Go branch passed 315 unit tests, 137 UI tests
+and its production Vite build. These fixture-driven regressions verify the
+unchanged Electron client source; they do not qualify a live current-binary
+pairing or external tracker mutations.
 The isolated Electron tracked-ticket run below now confirms visible skill tool
 activity and Stop against the current Go agent. A later tracked-ticket run
 verified that its Codex tool cannot write a delayed file after Stop. The
