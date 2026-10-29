@@ -701,5 +701,11 @@ search filter from the previous project could remain visible during a project
 switch; both are now scoped to the selected project. Focused UI tests hold the
 context and ticket requests pending, reject/retry a context read, and check a
 failed Local ticket refresh. The 29-test workspace suite and production build
-pass. The current native package was opened, but another interaction changed
-its window during the retake; no native pass is claimed for this final source.
+pass. A separate macOS bundle built from this Tauri source and Go `554374b2`
+used an isolated companion, data directory, and port. Native setup created a
+profile and selected a temporary workspace with the system folder picker. Its
+board showed “Votre projet local est prêt” and no remote ticket controls.
+Switching to the folderless Default Project showed “Aucune source de tickets
+configurée”; switching back restored the Local state and folder path. The
+native retake covers this Local path. Remote cross-project ticket and search
+isolation is covered by the UI suite, not a native remote-tracker retake.
