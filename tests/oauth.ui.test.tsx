@@ -25,6 +25,13 @@ test("a disconnected OAuth account remains visible with a reconnect action",asyn
  expect(screen.queryByText("Compte connecté : Fixture")).toBeNull();
  expect((screen.getByRole("button",{name:"Se connecter à GitHub"}) as HTMLButtonElement).disabled).toBe(false);
 });
+test("Fleet Jira guidance follows tracker administration rights",async()=>{
+ const member=render(<OAuthConnections onConnected={vi.fn()} serverManaged canManageTrackers={false}/>);
+ expect(screen.getByText(/Pour Jira, demandez à un administrateur d’ajouter votre site/)).toBeTruthy();
+ expect(screen.queryByText(/Pour Jira, ajoutez aussi votre site/)).toBeNull();
+ member.rerender(<OAuthConnections onConnected={vi.fn()} serverManaged canManageTrackers/>);
+ expect(screen.getByText(/Pour Jira, ajoutez aussi votre site dans les sources de tickets ci-dessous/)).toBeTruthy();
+});
 test("leaving the view cancels a browser flow even if initiation resolves later",async()=>{
  let resolve!:(id:string)=>void;vi.mocked(api.beginOAuth).mockImplementation(()=>new Promise(done=>{resolve=done;}));
  const view=render(<OAuthConnections onConnected={vi.fn()}/>);

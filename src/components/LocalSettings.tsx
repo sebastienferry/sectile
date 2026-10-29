@@ -155,7 +155,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       </form>
     </article>}</div>
     {ready && <>
-      <div hidden={section !== "connections"}><OAuthConnections serverManaged={setup.mode === "fleet"} credentials={setup.credentials?.credentials} onConnected={() => { void refresh(); onChanged(); }} />
+      <div hidden={section !== "connections"}><OAuthConnections serverManaged={setup.mode === "fleet"} canManageTrackers={setup.mode !== "fleet" || setup.profile?.role === "admin"} credentials={setup.credentials?.credentials} onConnected={() => { void refresh(); onChanged(); }} />
       <article>
         <details><summary>Accès manuel par jeton · option avancée</summary>
         <form onSubmit={e => submit(e, async () => {

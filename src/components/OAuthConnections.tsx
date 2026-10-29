@@ -9,15 +9,17 @@ const outcome: Record<string,string> = {
   no_site: "Aucun site Jira configuré n’a été autorisé. Vérifiez vos sources de tickets et le consentement.",
   failed: "La connexion a échoué. Vérifiez la configuration de l’application OAuth.",
 };
-export function OAuthConnections({ onConnected, credentials = [], serverManaged = false }: { onConnected: () => void; credentials?: {tracker:string;account?:string;kind?:string;disconnected?:boolean}[]; serverManaged?: boolean }) {
+export function OAuthConnections({ onConnected, credentials = [], serverManaged = false, canManageTrackers = true }: { onConnected: () => void; credentials?: {tracker:string;account?:string;kind?:string;disconnected?:boolean}[]; serverManaged?: boolean; canManageTrackers?: boolean }) {
   const [apps,setApps] = useState<Record<string,api.OAuthApp>>({});
   const [error,setError] = useState("");
   async function reload() { try { setApps(await api.oauthApps()); setError(""); } catch(e) { setError(String(e)); } }
   useEffect(()=>{ let live=true; void api.oauthApps().then(v=>{if(live)setApps(v);}).catch(e=>{if(live)setError(String(e));}); return ()=>{live=false;}; },[]);
+  const ownerGuidance = serverManaged ? "Les applications OAuth et leurs rappels sont gérés par le backend Fleet." : "Chaque fournisseur nécessite une application OAuth configurée une fois pour cette installation.";
+  const jiraGuidance = serverManaged && !canManageTrackers ? "Pour Jira, demandez à un administrateur d’ajouter votre site aux sources de tickets." : "Pour Jira, ajoutez aussi votre site dans les sources de tickets ci-dessous.";
   return <article>
     <h2>Connexion aux comptes</h2>
     <p>Connectez-vous dans votre navigateur habituel. Les accès seront enregistrés automatiquement, sans copier de jeton personnel.</p>
-    <p className="muted">{serverManaged ? "Les applications OAuth et leurs rappels sont gérés par le backend Fleet. Pour Jira, ajoutez aussi votre site dans les sources de tickets ci-dessous." : "Chaque fournisseur nécessite une application OAuth configurée une fois pour cette installation. Pour Jira, ajoutez aussi votre site dans les sources de tickets ci-dessous."}</p>
+    <p className="muted">{ownerGuidance} {jiraGuidance}</p>
     {error && <p role="alert" className="error">{error}<button onClick={()=>void reload()}>Réessayer</button></p>}
     {Object.entries(names).map(([provider,name])=>apps[provider] && <OAuthProvider key={provider} provider={provider} name={name} configuration={apps[provider]} serverManaged={serverManaged} connection={credentials.find(c=>c.tracker===provider && c.kind==="oauth")} onSaved={()=>void reload()} onConnected={onConnected} />)}
   </article>;
