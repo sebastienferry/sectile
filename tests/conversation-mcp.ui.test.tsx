@@ -16,3 +16,13 @@ test("an idle conversation follows a pending MCP check without sending a provide
  expect(api.controlConversation).toHaveBeenCalledExactlyOnceWith(base.id,{action:"checkMcp"});
  expect(api.readConversation).toHaveBeenCalledTimes(3);
 });
+test("an unbound saved conversation requires and records explicit connection adoption",async()=>{
+ const base={id:"legacy-conversation",provider:"claude",busy:false,readOnly:true,connectionId:"",canAdoptConnection:true,events:[]};
+ vi.mocked(api.readConversation).mockResolvedValueOnce(base).mockResolvedValue({...base,readOnly:false,connectionId:"11111111-1111-4111-8111-111111111111",canAdoptConnection:false});
+ render(<ProjectPrompt projectId="project" runId={base.id} onCreated={()=>{}}/>);
+ const adopt=await screen.findByRole("button",{name:"Associer à cette connexion"});
+ await waitFor(()=>expect(adopt.hasAttribute("disabled")).toBe(false));
+ fireEvent.click(adopt);
+ await waitFor(()=>expect(api.controlConversation).toHaveBeenCalledExactlyOnceWith(base.id,{action:"adoptConnection"}));
+ await waitFor(()=>expect(screen.getByRole("status").textContent).toBe("Prêt"));
+});

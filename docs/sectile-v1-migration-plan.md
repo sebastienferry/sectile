@@ -117,8 +117,13 @@ validating its live connection. The shared Electron discovery file is no longer
 a silent fallback. Paired Fleet connections now expose native profile, personal
 tracker credential, project and OAuth account setup through the selected backend;
 OAuth app secrets and shared tracker administration remain server-admin tasks.
-Stage 4 remains open for one-time Fleet pairing/setup qualification and
-conversation-history identity adoption. A separate-ID Tauri bundle has now
+Stage 4 remains open for one-time Fleet pairing/setup qualification. New
+conversations persist the selected runtime's private connection UUID in Go's
+run journal; a mismatched Tauri connection cannot read or resume them. Legacy
+histories remain readable and Tauri requires an explicit association before
+resuming an unbound history. Rust, Go and UI fixtures cover UUID migration,
+journal persistence, wrong-connection refusal and legacy-client compatibility.
+A separate-ID Tauri bundle has now
 connected read-only to the existing Fleet workstation agent and loaded its 19
 projects; new one-time-code pairings also verify the backend user's ID against
 the identity recorded at pairing. Runtime switching is deliberately

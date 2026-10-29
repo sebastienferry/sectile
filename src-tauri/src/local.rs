@@ -95,12 +95,23 @@ pub fn runtime_mode(app: &tauri::AppHandle) -> Result<Option<RuntimeMode>, Strin
 fn save_mode(root: &Path, mode: RuntimeMode, server: Option<&str>) -> Result<(), String> {
     private_dir(root)?;
     let path = mode_path(root);
-    let record = json!({"protocol": 1, "mode": mode, "server": server});
-    if fs::read(&path)
+    let current = fs::read(&path)
         .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .is_some_and(|current| current == record)
-    {
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+    let same_selection = current.as_ref().is_some_and(|current| {
+        current["mode"] == json!(mode)
+            && current["server"].as_str().unwrap_or("") == server.unwrap_or("")
+    });
+    let connection_id = current
+        .as_ref()
+        .filter(|_| same_selection)
+        .and_then(|value| value["connectionId"].as_str())
+        .and_then(|value| uuid::Uuid::parse_str(value).ok())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let record =
+        json!({"protocol": 1, "mode": mode, "server": server, "connectionId": connection_id});
+    if current.is_some_and(|current| current == record) {
         return Ok(());
     }
     let next = root.join(format!("runtime-mode.{}.next.json", uuid::Uuid::new_v4()));
@@ -119,6 +130,45 @@ fn save_mode(root: &Path, mode: RuntimeMode, server: Option<&str>) -> Result<(),
     file.sync_all()
         .map_err(|_| "Enregistrement du mode interrompu")?;
     fs::rename(next, path).map_err(|_| "Enregistrement du mode refusé".into())
+}
+
+fn ensure_runtime_connection_id(root: &Path) -> Result<String, String> {
+    let mode = runtime_mode_from_root(root)?
+        .or_else(|| {
+            active_root(root)
+                .ok()
+                .filter(|path| path.join("installation.json").exists())
+                .map(|_| RuntimeMode::Local)
+        })
+        .ok_or_else(|| "Choisissez un mode d’exécution dans les paramètres.".to_string())?;
+    let path = mode_path(root);
+    let value = fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+    if let Some(id) = value
+        .as_ref()
+        .and_then(|value| value["connectionId"].as_str())
+    {
+        if let Ok(id) = uuid::Uuid::parse_str(id) {
+            return Ok(id.to_string());
+        }
+    }
+    let server = value
+        .as_ref()
+        .and_then(|value| value["server"].as_str())
+        .filter(|value| !value.is_empty());
+    save_mode(root, mode, server)?;
+    let value: Value =
+        serde_json::from_slice(&fs::read(path).map_err(|_| "Identité de connexion indisponible")?)
+            .map_err(|_| "Identité de connexion invalide")?;
+    value["connectionId"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "Identité de connexion indisponible".into())
+}
+
+pub fn runtime_connection_id(app: &tauri::AppHandle) -> Result<String, String> {
+    ensure_runtime_connection_id(&root(app)?)
 }
 
 fn selected_fleet_server(root: &Path) -> Result<String, String> {
@@ -848,10 +898,13 @@ fn require_unconfigured_runtime(mode: Option<RuntimeMode>) -> Result<(), String>
 pub async fn resume(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<LocalRuntime>();
     let _lock = state.2.lock().await;
+    let root = root(app)?;
+    if runtime_mode(app)?.is_some() || active_root(&root)?.join("installation.json").exists() {
+        ensure_runtime_connection_id(&root)?;
+    }
     if state.1.load(std::sync::atomic::Ordering::Acquire) {
         return Ok(());
     }
-    let root = root(app)?;
     if runtime_mode(app)? == Some(RuntimeMode::Fleet) {
         let server = selected_fleet_server(&root)?;
         ensure_fleet_agent(app, &root, &server).await?;
@@ -1803,6 +1856,27 @@ mod generation_tests {
         assert!(super::require_unconfigured_runtime(None).is_ok());
         assert!(super::require_unconfigured_runtime(Some(super::RuntimeMode::Local)).is_err());
         assert!(super::require_unconfigured_runtime(Some(super::RuntimeMode::Fleet)).is_err());
+    }
+
+    #[test]
+    fn selected_runtime_keeps_a_private_connection_identity_across_restart_and_legacy_upgrade() {
+        let root = std::env::temp_dir().join(format!("sectile-identity-{}", uuid::Uuid::new_v4()));
+        private_dir(&root).unwrap();
+        save_mode(&root, RuntimeMode::Fleet, Some("https://fleet.example.com")).unwrap();
+        let first = ensure_runtime_connection_id(&root).unwrap();
+        assert_eq!(ensure_runtime_connection_id(&root).unwrap(), first);
+
+        let mut legacy: Value =
+            serde_json::from_slice(&fs::read(mode_path(&root)).unwrap()).unwrap();
+        legacy.as_object_mut().unwrap().remove("connectionId");
+        fs::write(mode_path(&root), serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let adopted = ensure_runtime_connection_id(&root).unwrap();
+        assert_ne!(adopted, "");
+        assert_eq!(ensure_runtime_connection_id(&root).unwrap(), adopted);
+        let saved: Value = serde_json::from_slice(&fs::read(mode_path(&root)).unwrap()).unwrap();
+        assert_eq!(saved["server"], "https://fleet.example.com");
+        assert_eq!(saved["connectionId"], adopted);
+        fs::remove_dir_all(root).unwrap();
     }
 
     use super::*;

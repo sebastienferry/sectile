@@ -90,6 +90,7 @@ function Conversation({ id, projectId, directory, folders, onFoldersChanged, onT
     <header className="prompt-heading"><Icon name="chat" /><h2>{snapshot.title || (snapshot.provider === "codex" ? "Codex" : snapshot.provider === "claude" ? "Claude Code" : "Conversation du projet")}</h2>
       {snapshot.canRename && <button aria-label="Renommer la conversation" onClick={()=>{setTitle(snapshot.title||"");setRenaming(true);}}>Renommer</button>}
       <span role="status">{error ? "Suivi interrompu" : busy ? "En cours…" : snapshot.readOnly ? "Lecture seule" : "Prêt"}</span>
+      {snapshot.canAdoptConnection && <button disabled={acting || !!error} title="Cet historique n’est pas encore lié à la connexion sélectionnée." onClick={() => void control({ action: "adoptConnection" }).catch(() => {})}>Associer à cette connexion</button>}
       {busy && !snapshot.readOnly && <button disabled={acting} onClick={() => void control({ action: "interrupt" }).catch(() => {})}>Interrompre</button>}
       <button className="icon-button" aria-label="Actualiser le suivi" title="Actualiser le suivi" disabled={pending || (!!snapshot.busy && !error)} onClick={() => void controller.refresh()}><Icon name="refresh" /></button>
     </header>

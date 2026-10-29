@@ -7,8 +7,10 @@ switch are implemented and verified on macOS. Tauri now has explicit Local/Fleet
 selection, one-time-code Fleet pairing, private attachment for an already paired
 workstation and native Fleet setup. Pairing or attachment cannot replace an
 already selected mode; paired Fleet setup validates the backend user against
-the identity stored at pairing. Fleet runtime validation and conversation identity
-qualification remain open; mode switching and data transfer are intentionally
+the identity stored at pairing. New conversations persist the selected
+runtime's connection UUID in the agent journal, and legacy conversations
+require explicit association before they can resume. Live Fleet pairing/setup
+qualification remains open; mode switching and data transfer are intentionally
 deferred to an explicit migration design.
 
 Product roadmap: [Sectile V1.0.0 migration](sectile-v1-migration-plan.md).
@@ -434,8 +436,8 @@ The first cross-surface check slice passes:
 | Go companion and shared runtime | `go test -race ./cmd/companion ./internal/companion ./internal/agent ./internal/backend`; Windows `GOOS=windows GOARCH=amd64 go build ./cmd/companion` | Pass on macOS host; companion packages are race-clean and Windows compilation succeeds. Windows live migration and execution are not qualified. |
 | Go child-process credentials | `go test ./internal/runner ./internal/agent ./cmd/agent ./cmd/companion`; Windows builds of `cmd/agent` and `cmd/companion` | Pass; the local desktop gateway credential is removed from spawned CLI and shell environments. This is a compile/unit check, not Windows process-window verification. |
 | Electron renderer | `desktop/npm test` | 315 tests pass after installing the lockfile dependencies. No Electron UI or live shared-MCP registration was changed in this work. |
-| Tauri renderer/native layer | `npm run check`, `npm test`, `npm run test:ui`, `npm run test:rust`, `npm run build` | Pass on the current branch: 9 domain tests, 86 UI tests and 34 Rust tests. The Rust tests cover explicit Local/Fleet file routing, private credential storage, Fleet URL policy, pairing HTTP contract handling, account identity binding, selected-runtime replacement rejection and runtime-mode status. |
-| Tauri Fleet | Pairing contract fixture plus an isolated macOS bundle pointed at the existing Fleet workstation agent | The contract fixture covers pairing request/response and errors. The live Tauri dashboard loaded 19 projects from the v0.7.6 agent and displayed the Fleet backend identity without writing remotely. One-time-code pairing, the native attach button, Fleet profile/API setup and OAuth on the live backend remain unqualified. |
+| Tauri renderer/native layer | `npm run check`, `npm test`, `npm run test:ui`, `npm run test:rust`, `npm run build` | Pass on the current branch: 9 domain tests, 87 UI tests and 35 Rust tests. The Rust tests cover explicit Local/Fleet file routing, private credential storage, Fleet URL policy, pairing HTTP contract handling, account identity binding, selected-runtime replacement rejection, runtime-mode status and durable connection UUID migration. |
+| Tauri Fleet | Pairing contract fixture plus an isolated macOS bundle pointed at the existing Fleet workstation agent | The contract fixture covers pairing request/response and errors. The live Tauri dashboard loaded 19 projects from the v0.7.6 agent and displayed the Fleet backend identity without writing remotely. One-time-code pairing, the native attach button, Fleet profile/API setup and OAuth on the live backend remain unqualified. Conversation identity and explicit legacy association are covered by local Go/Rust/UI tests, not a live Fleet session. |
 | Existing native Local install | Managed macOS migration verification and real Jira/Claude/Codex/MCP requests | Pass; details above. |
 | Existing Electron/Go Fleet connection | Read-only calls to the existing workstation agent's authenticated `/desktop/status`, `/desktop/version` and `/desktop/projects` routes | The agent reports v0.7.6, connected, no contract error, and 19 projects (2026-10-29). This verifies the existing connection only; no Tauri mode or server data was changed. |
 | macOS release bundle | `npm run tauri -- build --bundles app --no-sign` | Pass on the current commit (2026-10-29); the unsigned release `.app` is 101.70 MiB versus the recorded 133.1 MiB debug app. It contains about 95 MiB of Go binaries: companion (40 MiB), legacy server (36 MiB) and legacy agent (20 MiB) for migration/recovery. This is an unsigned macOS app bundle, not a release artifact or a cross-platform size comparison. |

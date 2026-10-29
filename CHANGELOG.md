@@ -25,6 +25,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
+- Re-associate an unbound conversation history with the selected runtime before resuming it.
 - Fleet pairing now enables native profile, personal tracker access, OAuth account connection and project setup through the selected backend; server-wide OAuth apps and shared trackers remain administrator-managed.
 
 - Resize the project sidebar with the mouse or keyboard and keep its width after restarting the desktop.

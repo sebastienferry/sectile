@@ -6,6 +6,7 @@ export interface Approval { id: string; tool: string; description?: string; reas
 export interface ConversationSnapshot {
   checkingMcp?: boolean; sectileMcp?: {status:string;source?:string};
   title?: string; canRename?: boolean; provider?: string; model?: string; mode?: string; models?: { model: string }[] | null;
+  connectionId?: string; canAdoptConnection?: boolean;
   id: string; busy: boolean; readOnly: boolean; events?: string[] | null; partial?: string; persistenceError?: string; approvals?: Approval[];
 }
 export const createConversation = (projectId: string, provider: string, engineId?: string) =>
@@ -13,7 +14,7 @@ export const createConversation = (projectId: string, provider: string, engineId
 export const readConversation = (runId: string) => invoke<ConversationSnapshot>("read_conversation", { runId });
 export interface TurnOptions { model?: string; mode?: "plan" | "execute" }
 export const providerModels = (provider: string) => invoke<string[]>("provider_models", { provider });
-export type ConversationAction = { action: "message"; message: string; model?: string; mode?: "plan" | "execute" } | { action: "checkMcp" } | { action: "interrupt" } | { action: "approval"; id: string; decision: "allow" | "deny" } | { action: "answer"; id: string; answers: Record<string, string> };
+export type ConversationAction = { action: "message"; message: string; model?: string; mode?: "plan" | "execute" } | { action: "adoptConnection" } | { action: "checkMcp" } | { action: "interrupt" } | { action: "approval"; id: string; decision: "allow" | "deny" } | { action: "answer"; id: string; answers: Record<string, string> };
 export const controlConversation = (runId: string, input: ConversationAction) => invoke("control_conversation", { runId, input });
 export function decodeEvents(snapshot: ConversationSnapshot): ConversationEvent[] {
   return (snapshot.events ?? []).map(line => {

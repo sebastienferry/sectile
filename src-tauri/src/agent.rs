@@ -6,6 +6,8 @@ use std::time::Duration;
 struct Connection {
     url: String,
     token: String,
+    #[serde(skip)]
+    connection_id: String,
 }
 
 fn validate_connection(connection: &Connection) -> Result<reqwest::Url, String> {
@@ -41,9 +43,10 @@ fn connection(app: &tauri::AppHandle) -> Result<Connection, String> {
         })?;
     let contents = std::fs::read(path)
         .map_err(|_| "Agent introuvable. Démarrez et associez l’agent Sectile.")?;
-    let connection: Connection =
+    let mut connection: Connection =
         serde_json::from_slice(&contents).map_err(|_| "Fichier de connexion invalide")?;
     validate_connection(&connection)?;
+    connection.connection_id = crate::local::runtime_connection_id(app)?;
     Ok(connection)
 }
 
@@ -93,6 +96,7 @@ async fn send_request(
         .build()
         .map_err(|_| "Impossible de créer la connexion locale")?;
     let mut request = client.request(method, url).bearer_auth(&connection.token);
+    request = request.header("X-Sectile-Connection-ID", &connection.connection_id);
     if let Some(body) = body {
         request = request.json(&body);
     }
@@ -467,6 +471,7 @@ mod tests {
             Connection {
                 url: format!("http://{address}"),
                 token: "private-test-token".into(),
+                connection_id: uuid::Uuid::nil().to_string(),
             },
             handle,
         )
@@ -512,6 +517,11 @@ mod tests {
             request
                 .to_lowercase()
                 .contains("authorization: bearer private-test-token")
+        );
+        assert!(
+            request
+                .to_lowercase()
+                .contains(&format!("x-sectile-connection-id: {}", uuid::Uuid::nil()))
         );
         let payload: Value =
             serde_json::from_str(request.split("\r\n\r\n").nth(1).unwrap()).unwrap();
@@ -616,7 +626,8 @@ mod tests {
             assert!(
                 validate_connection(&Connection {
                     url: url.into(),
-                    token: "test".into()
+                    token: "test".into(),
+                    connection_id: uuid::Uuid::nil().to_string(),
                 })
                 .is_err(),
                 "accepted {url}"
@@ -625,14 +636,16 @@ mod tests {
         assert!(
             validate_connection(&Connection {
                 url: "http://127.0.0.1:9000".into(),
-                token: "test".into()
+                token: "test".into(),
+                connection_id: uuid::Uuid::nil().to_string(),
             })
             .is_ok()
         );
         assert!(
             validate_connection(&Connection {
                 url: "http://127.0.0.1:9000".into(),
-                token: "".into()
+                token: "".into(),
+                connection_id: uuid::Uuid::nil().to_string(),
             })
             .is_err()
         );
@@ -698,6 +711,7 @@ pub enum ConversationMode {
 #[derive(Deserialize, serde::Serialize)]
 #[serde(tag = "action", rename_all = "camelCase", deny_unknown_fields)]
 pub enum ConversationAction {
+    AdoptConnection,
     CheckMcp,
     Message {
         message: String,
@@ -716,6 +730,7 @@ pub enum ConversationAction {
 }
 fn conversation_body(action: ConversationAction) -> Result<Value, String> {
     match action {
+        ConversationAction::AdoptConnection => Ok(serde_json::json!({"adoptConnection": true})),
         ConversationAction::Message {
             message,
             model,
