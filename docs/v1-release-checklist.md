@@ -239,6 +239,15 @@ not a signed installation or an upgrade from a released version. The
 transcript correction also passes the full Go agent and companion package
 suites.
 
+Native Local Jira sync check (2026-10-29): the current unsigned macOS app,
+bundling Go `554374b2`, used the existing Jira OAuth grant to request a PE
+sync from Accounts and trackers. The tracker row showed the in-progress state
+and then “1988 tickets synchronisés.” The PE board displayed 1,988 tickets
+in Jira status columns. The app and its package-owned companion were stopped
+and port 52963 released. This verifies the current native sync/result/board
+path with an existing Local grant; fresh OAuth consent, Fleet and signed
+distribution remain open.
+
 Electron source regression refresh (2026-10-29): Go branch `fe3a98c8`
 remained clean while the Electron source passed its 315 unit tests, 137 UI
 tests and production Vite build. The UI tests cover board, console, workflow,

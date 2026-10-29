@@ -622,9 +622,13 @@ without server credentials. A subsequent headless run of the current packaged
 companion on the existing Local installation completed the real PE Jira sync:
 the activity reported 1,988 synchronized issues, and a read-only database
 check found 1,988 tickets attached to that tracker. The companion was stopped
-and port 52963 released. This confirms the Go credential path and activity
-outcome; the current-source native Settings screen has not been visually
-rechecked with this result.
+and port 52963 released. A subsequent run from the current native macOS app
+used its existing Local Jira account to synchronize the PE source. Settings
+showed the in-progress state beneath PE, then “1988 tickets synchronisés.”
+Opening the PE board showed 1,988 tickets grouped in Jira status columns.
+The app and its package-owned companion were stopped afterward. This confirms
+the native activity result and board refresh with a real Local Jira read;
+fresh OAuth consent and Fleet remain separate checks.
 
 The native credential and ticket-source forms used the same React provider and
 site state. Switching one provider silently reset the other's site draft and
