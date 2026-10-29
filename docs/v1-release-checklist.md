@@ -375,3 +375,13 @@ readback confirmed the `#clarified` label. No repository file changed or PR was
 created. The full specification/implementation/review chain remains open; a
 refused attempt to restart the completed first round is recorded in the UX
 audit. This is an unsigned isolated test, not release-binary qualification.
+
+Standard native chain (2026-10-30): Tauri `51e93f2` and Go `84e19b1b` passed a
+Claude Code/Sonnet standard pickup chain through clarification, OpenSpec,
+implementation and review against a fresh loopback GitLab/Git HTTP fixture.
+The successful retry preserved accepted commits after fixture CLI/auth repairs.
+Server completion, `#reviewed` backend/remote labels, a passing Python unittest,
+one ready unmerged MR, matching pushed HEAD and a clean worktree were verified.
+The native review displayed all seven changed files. This closes that controlled
+native chain slice; real GitLab, Codex chain and signed-release checks remain
+separate. See the UX audit for exact run/commit identities and retry limitations.

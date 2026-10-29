@@ -994,3 +994,44 @@ that the suggested new invocation gets a distinct running ID while its earlier
 canceled run stays canceled. Targeted agent command/conversation, database
 lifecycle and MCP start/finish tests pass. This is a source guidance correction;
 provider compliance in a new native continuation remains to be retaken.
+
+## Standard native full-chain qualification (2026-10-30)
+
+An unsigned Tauri `51e93f2` build with Go `84e19b1b` services (test-only port
+`55466`) launched the standard Claude Code/Sonnet pickup chain from the native
+ticket workflow. A fresh loopback GitLab test double supplied the tracker API,
+a real Git HTTP origin and MR records; no real forge was used. Standard skills
+were installed normally, without a project skill-editor override. The initial
+run committed clarification, OpenSpec documents and the Python implementation,
+then reported failure at PR creation. Retries preserved that accepted work.
+
+Fixture repairs were required: glab configuration belongs to the linked
+worktree as well as the parent; the local Claude hook requires an `ai:tech:*`
+MR label; `glab auth status` needs a private host configuration; and the project
+response must include `merge_requests_enabled: true` for the CLI to attempt a
+create. The CLI also panicked in telemetry against incomplete synthetic data,
+so telemetry was disabled only in its disposable config. The final companion
+used private `GLAB_CONFIG_DIR`, an explicit dummy `GITLAB_TOKEN`, and the normal
+Local runtime/MCP environment. Global provider/MCP configuration was not changed.
+The CLI capability check is visible in its
+[official create command source](https://gitlab.com/gitlab-org/cli/-/blob/v1.82.0/internal/commands/mr/create/mr_create.go).
+
+Run `1041614c-9084-401a-be95-0571db8974d1` finished as completed on the server,
+and both backend and tracker showed `#reviewed`. Independent checks confirmed
+one passing Python unittest, OpenSpec/clarification artifacts, a clean worktree,
+the preserved pre-retry commit ancestry, and feature HEAD
+`edaa6e2cd8569314f4841b575e9768503ff3e16a` matching the pushed `feat/1` branch.
+Exactly one MR was ready and still open; the issue was also still open. All
+stage reports came through MCP, not database edits or fixture-side shortcuts.
+Native Tauri showed **Result confirmed**, **Finalize** as the next step, the
+PR action, and a seven-file review with 69 added lines, including committed
+code, tests and specification documents.
+
+This qualifies the standard native chain with recovery through a controlled
+local forge. It is not an uninterrupted first-attempt pass, a real GitLab
+service integration, a Codex full-chain run or signed-release qualification.
+The chain action remained available after its configured Reviewed target had
+been reached; that native UX inconsistency remains to correct.
+The isolated app, companion, forge, Git repositories, worktrees and private
+configuration were removed after the check; the regular companion on 52963
+remained running.

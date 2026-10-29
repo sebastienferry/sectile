@@ -38,6 +38,14 @@ direct GitHub label read and native next-step display. A completed-run restart
 attempt was refused before that successful transition. The full chain remains
 unqualified; this is not a general tracker-workflow support claim.
 
+The separate Tauri `51e93f2`/Go `84e19b1b` native Claude Code chain reached
+Reviewed using standard skills against a loopback GitLab and real Git HTTP
+fixture, with a passing unittest and one ready unmerged MR. Retries recovered
+from fixture authentication/metadata failures while preserving accepted commits.
+Native result and committed-file review were verified. This controlled chain
+does not establish real GitLab or Codex full-chain support; those qualifications
+remain open.
+
 Tauri is the intended V1 desktop for operational boards, prompts and agentic
 execution. The current web app remains the V1 owner of product planning and is
 unchanged. Electron stays available as a compatibility client while its
