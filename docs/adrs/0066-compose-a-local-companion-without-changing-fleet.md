@@ -41,6 +41,6 @@ A separate artifact adds packaging/version compatibility obligations.
 
 The shared runtime extraction changes no tracker source of truth and does not
 merge Local and Fleet data. Existing Go licensing remains unchanged. Phase 1
-added `internal/backend`; phase 2 is adding an OS-owned Local store lock and
-context-owned shutdown paths. No combined Local process is deployed and no
-running installation is migrated yet.
+added `internal/backend`; phase 2 added an OS-owned Local store lock,
+context-owned shutdown paths and an authenticated-agent startup gate. No
+combined Local process is deployed and no running installation is migrated yet.

@@ -29,6 +29,36 @@ func (h *Handler) SetInternalServing(serving bool) { h.internalServing.Store(ser
 // instance that is stopping.
 func (h *Handler) BeginDrain() { h.draining.Store(true) }
 
+// HasAgentConnection reports an authenticated WebSocket registered for the
+// expected user and device. The Local owner uses it before admitting work.
+func (h *Handler) HasAgentConnection(userID, deviceID string) bool {
+	if userID == "" || deviceID == "" {
+		return false
+	}
+	for _, connection := range h.agentDispatcher.ActiveConnections() {
+		if connection.UserID == userID && connection.DeviceID == deviceID {
+			select {
+			case <-connection.done:
+				continue
+			default:
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// PullAgentTasks recovers runs from the Local owner's selected connection
+// after work admission opens. Pulls join before database close.
+func (h *Handler) PullAgentTasks(userID, deviceID string) {
+	for _, connection := range h.agentDispatcher.ActiveConnections() {
+		if connection.UserID == userID && connection.DeviceID == deviceID {
+			current := connection
+			h.launchBackground(func() { h.pullAndApplyAgentTasks(current) })
+		}
+	}
+}
+
 // HandleReady answers the readiness probe.
 func (h *Handler) HandleReady(w http.ResponseWriter, r *http.Request) {
 	if reason := h.notReadyReason(r.Context()); reason != "" {

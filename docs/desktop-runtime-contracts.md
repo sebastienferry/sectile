@@ -291,10 +291,16 @@ the owner callback runs. Explicit-path settings reads, writes, migrations,
 repository mappings and generated Claude settings keep the embedded runtime
 out of the standalone agent's global settings file. These are reusable
 lifecycle primitives, not a Local companion yet. Work admission, authenticated
-self-connection/readiness gating, provider process termination under every
-shutdown deadline and full combined
-startup/failure tests remain to be validated with the composition root. The
-existing installation has not been migrated.
+self-connection/readiness gating now exist as backend primitives: Local HTTP
+admits only health and authenticated agent bootstrap endpoints until the
+expected user/device WebSocket is registered, while Fleet keeps its existing
+startup path. The embedded agent reports completion of its connection setup
+to its owner. Local auto-sync and task pulls start only after activation; a
+lost agent connection closes the user-facing work gate again. Tests exercise
+the gate with both a WebSocket fixture and the real embedded agent. The
+composition root still has to coordinate those signals, HTTP listener drain,
+provider process termination and full startup/failure tests. No installation
+has been migrated.
 
 ### Phase 2 ownership inventory
 
@@ -307,4 +313,4 @@ existing installation has not been migrated.
 | MCP session maintenance | Stop sweeper and keepalive | Wait for both loops before backend close |
 | Agent gateway and run journal | Cancel the agent context and close the gateway | Join gateway and persistence loops; provider exit failures are returned |
 | Provider processes | Stop conversations while postback paths remain available | Full deadline and crash-path validation remains pending |
-| HTTP request admission and Local self-connection | Composition root not implemented yet | Readiness gate and full queue/startup-failure tests remain pending |
+| HTTP request admission and Local self-connection | Local gate allows health and authenticated agent bootstrap until activation; closes again on agent loss | Real embedded connection test passes; listener drain and startup-failure tests remain for the composition root |

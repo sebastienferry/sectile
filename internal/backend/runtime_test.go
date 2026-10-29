@@ -49,7 +49,7 @@ func TestStandaloneBackendRegistersAPIMCPAuthAndMetricsWithoutWebsite(t *testing
 		t.Fatalf("backend unexpectedly registered website route %q", pattern)
 	}
 
-	httpHandler := WrapHTTP(mux, runtime.Handler, runtime.Database)
+	httpHandler := runtime.HTTPHandler(mux)
 	for _, tc := range []struct {
 		path   string
 		status int

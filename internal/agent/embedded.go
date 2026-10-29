@@ -25,6 +25,7 @@ type EmbeddedConfig struct {
 	RepoRoot     string
 	TerminalApp  string
 	PairedAt     time.Time
+	OnConnected  func()
 	OnRestart    func()
 }
 
@@ -65,6 +66,7 @@ func RunEmbedded(parent context.Context, cfg EmbeddedConfig) error {
 		},
 		terminal: terminalChoice{app: terminalApp, explicit: cfg.TerminalApp != "", manager: terminal.NewManager()},
 		repoRoot: cfg.RepoRoot, settingsRoot: cfg.SettingsRoot,
+		onConnected:       cfg.OnConnected,
 		disableMCPRefresh: true,
 		done:              make(chan struct{}),
 	}

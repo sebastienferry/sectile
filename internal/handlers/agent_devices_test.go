@@ -395,7 +395,7 @@ func TestConnectionDeviceIdentityFallbacks(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h, database, cleanup := setupTestHandler(t)
 			defer cleanup()
-			h.pullOnConnect = false
+			h.SetPullOnConnect(false)
 			key, credential, err := database.CreateAPIKey(ImplicitUser, "identity-test", 0)
 			if err != nil {
 				t.Fatal(err)

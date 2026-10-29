@@ -82,6 +82,7 @@ type agentDaemon struct {
 	terminal          terminalChoice
 	repoRoot          string
 	settingsRoot      string
+	onConnected       func()
 	disableMCPRefresh bool
 	prepareMu         sync.Mutex
 	done              chan struct{}
@@ -647,6 +648,9 @@ func (d *agentDaemon) connect(ctx context.Context) (bool, error) {
 	go d.inventoryLoop(heartbeatCtx, conn)
 	d.resendAnswers(conn)
 	d.reportCapabilitiesLater()
+	if d.onConnected != nil {
+		d.onConnected()
+	}
 	log.Printf("[Agent] Connected to remote server")
 	fmt.Printf("\n✅ [Agent] Connecté avec succès au serveur Sectile (%s)\n", d.link.serverURL)
 	fmt.Printf("   Projet: [%s] | Machine: [%s]\n", d.link.projectID, d.link.deviceID)

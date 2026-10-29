@@ -49,7 +49,7 @@ type Handler struct {
 	subscribers     map[chan Event]bool
 	subMu           sync.RWMutex
 	agentDispatcher *AgentDispatcher
-	pullOnConnect   bool
+	pullOnConnect   atomic.Bool
 	// mcpSessions owns the lifecycle of MCP client sessions and of the runs
 	// they start, so a client that disappears cannot leave a task active.
 	mcpSessions *taskmcp.SessionRegistry
@@ -79,7 +79,7 @@ type Handler struct {
 }
 
 func (h *Handler) SetPullOnConnect(enable bool) {
-	h.pullOnConnect = enable
+	h.pullOnConnect.Store(enable)
 }
 
 func NewHandler(database *db.DB) *Handler {
@@ -3952,7 +3952,7 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Pull active running/queued tasks from the newly connected agent if enabled.
-	if h.pullOnConnect {
+	if h.pullOnConnect.Load() {
 		h.launchBackground(func() { h.pullAndApplyAgentTasks(ac) })
 	}
 

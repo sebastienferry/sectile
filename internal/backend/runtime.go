@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"tasks/internal/auth"
@@ -36,7 +38,16 @@ type Runtime struct {
 	stopEventBus func()
 	storeLock    *storelock.Lock
 	closeMu      sync.Mutex
+	local        bool
+	closing      bool
+	workReady    atomic.Bool
+	workAgent    atomic.Pointer[workAgentIdentity]
 	closed       bool
+}
+
+type workAgentIdentity struct {
+	userID   string
+	deviceID string
 }
 
 // Open initializes the same backend services used by the standalone server.
@@ -80,9 +91,89 @@ func Open(cfg Config) (*Runtime, error) {
 	if cfg.IdentityProvider != nil {
 		h.SetIdentityProvider(cfg.IdentityProvider)
 	}
-	h.TryPullLocalAgentTasks()
-	database.StartAutoSync()
-	return &Runtime{Database: database, Handler: h, stopInstance: stopInstance, stopEventBus: stopEventBus, storeLock: ownership}, nil
+	local := cfg.StoreRoot != ""
+	if local {
+		h.SetPullOnConnect(false)
+	} else {
+		h.TryPullLocalAgentTasks()
+		database.StartAutoSync()
+	}
+	runtime := &Runtime{Database: database, Handler: h, stopInstance: stopInstance, stopEventBus: stopEventBus, storeLock: ownership, local: local}
+	runtime.workReady.Store(!local)
+	return runtime, nil
+}
+
+// HTTPHandler builds the backend HTTP stack. A Local runtime keeps all work
+// routes closed until ActivateWork; the agent bootstrap routes remain open.
+func (r *Runtime) HTTPHandler(mux *http.ServeMux) http.Handler {
+	stack := WrapHTTP(mux, r.Handler, r.Database)
+	if !r.local {
+		return stack
+	}
+	return r.gateWork(stack)
+}
+
+// WaitForAgent waits for the expected authenticated workstation connection.
+// The agent identity and WebSocket routes remain reachable while work is gated.
+func (r *Runtime) WaitForAgent(ctx context.Context, userID, deviceID string) error {
+	if r == nil || !r.local || userID == "" || deviceID == "" {
+		return fmt.Errorf("local agent identity is required")
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		r.closeMu.Lock()
+		closing := r.closing || r.closed
+		r.closeMu.Unlock()
+		if closing {
+			return fmt.Errorf("local backend is stopping")
+		}
+		if r.Handler.HasAgentConnection(userID, deviceID) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+// ActivateWork opens Local work only after the expected agent has connected.
+// Fleet starts normally in Open and does not use this transition.
+func (r *Runtime) ActivateWork(userID, deviceID string) error {
+	if r == nil || !r.local {
+		return fmt.Errorf("work activation requires a Local backend")
+	}
+	r.closeMu.Lock()
+	defer r.closeMu.Unlock()
+	if r.closed || r.closing {
+		return fmt.Errorf("local backend is stopping")
+	}
+	if !r.Handler.HasAgentConnection(userID, deviceID) {
+		return fmt.Errorf("expected authenticated Local agent is not connected")
+	}
+	if r.workReady.Load() {
+		identity := r.workAgent.Load()
+		if identity == nil || identity.userID != userID || identity.deviceID != deviceID {
+			return fmt.Errorf("Local work is owned by another agent")
+		}
+		return nil
+	}
+	r.Handler.SetPullOnConnect(true)
+	r.workAgent.Store(&workAgentIdentity{userID: userID, deviceID: deviceID})
+	r.workReady.Store(true)
+	r.Database.StartAutoSync()
+	r.Handler.PullAgentTasks(userID, deviceID)
+	return nil
+}
+
+func (r *Runtime) readyForWork() bool {
+	if !r.workReady.Load() {
+		return false
+	}
+	identity := r.workAgent.Load()
+	return identity != nil && r.Handler.HasAgentConnection(identity.userID, identity.deviceID)
 }
 
 // closeFailedOpen retains Local ownership if a database worker cannot be
@@ -120,6 +211,8 @@ func (r *Runtime) CloseContext(ctx context.Context) error {
 	if r.closed {
 		return nil
 	}
+	r.closing = true
+	r.workReady.Store(false)
 	if err := r.Handler.StopBackground(ctx); err != nil {
 		return fmt.Errorf("stop backend handlers: %w", err)
 	}
