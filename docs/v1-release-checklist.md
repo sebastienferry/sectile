@@ -5,6 +5,9 @@ or create a Git tag.
 
 ## Confirmed release scope
 
+The [candidate support matrix](v1-support-matrix.md) lists the exact behavior
+demonstrated so far and the combinations that remain unqualified.
+
 - Tauri is the V1 desktop for operational boards, prompts and agentic execution.
 - The existing web application remains the V1 owner for product planning and is
   unchanged. Electron remains a compatibility client until its support window

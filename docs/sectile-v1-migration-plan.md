@@ -8,6 +8,8 @@ are complete as product decisions and artifacts. macOS is the V1 target, Linux
 is experimental and Windows is deferred. Web planning remains the V1 owner
 and is unchanged in this release. The scoped UX convergence audit is complete;
 current qualification gaps are listed below. This is not a V1 release.
+The [candidate support matrix](v1-support-matrix.md) summarizes the exact
+client/backend and platform combinations demonstrated by these checks.
 
 ## 1. Product destination
 
