@@ -1,10 +1,12 @@
 # Electron and Tauri desktop UX audit
 
 Date: 2026-10-29
-Status: all seven UX convergence lots are complete for the agreed Tauri scope.
-The matched current-source baseline covers shared surfaces; post-dispatch
-conversation and execution surfaces are documented as product-specific rather
-than visual-parity targets.
+Status: implementation evidence exists for all seven UX lots, but closure is
+reopened for a source and artifact audit. The initial closure overstated the
+CSS cleanup while a separate live-window comparison in this audit documented
+unmatched project/tracker state. Revalidate each lot against current source
+before claiming completion. Post-dispatch conversation and execution surfaces
+remain product-specific rather than visual-parity targets.
 
 ## Reference and scope
 
@@ -195,8 +197,8 @@ navigation lot.
 | The workspace footer claimed “Données et exécution locales” regardless of which backend supplied tracker state. | The footer was static while the project board reads remote tracker tickets. | Remove the claim instead of presenting topology as business-data ownership. |
 | Refresh actions can obscure which data they update. | The board-refresh control appeared in orchestration and execution views next to the supervisor's separate run refresh. | Show ticket refresh only on the board and execution refresh only in supervision, beside the data each action reloads. |
 | Electron's searchable command palette is missing from Tauri. | `desktop/src/main.js` indexes actions, projects and executions; Tauri had only direct sidebar/header controls. | Add a small React palette on Cmd/Ctrl+K with actions, projects and runs; do not add a UI dependency. |
-| Styling is split between base rules and a second override sheet. | `App.css` owns foundational controls/layout while `workspace-polish.css` redefines tokens, radii, spacing and component density after it. | Consolidate tokens and component rules after the navigation behavior settles. Avoid broad cosmetic changes before checking light/dark screenshots. |
-| Tauri and Electron have related but non-identical theme tokens. | `App.css` and Electron `desktop/src/style.css` share the dark palette and several light background/control values, but light `--sunken`/`--surface-sunken`, accent, selected and danger values differ; Electron also defines more semantic stage, diff and status tokens. `workspace-polish.css` currently derives only the workspace divider instead of redefining the base palette. | Treat `App.css` as the Tauri token source and compare semantic values against matched captures before aligning them. Do not claim palette parity based on similar colors or token names. |
+| Styling was split between base rules and a second refinement sheet. | `App.css` held foundational controls/layout while `workspace-polish.css` supplied presentation rules later in the cascade. | Combine both into `App.css` after behavior settled. This is now done without changing the existing declarations; keep `App.css` as the only Tauri stylesheet entry point. |
+| Tauri and Electron have related but non-identical theme tokens. | `App.css` and Electron `desktop/src/style.css` share the dark palette and several light background/control values, but light `--sunken`/`--surface-sunken`, accent, selected and danger values differ; Electron also defines more semantic stage, diff and status tokens. | Treat `App.css` as the Tauri token source and compare semantic values against matched captures before aligning them. Do not claim palette parity based on similar colors or token names. |
 | The Tauri sidebar was fixed width; Electron has a pointer and keyboard resizer. | Electron `desktop/src/main.js` wires `#sidebar-resizer`; Tauri originally rendered a fixed-width `.sidebar`. | Added a bounded, keyboard-accessible divider and persistent width. |
 | Settings are a full native page in Tauri and a categorized dialog in Electron. | Tauri's `LocalSettings` has separate engine, profile, connection, project and service sections; Electron groups workstation/project settings in its dialog. | Keep native Tauri setup, but align section naming, compact spacing and progressive disclosure. Do not force the dialog layout into a native page. |
 | The project sidebar and settings section navigation competed for attention on the native Settings page. | A same-size, light-theme current-source screenshot showed the Tauri project rail and settings rail taking about 418 CSS pixels before the settings content; Electron's settings view uses one rail. | Hide project navigation when Settings is opened from a workspace, retain the settings section rail, and return to the previous workspace from the header. Keep project navigation available for initial setup when there is no prior workspace. |
@@ -208,6 +210,7 @@ navigation lot.
 | The local-project empty state repeats the primary prompt action. | The project toolbar already has “Nouveau prompt”; the empty board adds “Commencer une conversation”. The live screenshot shows both at once. | Keep the global project action and remove the duplicate empty-state button; use the empty state to explain that the local project is ready for prompts. |
 | The project toolbar offers navigation to the view already open. | The live board screenshot shows a “Tableau” button beside the current project; `App.tsx` always renders it, and its handler navigates to the same board view. | Hide the current-view action while the board is open. Keep “Tableau” available from prompts and execution views so navigation remains direct. |
 | The prompt folder action obscured its project-wide scope. | `PromptFolders` listed the active directory and project attachments together; its “Ajouter un dossier” action did not explain that the selected folder is shared with every project conversation. | Call the action “Attacher au projet,” label the disclosure “Dossiers du projet,” and state that the attachment is shared across conversations. Keep detailed roles and paths in the disclosure. |
+| Prompt controls became uneven and the execution guidance wrapped into a narrow column on an 800 px workspace. | A current-source light-theme capture showed profile, engine, model and mode controls wrapping inconsistently, with the mode guidance squeezed beside the send action. | On narrow windows, place profile/engine and model/mode in two predictable rows and let the mode guidance use the full control width. Keep the existing wide-window layout. The retake at `/tmp/sectile-tauri-prompt-light-800.png` shows both rows and readable guidance. |
 | The current live Electron/Tauri windows are not a valid populated-state visual comparison. | Both windows were captured at the same desktop size, but Electron was showing a long historical conversation and orchestration sidebar while Tauri showed an empty Local board. A follow-up read-only check opened the same project label in both apps: Electron showed a tracker-backed task list, while Tauri showed a Local project with no tracker mapping. The running Tauri release bundle also predates the current source fixes. | Use these captures only for shell/navigation comparison. A matching project name does not prove matching backend or tracker state. Before tuning typography, spacing or colors, capture equivalent data modes, themes and current-source builds; do not infer visual style changes from mismatched content or stale binaries. |
 
 ## Current source and runtime status
@@ -226,7 +229,7 @@ their project and tracker modes differ.
 | Measurement | Electron source | Tauri source | Review note |
 | --- | --- | --- | --- |
 | Base interface font | `14px system-ui` | `13px system-ui, -apple-system` | Tauri is one CSS pixel smaller. Compare rendered text at the same scale before changing it. |
-| Header | `68px` | `54px` after `workspace-polish.css` (58px in base `App.css`) | The Electron native title-bar overlay is part of its 68px header. Compare the full native window chrome, not renderer content alone. |
+| Header | `68px` | `54px` in the consolidated Tauri `App.css` | The Electron native title-bar overlay is part of its 68px header. Compare the full native window chrome, not renderer content alone. |
 | Project rail | `280px` base, no pointer resizing in the old shell | `268px` with keyboard/pointer resizing | Width alone does not describe available work-area width; compare at equal window sizes and rail widths. |
 | Default button radius | `7px` | `8px` after polish (6px in base CSS) | Tauri's polish sheet overrides the base control radius. |
 | Dark accent / selected | `#62d3be` / `#203033` | `#62d3be` / `#203033` | Core dark values match in source. |
@@ -478,11 +481,11 @@ disposable test data.
   was connected; current source does not contain that warning. This is not
   evidence of a current-source settings defect. The production companion on
   port `52963` remained running and was not changed.
-- `workspace-polish.css` no longer duplicates Tauri's root palette; shared
-  Tauri color tokens live in `App.css`. The light selection, accent, sunken
-  surface and danger values still differ slightly from Electron. Matched
-  captures and core-token contrast checks support retaining those values and
-  Tauri's more compact native settings hierarchy.
+- Before consolidation, `workspace-polish.css` no longer duplicated Tauri's
+  root palette; shared color tokens already lived in `App.css`. The light
+  selection, accent, sunken surface and danger values still differ slightly
+  from Electron. Matched captures and core-token contrast checks support
+  retaining those values and Tauri's more compact native settings hierarchy.
 
 ## First corrections
 
@@ -495,13 +498,26 @@ disposable test data.
   filtering, arrow-key selection, Enter to open and Escape to close.
 - Added a pointer- and keyboard-resizable sidebar, bounded between 200 and 480
   pixels, with its width retained locally.
+- Consolidated the Tauri presentation refinements into `App.css`, removing the
+  separately imported `workspace-polish.css` without changing existing style
+  declarations. The focused narrow-prompt rule is scoped to the initial project
+  composer so resumed conversations retain their established controls.
 
-## Convergence closure
+## Convergence status (reopened)
 
-All seven implementation lots are complete for the agreed scope. Evidence is
-recorded above and in the parity delivery plan. The work preserves the single
-workspace, tracker-authoritative ticket state, native project folders, Local
-and Fleet ownership, and existing Go execution/MCP contracts.
+Earlier closure claimed all seven implementation lots complete. Reopening that
+claim because the style rules were split across two imported stylesheets and
+the Electron board artifact was not a valid content match for the Tauri board.
+The matched current-source board, pre-dispatch prompt and settings captures
+remain useful for shared hierarchy review; they do not prove pixel parity or
+validate the Electron execution console against Tauri conversations.
+
+The current pass combines the Tauri stylesheets without changing declarations.
+The table below records implementation evidence, not independent UX sign-off;
+each lot remains subject to the listed fixture and behavior gates and the
+source audit in this document. This work preserves the single workspace,
+tracker-authoritative ticket state, native project folders, Local and Fleet
+ownership, and existing Go execution/MCP contracts.
 
 | Lot | Outcome |
 | --- | --- |
@@ -513,9 +529,11 @@ and Fleet ownership, and existing Go execution/MCP contracts.
 | Native settings | Local/Fleet ownership, profile, tracker, project, provider and service responsibilities remain explicit. Advanced token, permission and execution controls stay available in their scoped sections. |
 | Visual system | Matched theme captures, semantic color roles, AA text contrast, visible focus and reduced-motion behavior are recorded. No broad token change was justified by the captures. |
 
-The Tauri desktop UI and domain suites pass (101 UI tests and 14 unit tests),
-and `npm run check` passes. Matched screenshots are evidence for hierarchy and
-behavior, not pixel-approval. Production Electron and Tauri windows still use
+Current verification passes: 101 UI tests, 14 domain tests, 35 Rust tests,
+`npm run check` and `npm run build`. The narrow project prompt was retaken at
+800 × 820 and 1280 × 900 in both themes after its responsive control layout
+changed. Matched screenshots are evidence for hierarchy and behavior, not
+pixel-approval. Production Electron and Tauri windows still use
 different project and tracker modes, so they are not valid content-comparison
 fixtures. Conversation transcripts, questions and execution/diff surfaces
 remain intentionally Tauri-specific because Electron continues provider CLI

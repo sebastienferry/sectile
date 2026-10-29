@@ -76,6 +76,13 @@ or create a Git tag.
 
 ## Current qualification status
 
+The binary compatibility harness was re-run on 2026-10-29 against Go commit
+`c2f38222` and the released v0.7.6 server/agent pair. Both directions passed
+21-tool MCP, STDIO bridge, mocked GitHub create/stage update, task/run lifecycle,
+`skills_status`, `init_git` and task-spec worktree checks. This closes that
+specific protocol slice; it does not close full Electron UI compatibility,
+live tracker/provider behavior or Fleet reconnection.
+
 The migration plan records a valid unsigned arm64 DMG, current-source Local
 onboarding and provider-supervision tests, Go/Electron regression suites,
 current/v0.7.6 agent/server protocol tests, and an isolated Local profile/project

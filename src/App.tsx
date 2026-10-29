@@ -30,7 +30,6 @@ import {
 import { useConversation } from "./lib/conversation-controller";
 import { CommandPalette } from "./components/CommandPalette";
 import "./App.css";
-import "./workspace-polish.css";
 
 const WorkflowTask = lazy(()=>import("./components/WorkflowTask").then(module=>({default:module.WorkflowTask})));
 const ProjectPrompt = lazy(() => import("./components/ProjectPrompt"));

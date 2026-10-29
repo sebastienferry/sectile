@@ -486,7 +486,7 @@ server/agent pairing and verifies Git initialized the expected path; it restores
 the original temporary metadata afterward. This qualifies one mutating agent
 operation. Task worktree operations, cancellation, provider execution, live
 GitHub/Jira/GitLab behavior and Electron registration remain unqualified. Stage 5 remains
-open for native Fleet setup screens and tracker writes, Windows runtime/migration,
+open for complete native Fleet setup and real tracker writes, Windows runtime/migration,
 provider execution in packaged Linux, supported-version boundaries, signed-package
 qualification and repeated true cold-start measurements. The qualification host currently has zero valid macOS
 code-signing identities. Do not infer these from unit tests or
@@ -527,7 +527,26 @@ binary connected to the current server WebSocket handler in an isolated test
 with a temporary database and HOME; the server accepted its version and complete
 operation list. The reproducible Go harness also starts a v0.7.6 server from an
 isolated SQLite database and accepts a current `dev` agent with all 27 operations
-and `outdated=false`. Both results qualify handshake compatibility only; tracker,
-MCP and workflow API parity remain open. Windows cross-compilation also passed
+and `outdated=false`. Those earlier two observations qualify handshake
+compatibility only. Windows cross-compilation also passed
 for the Go companion and handler test binary; Windows runtime/migration and real
 Linux desktop interaction, migration and provider execution remain untested.
+
+Current-source compatibility rerun (2026-10-29, Go
+`refactor/embedded-local-backend` commit `c2f38222`, harness cleanup fix
+committed as `df1d846c`): `python3
+scripts/compatibility/test-v076-server-current-agent.py` passed in both binary
+directions. Each server/agent combination announced the expected operations;
+each MCP client listed the 21-tool catalog and completed project listing, task
+creation, a mocked tracker stage update, and a run lifecycle. Both STDIO bridges
+completed `list_projects`. The agents also completed `skills_status`, initialized
+Git in a disposable workspace, and created a distinct task-specification
+worktree. The fake GitHub endpoint saw one issue create and one authenticated
+stage update per server, using the fixture personal token. A focused Go test
+also verified the released agent binary against the current handler. This does
+not qualify the full Electron UI, real tracker writes, provider execution,
+Fleet reconnection, or remote Fleet setup. The harness now uses the host Go
+build/module caches rather than placing read-only dependency trees in its
+disposable HOME; the latest run's fixture directory was verified removed. Two
+older temporary Go module-cache directories remain on disk; they were left
+untouched because they did not belong to the latest run.
