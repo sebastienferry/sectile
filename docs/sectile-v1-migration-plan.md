@@ -232,9 +232,11 @@ Stage 6 headless server slice (2026-10-29): Go commit `7dea9140` adds the
 `sectile_headless` build tag and `make build-server-headless`. The default Fleet
 server build still embeds the web application. Default and headless server/UI
 tests pass; the headless binary passed an isolated runtime smoke and Linux and
-Windows amd64 cross-builds. This completes the headless-artifact portion of
-Stage 6 only. Explicit migration paths for web/Electron consumers and a
-V1-supported server distribution remain open.
+Windows amd64 cross-builds. A second isolated smoke confirmed `POST /mcp`
+remains registered and rejects an unauthenticated initialization with JSON 401.
+This completes the headless-artifact portion of Stage 6 only. Explicit
+migration paths for web/Electron consumers and a V1-supported server
+distribution remain open.
 
 The post-change default-server smoke also passed with disposable SQLite: the
 default binary returned a healthy `/api/health` response and retained its
