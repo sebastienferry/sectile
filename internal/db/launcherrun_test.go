@@ -88,6 +88,14 @@ func TestAdoptionRefusalsSayWhyAndWhatToDo(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "does not match an active execution on this task") || !strings.Contains(err.Error(), "without a runId") {
 		t.Fatalf("adopting an unknown run: err = %v, want the unmatched case and the way out", err)
 	}
+	fresh, err := d.StartRemoteRunBy("u1", "t1", "handoff", "")
+	if err != nil || fresh == nil || fresh.ID == runID || fresh.Status != "running" {
+		t.Fatalf("starting a later invocation without runId: %+v %v", fresh, err)
+	}
+	previous, err := d.GetActivityByID(runID)
+	if err != nil || previous == nil || previous.Status != "canceled" {
+		t.Fatalf("new invocation changed the earlier run: %+v %v", previous, err)
+	}
 }
 
 // A queued macro run is adopted and finished the same way.

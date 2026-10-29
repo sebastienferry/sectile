@@ -4,6 +4,7 @@
 
 - Tracker skills return through server dispatch, independently of the HTTP launch response. Bind the initiating desktop connection to the response's explicit `runId` in either arrival order; ticket-only correlation can attach an unrelated dispatch. `activity.id` identifies a separate launch activity and must never be used as the execution ID. Older servers without `runId` cannot qualify this connection-bound interactive path.
 - Preserve project/task matching and bounded pending entries. Do not bypass conversation identity checks or allow generic adoption of tracker runs to fix disabled MCP approvals. Legacy Electron launches without a connection header keep their prior behavior.
+- Provider sessions can outlive a skill invocation. Launch and MCP instructions must limit adoption of `SECTILE_RUN_ID` to queued/running runs; a later round starts without `runId` and reports against the newly returned ID. The inherited environment still names the first run. Never reopen a terminal run to make a continuation succeed.
 
 ### GitLab Website URLs and the REST API Root (2026-10-29)
 

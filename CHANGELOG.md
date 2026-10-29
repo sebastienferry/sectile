@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- Workflow launch and MCP instructions now distinguish reusing an active run from starting a new invocation after a completed clarification round.
 - Desktop-launched tracker workflows retain their connection identity, allowing users to answer provider questions and approve MCP tools directly in the conversation.
 - Desktop conversations now show Sectile's own start, progress, interruption and restart notices in French across Claude Code, Codex and Antigravity.
 - GitLab tracker connections now accept an instance website address as well as its explicit `/api/v4` endpoint, including previously saved desktop configurations.

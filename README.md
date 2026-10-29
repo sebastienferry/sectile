@@ -363,6 +363,9 @@ server dispatch arrives. Provider questions and MCP approvals stay interactive
 for that connection; another selected connection cannot control the run.
 This requires the server's launch response to expose `runId`; the launch
 activity's `id` identifies a separate record and cannot substitute for it.
+The launcher's run ID can be adopted only while queued or running. A new skill
+invocation after completion calls `start_run` without `runId` and uses its
+returned ID for reporting, even when `SECTILE_RUN_ID` still names the first run.
 
 Free Claude Code and Codex conversations retain their provider session, transcript,
 model and mode across agent restarts. They resume on the next explicit message;

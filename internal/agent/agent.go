@@ -1245,7 +1245,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	payload.Prompt += d.sandboxNotice(config)
 
 	if payload.RunID != "" {
-		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with start_run and finish it using finish_run when the entire skill ends.", payload.RunID)
+		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with start_run only while that run is queued or running, and finish it using finish_run when the skill invocation ends. A completed, failed or canceled run cannot be restarted. If a later user reply begins another skill invocation, call start_run without runId and use the newly returned ID for its reports and finish_run; do not reuse the original launcher ID or SECTILE_RUN_ID for that new invocation.", payload.RunID)
 	}
 	payload.Mode = liveSessionMode(payload.SkillID, payload.Action, payload.Mode)
 	autonomous := models.NormalizeSkillMode(payload.Mode) == models.SkillModeAutonomous
