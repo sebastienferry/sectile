@@ -468,11 +468,13 @@ repository: the released v0.7.6 agent connects to the current handler, and the
 current agent connects to a server built from the v0.7.6 tag. The harness also
 starts both server binaries against isolated temporary databases with a seeded
 project/task, then exercises each server with the other version's MCP SDK
-client. Both clients list the 21-tool catalog, call `list_projects`, start a run,
+client. Both clients list the 21-tool catalog, call `list_projects`, create a
+GitHub issue through a mock API using the personal tracker token, start a run,
 transition the task to `clarified`, finish the run, and read back the persisted
-task and run statuses. This proves MCP session/catalog compatibility and one
-workflow transition in both directions; tracker synchronization/writes,
-execution tools and Electron registration remain unqualified. Stage 5 remains
+task and run statuses. This proves MCP session/catalog compatibility, remote
+issue creation authorization and one workflow transition in both directions.
+It does not qualify live GitHub/Jira/GitLab synchronization, execution tools or
+Electron registration. Stage 5 remains
 open for a live Fleet pairing/setup session, an Electron live MCP call after the
 Tauri migration, signed-package qualification and repeated true cold-start
 measurements. The qualification host currently has zero valid macOS
