@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("../src/components/ProjectPrompt", () => ({ default: ({ projectId }: {projectId: string}) => <div>Free prompt for {projectId}</div> }));
 import App from "../src/App";
+import type { Task } from "../src/domain/board";
 import { conversationFor } from "../src/lib/conversation-controller";
 import * as workspace from "../src/lib/workspace";
 vi.mock("../src/lib/workspace",async original=>({...await original<typeof workspace>(),projectContext:vi.fn()}));
@@ -112,6 +113,60 @@ test("a trackerless local project shows prompt guidance without tracker controls
  expect(screen.queryByRole("combobox",{name:"Regrouper les tickets"})).toBeNull();
  expect(screen.queryByText("Statuts du tracker · lecture seule")).toBeNull();
  expect(screen.queryByRole("button",{name:"Commencer une conversation"})).toBeNull();
+});
+
+test("a local board does not flash remote controls while its project context loads",async()=>{
+ vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
+ let resolveContext!: (value:workspace.ProjectContext)=>void;
+ vi.mocked(workspace.projectContext).mockReturnValue(new Promise(resolve=>{resolveContext=resolve;}));
+ render(<App />);
+ await screen.findByText("Chargement de la configuration du projet…");
+ expect(screen.queryByRole("textbox",{name:"Rechercher des tickets"})).toBeNull();
+ expect(screen.queryByRole("heading",{name:"Aucun ticket distant"})).toBeNull();
+ resolveContext({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"local",provider:"local"}]}});
+ await screen.findByRole("heading",{name:"Votre projet local est prêt"});
+ expect(screen.queryByRole("textbox",{name:"Rechercher des tickets"})).toBeNull();
+});
+
+test("a failed board context read explains the problem and can be retried",async()=>{
+ vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
+ vi.mocked(workspace.projectContext)
+  .mockRejectedValueOnce(new Error("Context unavailable"))
+  .mockResolvedValueOnce({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[]}});
+ render(<App />);
+ expect((await screen.findByRole("alert")).textContent).toContain("Context unavailable");
+ expect(screen.queryByRole("heading",{name:"Aucun ticket distant"})).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Réessayer"}));
+ await screen.findByRole("heading",{name:"Votre projet local est prêt"});
+ expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("switching projects does not show another project's tickets or search filter",async()=>{
+ vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"},{id:"q",name:"Second project",path:"/work/second"}]);
+ let resolveSecond!: (items:Task[])=>void;
+ vi.mocked(api.listTasks).mockImplementation(id=>id==="p"
+  ? Promise.resolve([{id:"old",key:"APP-1",title:"Old project ticket",source:"jira",trackerStatus:"Open",status:"to_clarify"}])
+  : new Promise(resolve=>{resolveSecond=resolve;}));
+ vi.mocked(workspace.projectContext).mockImplementation(id=>Promise.resolve({configured:true,path:id==="p"?"/work/example":"/work/second",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}}));
+ render(<App />);
+ await screen.findByText("Old project ticket");
+ fireEvent.change(screen.getByRole("textbox",{name:"Rechercher des tickets"}),{target:{value:"Old"}});
+ fireEvent.click(screen.getByRole("button",{name:"Second project"}));
+ expect(screen.queryByText("Old project ticket")).toBeNull();
+ expect((await screen.findByRole("textbox",{name:"Rechercher des tickets"}) as HTMLInputElement).value).toBe("");
+ resolveSecond([{id:"new",key:"APP-2",title:"Second project ticket",source:"jira",trackerStatus:"Open",status:"to_clarify"}]);
+ await screen.findByText("Second project ticket");
+});
+
+test("a failed local ticket refresh does not expose remote tracker controls",async()=>{
+ vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
+ vi.mocked(api.listTasks).mockResolvedValueOnce([]).mockRejectedValueOnce(new Error("Ticket read unavailable"));
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[]}});
+ render(<App />);
+ await screen.findByRole("heading",{name:"Votre projet local est prêt"});
+ fireEvent.click(screen.getByRole("button",{name:"Actualiser le tableau"}));
+ expect((await screen.findByRole("alert")).textContent).toContain("Ticket read unavailable");
+ expect(screen.queryByRole("textbox",{name:"Rechercher des tickets"})).toBeNull();
 });
 
 test("the synthetic local tracker does not show remote tracker controls",async()=>{

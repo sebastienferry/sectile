@@ -11,6 +11,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Switching projects no longer shows the previous project's tickets or search filter while loading; Local boards keep their correct controls and let users retry a failed context read.
 - Finished ticket workflows now show their result and history without disabled launch controls or irrelevant provider setup warnings.
 - Historical ticket executions no longer show a disabled stop action; active executions identify an already requested stop.
 - Switching projects clears the previous project's unsent prompt and prevents a delayed conversation creation from reopening that project.

@@ -407,28 +407,34 @@ function ProjectPane({
     return latest;
   }, [monitor.snapshot?.runs, selection.projectId]);
   const workingDirectory = selection.runId ? currentRun?.directory : project?.path;
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [error, setError] = useState("");
+  const [taskState, setTaskState] = useState<{projectId:string;items:Task[]}>();
+  const tasks = taskState?.projectId === selection.projectId ? taskState.items : [];
+  const [errorState, setErrorState] = useState<{projectId:string;message:string}>();
+  const error = errorState?.projectId === selection.projectId ? errorState.message : "";
   const [busy, setBusy] = useState(false);
-  const [query, setQuery] = useState("");
+  const [queryState, setQueryState] = useState<{projectId:string;value:string}>();
+  const query = queryState?.projectId === selection.projectId ? queryState.value : "";
   const [grouping,setGrouping] = useState("tracker");
   const [compactCards,setCompactCards] = useState(()=>readPreference("boardCards","compact")!=="full");
   const [visibleByColumn,setVisibleByColumn] = useState<Record<string,number>>({});
-  useEffect(()=>setVisibleByColumn({}),[query,grouping]);
+  useEffect(()=>setVisibleByColumn({}),[selection.projectId,query,grouping]);
   const [contextState,setContextState] = useState<{projectId:string;value:ProjectContext}>();
+  const [contextError,setContextError] = useState<{projectId:string;message:string}>();
+  const [contextRefresh,setContextRefresh] = useState(0);
   const context = contextState?.projectId === selection.projectId ? contextState.value : undefined;
-  useEffect(()=>{let current=true;void projectContext(selection.projectId).then(data=>{if(current)setContextState({projectId:selection.projectId,value:data});}).catch(()=>{});return()=>{current=false;};},[selection.projectId]);
+  const currentContextError = contextError?.projectId === selection.projectId ? contextError.message : "";
+  useEffect(()=>{let current=true;setContextError(undefined);void projectContext(selection.projectId).then(data=>{if(current){setContextState({projectId:selection.projectId,value:data});setContextError(undefined);}}).catch(cause=>{if(current)setContextError({projectId:selection.projectId,message:String(cause)});});return()=>{current=false;};},[selection.projectId,contextRefresh]);
   const [selectedRun, setSelectedRun] = useState(selection.runId ?? "");
   const request = useRef(0);
   async function refresh() {
     const seq = ++request.current;
     setBusy(true);
-    setError("");
+    setErrorState(undefined);
     try {
       const items = await listTasks(selection.projectId);
-      if (seq === request.current) setTasks(items);
+      if (seq === request.current) setTaskState({projectId:selection.projectId,items});
     } catch (cause) {
-      if (seq === request.current) setError(String(cause));
+      if (seq === request.current) setErrorState({projectId:selection.projectId,message:String(cause)});
     } finally {
       if (seq === request.current) setBusy(false);
     }
@@ -445,11 +451,10 @@ function ProjectPane({
     trackers.every(tracker=>tracker.provider === "local") ||
     (trackers.length === 1 && !trackers[0].provider && context.issueTracker === "local")
   ));
+  const boardContextPending = !context && !currentContextError;
   const localOnlyProject = Boolean(
     hasNoExternalTrackers &&
-    !hasRemoteTasks &&
-    !error &&
-    !busy,
+    !hasRemoteTasks,
   );
   const visibleTasks = remoteColumns.flatMap(column=>column.tasks);
   const columns = grouping === "stage" ? [...stages.map(stage=>({name:stageLabels[stage],tasks:visibleTasks.filter(task=>taskStage(task,context?.board)===stage)})),...(visibleTasks.some(task=>!taskStage(task,context?.board))?[{name:"Étape inconnue",tasks:visibleTasks.filter(task=>!taskStage(task,context?.board))}]:[])] : remoteColumns;
@@ -499,14 +504,14 @@ function ProjectPane({
       {selection.view === "project-settings" ? <ProjectProfiles key={selection.projectId} projectId={selection.projectId} after={<section className="project-advanced" aria-label="Options avancées du projet"><h2>Options avancées</h2><details className="additional-folder-settings"><summary>Dossiers supplémentaires<small>Contexte partagé entre les conversations du projet</small></summary><AttachedFolderSettings projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/></details><AdvancedFolders projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/><WorkflowSettings projectId={selection.projectId}/><OrchestrationSettings projectId={selection.projectId} onSupervise={()=>{if(project)navigate(project,"orchestration");}}/></section>}>{project && <ProjectFolderSetup variant="settings" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}</ProjectProfiles> : selection.view === "task" && selection.taskId ? <Suspense fallback={<p>Ouverture du workflow…</p>}><WorkflowTask projectId={selection.projectId} taskId={selection.taskId} onBack={()=>{if(project)navigate(project,"board");}} onSetup={()=>{if(project)navigate(project,"settings");}}/></Suspense> : selection.view === "board" ? (
         <div className="board-workspace">
           {error && tasks.length > 0 && <p className="hint" role="status">La dernière actualisation a échoué. Les tickets affichés proviennent de la lecture précédente.</p>}
-          {!localOnlyProject && <div className="board-toolbar">
+          {!boardContextPending && !currentContextError && !localOnlyProject && <div className="board-toolbar">
             <label className="search">
               <Icon name="search" />
               <input
                 aria-label="Rechercher des tickets"
                 placeholder="Rechercher un ticket…"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => setQueryState({projectId:selection.projectId,value:e.target.value})}
               />
             </label>
             <label>Regrouper<select aria-label="Regrouper les tickets" value={grouping} onChange={e=>setGrouping(e.target.value)}><option value="tracker">Par statut tracker</option><option value="stage">Par étape du workflow</option></select></label>
@@ -519,6 +524,8 @@ function ProjectPane({
               Actualisation des tickets…
             </p>
           )}
+          {boardContextPending && !busy && <p className="hint" role="status">Chargement de la configuration du projet…</p>}
+          {currentContextError && <div className="error" role="alert">Configuration du tableau indisponible : {currentContextError} <button onClick={()=>setContextRefresh(value=>value+1)}>Réessayer</button></div>}
           <div className="board" role="region" aria-label="Colonnes de tickets, défilement horizontal" tabIndex={0}>
             {columns.map((column) => (
               <section className="column" key={column.name}>
@@ -562,7 +569,7 @@ function ProjectPane({
               </section>
             ))}
           </div>
-          {!busy && !error && !count && (
+          {!busy && !error && !currentContextError && !boardContextPending && !count && (
             <div className="empty">
               <Icon name="board" />
               <h2>{localOnlyProject ? project?.path ? "Votre projet local est prêt" : "Aucune source de tickets configurée" : "Aucun ticket distant"}</h2>

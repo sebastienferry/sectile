@@ -690,3 +690,16 @@ turn with `IDLE_FIRST_OK`. After quitting the desktop and stopping its
 companion, reopening restored the project folder, completed answer,
 `gpt-6-astra` model and Execution mode. The transcript remained Ready and
 contained no false restart-pause notice.
+
+Returning from Settings to a Local project exposed a transient board
+misclassification: while its context or ticket read was pending, Tauri showed
+remote tracker search and an “Aucun ticket distant” empty state. The board now
+waits for project context before showing tracker controls or an empty state,
+keeps the Local classification during ticket refresh, and reports a failed
+context read with a retry action. The same review found that tickets and the
+search filter from the previous project could remain visible during a project
+switch; both are now scoped to the selected project. Focused UI tests hold the
+context and ticket requests pending, reject/retry a context read, and check a
+failed Local ticket refresh. The 29-test workspace suite and production build
+pass. The current native package was opened, but another interaction changed
+its window during the retake; no native pass is claimed for this final source.
