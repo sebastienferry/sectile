@@ -41,6 +41,11 @@
   desktop board projection must carry tracker providers; classify as local only
   when there are no external providers. For old agents, the legacy
   `issueTracker=local` fallback is safe only for a single selected tracker.
+- Project board context and ticket reads resolve independently. Before context
+  arrives, do not infer a remote tracker from its absence. Keep tickets, read
+  errors and search drafts keyed to the selected project so a navigation cannot
+  briefly display another project's data; a Local classification remains Local
+  while ticket refresh is pending or fails.
 - Companion MCP uses process-scoped `sectile_companion` configuration (ADR 0011).
   Never repair its connection by replacing Electron's shared `sectile` entry.
   Codex deep-merges configuration tables; changing a shared entry from STDIO to
