@@ -172,9 +172,15 @@ Current Tauri verification (2026-10-29): `npm run check`, `npm test` (9 tests),
 pass. Two isolated macOS release bundles built successfully with unique bundle
 identifiers for live Fleet checks; each measured 101.72 MiB. The Fleet Pair Test
 bundle contains byte-identical copies of all three `src-tauri/binaries` service
-resources; each is a Darwin arm64 `dev` binary. This qualifies package contents
-on this host, not a reproducible version-pinned service set. The active Local
-installation and its companion remained running during those checks.
+resources; each is a Darwin arm64 `dev` binary. At Tauri commit `2206473` and Go
+commit `7dea9140`, `prepare:services` now embeds the same source commit and date
+in all three service versions and writes a manifest with SHA-256, size, dirty
+state, tag and release eligibility. A clean source build produced three
+matching `7dea9140` binaries; an isolated optimized `.app` included the
+manifest and all three resources with matching hashes. This verifies
+reproducible source identity and packaged provenance on this host, not a tagged
+release, signature or other-platform package. The active Local installation
+and its companion remained running during those checks.
 
 Current UX-source bundle check (2026-10-29, Tauri commit `8803eff`): an isolated
 unsigned optimized app was built with bundle identifier
