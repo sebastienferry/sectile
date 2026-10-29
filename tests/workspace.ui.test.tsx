@@ -143,6 +143,23 @@ test("tracker-backed projects retain board search, grouping and ticket status",a
  expect(screen.getByText("Statuts du tracker · lecture seule")).toBeTruthy();
  expect(screen.getByText("Remote issue")).toBeTruthy();
 });
+test("board density defaults to compact and remembers the detailed choice",async()=>{
+ vi.mocked(api.listTasks).mockResolvedValue([{id:"t",key:"APP-2",title:"A long remote issue title",source:"jira",trackerStatus:"To Do",status:"to_clarify"}]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
+ const view=render(<App />);
+ await screen.findByText("A long remote issue title");
+ const density=screen.getByRole("button",{name:"Cartes compactes"});
+ expect(density.getAttribute("aria-pressed")).toBe("true");
+ expect(document.querySelector(".board .task.compact")).not.toBeNull();
+ fireEvent.click(density);
+ expect(density.getAttribute("aria-pressed")).toBe("false");
+ expect(document.querySelector(".board .task.compact")).toBeNull();
+ expect(localStorage.getItem("sectile-tauri.boardCards")).toBe("full");
+ view.unmount();
+ render(<App />);
+ await screen.findByText("A long remote issue title");
+ expect(screen.getByRole("button",{name:"Cartes compactes"}).getAttribute("aria-pressed")).toBe("false");
+});
 
 test("a large tracker board renders tickets progressively while search reaches the full result",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue(Array.from({length:1988},(_,index)=>({id:`task-${index+1}`,key:`APP-${index+1}`,title:`Ticket ${index+1}`,source:"jira",trackerStatus:"To Do",status:"to_clarify"})));

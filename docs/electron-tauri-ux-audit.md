@@ -653,3 +653,11 @@ it displayed 80 cards while retaining the 1,400 total. Searching for the
 last fixture key, `PE-4592`, returned that ticket alone. This preview uses
 the development-only `?fixture=large-board` path and does not substitute for
 a native packaged-window check or a live Jira board screenshot.
+
+Matched dark-theme board captures at 1280 × 720 exposed another density gap:
+Electron opened compact task rows, while Tauri's cards used a taller detailed
+layout. Tauri now opens ticket cards in a compact layout that keeps the key,
+title, stage, assignee and active workflow state visible. The board control
+restores the detailed layout and saves the choice for the next launch. A
+focused UI test checks the default and persisted choice; an isolated browser
+preview of the 1,988-ticket fixture checked the compact layout at 1280 × 720.

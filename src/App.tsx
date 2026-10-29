@@ -412,6 +412,7 @@ function ProjectPane({
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
   const [grouping,setGrouping] = useState("tracker");
+  const [compactCards,setCompactCards] = useState(()=>readPreference("boardCards","compact")!=="full");
   const [visibleByColumn,setVisibleByColumn] = useState<Record<string,number>>({});
   useEffect(()=>setVisibleByColumn({}),[query,grouping]);
   const [contextState,setContextState] = useState<{projectId:string;value:ProjectContext}>();
@@ -509,6 +510,7 @@ function ProjectPane({
               />
             </label>
             <label>Regrouper<select aria-label="Regrouper les tickets" value={grouping} onChange={e=>setGrouping(e.target.value)}><option value="tracker">Par statut tracker</option><option value="stage">Par étape du workflow</option></select></label>
+            <button type="button" className="board-density" aria-pressed={compactCards} onClick={()=>setCompactCards(value=>{const next=!value;savePreference("boardCards",next?"compact":"full");return next;})}>Cartes compactes</button>
             <span className="badge">{count} tickets</span>
             <span className="muted">Statuts du tracker · lecture seule</span>
           </div>}
@@ -527,12 +529,12 @@ function ProjectPane({
                 </h2>
                 {visibleBoardTasks(column.tasks,activeTaskRuns,visibleByColumn[column.name] ?? 40).map((task) => {
                   const taskRun = activeTaskRuns.get(task.id);
-                  return <article className="task" key={task.id}>
+                  return <article className={`task ${compactCards?"compact":""}`} key={task.id}>
                     <div className="task-meta">
                       <span>{task.key || task.id}</span>
                       <span>{task.source}</span>
                     </div>
-                    <h3><button className="task-open" onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button></h3>
+                    <h3><button className="task-open" title={task.title} onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button></h3>
                     <p className="task-stage">{taskStage(task,context?.board)?stageLabels[taskStage(task,context?.board)!]:"Étape non déterminée"}</p>
                     {taskRun && isActive(taskRun) && <p className="task-run-state" role="status">{skillLabels[taskRun.skill] || taskRun.skill} · {statusLabel(taskRun)}</p>}
                     <footer>
