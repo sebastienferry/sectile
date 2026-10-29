@@ -102,3 +102,26 @@ Three instrumented fixture benchmark samples (10 iterations each) measured
 one-time initialization. Twenty shuffled repetitions of the template checks and
 foreign-PR fixture checks also passed under `-race` after synchronizing the fake
 agent's mutable answers and call counter.
+
+## Packaged Local migration recovery
+
+The companion upgrade fixture normally calls the source implementation. To
+verify recovery through an already packaged executable, set its absolute path:
+
+```sh
+SECTILE_TEST_PACKAGED_COMPANION="/absolute/path/to/Sectile Tauri.app/Contents/Resources/binaries/sectile-companion" \
+  go test ./internal/companion \
+  -run '^TestUpgradeRecoversEveryDurableBoundaryAndPreservesIdentity$' -count=1 -v
+```
+
+Each subtest prepares a disposable legacy installation and interrupts the source
+upgrade at one of six durable checkpoints. Recovery then runs the supplied
+binary with `--upgrade --data-dir` and a 30-second timeout. Assertions verify the
+selected generation, API identity, encryption key, personal tracker credential,
+encrypted Jira OAuth application, project, ticket, snapshot/journal bytes,
+verified backup and legacy-database fence. Fixture credentials are synthetic.
+No backend or provider listener is started, and user installation data is not
+used. This verifies packaged recovery from prepared states; it does not inject
+SIGKILL into the packaged process or qualify a native installer, a real OAuth
+grant or provider-session resumption. Without the variable, the source test
+continues to run as before.

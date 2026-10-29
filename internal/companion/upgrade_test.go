@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"tasks/internal/agentexec"
 	"tasks/internal/db"
 	"tasks/internal/models"
 )
@@ -109,7 +112,15 @@ func TestUpgradeRecoversEveryDurableBoundaryAndPreservesIdentity(t *testing.T) {
 					t.Fatalf("post-commit candidate unavailable at %s: %v", stage, readErr)
 				}
 			}
-			if err = Upgrade(context.Background(), root, "", ""); err != nil {
+			if binary := os.Getenv("SECTILE_TEST_PACKAGED_COMPANION"); binary != "" {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				command := agentexec.Hidden(exec.CommandContext(ctx, binary, "--upgrade", "--data-dir", root))
+				if output, commandErr := command.CombinedOutput(); commandErr != nil {
+					t.Fatalf("packaged upgrade failed: %v\n%s", commandErr, output)
+				}
+				t.Log("Recovery completed using the packaged companion")
+			} else if err = Upgrade(context.Background(), root, "", ""); err != nil {
 				t.Fatal(err)
 			}
 			candidate := filepath.Join(root, generation)

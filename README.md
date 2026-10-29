@@ -367,6 +367,9 @@ The launcher's run ID can be adopted only while queued or running. A new skill
 invocation after completion calls `start_run` without `runId` and uses its
 returned ID for reporting, even when `SECTILE_RUN_ID` still names the first run.
 
+Packaged migration recovery can be checked on disposable data with
+`SECTILE_TEST_PACKAGED_COMPANION`; see [Testing](docs/TESTING.md#packaged-local-migration-recovery).
+
 Free Claude Code and Codex conversations retain their provider session, transcript,
 model and mode across agent restarts. They resume on the next explicit message;
 previous prompts and tools are not replayed. Older histories without saved session
