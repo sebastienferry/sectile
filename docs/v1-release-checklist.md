@@ -181,3 +181,9 @@ Desktop OAuth contract check (2026-10-29): focused Go handler tests passed
 complete fake-provider GitHub, GitLab and Jira callback exchanges and the fixed
 Local Jira callback contract. Real provider consent and tracker reads from a
 signed desktop package remain open.
+
+Default-port bootstrap check (2026-10-29): the packaged companion built from
+clean Go `fe3a98c8` accepted an authenticated Local runtime probe on 52963 in
+174 ms and released the port after shutdown. It used disposable data and no
+Tauri window or paired execution agent. Full release-binary cold start,
+provider execution and clean-user installation remain open.

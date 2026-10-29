@@ -240,6 +240,12 @@ table below.
 
 The remaining Stage 5 gaps are end-to-end live OAuth/tracker/provider workflows
 on the release binary and tracked-task tests with remote tracker mutations.
+On 2026-10-29, the packaged companion built from clean Go commit `fe3a98c8`
+opened its fixed port 52963 with an isolated temporary installation, returned
+authenticated Local runtime metadata with protocol 1 and `ready: true` in
+174 ms, then shut down and released the port. This proves only backend
+bootstrap; it did not pair an agent, open a Tauri window, read a tracker or
+measure full desktop readiness. The existing Local data directory was not used.
 The isolated Electron tracked-ticket run below now confirms visible skill tool
 activity and Stop against the current Go agent. A later tracked-ticket run
 verified that its Codex tool cannot write a delayed file after Stop. The
