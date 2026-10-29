@@ -80,6 +80,17 @@ verification record remains the evidence for those flows.
   an active task rather than the settings dialog shown in its accessibility
   tree, so the screenshots are not comparable and matched language, color and
   spacing review remains open.
+- A second isolated macOS visual check ran the latest Tauri source at commit
+  `6a8caf8` with a uniquely named app bundle and a test-only Go companion on
+  port `52964`. It verified that a trackerless Local project opens with the
+  local-ready message and no remote ticket controls, Settings hides the project
+  rail when entered from a workspace, and the header return action restores the
+  prior workspace. The AI engines settings screen was also inspected. Electron
+  still had Fleet/tracker-backed configuration, so this run verifies
+  current-source Local behavior and navigation only; it does not close the
+  matched visual-comparison item. The isolated profile, folder, app state,
+  companion process, bundle and worktrees were removed. The production Local
+  companion on port `52963` was not touched.
 - Prompt context now surfaces attached folder names immediately. The full path
   and role remain available in the details disclosure. Typecheck and production
   build passed for this change; a matched live visual review is still pending.
