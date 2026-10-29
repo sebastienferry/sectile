@@ -877,3 +877,11 @@ project settings layout and shows a completed state instead of empty controls.
 A rebuilt isolated app at `2a1e59e` reopened the same Fleet project and
 visually confirmed that completed state without the redundant form. The
 isolated app, agent, backend and private data were removed after the check.
+
+A separate native Local retake at Tauri `d0ecceb` opened a temporary folder as
+a project, registered a fixture tracker in Settings, and attached it from that
+project's configuration. The project, folder and tracker persisted across a
+companion stop and desktop reopen, and a Codex free prompt returned its expected
+answer with the same working directory. The test also exposed English agent
+notice text in the French conversation surface; this is a distinct copy
+inconsistency to resolve without changing provider-authored responses.

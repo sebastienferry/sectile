@@ -134,6 +134,20 @@ message and no empty selector or native fieldset border. The app, its agent,
 backend, private data and test bundle were stopped or removed afterward; the
 regular Local companion remained on port 52963.
 
+Native Local folder-to-tracker qualification (2026-10-29): an unsigned Tauri
+`d0ecceb` app used a unique bundle ID and a disposable Go `45940914` companion
+whose only source change was test port 55466. From the native window it started
+Local, saved a test profile, opened an empty folder as a prompt-ready project,
+registered a GitHub fixture source, and attached that source from the project
+configuration. An authenticated API read showed one selected tracker, the same
+project ID and folder mapping. After quitting the desktop and stopping the
+companion, reopening the app restarted the companion and restored the same
+project ID, folder and tracker selection. A free Codex prompt in that project
+returned `LOCAL_TRACKER_OK` with the correct working directory and MCP shown
+connected. The fixture tracker was intentionally not given a credential or
+synced, so this is not evidence of ticket import or tracker writes. The test
+app, companion, data and worktrees were removed; port 52963 was untouched.
+
 The binary compatibility harness was re-run on 2026-10-29 against Go commit
 `c2f38222` and the released v0.7.6 server/agent pair. Both directions passed
 21-tool MCP, STDIO bridge, mocked GitHub create/stage update, task/run lifecycle,
