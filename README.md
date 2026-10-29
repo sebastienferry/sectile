@@ -217,12 +217,17 @@ cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 npm run test:rust
 # After preparing compatible Go services:
 npm run test:services
-npm run tauri build
+npm run package:macos
 ```
 
-`tauri build` creates an application and platform bundles under `src-tauri/target/release/bundle`.
-Bundles include Go services when prepared locally and currently use Tauri's starter icons. V1 uses manual DMG updates; code signing, notarization,
-and production release automation remain future work. Bundles include the
+`npm run package:macos` builds an arm64 app and DMG under
+`src-tauri/target/release/bundle`, then verifies that both embed the exact Go
+service manifest and hashes from `src-tauri/binaries`, include dependency notices
+and license texts, and pass `hdiutil verify`. It refuses dirty Go service
+builds. Use `npm run tauri build` only for development packages that do not need
+this qualification. Bundles currently use Tauri's starter icons. V1 uses manual
+DMG updates; code signing, notarization, and production release automation
+remain future work. Bundles include the
 MIT license and third-party dependency notices in the application resources;
 see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the
 [notice maintenance guide](docs/third-party-notices.md).

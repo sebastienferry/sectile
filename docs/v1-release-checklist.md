@@ -40,8 +40,10 @@ or create a Git tag.
 
 ## macOS package and upgrade
 
-- [ ] Build the arm64 app and DMG from the selected release commits. Add an
-  x86_64 artifact only after native/package qualification for that architecture.
+- [ ] Build the arm64 app and DMG from the selected release commits with
+  `npm run package:macos`; confirm the post-build manifest/hash verifier passes.
+  Add an x86_64 artifact only after native/package qualification for that
+  architecture.
 - [ ] Sign the Go executables and the complete `.app` with a valid Developer ID
   identity. Verify the signature and Gatekeeper assessment.
 - [ ] Notarize the app/DMG, staple the notarization ticket and verify it on a
