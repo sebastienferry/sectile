@@ -118,6 +118,21 @@ supported versions, other-platform migration and measured process/memory/startup
 and package behavior. Do not claim stages 6-8 complete or infer that this branch
 constitutes a V1 release.
 
+The first compatibility slice passed: standalone `cmd/agent` and `cmd/server`
+tests, race-enabled companion/backend/agent tests, a Windows companion
+cross-build, 315 Electron unit tests, and the Tauri typecheck/build plus 83 UI
+and 24 Rust tests. The migrated macOS install preserved its ten original
+projects, trackers, OAuth key and 25 conversation histories; live Jira,
+Claude/Codex prompt and embedded MCP calls succeeded. One idle companion used
+about 40.7 MiB RSS against 55.7 MiB combined server/agent phase 0 medians. The
+Tauri desktop process is excluded, so this is not a total application memory
+claim. The debug `.app` measured 133.1 MiB versus 92.9 MiB at phase 0, mainly
+because the upgrade build still bundles both legacy migration executables.
+Cold native startup, release artifact size, explicit old/new Fleet protocol
+fixtures, a remote Fleet session, and a post-migration Electron live MCP call
+remain unqualified. See [the runtime plan](local-fleet-runtime-plan.md) for the
+scope of this evidence.
+
 Stages 6 and 7 are product-direction work, not authorization to remove existing
 web pages, API routes or domain data during stages 0-5. A headless distribution
 can omit website assets without immediately deleting the current web server.

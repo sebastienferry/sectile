@@ -417,3 +417,30 @@ invalidate readiness so the next request can recover the companion. A new
 companion MCP environment passes the embedded daemon's explicit credential to
 provider children, fixing free-conversation tool calls without changing
 standalone Fleet credential lookup.
+
+### Compatibility and resource qualification (2026-10-29)
+
+The first cross-surface check slice passes:
+
+| Surface | Evidence | Result and limit |
+| --- | --- | --- |
+| Go Fleet/server boundaries | `go test ./cmd/agent ./cmd/server` | Pass; both independent entry points still build and server tests pass. This is not the full old/new client-version matrix. |
+| Go companion and shared runtime | `go test -race ./cmd/companion ./internal/companion ./internal/agent ./internal/backend`; Windows `GOOS=windows GOARCH=amd64 go build ./cmd/companion` | Pass on macOS host; companion packages are race-clean and Windows compilation succeeds. Windows live migration and execution are not qualified. |
+| Electron renderer | `desktop/npm test` | 315 tests pass after installing the lockfile dependencies. No Electron UI or live shared-MCP registration was changed in this work. |
+| Tauri renderer/native layer | TypeScript check, production Vite build, 83 UI tests and 24 Rust tests | Pass before the latest UX audit changes; the latest palette/sidebar changes pass TypeScript and production build. |
+| Existing native Local install | Managed macOS migration verification and real Jira/Claude/Codex/MCP requests | Pass; details above. |
+
+The idle Go service process count is now one. At the captured idle sample,
+`sectile-companion` used about 40.7 MiB RSS, compared with the phase 0 server and
+agent medians totaling 55.7 MiB. The Tauri desktop process used another 62.2 MiB
+and was excluded from the Go-service comparison; this does not establish a total
+desktop memory saving. The rebuilt debug `.app` occupies 133.1 MiB versus the
+92.9 MiB phase 0 debug app, an increase of about 40.2 MiB. It bundles the
+companion plus the legacy server and agent migration executables. A release
+artifact size and cold native startup measurement are still required before
+claiming a smaller or faster delivery.
+
+Stage 5 remains open for explicit old-agent/new-server and new-agent/supported
+server protocol fixtures, a remote Fleet desktop session, an Electron live MCP
+call after the Tauri migration, and packaged release measurements. Do not infer
+these from unit tests or from the migrated Local installation.
