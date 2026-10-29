@@ -21,6 +21,7 @@ export function CommandPalette({
   onOpenFolder,
   onOpenSettings,
   onToggleSidebar,
+  sidebarActionLabel,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -31,6 +32,7 @@ export function CommandPalette({
   onOpenFolder: () => void;
   onOpenSettings: () => void;
   onToggleSidebar: () => void;
+  sidebarActionLabel: string;
 }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -62,7 +64,7 @@ export function CommandPalette({
     const result: Entry[] = [
       { group: "action", label: "Ouvrir un dossier", detail: "Créer ou retrouver un projet local", run: onOpenFolder },
       { group: "action", label: "Paramètres", detail: "Configuration du poste", run: onOpenSettings },
-      { group: "action", label: "Afficher ou masquer les projets", run: onToggleSidebar },
+      { group: "action", label: sidebarActionLabel, run: onToggleSidebar },
     ];
     if (selected) {
       result.push({ group: "action", label: "Nouveau prompt", detail: selected.name, run: () => onNavigate(selected, "prompt") });
@@ -85,7 +87,7 @@ export function CommandPalette({
       });
     }
     return result;
-  }, [onNavigate, onOpenFolder, onOpenSettings, onToggleSidebar, projects, runs, selectedProjectId]);
+  }, [onNavigate, onOpenFolder, onOpenSettings, onToggleSidebar, projects, runs, selectedProjectId, sidebarActionLabel]);
 
   const shown = useMemo(() => {
     const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);

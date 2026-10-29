@@ -29,6 +29,7 @@ verification record remains the evidence for those flows.
 | Tauri's workspace polish sheet overrode the canonical surface palette. | The dark/light colors for `--bg`, `--surface`, `--sunken` and `--selected` differed from Electron's `desktop/src/style.css` and duplicated the values in `App.css`. | Use `App.css` as the single source for shared background, surface and selection tokens; keep only workspace-specific tokens in the polish sheet. |
 | The Tauri sidebar was fixed width; Electron has a pointer and keyboard resizer. | Electron `desktop/src/main.js` wires `#sidebar-resizer`; Tauri originally rendered a fixed-width `.sidebar`. | Added a bounded, keyboard-accessible divider and persistent width. |
 | Settings are a full native page in Tauri and a categorized dialog in Electron. | Tauri's `LocalSettings` has separate engine, profile, connection, project and service sections; Electron groups workstation/project settings in its dialog. | Keep native Tauri setup, but align section naming, compact spacing and progressive disclosure. Do not force the dialog layout into a native page. |
+| The project sidebar and settings section navigation competed for attention on the native Settings page. | A same-size, light-theme current-source screenshot showed the Tauri project rail and settings rail taking about 418 CSS pixels before the settings content; Electron's settings view uses one rail. | Hide project navigation when Settings is opened from a workspace, retain the settings section rail, and return to the previous workspace from the header. Keep project navigation available for initial setup when there is no prior workspace. |
 | Fleet configuration was labeled as Local in the settings header and service navigation. | `LocalSettings` used “VOTRE ESPACE LOCAL” and “Services locaux” for every mode, despite Fleet profile changes going to `/api/me` and the Fleet agent remaining remotely managed. | Identify Fleet in the settings heading, call the section “Connexion et services” in Fleet mode, and describe the profile according to its backend owner. |
 | A local-only project shows tracker controls even though it has no remote tickets. | In the live Tauri window, `workspace` has a local path and zero tickets, while the board toolbar still says “Statuts du tracker · lecture seule” and offers tracker grouping/search. Go represents a local workspace with a synthetic `local` tracker row, but the desktop board projection omitted the provider, so the renderer could not distinguish it from a remote tracker. | Include tracker providers in the additive desktop board projection. Hide remote controls when a project has no trackers or only the synthetic local tracker; preserve remote controls for GitHub, GitLab and Jira. Keep “Nouveau prompt” as the single primary action. |
 | An empty tracker-backed project with a local folder looked like an untracked local workspace. | The empty-board copy used the presence of `project.path` to say “Votre projet, prêt à démarrer,” even when an external tracker was connected and no remote tickets were returned. | Name the missing remote tickets, keep tracker search/grouping visible and point to the local prompt as a separate action. |
@@ -95,6 +96,9 @@ verification record remains the evidence for those flows.
   section describes the Fleet agent, while the Local mode retains its local
   companion wording. UI regressions cover Fleet pairing and the initial
   unconfigured state.
+- Settings now hide the project rail when opened from a workspace and provide
+  a direct return action; first-run setup without a prior workspace keeps
+  project navigation available. A workspace UI regression covers the round trip.
 - A failed ticket refresh now preserves the last successful board and labels it
   as previous data alongside the read error. A UI regression exercises a
   successful read followed by a failed refresh.
@@ -135,6 +139,8 @@ verification record remains the evidence for those flows.
    evidence, not from a wholesale restyle.
 3. Reduce settings page density and align labels, section names and primary
    actions with Electron while retaining native OAuth and filesystem flows.
+   The redundant project rail is now hidden when Settings is entered from a
+   workspace; the section-level hierarchy and density still need comparison.
 4. Complete the command-palette audit by comparing shortcuts and keyboard
    focus behavior in matched live windows; the action inventory and unsupported
    Electron-only actions have been reviewed.

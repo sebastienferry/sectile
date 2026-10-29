@@ -69,6 +69,9 @@ function Workspace() {
   const [busy, setBusy] = useState(false);
   const [current, setCurrent] = useState<WorkspaceView | null>(null);
   const [sidebar, setSidebar] = useState(true);
+  const currentRef = useRef(current);
+  currentRef.current = current;
+  const workspaceBeforeSettings = useRef<WorkspaceView | null>(null);
   const [filter, setFilter] = useState("");
   const [appearance, setAppearance] = useAppearance();
   const { snapshot, fresh, refresh: refreshExecutions } = useExecutionMonitor();
@@ -76,8 +79,20 @@ function Workspace() {
   const initialized = useRef(false);
   const navigate = useCallback(
     (project: Project, view: View, runId?: string, taskId?: string) => {
+      if (view === "settings" && currentRef.current?.view !== "settings") {
+        workspaceBeforeSettings.current = currentRef.current;
+      }
       setCurrent({ id: `${project.id}:${view}:${runId ?? ""}:${taskId ?? ""}`, projectId: project.id, view, runId, taskId });
     }, []);
+  const returnToWorkspace = useCallback(() => {
+    const previous = workspaceBeforeSettings.current;
+    if (previous) {
+      workspaceBeforeSettings.current = null;
+      setCurrent(previous);
+    } else {
+      setSidebar(value => !value);
+    }
+  }, []);
   async function refreshProjects() {
     const seq = ++request.current;
     setBusy(true);
@@ -109,16 +124,18 @@ function Workspace() {
     };
   }, []);
   const connected = fresh && snapshot?.status.connected;
+  const settingsHasWorkspace = current?.view === "settings" && Boolean(workspaceBeforeSettings.current);
+  const showProjectSidebar = sidebar && (current?.view !== "settings" || !settingsHasWorkspace);
   return (
     <div className="desktop-shell">
       <header className="app-header">
         <div className="header-brand">
           <button
             className="icon-button"
-            title="Afficher ou masquer les projets"
-            aria-label="Afficher ou masquer les projets"
-            aria-expanded={sidebar}
-            onClick={() => setSidebar((v) => !v)}
+            title={settingsHasWorkspace ? "Retourner à l’espace de travail" : "Afficher ou masquer les projets"}
+            aria-label={settingsHasWorkspace ? "Retourner à l’espace de travail" : "Afficher ou masquer les projets"}
+            aria-expanded={showProjectSidebar}
+            onClick={returnToWorkspace}
           >
             <Icon name="panel" />
           </button>
@@ -148,7 +165,7 @@ function Workspace() {
         </div>
       </header>
       <div className="desktop-body">
-        {sidebar && (
+        {showProjectSidebar && (
           <>
           <aside className="sidebar" style={{ width: sidebarWidth }}>
             <div className="sidebar-scroll">
@@ -325,7 +342,8 @@ function Workspace() {
         onNavigate={navigate}
         onOpenFolder={() => void openFolder()}
         onOpenSettings={() => navigate({ id: "settings", name: "Paramètres" }, "settings")}
-        onToggleSidebar={() => setSidebar(value => !value)}
+        onToggleSidebar={returnToWorkspace}
+        sidebarActionLabel={settingsHasWorkspace ? "Retourner à l’espace de travail" : sidebar ? "Masquer les projets" : "Afficher les projets"}
       />
     </div>
   );

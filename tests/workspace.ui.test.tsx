@@ -139,6 +139,17 @@ test("settings remain reachable with the sidebar collapsed", async () => {
  expect(screen.queryByRole("tablist")).toBeNull();
 });
 
+test("settings use one navigation rail and return to the previous workspace", async () => {
+ render(<App />);
+ await screen.findByRole("button", { name: "Example" });
+ fireEvent.click(screen.getByRole("button", { name: "Paramètres" }));
+ await screen.findByRole("navigation", { name: "Sections des paramètres" });
+ expect(screen.queryByRole("button", { name: "Example" })).toBeNull();
+ fireEvent.click(screen.getByRole("button", { name: "Retourner à l’espace de travail" }));
+ await screen.findByRole("textbox", { name: "Rechercher des tickets" });
+ expect(screen.getByRole("button", { name: "Example" })).toBeTruthy();
+});
+
 test("an unmapped project asks for its folder before mounting the prompt and keeps the same project", async () => {
  vi.mocked(invoke).mockResolvedValue("/work/example");
  render(<App />);
