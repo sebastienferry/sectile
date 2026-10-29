@@ -20,6 +20,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
+- Resize the project sidebar with the mouse or keyboard and keep its width after restarting the desktop.
+- Open actions, projects and recent executions from a searchable command palette with Cmd/Ctrl+K.
 - Local desktop now runs one Go companion for the backend and execution agent. Existing managed installations are upgraded through a verified private backup, with prior conversations, tracker setup and Jira OAuth retained.
 - Add project-scoped folders directly from new prompts and existing conversations, inspect actual run context, detach associations, and configure repository and specification-folder roles natively.
 - Guide tracker tickets through their next workflow skill or configured pickup chain, with fresh-state launch checks, server-confirmed skill results, PR access and explicit review declarations.
@@ -69,6 +71,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Keep agent connectivity in one labelled status location and remove the unrelated global project refresh control.
 - Project conversations now use a lightweight React controller instead of CopilotKit, retaining prompts, tool details, approvals, interruption and history while reducing the lazy conversation bundle by about 99%.
 
 - Removed workspace tabs in favor of one main view controlled from the sidebar. Navigation leaves executions running.

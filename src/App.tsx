@@ -19,8 +19,9 @@ import { AttachedFolderSettings } from "./components/FolderContext";
 import { ProjectProfiles } from "./components/ProjectProfiles";
 import { LocalSettings } from "./components/LocalSettings";
 import { Icon } from "./components/Icon";
-import { useAppearance } from "./lib/appearance";
+import { readPreference, savePreference, useAppearance } from "./lib/appearance";
 import { useConversation } from "./lib/conversation-controller";
+import { CommandPalette } from "./components/CommandPalette";
 import "./App.css";
 import "./workspace-polish.css";
 
@@ -43,6 +44,12 @@ export default function App() {
   );
 }
 function Workspace() {
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = Number(readPreference("sidebarWidth", "268"));
+    return Number.isFinite(saved) ? Math.max(200, Math.min(480, saved)) : 268;
+  });
+  const sidebarDrag = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
   const [openingFolder, setOpeningFolder] = useState(false);
   const [folderError, setFolderError] = useState("");
   const [unmapped, setUnmapped] = useState<(Project & { mappingError?: string }) | null>(null);
@@ -121,7 +128,7 @@ function Workspace() {
           </strong>
 
         </div>
-        <div className="header-actions"><span className="connection-pill"><span className={`dot ${connected ? "live" : ""}`} />{connected ? "Connecté" : "Hors ligne"}</span>
+        <div className="header-actions">
           <div className="theme-toggle" aria-label="Apparence">
             {(["system", "light", "dark"] as const).map((value, i) => (
               <button
@@ -136,21 +143,14 @@ function Workspace() {
               </button>
             ))}
           </div>
-          <button
-            className="icon-button"
-            aria-label="Actualiser les projets"
-            title="Actualiser les projets"
-            disabled={busy}
-            onClick={() => void refreshProjects()}
-          >
-            <Icon name="refresh" />
-          </button>
+          <button className="icon-button" aria-label="Navigation rapide" title="Navigation rapide · Cmd/Ctrl+K" onClick={() => setPaletteOpen(true)}><Icon name="search" /></button>
           <button className="icon-button" title="Paramètres" aria-label="Paramètres" onClick={()=>navigate({id:"settings",name:"Paramètres"},"settings")}><Icon name="settings" /></button>
         </div>
       </header>
       <div className="desktop-body">
         {sidebar && (
-          <aside className="sidebar">
+          <>
+          <aside className="sidebar" style={{ width: sidebarWidth }}>
             <div className="sidebar-scroll">
               <div className="sidebar-search">
                 <Icon name="search" />
@@ -235,6 +235,46 @@ function Workspace() {
 
             </footer>
           </aside>
+          <div
+            className="sidebar-resizer"
+            role="separator"
+            aria-label="Redimensionner la barre latérale"
+            aria-orientation="vertical"
+            aria-valuemin={200}
+            aria-valuemax={480}
+            aria-valuenow={sidebarWidth}
+            tabIndex={0}
+            onPointerDown={event => {
+              if (event.button !== 0) return;
+              sidebarDrag.current = { pointerId: event.pointerId, startX: event.clientX, startWidth: sidebarWidth };
+              event.currentTarget.setPointerCapture(event.pointerId);
+              document.body.classList.add("resizing-sidebar");
+            }}
+            onPointerMove={event => {
+              const drag = sidebarDrag.current;
+              if (drag?.pointerId === event.pointerId) setSidebarWidth(Math.max(200, Math.min(480, drag.startWidth + event.clientX - drag.startX)));
+            }}
+            onPointerUp={event => {
+              const drag = sidebarDrag.current;
+              if (drag?.pointerId !== event.pointerId) return;
+              const next = Math.max(200, Math.min(480, drag.startWidth + event.clientX - drag.startX));
+              setSidebarWidth(next);
+              savePreference("sidebarWidth", String(next));
+              sidebarDrag.current = null;
+              document.body.classList.remove("resizing-sidebar");
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }}
+            onPointerCancel={() => { sidebarDrag.current = null; document.body.classList.remove("resizing-sidebar"); }}
+            onLostPointerCapture={() => { sidebarDrag.current = null; document.body.classList.remove("resizing-sidebar"); }}
+            onKeyDown={event => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              event.preventDefault();
+              const next = event.key === "Home" ? 200 : event.key === "End" ? 480 : Math.max(200, Math.min(480, sidebarWidth + (event.key === "ArrowRight" ? 20 : -20)));
+              setSidebarWidth(next);
+              savePreference("sidebarWidth", String(next));
+            }}
+          />
+          </>
         )}
         <main className="workspace">
           {folderError && <div role="alert" className="error">{folderError}
@@ -274,14 +314,19 @@ function Workspace() {
               )}
             </section>
           )}
-          <footer className="statusbar">
-            <span>
-              {connected ? "Connecté à l’agent local" : "Connexion à vérifier"}
-            </span>
-            <span>Données et exécution locales · 0.1.0</span>
-          </footer>
         </main>
       </div>
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        projects={projects}
+        runs={snapshot?.runs ?? []}
+        selectedProjectId={current?.projectId}
+        onNavigate={navigate}
+        onOpenFolder={() => void openFolder()}
+        onOpenSettings={() => navigate({ id: "settings", name: "Paramètres" }, "settings")}
+        onToggleSidebar={() => setSidebar(value => !value)}
+      />
     </div>
   );
 }
