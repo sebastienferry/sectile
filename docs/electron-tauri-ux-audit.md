@@ -810,3 +810,15 @@ tool call and the expected path in their answers. The backend, app, agent and
 workspaces were disposable. This qualifies current-source Fleet folder and
 provider response/tool projection on macOS, not external tracker workflows or
 provider interruption in Fleet mode.
+
+A separate unsigned native Fleet bundle from Tauri `f5ab0a9` and Go `554374b2`
+tested **Interrompre** and same-conversation resume for signed-in Claude Code
+and Codex. Both shell tools began a 90-second delayed write in a disposable
+Git folder; the desktop returned each conversation to Ready, and neither
+delayed file appeared after its deadline. A second message referred to the
+file only by its previous-turn context; each engine checked the correct file
+and returned the expected resume marker. The conversation history grew while
+the original prompt and marker were not replayed, and model/mode remained
+unchanged. This qualifies Fleet native execution controls for those CLI
+versions on this host; signed distribution and tracker-backed execution remain
+separate gates.
