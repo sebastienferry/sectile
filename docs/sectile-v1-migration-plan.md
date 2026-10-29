@@ -107,6 +107,10 @@ binary. The already configured OAuth prototype remains supported.
 | 7. Roadmapping ownership | Confirmed V1 owner and coexistence contract for web planning and the operational desktop | Web planning remains V1-owned and unchanged; no data move or deprecation in this release |
 | 8. V1 release qualification | Agreed support/migration/deprecation boundaries and operational documentation | Release checklist and explicit release approval completed |
 
+The operational checklist is [V1 release qualification](v1-release-checklist.md).
+It records proven checks separately from open signing, installation,
+compatibility and owner-approval gates; it does not authorize publishing.
+
 Stage 0 is complete. Stages 1-3 are implemented on the dedicated Go branch: the
 standalone server consumes the extracted backend package, the companion owns
 backend/agent lifecycle, and real Claude Code, Codex and MCP workflows passed on
