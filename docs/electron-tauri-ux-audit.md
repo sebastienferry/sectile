@@ -1,7 +1,7 @@
 # Electron and Tauri desktop UX audit
 
 Date: 2026-10-29
-Status: initial audit; navigation inconsistencies corrected, with remaining visual convergence work listed below.
+Status: initial audit and visual convergence plan committed; implementation remains open.
 
 ## Reference and scope
 
@@ -28,6 +28,9 @@ verification record remains the evidence for those flows.
 | Styling is split between base rules and a second override sheet. | `App.css` owns foundational controls/layout while `workspace-polish.css` redefines tokens, radii, spacing and component density after it. | Consolidate tokens and component rules after the navigation behavior settles. Avoid broad cosmetic changes before checking light/dark screenshots. |
 | The Tauri sidebar was fixed width; Electron has a pointer and keyboard resizer. | Electron `desktop/src/main.js` wires `#sidebar-resizer`; Tauri originally rendered a fixed-width `.sidebar`. | Added a bounded, keyboard-accessible divider and persistent width. |
 | Settings are a full native page in Tauri and a categorized dialog in Electron. | Tauri's `LocalSettings` has separate engine, profile, connection, project and service sections; Electron groups workstation/project settings in its dialog. | Keep native Tauri setup, but align section naming, compact spacing and progressive disclosure. Do not force the dialog layout into a native page. |
+| A local-only project shows tracker controls even though it has no remote tickets. | In the live Tauri window, `Documents` has a local path and zero tickets, while the board toolbar still says “Statuts du tracker · lecture seule” and offers tracker grouping/search. `App.tsx` renders this toolbar for every project. | Make the empty local-project state describe local work and hide tracker-specific controls until the project has a tracker-backed ticket collection. Keep “Nouveau prompt” as the single primary action. |
+| The local-project empty state repeats the primary prompt action. | The project toolbar already has “Nouveau prompt”; the empty board adds “Commencer une conversation”. The live screenshot shows both at once. | Keep the global project action and remove the duplicate empty-state button; use the empty state to explain that the local project is ready for prompts. |
+| The current live Electron/Tauri windows are not a valid populated-state visual comparison. | Both windows were captured at the same desktop size, but Electron was showing a long historical conversation and orchestration sidebar while Tauri showed the empty Local `Documents` board. | Use these captures only for shell/navigation comparison. Before tuning typography, spacing or colors, capture equivalent screens, themes and data states; do not infer style changes from the mismatched content. |
 
 ## First corrections
 
@@ -43,14 +46,19 @@ verification record remains the evidence for those flows.
 
 ## Remaining convergence order
 
-1. Capture matched light and dark screenshots of Electron and Tauri at the same
-   window size. Normalize typography, surface contrast, control height, spacing
-   and selected/hover states from evidence, not from a wholesale restyle.
-2. Reduce settings page density and align labels, section names and primary
+1. Correct local-only board presentation: remove tracker-only controls when no
+   tracker data exists, and retain one clear prompt action. Cover local projects,
+   tracker-backed projects with tickets, tracker-backed projects with no tickets,
+   and failed/stale ticket reads.
+2. Capture matched light and dark screenshots of Electron and Tauri at the same
+   window size and with equivalent project/activity data. Normalize typography,
+   surface contrast, control height, spacing and selected/hover states from
+   evidence, not from a wholesale restyle.
+3. Reduce settings page density and align labels, section names and primary
    actions with Electron while retaining native OAuth and filesystem flows.
-3. Audit each Electron command-palette action and shortcut against Tauri's
+4. Audit each Electron command-palette action and shortcut against Tauri's
    command inventory; only expose actions Tauri can actually perform.
-4. Recheck prompt, workflow and conversation layouts at narrow and normal window
+5. Recheck prompt, workflow and conversation layouts at narrow and normal window
    sizes, including empty, active, error and waiting states.
 
 Each completed item should preserve tracker-authoritative ticket state, the
