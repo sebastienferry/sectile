@@ -161,9 +161,9 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     </form>
     <ul className="setup-list">{setup?.credentials?.credentials.map(c => <li key={c.tracker}><span>{c.tracker} <small>{c.kind === "oauth" ? "OAuth" : "Jeton"} · {c.disconnected ? "Connexion interrompue" : c.account || "Accès enregistré · compte non confirmé"}{c.siteUrl && ` · ${c.siteUrl}`}</small></span></li>)}</ul>
   </>;
-  return <section className="settings local-settings">
-    <header className="settings-heading"><span className="eyebrow">{fleetMode ? "VOTRE ESPACE FLEET" : setup?.mode === "local" ? "VOTRE ESPACE LOCAL" : "CONNEXION À SECTILE"}</span><h1>{fleetMode ? "Configuration Fleet" : "Configuration du poste"}</h1>
-    <p>{fleetMode ? "Gérez votre profil et vos comptes sur le backend connecté. Les services d’exécution restent sur ce poste." : setup?.mode === "local" ? "Connectez vos outils et configurez vos projets sur ce poste." : "Choisissez le mode Local ou associez ce poste à un backend Fleet."}</p></header>
+  return <section className={`settings local-settings settings-${section}`}>
+    <header className="settings-heading"><span className="eyebrow">{fleetMode ? "VOTRE ESPACE FLEET" : setup?.mode === "local" ? "VOTRE ESPACE LOCAL" : "CONNEXION À SECTILE"}</span><h1>{section === "engines" ? "Moteurs IA" : fleetMode ? "Configuration Fleet" : "Configuration du poste"}</h1>
+    <p>{section === "engines" ? "Connectez Claude Code et Codex pour travailler dans vos projets." : fleetMode ? "Gérez votre profil et vos comptes sur le backend connecté. Les services d’exécution restent sur ce poste." : setup?.mode === "local" ? "Connectez vos outils et configurez vos projets sur ce poste." : "Choisissez le mode Local ou associez ce poste à un backend Fleet."}</p></header>
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
     {pending && <p role="status">{pendingMessage}</p>}
@@ -174,7 +174,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
      <p>{setup?.mode === "fleet" ? "Les comptes et projets sont conservés sur le backend Fleet." : "Configuration conservée sur ce poste."}</p>
     </nav>
     <div className="settings-content">
-    <header className="settings-section-heading"><h2>{activeSection ? sectionLabel(activeSection) : ""}</h2><p>{section === "services" && fleetMode ? "État de la connexion et de l’agent Fleet associé à ce poste." : activeSection?.description}</p></header>
+    {section !== "engines" && <header className="settings-section-heading"><h2>{activeSection ? sectionLabel(activeSection) : ""}</h2><p>{section === "services" && fleetMode ? "État de la connexion et de l’agent Fleet associé à ce poste." : activeSection?.description}</p></header>}
     <div hidden={section !== "engines"}>{setup?.agentReady ? <ProviderSettings key={`${setup.mode}:${setup.fleetServer??""}`} projects={setup.projects??[]} /> : <article><p>Connectez un agent Local ou Fleet pour vérifier vos moteurs IA.</p><button onClick={()=>setSection("services")}>Configurer la connexion</button></article>}</div>
     <div hidden={section !== "services"}><article>
       <h2>{fleetMode ? "Agent Fleet" : "Services locaux"}</h2>

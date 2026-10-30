@@ -450,6 +450,8 @@ CLI login in a visible terminal (and its browser flow). The desktop checks statu
 every five seconds for two minutes; **Détecter / vérifier les connexions** retries
 after installation or a longer login. Opening a terminal never counts as a
 successful login. Credentials remain managed by the provider CLI.
+Both provider cards appear together in the compact settings layout. Installation
+details and Sectile skills/MCP preparation remain available from each card.
 
 The CLI must already be installed. macOS uses Terminal, Windows uses a new command
 window, and Linux requires `x-terminal-emulator`. Older CLI versions with no

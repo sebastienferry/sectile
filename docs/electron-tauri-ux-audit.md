@@ -1461,3 +1461,15 @@ model and mode fit on one line above folder and terminal actions in the
 profile's full name remains in the menu and control tooltip when its visible
 label is truncated. This is a setup interaction check; it did not send a
 provider prompt or change tracker data.
+
+An 800-by-700-point native settings retake found that three stacked headings
+and a separate provider introduction pushed the Codex card below the window.
+The [before capture](ux-captures/engine-settings-before-compact.png) records
+that layout. The AI engine section now uses one page heading and keeps its
+Local/Fleet owner label; the provider explanation and refresh action share a
+row. The [after capture](ux-captures/engine-settings-native-compact.png) shows
+both connected Claude Code and Codex cards without scrolling at the same
+window size. Opening Codex's Skills/MCP disclosure confirmed that preparation,
+permissions and the scoped MCP state remain accessible. The unsigned isolated
+QA app used port 52964 and bundled Go `8d40b2aa`; this visual retake did not
+send a new provider prompt or qualify remote Fleet.

@@ -51,8 +51,7 @@ export function ProviderSettings({projects=[]}:{projects?:{id:string;name:string
     finally { launching.current = false; if (mounted.current) setPending(false); }
   }
   return <article className="provider-settings" aria-label="Moteurs IA">
-    <div className="settings-card-heading"><h2>Vos assistants de développement</h2><span className="badge">Exécution locale</span></div>
-    <div className="provider-settings-toolbar"><p>Connectez les CLI installées sur ce poste. Leurs comptes sont distincts des trackers.</p>
+    <div className="provider-settings-toolbar"><p>Les moteurs s’exécutent sur ce poste. Leurs comptes sont distincts des trackers.</p>
       <button disabled={pending} onClick={() => void refresh()}>Vérifier les connexions</button></div>
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status">{notice}</p>}

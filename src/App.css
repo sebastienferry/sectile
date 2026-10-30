@@ -1109,6 +1109,7 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .eyebrow { display:block; font-size:10px; font-weight:600; letter-spacing:1.5px; color:var(--muted); }
 .settings.local-settings { width:100%; max-width:1120px; padding:34px 40px 48px; }
 .settings-heading { margin-bottom:30px; }
+.settings-engines .settings-heading { margin-bottom:20px; }
 .settings-heading h1 { font-size:25px; font-weight:600; letter-spacing:-.8px; margin:8px 0 8px; }
 .settings-heading > p { color:var(--muted); margin:0; font-size:13px; }
 .settings-layout { display:grid; grid-template-columns:210px minmax(0,1fr); gap:24px; align-items:start; }
@@ -1136,12 +1137,10 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .local-settings .personal-access-form fieldset > p,
 .local-settings .personal-access-form fieldset > button { grid-column:1/-1; }
 .local-settings article > button { margin-top:6px; }
-.settings-card-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-.settings-card-heading .badge { font-size:9px; border:0; background:var(--sunken); }
 .provider-settings-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16px; }
 .provider-settings-toolbar p { margin:0; max-width:45ch; }
 .provider-settings-toolbar button { flex-shrink:0; }
-.provider-grid { display:grid; grid-template-columns:1fr; gap:10px; margin-top:18px; }
+.provider-grid { display:grid; grid-template-columns:1fr; gap:10px; margin-top:12px; }
 .provider-card { padding:14px 16px; border:1px solid var(--border); border-radius:10px; min-width:0; }
 .provider-card-main { display:grid; grid-template-columns:40px minmax(0,1fr) auto; align-items:center; gap:12px; }
 .provider-card-copy { min-width:0; }
@@ -1156,7 +1155,7 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .provider-card-main > button { margin:0; white-space:nowrap; }
 .provider-card-extra .provider-preparation { margin:0; padding:0; border:0; }
 .provider-card-extra .provider-details[open],.provider-card-extra .provider-preparation[open] { grid-column:1/-1; padding-top:10px; border-top:1px solid var(--border); }
-@media(max-width:900px) { .provider-settings-toolbar { align-items:flex-start; flex-direction:column; gap:10px; } }
+@media(max-width:650px) { .provider-settings-toolbar { align-items:flex-start; flex-direction:column; gap:10px; } }
 @media(max-width:650px) { .provider-card-main { grid-template-columns:40px minmax(0,1fr); } .provider-card-main > button { grid-column:2; justify-self:start; } }
 .oauth-provider { padding:18px 0 0; margin-top:18px; }
 .oauth-heading h3 { font-size:13px; margin:0; }

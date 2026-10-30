@@ -283,6 +283,13 @@ test("settings navigation preserves a tracker draft and never saves on navigatio
  expect((screen.getByLabelText("Nom du tracker") as HTMLInputElement).value).toBe("Draft tracker");
  expect(api.createLocalTracker).not.toHaveBeenCalled();
 });
+test("AI engine settings use one page heading without repeating the section heading", async () => {
+ vi.mocked(api.localSetupStatus).mockResolvedValue({...ready,mode:"local"});
+ render(<LocalSettings onChanged={vi.fn()} />);
+ fireEvent.click(await screen.findByRole("button",{name:"Moteurs IA"}));
+ expect(screen.getAllByRole("heading",{name:"Moteurs IA"})).toHaveLength(1);
+ expect(screen.getByText("Connectez Claude Code et Codex pour travailler dans vos projets.")).toBeTruthy();
+});
 test("tracker sync distinguishes queued work from a completed read",async()=>{
  vi.mocked(api.localSetupStatus).mockResolvedValue(ready);
  vi.mocked(api.syncLocalTracker).mockResolvedValue({queued:true,activity:{id:"sync-1",status:"queued"}});
