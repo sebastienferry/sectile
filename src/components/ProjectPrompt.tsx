@@ -74,6 +74,7 @@ function Conversation({ id, projectId, directory, folders, onFoldersChanged, onT
   const { controller, snapshot, loaded, pending, error } = useConversation(id);
   const [draft, setDraft] = useState("");
   const [actionError, setActionError] = useState("");
+  const [mcpFeedback,setMcpFeedback]=useState("");
   const [acting, setActing] = useState(false);
   const [attaching,setAttaching]=useState(false);
   const [followRequest, setFollowRequest] = useState(0);
@@ -116,8 +117,9 @@ function Conversation({ id, projectId, directory, folders, onFoldersChanged, onT
       <div className="composer-footer"><TurnSettings compact provider={snapshot.provider} snapshot={snapshot} value={options} onChange={setOptions} disabled={!loaded || busy || !!snapshot.readOnly || !!error || acting} />
       <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly={!loaded||snapshot.readOnly} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
       <button type="button" className="composer-action" disabled={!directory} title="Ouvrir le terminal dans le dossier de travail" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Impossible d’ouvrir le terminal dans ce dossier."))}><Icon name="terminal"/>Terminal</button>
-      <button type="button" className={`composer-action mcp-action mcp-${snapshot.sectileMcp?.status??"unknown"}`} disabled={!loaded||acting||snapshot.checkingMcp||snapshot.readOnly} aria-label="Vérifier le MCP de cette conversation" title={`${snapshot.sectileMcp?.source==="transport"?"Transport MCP du compagnon":"MCP du moteur"} · ${snapshot.checkingMcp?"Vérification en cours…":({connected:"Connecté",missing:"Non enregistré",failed:"Échec de connexion","needs-auth":"Connexion requise",pending:"Connexion en cours",unknown:"État non vérifié"} as Record<string,string>)[snapshot.sectileMcp?.status??"unknown"]||"État non vérifié"}`} onClick={()=>void control({action:"checkMcp"}).catch(()=>{})}><span className="mcp-dot"/>MCP</button>
+      <button type="button" className={`composer-action mcp-action mcp-${snapshot.sectileMcp?.status??"unknown"}`} disabled={!loaded||acting||snapshot.checkingMcp||snapshot.readOnly} aria-label="Vérifier le MCP de cette conversation" title={`${snapshot.sectileMcp?.source==="transport"?"Transport MCP du compagnon":"MCP du moteur"} · ${snapshot.checkingMcp?"Vérification en cours…":({connected:"Connecté",missing:"Non enregistré",failed:"Échec de connexion","needs-auth":"Connexion requise",pending:"Connexion en cours",unknown:"État non vérifié"} as Record<string,string>)[snapshot.sectileMcp?.status??"unknown"]||"État non vérifié"}`} onClick={()=>void control({action:"checkMcp"}).then(()=>{const current=controller.getSnapshot().snapshot;setMcpFeedback(current.provider==="codex"&&!current.checkingMcp&&current.sectileMcp?.status==="unknown"?"Codex vérifiera le MCP au prochain message, après la reconnexion de sa session.":"");}).catch(()=>{})}><span className="mcp-dot"/>MCP</button>
       <button className="send-button" aria-label="Envoyer" title="Envoyer · Entrée" disabled={!loaded || busy || attaching || !!snapshot.readOnly || !!error || !draft.trim()}><Icon name="send" /></button></div>
+      {mcpFeedback&&snapshot.sectileMcp?.status==="unknown"&&<p className="composer-feedback" role="status">{mcpFeedback}</p>}
     </form>
     </div>
   </section>;

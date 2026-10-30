@@ -226,6 +226,17 @@ test("the backlog list keeps epic context and selection while switching views",a
  expect((screen.getByRole("checkbox",{name:"Sélectionner APP-1"}) as HTMLInputElement).checked).toBe(true);
  expect(localStorage.getItem("sectile-tauri.ticketView")).toBe("board");
 });
+test("the board uses Sectile epic colors only when the project enables them",async()=>{
+ vi.mocked(api.listTasks).mockResolvedValue([{id:"t1",key:"APP-1",title:"Epic child",source:"jira",trackerStatus:"To Do",status:"to_clarify",parentKey:"PE-1078"}]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{epicColors:true,trackers:[{trackerId:"jira-1",provider:"jira"}]}});
+ render(<App/>);
+ await screen.findByText("Epic child");
+ const card=document.querySelector(".board .task") as HTMLElement;
+ expect(card.classList.contains("has-epic-color")).toBe(true);
+ expect(card.style.getPropertyValue("--epic")).toBe("#f59e0b");
+ expect(screen.getByRole("checkbox",{name:"Sélectionner APP-1"})).toBeTruthy();
+ expect(screen.getByRole("combobox",{name:"Actions pour APP-1"})).toBeTruthy();
+});
 test("a selected ticket batch requires confirmation and uses the Go pickup skill",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue([{id:"t1",key:"APP-1",title:"First issue",source:"jira",trackerStatus:"To Do",status:"to_clarify"},{id:"t2",key:"APP-2",title:"Second issue",source:"jira",trackerStatus:"To Do",status:"to_clarify"}]);
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[{id:"pickup_issues"}],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});

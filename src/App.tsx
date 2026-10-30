@@ -1,7 +1,8 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { executionSnapshot, launchTask, listProjects, listTasks } from "./lib/agent";
 import { trackerColumns, type Project, type Task } from "./domain/board";
+import { epicColorHex } from "./domain/epic-color";
 import { executionConnectionLabel, isActive, projectRuns, statusLabel, type Run } from "./domain/execution";
 import {
   ExecutionProvider,
@@ -548,6 +549,10 @@ function ProjectPane({
     const launchDisabled=launching||!monitor.fresh||taskStage(task,context?.board)==="finished";
     return <select className="task-actions" aria-label={`Actions pour ${task.key||task.title}`} title="Actions du ticket" defaultValue="" onChange={event=>{const value=event.currentTarget.value;event.currentTarget.value="";if(value==="open"){if(project)navigate(project,"task",undefined,task.id);}else if(value)void startSkill(task,value);}}><option value="">•••</option><option value="open">Voir le workflow</option>{next?.skillId&&<option value={next.skillId} disabled={launchDisabled}>Lancer : {next.label}</option>}{context?.skills.filter(skill=>skill.id!==next?.skillId&&skill.id!=="pickup_issues").map(skill=><option key={skill.id} value={skill.id} disabled={launchDisabled}>Lancer : {skillLabels[skill.id]||skill.id}</option>)}</select>;
   }
+  function epicStyle(task:Task):CSSProperties|undefined {
+    const color=context?.board?.epicColors ? epicColorHex(task.parentKey) : undefined;
+    return color ? {"--epic":color} as CSSProperties : undefined;
+  }
   return (
     <>
       <div className="workspace-toolbar">
@@ -619,7 +624,7 @@ function ProjectPane({
           )}
           {boardContextPending && !busy && <p className="hint" role="status">Chargement de la configuration du projet…</p>}
           {currentContextError && <div className="error" role="alert">Configuration du tableau indisponible : {currentContextError} <button onClick={()=>setContextRefresh(value=>value+1)}>Réessayer</button></div>}
-          {ticketView==="list"&&!localOnlyProject?<div className="ticket-list" role="region" aria-label="Liste des tickets" tabIndex={0}><table><thead><tr><th aria-label="Sélection"/><th>Clé</th><th>Titre</th><th>Statut</th><th>Priorité</th><th>Moteur</th><th>PR</th><th>Actions</th></tr></thead><tbody>{visibleTasks.slice(0,visibleListCount).map(task=><tr key={task.id}><td><input type="checkbox" aria-label={`Sélectionner ${task.key||task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={()=>toggleTask(task.id)}/></td><td>{task.key||task.id}</td><td><button type="button" className="task-open" onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button>{task.parentKey&&<small className={`epic-chip epic-color-${epicColorIndex(task.parentKey)}`} title={task.parentTitle}>{task.parentKey}</small>}</td><td>{task.trackerStatus||"—"}</td><td><span className={`priority priority-${task.priority||"none"}`}>{task.priority||"—"}</span></td><td>{context?.aiProvider==="claude"?"Claude":context?.aiProvider==="codex"?"Codex":"—"}</td><td>{task.prUrl&&/^https?:\/\//.test(task.prUrl)?<button type="button" className="task-pr-link" aria-label={`Ouvrir la PR de ${task.key||task.title}`} onClick={()=>void openExternalLink(task.prUrl!).catch(()=>setLaunchError("Impossible d’ouvrir la PR."))}>●</button>:"—"}</td><td>{taskMenu(task)}</td></tr>)}</tbody></table>{visibleTasks.length>visibleListCount&&<button type="button" className="board-show-more" onClick={()=>setVisibleListCount(value=>value+80)}>Afficher les 80 suivants · {visibleListCount} sur {visibleTasks.length}</button>}</div>:<div className="board" role="region" aria-label="Colonnes de tickets, défilement horizontal" tabIndex={0}>
+          {ticketView==="list"&&!localOnlyProject?<div className="ticket-list" role="region" aria-label="Liste des tickets" tabIndex={0}><table><thead><tr><th aria-label="Sélection"/><th>Clé</th><th>Titre</th><th>Statut</th><th>Priorité</th><th>Moteur</th><th>PR</th><th>Actions</th></tr></thead><tbody>{visibleTasks.slice(0,visibleListCount).map(task=><tr key={task.id}><td><input type="checkbox" aria-label={`Sélectionner ${task.key||task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={()=>toggleTask(task.id)}/></td><td>{task.key||task.id}</td><td><button type="button" className="task-open" onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button>{task.parentKey&&<small className="epic-chip" style={epicStyle(task)} title={task.parentTitle}>{task.parentKey}</small>}</td><td>{task.trackerStatus||"—"}</td><td><span className={`priority priority-${task.priority||"none"}`}>{task.priority||"—"}</span></td><td>{context?.aiProvider==="claude"?"Claude":context?.aiProvider==="codex"?"Codex":"—"}</td><td>{task.prUrl&&/^https?:\/\//.test(task.prUrl)?<button type="button" className="task-pr-link" aria-label={`Ouvrir la PR de ${task.key||task.title}`} onClick={()=>void openExternalLink(task.prUrl!).catch(()=>setLaunchError("Impossible d’ouvrir la PR."))}>●</button>:"—"}</td><td>{taskMenu(task)}</td></tr>)}</tbody></table>{visibleTasks.length>visibleListCount&&<button type="button" className="board-show-more" onClick={()=>setVisibleListCount(value=>value+80)}>Afficher les 80 suivants · {visibleListCount} sur {visibleTasks.length}</button>}</div>:<div className="board" role="region" aria-label="Colonnes de tickets, défilement horizontal" tabIndex={0}>
             {columns.map((column) => (
               <section className="column" key={column.name}>
                 <h2>
@@ -629,13 +634,13 @@ function ProjectPane({
                 </h2>
                 {visibleBoardTasks(column.tasks,activeTaskRuns,visibleByColumn[column.name] ?? 40).map((task) => {
                   const taskRun = activeTaskRuns.get(task.id);
-                  return <article className={`task ${compactCards?"compact":""} ${task.parentKey?`epic-color-${epicColorIndex(task.parentKey)}`:""}`} key={task.id}>
+                  return <article className={`task ${compactCards?"compact":""} ${epicStyle(task)?"has-epic-color":""}`} style={epicStyle(task)} key={task.id}>
                     <div className="task-meta">
                       <label><input type="checkbox" aria-label={`Sélectionner ${task.key||task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={()=>toggleTask(task.id)}/>{task.key || task.id}</label>
                       {taskMenu(task)}
                     </div>
                     <h3><button className="task-open" title={task.title} onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button></h3>
-                    {task.parentKey&&<span className={`epic-chip epic-color-${epicColorIndex(task.parentKey)}`} title={task.parentTitle}>{task.parentKey}</span>}
+                    {task.parentKey&&<span className="epic-chip" style={epicStyle(task)} title={task.parentTitle}>{task.parentKey}</span>}
                     {task.priority&&<span className={`priority priority-${task.priority}`}>{task.priority}</span>}
                     <p className="task-stage">{taskStage(task,context?.board)?stageLabels[taskStage(task,context?.board)!]:"Étape non déterminée"}</p>
                     {taskRun && isActive(taskRun) && <p className="task-run-state" role="status">{skillLabels[taskRun.skill] || taskRun.skill} · {statusLabel(taskRun)}</p>}
@@ -704,11 +709,6 @@ function visibleBoardTasks(tasks:Task[],activeRuns:Map<string,Run>,limit:number)
   (run&&isActive(run)?active:others).push(task);
  }
  return active.concat(others).slice(0,limit);
-}
-function epicColorIndex(key:string):number{
- let value=0;
- for(const character of key)value=(value*31+character.charCodeAt(0))|0;
- return Math.abs(value)%6;
 }
 
 function RunNavigation({run,selected,onClick}:{run:Run;selected:boolean;onClick:()=>void}){

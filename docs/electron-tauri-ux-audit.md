@@ -1301,6 +1301,11 @@ show priority and a stable color derived from the parent epic key, and their
 native menu launches a configured skill after fresh task, project and execution
 checks. The color is a visual grouping cue, not an imported Jira epic color:
 the current desktop task contract carries the parent key but no epic color.
+The desktop now uses Sectile's 12-color FNV palette and respects the project's
+`epicColors` setting, so the same parent key has the same color in Electron,
+Tauri and the web board. The card's left border keeps its width after the
+generic card border rule; a disabled project setting leaves parent keys visible
+without implying that colors are enabled.
 Local-only projects still keep their prompt-ready empty state. The terminal
 button opens the native terminal at the current working directory; it does not
 send text to the agent's read-only execution console.

@@ -1,5 +1,5 @@
 import {invoke} from "@tauri-apps/api/core";
-export interface BoardMapping {trackerColumns?:{name:string;statuses?:string[]}[];stageColumns?:Record<string,string[]>;trackers?:({trackerId:string;provider?:string}&BoardMapping)[]}
+export interface BoardMapping {epicColors?:boolean;trackerColumns?:{name:string;statuses?:string[]}[];stageColumns?:Record<string,string[]>;trackers?:({trackerId:string;provider?:string}&BoardMapping)[]}
 export interface ProjectContext {configured:boolean;path?:string;specPath?:string;specDefault?:string;specKind?:string;issueSpecPath?:string;issueSpecDefault?:string;issueSpecKind?:string;issueTracker?:string;aiProvider?:string;aiModel?:string;skills:{id:string;command?:string}[];board?:BoardMapping;policy:{prCreationStage?:string;fullChainStopStage?:string;defaultSkillMode?:string;specFramework?:string}}
 export interface Readiness {provider:string;steps:Record<string,{status:string;scope?:string;configuration?:{present:boolean;valid:boolean;needsRepair?:boolean};message?:string}>;permissions?:Record<string,unknown>;complete:boolean}
 export interface ProjectRepository {identity:string;url:string;path:string;code:boolean}

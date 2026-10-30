@@ -16,6 +16,16 @@ test("an idle conversation follows a pending MCP check without sending a provide
  expect(api.controlConversation).toHaveBeenCalledExactlyOnceWith(base.id,{action:"checkMcp"});
  expect(api.readConversation).toHaveBeenCalledTimes(3);
 });
+test("a restored Codex conversation explains when its MCP check can run",async()=>{
+ const base={id:"mcp-restored-codex",provider:"codex",busy:false,readOnly:false,events:[],sectileMcp:{status:"unknown"}};
+ vi.mocked(api.readConversation).mockResolvedValue(base);
+ render(<ProjectPrompt projectId="project" runId={base.id} onCreated={()=>{}}/>);
+ const check=await screen.findByRole("button",{name:"Vérifier le MCP de cette conversation"});
+ await waitFor(()=>expect(check.hasAttribute("disabled")).toBe(false));
+ fireEvent.click(check);
+ expect(await screen.findByText(/Codex vérifiera le MCP au prochain message/)).toBeTruthy();
+ expect(api.controlConversation).toHaveBeenCalledExactlyOnceWith(base.id,{action:"checkMcp"});
+});
 test("an unbound saved conversation requires and records explicit connection adoption",async()=>{
  const base={id:"legacy-conversation",provider:"claude",busy:false,readOnly:true,connectionId:"",canAdoptConnection:true,events:[]};
  vi.mocked(api.readConversation).mockResolvedValueOnce(base).mockResolvedValue({...base,readOnly:false,connectionId:"11111111-1111-4111-8111-111111111111",canAdoptConnection:false});
