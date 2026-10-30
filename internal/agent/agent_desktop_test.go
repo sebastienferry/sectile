@@ -1606,3 +1606,65 @@ func TestDesktopProjectDiscoveryPreservesOrchestrationCapacity(t *testing.T) {
 		t.Fatalf("local agent definitions lost: %+v", projects[0].Agents)
 	}
 }
+
+func TestDesktopUpdateShutdownAllowsOnlyDurableIdleFreeConversations(t *testing.T) {
+	for _, provider := range []string{"claude", "codex"} {
+		t.Run(provider, func(t *testing.T) {
+			run := &controlledRun{desktop: desktopRun{Conversation: true, Provider: provider, Model: "retained-model"}, conversation: &providerConversation{session: "retained-session"}, trace: newRunTrace(), exited: make(chan struct{})}
+			requested := false
+			d := &agentDaemon{store: openRunStore(t.TempDir()), loopback: loopbackServer{desktopToken: "private"}, queue: runQueue{runs: map[string]*controlledRun{"idle": run}}, restartAgent: func() { requested = true }}
+			req := httptest.NewRequest(http.MethodPost, "/desktop/shutdown", nil)
+			req.Header.Set("Authorization", "Bearer private")
+			response := httptest.NewRecorder()
+			d.desktopHandler(response, req)
+			if response.Code != 204 || !requested {
+				t.Fatalf("idle resumable conversation prevented update: status=%d", response.Code)
+			}
+			if run.canceled || run.conversation.session != "retained-session" {
+				t.Fatal("shutdown admission explicitly stopped or changed the conversation")
+			}
+		})
+	}
+}
+
+func TestDesktopUpdateShutdownStillRefusesPendingConversationWork(t *testing.T) {
+	for _, kind := range []string{"active-turn", "queued-message", "approval", "ticket", "provider-context", "mcp-check", "commands-probe", "unsent-shell-context", "no-history-store", "no-session", "failed-journal"} {
+		t.Run(kind, func(t *testing.T) {
+			c := &providerConversation{session: "retained-session"}
+			run := &controlledRun{desktop: desktopRun{Conversation: true, Provider: "codex"}, conversation: c, trace: newRunTrace(), exited: make(chan struct{})}
+			requested := false
+			d := &agentDaemon{store: openRunStore(t.TempDir()), loopback: loopbackServer{desktopToken: "private"}, queue: runQueue{runs: map[string]*controlledRun{"run": run}}, restartAgent: func() { requested = true }}
+			switch kind {
+			case "active-turn":
+				c.busy = true
+			case "queued-message":
+				c.next = []string{"not sent yet"}
+			case "approval":
+				c.approvals = []conversationApproval{{}}
+			case "ticket":
+				run.desktop.TaskID = "ticket"
+			case "provider-context":
+				c.env = map[string]string{"SECTILE_TASK_ID": "ticket"}
+			case "mcp-check":
+				c.checkingMCP = true
+			case "commands-probe":
+				c.loadingCommands = true
+			case "unsent-shell-context":
+				c.shellContext = "pending context"
+			case "no-history-store":
+				d.store = nil
+			case "no-session":
+				c.session = ""
+			case "failed-journal":
+				run.journal = &conversationJournal{failure: fmt.Errorf("fixture journal unavailable")}
+			}
+			req := httptest.NewRequest(http.MethodPost, "/desktop/shutdown", nil)
+			req.Header.Set("Authorization", "Bearer private")
+			response := httptest.NewRecorder()
+			d.desktopHandler(response, req)
+			if response.Code != 409 || requested || d.queue.shuttingDown {
+				t.Fatalf("unsafe shutdown admitted: %s status=%d", kind, response.Code)
+			}
+		})
+	}
+}

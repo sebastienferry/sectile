@@ -395,3 +395,8 @@
 - Quitting Tauri intentionally leaves the companion alive; a bundle replacement can reconnect to old Go code. Use the explicit idle-only preparation role and verify both transport closure and store ownership release. Never infer SQL drain from HTTP 204 or port closure alone.
 - The real companion integration test requested shutdown between agent connection and work activation. Its expected cancellation originally surfaced as `context canceled`. `RunEmbedded` now reports explicit shutdown to its composition owner; startup recognizes requested stop/restart while preserving genuine drain/close errors.
 - Tauri keeps an automatic-start fence after uncertain preparation failures. A Settings remount must still expose retry and explicit restart, without status polling clearing the fence or restarting the companion.
+
+
+### Idle conversations and native update admission (2026-10-30)
+
+- Native testing found `/desktop/shutdown` rejected ready Claude/Codex conversations because their provider sessions keep `run.exited` open. Admit only durable idle free conversations under the queue lock, then use existing daemon cleanup/resume journaling; explicit Stop would make them terminal. Preserve refusal for active turns, queued messages, approvals, tracker context, metadata probes and failed journals. Real native replacement must verify both context and no tool replay, not just a 204 response.

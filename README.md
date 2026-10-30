@@ -437,3 +437,10 @@ holds its installation/startup lock and inhibits automatic startup during this
 operation; close other desktop instances before preparing an update. Structured
 stdout contains readiness or a bounded failure code, never credentials. A
 failed preparation must not be treated as permission to replace the bundle.
+
+Idle durable free Claude Code and Codex conversations do not count as active
+executions for update preparation. Their provider sessions, history, model and
+mode are checkpointed through normal daemon cleanup for the next explicit
+message. Active turns, queued input, pending authorizations, tracker-bound
+sessions and unavailable history storage still prevent shutdown. Do not use
+conversation Stop to prepare an update: Stop is an explicit terminal action.

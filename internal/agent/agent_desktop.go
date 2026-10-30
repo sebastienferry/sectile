@@ -218,6 +218,12 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			select {
 			case <-run.exited:
 			default:
+				// An open provider session is not an active turn. Normal daemon
+				// cleanup checkpoints these conversations for explicit resume;
+				// it must not be replaced with the destructive user Stop path.
+				if d.idleConversationCanShutdownLocked(run) {
+					continue
+				}
 				http.Error(w, "Stop active executions before restarting", http.StatusConflict)
 				return
 			}
@@ -1907,4 +1913,16 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		"runId":    runID,
 		"terminal": termChoice,
 	})
+}
+
+// idleConversationCanShutdownLocked requires the queue lock. Keep ticket runs,
+// queued input, provider work and uncheckpointable sessions behind the existing
+// shutdown refusal; only durable free conversations can resume after cleanup.
+func (d *agentDaemon) idleConversationCanShutdownLocked(run *controlledRun) bool {
+	c := run.conversation
+	return d.store != nil && run.desktop.Conversation && run.taskID == "" && run.desktop.TaskID == "" &&
+		!run.canceled && c != nil && c.session != "" && len(c.env) == 0 && !c.busy &&
+		len(c.next) == 0 && len(c.approvals) == 0 && c.input == nil && c.shellContext == "" &&
+		!c.checkingMCP && !c.loadingCommands && run.journal.err() == nil &&
+		(run.desktop.Provider == "claude" || run.desktop.Provider == "codex")
 }
