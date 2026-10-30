@@ -56,6 +56,17 @@ test("the React controller renders Go state, sends only the next message and res
   await screen.findByText("Lecture seule");
   expect(screen.getByRole("textbox", { name: "Message suivant" }).hasAttribute("disabled")).toBe(true);
 });
+test("a free project conversation keeps only relevant status above the composer",async()=>{
+ vi.mocked(api.readConversation).mockResolvedValue(snapshot("free-chat"));
+ render(<ProjectPrompt projectId="p" runId="free-chat" run={{id:"free-chat",projectId:"p",conversation:true,status:"running",createdAt:"2026-10-30"}} onCreated={vi.fn()}/>);
+ await screen.findByText("Repository explanation");
+ const strip=screen.getByLabelText("Suivi de la conversation");
+ expect(strip.textContent).toContain("Prêt à répondre");
+ expect(strip.textContent).toContain("Exécution : Session active");
+ expect(strip.textContent).not.toContain("Skill :");
+ expect(strip.textContent).not.toContain("Ticket :");
+ expect(strip.textContent).not.toContain("Étape :");
+});
 test("a linked conversation shows ticket and execution state above the composer",async()=>{
  vi.mocked(api.readConversation).mockResolvedValue(snapshot("linked-chat"));
  const openExecution=vi.fn();

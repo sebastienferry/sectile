@@ -569,6 +569,16 @@ its header despite having its own return action and the project sidebar. The
 workflow now keeps the project identity and path in its header, then uses the
 ticket-level return action; the native retake is
 `docs/ux-captures/workflow-focused-header-native.png`.
+The native Codex free-prompt conversation showed "Skill: None", "Ticket: free
+prompt" and "Stage: no ticket" in the status row. Those values do not help a
+user resume or supervise that discussion. Free prompts now show activity and
+execution only; real skills and ticket-linked metadata remain visible. The
+narrow-window native retake is `docs/ux-captures/free-conversation-status-native.png`.
+At 800 CSS pixels, the retained 368-pixel project rail left only 432 pixels for
+the conversation (`docs/ux-captures/free-conversation-status-before-native.png`).
+Its visible width now caps at 32% of the window, with a 200 pixel floor; the
+saved preference returns when the window widens. The divider's accessible value
+and keyboard limits follow the visible width.
 
 Current verification passes on Tauri commit `239d7c1`: `npm run check`, 14
 domain tests, 101 UI tests, 35 Rust tests and `npm run build`. The short-window

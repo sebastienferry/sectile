@@ -76,6 +76,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Cap the visible project sidebar in narrow windows so conversations retain room for their transcript and composer, while restoring the saved width in a larger window.
+- Keep the conversation status row focused on activity and execution for free project prompts; show skill, ticket, PR/MR and stage only when relevant.
 - Keep project navigation in the sidebar while ticket workflows use one return action instead of repeating project controls in their header.
 - Keep the workflow's unverified engine-preparation note in a compact disclosure while leaving real MCP conflicts visible.
 - Make the free prompt the primary project-header action and keep board settings in a compact labeled icon.

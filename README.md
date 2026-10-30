@@ -12,6 +12,7 @@ existing Sectile Go server, workstation agent and MCP infrastructure.
 - Columns use remote tracker statuses. Local tasks and unknown sources are excluded. Ticket menus can launch configured agent skills; a selected batch uses the Go `pickup_issues` skill after confirmation.
 - Native authenticated loopback bridge; the agent token never enters the webview.
 - Project-scoped free prompts with Claude Code or Codex, using a lightweight React controller over the Go conversation engine.
+- Free-prompt conversations show concise activity and execution status; ticket-linked conversations add their skill, tracker status, PR/MR and workflow stage.
 - Conversation composers keep folder attachment, terminal launch and MCP verification in a compact action row. The project folder path beneath the title can be copied. Folder attachment is shared with the project and applies to a running conversation on its next message.
 - Ticket conversations show linked pull requests and merge requests with their last known forge state; the status strip and ticket workflow list every link, while the sidebar provides a compact shortcut to the primary link. An unavailable forge credential is shown explicitly rather than implying a current state.
 - Task launch with project-provided skills, inherited or explicit execution mode, and optional instructions.
@@ -22,6 +23,7 @@ existing Sectile Go server, workstation agent and MCP infrastructure.
 - Launch of saved named orchestration agents with launched/skipped ticket reports.
 - Native setup for a local profile, personal tracker credentials, ticket sources and projects, including folder selection when associating an existing project.
 - Use Cmd/Ctrl+K for navigation, Cmd/Ctrl+, for Settings, Cmd/Ctrl+B for the project sidebar, and Cmd/Ctrl+N for a new prompt in the selected project. Drag the sidebar grip or focus it and use the arrow keys to resize it.
+- At narrow window widths, the visible sidebar is capped so the conversation stays usable; its saved width returns when the window is wider.
 - Native ticket-source editing and deletion for Local users and Fleet administrators; deletion is available only after the source is no longer linked to projects or tickets.
 - Explicit Local or Fleet runtime selection, with native one-time-code Fleet pairing and private workstation credentials.
 - Automatic startup and reconnection of the Go companion in Local mode or the workstation agent in Fleet mode.

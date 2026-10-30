@@ -64,6 +64,14 @@ function Workspace() {
     const saved = Number(readPreference("sidebarWidth", "268"));
     return Number.isFinite(saved) ? Math.max(200, Math.min(480, saved)) : 268;
   });
+  const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const sidebarMaximum = windowWidth <= 900 ? Math.max(200, Math.floor(windowWidth * 0.32)) : 480;
+  const visibleSidebarWidth = Math.min(sidebarWidth, sidebarMaximum);
   const sidebarDrag = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
   const [openingFolder, setOpeningFolder] = useState(false);
   const [folderError, setFolderError] = useState("");
@@ -280,7 +288,7 @@ function Workspace() {
       <div className="desktop-body">
         {showProjectSidebar && (
           <>
-          <aside className="sidebar" style={{ width: sidebarWidth }}>
+          <aside className="sidebar" style={{ width: visibleSidebarWidth }}>
             <div className="sidebar-scroll">
               <div className="sidebar-search">
                 <Icon name="search" />
@@ -390,23 +398,23 @@ function Workspace() {
             title="Glisser pour redimensionner · ← → au clavier"
             aria-orientation="vertical"
             aria-valuemin={200}
-            aria-valuemax={480}
-            aria-valuenow={sidebarWidth}
+            aria-valuemax={sidebarMaximum}
+            aria-valuenow={visibleSidebarWidth}
             tabIndex={0}
             onPointerDown={event => {
               if (event.button !== 0) return;
-              sidebarDrag.current = { pointerId: event.pointerId, startX: event.clientX, startWidth: sidebarWidth };
+              sidebarDrag.current = { pointerId: event.pointerId, startX: event.clientX, startWidth: visibleSidebarWidth };
               event.currentTarget.setPointerCapture(event.pointerId);
               document.body.classList.add("resizing-sidebar");
             }}
             onPointerMove={event => {
               const drag = sidebarDrag.current;
-              if (drag?.pointerId === event.pointerId) setSidebarWidth(Math.max(200, Math.min(480, drag.startWidth + event.clientX - drag.startX)));
+              if (drag?.pointerId === event.pointerId) setSidebarWidth(Math.max(200, Math.min(sidebarMaximum, drag.startWidth + event.clientX - drag.startX)));
             }}
             onPointerUp={event => {
               const drag = sidebarDrag.current;
               if (drag?.pointerId !== event.pointerId) return;
-              const next = Math.max(200, Math.min(480, drag.startWidth + event.clientX - drag.startX));
+              const next = Math.max(200, Math.min(sidebarMaximum, drag.startWidth + event.clientX - drag.startX));
               setSidebarWidth(next);
               savePreference("sidebarWidth", String(next));
               sidebarDrag.current = null;
@@ -418,7 +426,7 @@ function Workspace() {
             onKeyDown={event => {
               if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
               event.preventDefault();
-              const next = event.key === "Home" ? 200 : event.key === "End" ? 480 : Math.max(200, Math.min(480, sidebarWidth + (event.key === "ArrowRight" ? 20 : -20)));
+              const next = event.key === "Home" ? 200 : event.key === "End" ? sidebarMaximum : Math.max(200, Math.min(sidebarMaximum, visibleSidebarWidth + (event.key === "ArrowRight" ? 20 : -20)));
               setSidebarWidth(next);
               savePreference("sidebarWidth", String(next));
             }}

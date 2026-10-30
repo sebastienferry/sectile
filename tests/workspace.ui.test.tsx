@@ -479,6 +479,22 @@ test("keyboard navigation opens a prompt and settings while the sidebar width pe
  fireEvent.keyDown(window, { key: ",", ...modifier });
  await screen.findByRole("navigation", { name: "Sections des paramètres" });
 });
+test("narrow windows cap the visible sidebar without discarding the saved width",async()=>{
+ localStorage.setItem("sectile-tauri.sidebarWidth","368");
+ vi.stubGlobal("innerWidth",800);
+ render(<App/>);
+ await screen.findByRole("button",{name:"Example"});
+ const sidebar=screen.getByRole("complementary");
+ const divider=screen.getByRole("separator",{name:"Redimensionner la barre latérale"});
+ expect(sidebar.style.width).toBe("256px");
+ expect(divider.getAttribute("aria-valuenow")).toBe("256");
+ expect(divider.getAttribute("aria-valuemax")).toBe("256");
+ expect(localStorage.getItem("sectile-tauri.sidebarWidth")).toBe("368");
+ vi.stubGlobal("innerWidth",1280);
+ fireEvent(window,new Event("resize"));
+ expect(sidebar.style.width).toBe("368px");
+ expect(divider.getAttribute("aria-valuemax")).toBe("480");
+});
 
 test("settings use one navigation rail and return to the previous workspace", async () => {
  vi.mocked(invoke).mockImplementation(async command => command === "local_service_log"

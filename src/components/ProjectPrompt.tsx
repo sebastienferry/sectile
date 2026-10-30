@@ -167,9 +167,9 @@ function ConversationStatus({snapshot,run,task,board,busy,error,onOpenExecution,
       {onOpenQueue&&<button type="button" onClick={onOpenQueue}>Voir la file des exécutions</button>}
       {onOpenTask&&<button type="button" onClick={onOpenTask}>Ouvrir le workflow du ticket</button>}
     </div></details>
-    <span>Skill : {run?.skill?skillLabels[run.skill]||run.skill:"Aucune"}</span>
-    <span>Ticket : {run?.taskId?<><strong>{task?.key||run.taskKey||run.taskId}</strong> · {task?.trackerStatus||"statut indisponible"}</>:"prompt libre"}</span>
+    {run?.skill&&<span>Skill : {skillLabels[run.skill]||run.skill}</span>}
+    {run?.taskId&&<span>Ticket : <strong>{task?.key||run.taskKey||run.taskId}</strong> · {task?.trackerStatus||"statut indisponible"}</span>}
     {run?.taskId&&(links.length>1?<details className="conversation-pr-menu"><summary>PR/MR : {links.length} liées</summary><div className="conversation-pr-panel">{links.map(link=><button type="button" key={link.url} onClick={()=>onOpenPr(link.url)}><Icon name="branch"/>{pullRequestLabel(link)} · {pullRequestStateLabel(link)}</button>)}</div></details>:<span>PR/MR : {links.length?<button type="button" className="conversation-pr-link" onClick={()=>onOpenPr(links[0].url)}><Icon name="branch"/>{pullRequestLabel(links[0])} · {pullRequestStateLabel(links[0])}</button>:"aucune"}</span>)}
-    <span>Étape : {run?.taskId?stage?stageLabels[stage]:"inconnue":"sans ticket"}</span>
+    {run?.taskId&&<span>Étape : {stage?stageLabels[stage]:"inconnue"}</span>}
   </div>;
 }
