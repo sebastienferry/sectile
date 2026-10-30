@@ -1368,8 +1368,11 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .project-advanced .attached-folder-settings > h3 { display: none; }
 .project-profiles .profile-default { margin-top: 16px; }
 .project-profiles .project-folder-settings { padding-bottom: 16px; margin-bottom: 20px; }
-.project-profiles .project-tracker-setup { padding: 0 0 24px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
-.project-profiles .project-tracker-setup h2 { margin: 0 0 8px; font-size: 22px; }
+.project-profiles .project-tracker-setup { padding: 0 0 18px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+.project-tracker-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.project-profiles .project-tracker-setup h2 { margin: 0; font-size: 22px; }
+.project-tracker-heading button { flex-shrink: 0; }
+.project-tracker-summary { margin: 12px 0 0; line-height: 1.4; }
 .project-profiles .project-tracker-setup form { max-width: 520px; }
 .project-profiles .project-tracker-setup fieldset { display: grid; gap: 12px; margin: 16px 0 0; padding: 0; border: 0; }
 .project-profiles .project-tracker-setup label { display: grid; gap: 7px; }

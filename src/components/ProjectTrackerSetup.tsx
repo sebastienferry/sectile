@@ -23,7 +23,7 @@ export function ProjectTrackerSetup({
     if (suppliedSetup) return;
     let current = true;
     void localSetupStatus().then(value => { if (current) setLoadedSetup(value); })
-      .catch(cause => { if (current) setError(String(cause)); });
+      .catch(() => { if (current) setError("Impossible de charger les sources de tickets. Vérifiez la connexion puis réessayez."); });
     return () => { current = false; };
   }, [suppliedSetup, reload]);
   const setup = suppliedSetup ?? loadedSetup;
@@ -41,18 +41,19 @@ export function ProjectTrackerSetup({
       setNotice("Tracker associé au projet.");
       if (!suppliedSetup) setReload(value => value + 1);
       onChanged();
-    } catch (cause) { setError(String(cause)); }
+    } catch { setError("Impossible d’associer cette source au projet. Réessayez après avoir vérifié la connexion."); }
     finally { setPending(false); }
   }
   return <section className="project-tracker-setup" aria-label="Source de tickets du projet">
-    <h2>Source de tickets</h2>
-    {projectId && <p className="muted">{linked.length ? `Trackers associés : ${linked.map(tracker => tracker.name).join(", ")}.` : "Aucun tracker distant associé."}</p>}
+    <div className="project-tracker-heading">
+      <h2>Source de tickets</h2>
+      {onManageTrackers && <button type="button" className="project-tracker-manage" onClick={onManageTrackers}>Gérer les sources</button>}
+    </div>
+    {setup && projectId && <p className="muted project-tracker-summary">{linked.length ? `Trackers associés : ${linked.map(tracker => tracker.name).join(", ")}.` : remoteTrackers.length ? "Aucun tracker associé à ce projet." : "Aucune source distante configurée. Les prompts restent disponibles sans tracker."}</p>}
     {!setup && !error && <p>Chargement des trackers…</p>}
     {error && <p role="alert" className="error">{error} {!suppliedSetup && <button type="button" onClick={() => {setError("");setReload(value => value + 1);}}>Réessayer</button>}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
-    {setup && !remoteTrackers.length && <p className="muted">Aucune source distante disponible pour ce projet.</p>}
-    {setup && onManageTrackers && <button type="button" className="project-tracker-manage" onClick={onManageTrackers}>Gérer les sources de tickets</button>}
-    {setup && !!remoteTrackers.length && selected?.id && !available.length && <p className="muted">Toutes les sources disponibles sont déjà associées à ce projet.</p>}
+    {setup && !projectId && !remoteTrackers.length && <p className="muted">Aucune source distante disponible pour ce projet.</p>}
     {setup && !!remoteTrackers.length && (!selected?.id || !!available.length) && <form onSubmit={submit}>
       <fieldset disabled={pending}>
         {!projectId && <label>Projet existant<select required value={selectedProjectId} onChange={event => {setSelectedProjectId(event.target.value);setTrackerId("");}}><option value="">Choisir un projet</option>{setup.projects?.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>}

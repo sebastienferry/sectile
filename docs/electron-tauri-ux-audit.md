@@ -1673,3 +1673,19 @@ window size, **Source de tickets** and the default conversation profile are
 visible together in the [native retake](ux-captures/project-folder-compact-native.png).
 This is a layout check; changing folders still uses the existing native picker
 and companion mapping flow.
+
+The adjacent ticket-source block repeated the absence of an associated tracker
+and the absence of any configured remote source, then placed the management
+button below both messages. The current source presents one state message and
+keeps **Gérer les sources** alongside the heading. The association form still
+appears when an unlinked source exists; a project without a tracker still
+supports free prompts. Source loading and association failures now use a
+localized retry message while the management action stays available. The source
+and UI tests pass. In the isolated port-52965 native app, the
+[compact source capture](ux-captures/project-tracker-source-compact-native.jpg)
+shows the single empty state, its action, and the default conversation profile
+in one 800-by-700-point window. **Gérer les sources** opened the native
+**Comptes et trackers** section at the source creation form; **Retourner à
+l’espace de travail** restored the same project settings. This qualifies Local
+navigation and layout on the unsigned QA bundle, not a remote source write,
+Fleet backend, or signed release artifact.

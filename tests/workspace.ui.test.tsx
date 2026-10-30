@@ -690,9 +690,35 @@ test("project settings attach a tracker directly to the selected project", async
  await waitFor(()=>expect(invoke).toHaveBeenCalledWith("attach_project_tracker",{projectId:"p",trackerId:"t"}));
  expect(attach).toHaveBeenCalledOnce();
  expect(await screen.findByText("Trackers associés : Fixture tracker.")).toBeTruthy();
- expect(screen.getByText("Toutes les sources disponibles sont déjà associées à ce projet.")).toBeTruthy();
+ expect(screen.queryByText("Toutes les sources disponibles sont déjà associées à ce projet.")).toBeNull();
  expect(screen.queryByRole("button",{name:"Associer le tracker"})).toBeNull();
  expect(invoke).not.toHaveBeenCalledWith("create_local_project",expect.anything());
+});
+test("project settings explain that prompts remain available without a tracker", async () => {
+ vi.mocked(invoke).mockImplementation(async command => {
+   if (command === "conversation_profiles") return {profiles:[],defaultId:"",inherited:true};
+   if (command === "local_setup_status") return {enabled:true,ready:true,signedIn:true,projects:[{id:"p",name:"Example",trackers:[]}],trackers:[]};
+   return null;
+ });
+ render(<App />);
+ fireEvent.click(await screen.findByRole("button",{name:"Configurer le projet"}));
+ const trackerSetup=await screen.findByRole("region",{name:"Source de tickets du projet"});
+ expect(within(trackerSetup).getByText("Aucune source distante configurée. Les prompts restent disponibles sans tracker.")).toBeTruthy();
+ expect(within(trackerSetup).getByRole("button",{name:"Gérer les sources"})).toBeTruthy();
+ expect(within(trackerSetup).queryByRole("button",{name:"Associer le tracker"})).toBeNull();
+});
+test("project settings keep tracker management available when sources cannot load", async () => {
+ vi.mocked(invoke).mockImplementation(async command => {
+   if (command === "conversation_profiles") return {profiles:[],defaultId:"",inherited:true};
+   if (command === "local_setup_status") throw new Error("Connection unavailable");
+   return null;
+ });
+ render(<App />);
+ fireEvent.click(await screen.findByRole("button",{name:"Configurer le projet"}));
+ const trackerSetup=await screen.findByRole("region",{name:"Source de tickets du projet"});
+ expect((await within(trackerSetup).findByRole("alert")).textContent).toContain("Impossible de charger les sources de tickets.");
+ expect(within(trackerSetup).getByRole("button",{name:"Réessayer"})).toBeTruthy();
+ expect(within(trackerSetup).getByRole("button",{name:"Gérer les sources"})).toBeTruthy();
 });
 test("project tracker setup opens tracker management directly and returns to the project", async () => {
  const scrollIntoView=vi.fn();
@@ -709,7 +735,7 @@ test("project tracker setup opens tracker management directly and returns to the
  render(<App/>);
  fireEvent.click(await screen.findByRole("button",{name:"Configurer le projet"}));
  const trackerSetup=await screen.findByRole("region",{name:"Source de tickets du projet"});
- fireEvent.click(within(trackerSetup).getByRole("button",{name:"Gérer les sources de tickets"}));
+ fireEvent.click(within(trackerSetup).getByRole("button",{name:"Gérer les sources"}));
  expect(await screen.findByRole("button",{name:"Comptes et trackers",current:"page"})).toBeTruthy();
  await waitFor(()=>expect(scrollIntoView).toHaveBeenCalledWith({block:"start"}));
  expect((scrollIntoView.mock.instances[0] as HTMLElement).classList.contains("tracker-list")).toBe(true);
