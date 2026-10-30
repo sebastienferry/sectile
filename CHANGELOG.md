@@ -26,6 +26,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Keep conversation activity dots circular in the project sidebar instead of stretching them across the row.
 - Open Settings through the native macOS Command-comma menu shortcut when the WebView does not receive the key event.
 - Match Electron's epic colors on the desktop board and backlog list when the project enables them, and explain when a restored Codex conversation can check MCP again.
 - Keep the conversation composer visible when an interactive question takes more space than the window provides.

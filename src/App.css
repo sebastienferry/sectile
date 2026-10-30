@@ -344,7 +344,7 @@ body.resizing-sidebar {
   background: var(--selected);
   color: var(--accent-text);
 }
-.sidebar-run > span:not(.dot) {
+.sidebar-run:not(.conversation-navigation) > span:not(.dot) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

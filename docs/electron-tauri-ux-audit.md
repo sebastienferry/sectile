@@ -555,6 +555,10 @@ The isolated macOS app displayed the QA ticket's linked `MR !1 · état inconnu`
 in the workflow. That fixture uses a local forge simulator and does not prove a
 live forge-state refresh; the native capture is
 `docs/ux-captures/workflow-pr-state-native.png`.
+That capture also exposed an elongated blue activity indicator in the project
+rail. The generic run-row flex rule matched the conversation indicator; it is
+now scoped to non-conversation run rows. The native retake is recorded in
+`docs/ux-captures/conversation-indicators-native.png`.
 
 Current verification passes on Tauri commit `239d7c1`: `npm run check`, 14
 domain tests, 101 UI tests, 35 Rust tests and `npm run build`. The short-window
