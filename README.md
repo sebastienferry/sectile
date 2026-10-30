@@ -189,7 +189,13 @@ the presentation. The desktop stores no independent task truth.
 An accepted request stays pending until its run appears; it is never automatically
 resent. A process exit and a skill result are displayed separately: the server's
 activity and stage must confirm completion. A missing PR at the implemented stage
-returns to the project's PR creation owner. **Lancer la chaîne** displays whether
+returns to the project's PR creation owner. Autonomous Codex chains require an updated Go agent with sandboxed automatic
+review and JSONL trace support (Go `85da2f24` or a qualified successor, tested
+with Codex CLI 0.165.0). Their tools stop on agent death; initial run identity is
+saved before startup. Ordinary autonomous trace tails remain periodic snapshots.
+User-authored command templates keep their own permission/output configuration.
+
+**Lancer la chaîne** displays whether
 pickup stops at Implemented or Reviewed. Manual review validation is a separate
 explicit declaration, requires a justification and does not merge a PR.
 

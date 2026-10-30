@@ -41,6 +41,17 @@ no replay or new tool call. Its
 backend used disposable state on loopback; it does not qualify real remote TLS,
 OAuth, tracker chains or a signed installation.
 
+The controlled Codex service-level chain now reaches Reviewed with standard
+installed skills and scoped MCP, after repairing the disposable forge's feedback
+and MR-description responses. Three tests, preserved commits, one ready open MR,
+matching pushed HEAD and unchanged shared MCP tables were independently checked.
+Go `88154064`/`72119df5` add sandboxed automatic review and live Codex trace/error
+handling; `85da2f24` adds lifetime ownership and a mandatory initial checkpoint.
+Real Codex and Claude headless SIGKILL tests then prevented delayed writes after
+95 seconds, restored terminal run identity and did not replay tools. Native
+Codex launch/result inspection is deferred by the owner, and these development
+checks do not qualify an older retained candidate or a signed package.
+
 ## Product ownership and updates
 
 Interactive Tauri tracker conversations require Go server/agent `920e313f` or

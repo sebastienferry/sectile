@@ -494,3 +494,63 @@ The disposable native app, managed agent, backend, private state and bundle were
 removed after verification. The regular Local companion (PID 89986, port 52963)
 remained running throughout. The retained candidate DMG still names the older
 `4063b47`/`84e19b1b` pairing; it has not been silently replaced with this test app.
+
+
+## Autonomous Codex chain and crash-safety correction (2026-10-30)
+
+A controlled service-level check used real Codex CLI 0.165.0 / `gpt-6-astra`,
+installed standard skills, the scoped Fleet MCP bridge, a loopback GitLab test
+double and a real Git HTTP origin. No project skill override or real forge was
+used. Initial setup required the Fleet server's synthetic read credential and
+private glab configuration; personal write credentials alone do not authorize
+Fleet server-wide synchronization.
+
+The first run exposed a product defect: plain `codex exec` inherited read-only
+permissions and could not answer MCP approvals, then exited zero at New. Go
+`88154064` changes the built-in autonomous launch to `--approve-for-me --json`,
+retaining Codex's workspace sandbox and automatic review, and normalizes Codex
+JSONL into the existing local execution trace. Configured templates and
+interactive conversations keep their own settings. Go `72119df5` additionally
+preserves top-level Codex error messages before decoding Claude's different
+message shape. See Go ADR 0069 and the official
+[non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
+
+The corrected implementation run `5e218b39-271f-40fd-a7ad-1e34a382b28d`
+accepted clarification, specification and implementation. Review correctly
+stopped on malformed fixture feedback responses. A continuation preserved those
+commits and completed the review checklist, then refused to claim Reviewed when
+the fixture ignored MR-description updates. After repairing only those fixture
+HTTP contracts, run `fc4dcc3a-ea06-4476-93ad-ede44f171baf` completed Reviewed
+through MCP. No stage was advanced through a direct database or fixture edit.
+
+Independent checks confirmed three passing Python unittests, an additional
+`greet("Ada") == "Hello, Ada!"` assertion, one ready open MR, an open issue,
+`#reviewed` in both backend and tracker, a clean worktree and matching local,
+pushed and MR HEAD `ab7668688248f7d60f51ad7e9563825ea86735de`. The implementation
+commit remains an ancestor; the only extra commit completes the review checklist.
+The default branch was unchanged. A real WebSocket subscriber received 33 live
+trace frames, including 29 tool-progress lines and four stage-report lines.
+Shared Claude/Codex MCP tables remained unchanged. This is a standard Codex
+runtime chain with fixture-repair retries, not an uninterrupted first pass or a
+native-button launch qualification. The owner deferred the locked-Mac visual
+check; do not restart the unlock request.
+
+A separate regression exposed autonomous process ownership: `StartDetached`
+stopped explicit cancellations but allowed a delayed tool write after owner
+SIGKILL. Go `85da2f24` applies the conversation lifetime guard to autonomous runs
+and checkpoints their complete identity before provider startup. A fast Claude
+run had also disappeared before the five-second checkpoint; a configured store
+failing its initial write now refuses execution. Ordinary autonomous trace tails
+remain periodic; this is not conversation-style per-event journaling.
+
+Real custom autonomous tasks then ran a one-shot shell command with a ready file,
+90-second sleep and delayed write. SIGKILL of the test agent prevented every
+delayed-file variant after 95 seconds for Codex (`gpt-6-astra`, run
+`91c51d3f-092f-486a-8615-49b351459357`) and Claude Code (`sonnet`, run
+`5025ce23-df93-420f-acc6-0fc90bba17a7`). Restart restored each run as terminal,
+with provider/model retained, unchanged ready-file timestamp, no tool replay and
+the completed workflow history still present. Shared MCP tables remained intact.
+These were development binaries of the committed fixes against packaged Go
+`9b0b68f6` server services; the newly packaged source pairing requires its own
+artifact verification. All Go packages passed, including startup-write ordering,
+storage-failure refusal, owner-SIGKILL, explicit cancellation and trace routing.

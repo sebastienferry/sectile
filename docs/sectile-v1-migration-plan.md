@@ -708,6 +708,19 @@ changing the shipped Local callback port. This qualifies packaged Fleet
 conversation recovery through the agent API; it does not qualify native Fleet
 onboarding, remote tracker writes, OAuth consent or a signed installation.
 
+### Codex autonomous workflow qualification (2026-10-30)
+
+The service-level Codex chain now reaches Reviewed using standard installed
+skills and scoped MCP against a loopback forge, with fixture-repair retries,
+three independently passing tests, one ready unmerged MR and preserved commits.
+Go `88154064` supplies sandboxed automatic review and live JSONL progress;
+`72119df5` preserves fatal messages. Go `85da2f24` guards autonomous provider
+lifetimes and checkpoints identity before startup. Real Codex/Claude headless
+SIGKILL checks passed after the 90-second delayed write deadline, with no replay
+and terminal run identity restored. See the UX audit and release checklist for
+exact run IDs and evidence boundaries. Native Codex-button qualification remains
+deferred by the owner; the prior candidate does not acquire these fixes.
+
 ## 6. Repository and branch strategy
 
 - Sectile Go: `refactor/embedded-local-backend`, from preserved prototype commit

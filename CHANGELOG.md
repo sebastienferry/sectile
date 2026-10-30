@@ -13,6 +13,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Bundled autonomous Codex workflows use sandboxed automatic review and stream their tools and progress; autonomous Claude/Codex runs stop their tools on agent crash and save their initial history before starting.
+
 - Conversation history now describes approval decisions in French instead of exposing protocol values such as `allow` and `deny`.
 
 - Keep managed Fleet Claude Code and Codex sessions connected to their selected backend without changing Electron’s shared MCP registration.
