@@ -290,7 +290,12 @@ first. The desktop asks the bundled Go helper to authenticate the Local runtime,
 stop it gracefully, and verify both transports and the data-store lifetime lock
 are released. Only then does it quit. On failure it keeps automatic startup
 suspended; retry preparation or explicitly start the companion to keep working.
-The action is absent in Fleet and does not download an update. The initial
+Idle durable Claude Code and Codex conversations remain resumable through this
+shutdown, including a Codex app-server with its RPC channel open between turns.
+This requires the updated Go companion (`f55e8768` or a qualified successor);
+older candidates can incorrectly refuse an idle conversation. Active turns,
+queued messages and approvals still block shutdown. The action is absent in
+Fleet and does not download an update. The initial
 unpaired/bootstrap state is not yet covered by this native action.
 
 Closing the desktop leaves its Go companion running. Replacing the app bundle

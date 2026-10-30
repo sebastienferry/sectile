@@ -671,3 +671,56 @@ No production data or provider session was copied into this fixture, and it was
 removed after the test. This qualifies the exact service-binary replacement
 slice, not the native button, app exit, DMG installation, tracker/OAuth retention,
 provider conversation upgrade or multi-instance update behavior.
+
+
+### Native stop, bundle replacement and Claude/Codex resume — passed (2026-10-30)
+
+- [x] Start Local from the native Services screen; save a disposable profile and
+  select a temporary workspace through the native directory picker.
+- [x] Start real Claude Code (`claude-sonnet-5`) and Codex (`gpt-6-astra`) prompts
+  from the desktop in execution mode. Each runs one file-append tool and returns
+  its expected first-turn response; tools render in grouped history.
+- [x] Prepare an update through the native Services action with idle provider
+  conversations. Confirm actual desktop/process exit and port release.
+- [x] Replace the stopped app bundle in place, retaining its identifier/data
+  directory. The final qualified test versions are 0.1.3 and 0.1.4; desktop
+  executable hashes differ. These are qualification overrides, not releases.
+- [x] Reopen and send a follow-up from each restored native conversation. Claude
+  returns its original synthetic codeword and Codex its own, without tools.
+  Session identity hashes, transcript prefixes, titles, connection identity,
+  selected models and modes remain equal. Events increase 9→12 for Claude and
+  13→16 for Codex, exactly user/assistant/notice in each case. Both marker-file
+  hashes remain equal; installation bytes and encryption-key digest match.
+- [x] Stop again through the native action after both resumed turns. The
+  desktop and companion exit; the test port closes. This additionally exercises
+  an idle Codex RPC connection after a real resumed turn.
+
+The initial native attempt correctly exposed that the old shutdown gate
+rejected idle sessions. Go `17a782df` fixes open conversation admission; the
+post-follow-up cleanup exposed Codex's retained RPC stdin, fixed by `f55e8768`.
+Both regression tests failed before their respective fixes and pass afterward,
+including race checks and busy/approval/queued-message/ticket/journal refusal
+cases. The affected Go agent, companion, backend and companion command suites
+pass on the final source. Preparatory graceful test-runtime restarts were used
+to load these fixes before repeating the full native cycle; they are not
+substituted for the final native button checks.
+
+Qualification uses Tauri `d69c3ac`, Go `f55e8768`, isolated identifier
+`com.sebferry.sectile.nativeupdate20261030`, and a recorded port-only test change
+from 52963 to 52964. No regular app or companion was stopped/replaced; no tracker
+or OAuth account was configured. Redacted evidence, captures and the port diff
+are retained under `src-tauri/target/qualifications/2026-10-30-native-update/`.
+Test build worktrees were removed and test services stopped. The isolated app,
+workspace and private test history are retained for optional inspection.
+
+The separate canonical arm64 candidate at
+`src-tauri/target/candidates/2026-10-30-d69c3ac-gof55e8768/` was built from clean
+Tauri `d69c3ac` and clean Go `f55e8768` with standard identifier/port 52963.
+App and mounted-DMG service hashes, architectures, 52 license files and
+`hdiutil verify` pass. The DMG is 56,371,343 bytes, SHA-256
+`bb7e859f478970c7b404a11f26f32c1eec850d4967e251f93f82b7a8b6c30fe6`.
+It remains prototype version 0.1.0 and is not Developer ID signed/notarized.
+Earlier `ba4c512e` and `17a782df` candidates do not acquire the complete fix by
+implication. This native test does not establish canonical default-port startup,
+signed DMG installation, real Jira/OAuth writes, production Fleet or migration
+from an officially released prior Tauri version.

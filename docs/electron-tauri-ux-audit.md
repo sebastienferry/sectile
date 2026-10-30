@@ -1226,3 +1226,23 @@ post-acknowledgement refresh suppression, refusal recovery, remount recovery and
 Fleet exclusion. Native rendering/exit and bundle replacement remain deferred;
 the unpaired/bootstrap stop path and multi-instance update guarantee remain
 release gates rather than inferred successes.
+
+
+## Native update journey retake (2026-10-30)
+
+The owner resumed native tests. The real Services action now passes stop and
+quit with idle Claude/Codex conversations, bundle replacement, restored native
+history/model/mode and an explicit follow-up recalling each provider's original
+codeword without tools. A final native shutdown after those follow-ups passes
+as well. The test found two lifecycle inconsistencies that source-only decoder
+and empty-runtime tests had missed: open idle conversation exit channels and
+Codex's persistent RPC stdin. Go `17a782df`/`f55e8768` fix the admission boundary
+without treating active turns or queued input as idle.
+
+The final qualification uses Tauri `d69c3ac`/Go `f55e8768`, an isolated app
+identifier, port 52964 and test versions 0.1.3→0.1.4. Transcript prefixes,
+provider session hashes, model/mode and marker files were independently
+compared. Captures and redacted results are retained under
+`src-tauri/target/qualifications/2026-10-30-native-update/`. The regular user
+installation, Jira and Developer ID signing were left untouched. This closes
+the requested native update/conversation slice, not every V1 release gate.

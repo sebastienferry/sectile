@@ -15,6 +15,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Preparing a Local update preserves idle Claude Code and Codex conversations, including Codex sessions with an open RPC connection, while still refusing active work.
+
 - Bundled autonomous Codex workflows use sandboxed automatic review and stream their tools and progress; autonomous Claude/Codex runs stop their tools on agent crash and save their initial history before starting.
 
 - Conversation history now describes approval decisions in French instead of exposing protocol values such as `allow` and `deny`.

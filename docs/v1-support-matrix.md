@@ -9,7 +9,7 @@ binary checks in the [release checklist](v1-release-checklist.md).
 
 | Target | V1 position | Current evidence and limit |
 | --- | --- | --- |
-| macOS arm64 | First release target | The latest retained candidate is Tauri `d69c3ac` with clean Go `ba4c512e`: a 103.41 MiB app and 56,366,854-byte DMG. App and mounted-DMG service hashes, arm64 architecture, port 52963, 52 license files, `hdiutil verify` and the retained checksum pass. Configured Local update preparation is included; its native stop-and-quit action is not yet qualified. There is no Developer ID/notarization qualification or clean-user installation proof. Historical package results below do not qualify this candidate by implication. |
+| macOS arm64 | First release target | The latest retained candidate is Tauri `d69c3ac` with clean Go `f55e8768`: a 103.41 MiB app and 56,371,343-byte DMG. App and mounted-DMG service hashes, arm64 architecture, port 52963, 52 license files, `hdiutil verify` and the retained checksum pass. Configured Local native stop-and-quit and conversation resume pass in the separately identified port-52964 qualification. There is no Developer ID/notarization qualification or clean-user installation proof. Historical package results below do not qualify this candidate by implication. |
 | macOS x86_64 | Not promised for the first release | No native package or runtime qualification is recorded. |
 | Linux | Experimental | A Debian ARM64 package opened a visible window under Xvfb/DBus. Real user desktop, provider and migration workflows across distributions remain unqualified. |
 | Windows | Deferred | Go services cross-build, but native desktop startup, migration, process execution and installer behavior remain unqualified. |
@@ -60,6 +60,17 @@ are explicitly deferred by the owner. The candidate is not signed/notarized and
 has not replaced the regular installation. The prior candidate stays separate.
 
 ## Latest candidate and update preparation
+
+Latest retake: canonical candidate `2026-10-30-d69c3ac-gof55e8768` pairs clean
+Tauri `d69c3ac` with clean Go `f55e8768`. It includes both idle-conversation
+shutdown fixes. A separate native qualification with an isolated identifier,
+port 52964 and test versions 0.1.3→0.1.4 passes stop-and-quit, bundle replacement,
+Claude/Codex history/context/model/mode resumption, no tool replay and final
+native cleanup. The canonical DMG's app/resources/hash verification passes;
+its standard port/identifier was not activated against the regular installation.
+Jira and signing remain excluded. Earlier candidate limitations below are
+historical; do not infer they include these fixes.
+
 
 The latest source-level v0.7.6/current compatibility refresh uses Go `ba4c512e`.
 It passes both agent/server directions, 27 advertised operations, 21 MCP tools

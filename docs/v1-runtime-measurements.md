@@ -40,7 +40,7 @@ binaries for Local/Fleet compatibility, so this binary comparison is not a
 package-size reduction.
 
 The latest retained clean-source, unsigned package pairs Tauri `d69c3ac` with
-Go `ba4c512e`: the arm64 app is 103.41 MiB and the DMG is 56,366,854 bytes
+Go `f55e8768`: the arm64 app is 103.41 MiB and the DMG is 56,371,343 bytes
 (53.76 MiB). App/DMG resource verification, the retained hash and `hdiutil verify`
 passed. The [release checklist](v1-release-checklist.md) records its checksum
 and open native/signing gates. This package measurement does not repeat the

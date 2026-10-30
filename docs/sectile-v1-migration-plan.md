@@ -31,15 +31,18 @@ release or replace the exact-artifact checks for stages 5 and 8.
 | Electron-to-Tauri UX convergence | Seven scoped lots complete | Matched baseline, design challenge, navigation, workflow, conversations, supervision, settings and visual-system evidence are in the [UX audit](electron-tauri-ux-audit.md). Later native checks qualify later source changes separately. |
 
 The latest retained testing artifact is
-`src-tauri/target/candidates/2026-10-30-d69c3ac/`: Tauri `d69c3ac` and clean Go
-`ba4c512e`. Its app/DMG verification passes. The current source passes the full
+`src-tauri/target/candidates/2026-10-30-d69c3ac-gof55e8768/`: Tauri `d69c3ac`
+and clean Go `f55e8768`. Its app/DMG verification passes. The current source passes the full
 Go suite, 25 Node tests, 140 UI tests, 41 Rust tests, TypeScript and production
 frontend build. The [release checklist](v1-release-checklist.md) holds the exact
 hashes, commands and qualification limits. The regular installation remains
 unchanged; the candidate has not been activated against its user data.
 
-Owner decisions currently defer native visual verification and fresh Jira
-consent. Apple signing is unavailable. These are not running background jobs
+The owner reopened native testing on 2026-10-30: isolated stop-for-update,
+bundle replacement, Claude/Codex context/history/model/mode resumption and final
+shutdown now pass. Native testing used a distinct app identity and port 52964;
+it does not establish every release-artifact or production-installation gate.
+Fresh Jira consent remains deferred and Apple signing is unavailable. These are not running background jobs
 and no unattended wait will complete them. Remaining technical work must be
 reported separately from those external gates; an estimate for source cleanup
 is not an estimate for full V1 qualification. Do not reopen the deferred
@@ -819,3 +822,26 @@ encryption key retained. The new unsigned candidate is
 clicked or visually inspected. See the release checklist for its hashes and
 scope. This progress does not close phase 8 or the deferred native, signing,
 Jira consent, unpaired/bootstrap and multi-instance qualification gaps.
+
+
+### Native update and provider resume qualification (2026-10-30)
+
+The owner's requested native update journey is now qualified on the isolated
+macOS application. Testing found and fixed two shutdown-admission defects:
+ready conversations kept `run.exited` open, and an idle Codex app-server kept
+its RPC stdin open. Go `17a782df` and `f55e8768` admit durable idle free
+conversations through ordinary daemon cleanup, while active turns, queued
+messages, questions, tracker-bound context and failed journals remain blocked.
+
+Tauri `d69c3ac` with Go `f55e8768` passed native stop-and-quit, replacement of
+qualification version 0.1.3 with 0.1.4 under the same isolated identifier,
+automatic companion startup, and explicit Claude/Codex follow-up from the
+restored histories. Both providers recalled their original codeword without
+tools; session identity, transcript prefix, model and execution mode stayed
+unchanged. Marker files were byte-identical and the final native cleanup also
+exited both desktop and companion. The real installation was left intact.
+The port-only Go test delta and test app identity/version overrides are recorded
+in the [release checklist](v1-release-checklist.md); the canonical unsigned DMG
+was rebuilt separately from clean source with the standard identifier and port.
+Jira, Developer ID signing, deployed TLS Fleet and complete signed-installation
+qualification are outside this test result.
