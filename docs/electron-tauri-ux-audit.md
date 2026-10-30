@@ -1496,3 +1496,15 @@ ticket. UI tests cover create and update payloads, link ordering and rejection;
 Go agent tests cover forwarded tracker writes and PR/MR link validation. The
 isolated bundle used port 52964 and Go `8d40b2aa`; real tracker writes from
 the native window remain a separate qualification.
+
+A follow-up restarted the disposable loopback GitLab test double at its saved
+port and checked actual writes from the same isolated native app. Changing the
+existing ticket's title from its Tauri editor appeared in the tracker's HTTP
+state and workflow view; another native edit restored the original title.
+The test double was extended to allocate a second disposable issue instead of
+overwriting the workflow fixture. Creating that issue from the Tauri board
+returned `#2`; a tracker POST and the new ticket in the board's first stage
+confirmed the complete native create path. The
+[created-board capture](ux-captures/ticket-created-board-native.png) is the
+visual record. The test left `#2` only in the isolated QA data and loopback
+fixture. It does not qualify a live forge, OAuth, remote Fleet or a signed app.

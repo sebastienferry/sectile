@@ -18,7 +18,7 @@ binary checks in the [release checklist](v1-release-checklist.md).
 
 | Client and backend | Demonstrated behavior | Boundary for V1 |
 | --- | --- | --- |
-| Tauri Local with the embedded Go companion | Native Local project/profile screens, folder mapping and the Local board were exercised in isolated macOS bundles. A disposable Local service harness with real Claude Code and Codex confirmed responses, tool activity, interruption, resume and persistence. A native Settings sync using the existing Jira OAuth grant reported 1,988 PE tickets and displayed them on the board. A separate current-source native window created a GitLab source and project, showed a completed 106-ticket synchronization, and displayed the live `taskativ` board. Isolated Go API tests created, updated and read back real issues on the authorized GitHub `sectile` and GitLab `taskativ` repositories; the issues were deleted. Go `e1b80fe8` also passed a live GitLab create/update check with a saved website URL lacking `/api/v4`. | Fresh OAuth consent, Jira writes, a native tracker write workflow, clean-user installation and the signed release path remain open. The native GitLab read used a token supplied to the isolated backend API before opening Settings; live forge writes used an isolated Go API server, not the Tauri window. |
+| Tauri Local with the embedded Go companion | Native Local project/profile screens, folder mapping and the Local board were exercised in isolated macOS bundles. A disposable Local service harness with real Claude Code and Codex confirmed responses, tool activity, interruption, resume and persistence. A native Settings sync using the existing Jira OAuth grant reported 1,988 PE tickets and displayed them on the board. A separate current-source native window created a GitLab source and project, showed a completed 106-ticket synchronization, and displayed the live `taskativ` board. Isolated Go API tests created, updated and read back real issues on the authorized GitHub `sectile` and GitLab `taskativ` repositories; the issues were deleted. Go `e1b80fe8` also passed a live GitLab create/update check with a saved website URL lacking `/api/v4`. | Fresh OAuth consent, Jira writes, a native tracker write workflow against a live forge, clean-user installation and the signed release path remain open. The native GitLab read used a token supplied to the isolated backend API before opening Settings; live forge writes used an isolated Go API server, not the Tauri window. |
 | Tauri Fleet with current Go server and agent | Native pairing, profile update, fake GitLab credential/tracker/project setup, reconnect and persistence passed against a disposable current-Go backend. The candidate’s exact Go `84e19b1b` server/agent binaries also passed isolated Fleet SIGKILL recovery for real Codex and Claude Code: no delayed tool write or replay, with history, context, model and execution mode retained. This was an agent API check, separate from native setup. | A release may claim this pairing only after its exact Tauri/server/agent revisions and real tracker/OAuth workflows are qualified. The isolated fixture does not establish general Fleet support. |
 | Tauri Fleet with the existing `660-main` backend | Pairing and authenticated project reads passed. | OAuth setup is unsupported by that backend version. Do not list it as a fully supported V1 Fleet backend. |
 | Electron 0.7.5 with current Go server and agent | An isolated window loaded projects and a task board. A tracked task against Go `25a8e77d` displayed real Codex activity; Electron Stop canceled its delegated shell tool and the 90-second marker remained absent after 170 seconds. | Remote tracker mutations from the Electron window and execution against a signed release package remain unqualified. Electron remains a compatibility client; no retirement date is set. |
@@ -26,9 +26,13 @@ binary checks in the [release checklist](v1-release-checklist.md).
 
 A later isolated Tauri ticket-editor retake on bundled Go `8d40b2aa` confirmed
 native create and edit forms, an existing ticket's ordered PR/MR links, and
-an add/remove interaction without saving. Source tests cover the Go write
-contracts. No native tracker write was submitted in this retake, so the Local
-native write qualification in the table remains open.
+an add/remove interaction without saving. A follow-up on the same isolated
+port-52964 app restarted its loopback GitLab test double: editing ticket `#1`
+changed the remote title and a second native edit restored it; creating ticket
+`#2` produced a tracker POST and a new board card in the first workflow stage.
+The [native board capture](ux-captures/ticket-created-board-native.png) records
+the result. This qualifies the native write path against a disposable tracker,
+not GitHub/GitLab/Jira production writes, Fleet or a signed release package.
 
 Managed native Fleet MCP isolation was added after the retained candidate:
 Tauri launch now selects a session-scoped endpoint with Go `9b0b68f6` or a
