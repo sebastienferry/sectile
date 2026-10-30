@@ -24,7 +24,7 @@ import { ProjectProfiles } from "./components/ProjectProfiles";
 import { TaskEditor } from "./components/TaskEditor";
 import { LocalSettings } from "./components/LocalSettings";
 import { ModeOnboarding } from "./components/ModeOnboarding";
-import { localSetupStatus } from "./lib/local";
+import { enableLocalRuntime, localSetupStatus, prepareLocalUpdate } from "./lib/local";
 import { Icon } from "./components/Icon";
 import { readPreference, savePreference, useAppearance } from "./lib/appearance";
 import {
@@ -237,6 +237,28 @@ function Workspace() {
     if (project) navigate(project, "board");
   }, [current?.id, fresh, navigate, projects, snapshot?.runs]);
   const connected = fresh && snapshot?.status.connected;
+  const serverUrl = snapshot?.status.server || (connected ? "http://localhost:8090" : undefined);
+  const contractError = snapshot?.status.contractError;
+  const connectionText = connected
+    ? "Connected"
+    : contractError
+    ? "Server incompatible"
+    : "Not connected";
+  const connectionTitle = connected
+    ? serverUrl
+      ? `Open ${serverUrl} in the default browser`
+      : "Connected"
+    : contractError || snapshot?.status.text || "The local agent does not reach the Sectile server.";
+  const agentMenuRef = useRef<HTMLDetailsElement | null>(null);
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (agentMenuRef.current && !agentMenuRef.current.contains(e.target as Node)) {
+        agentMenuRef.current.removeAttribute("open");
+      }
+    };
+    window.addEventListener("mousedown", handleClickOutside);
+    return () => window.removeEventListener("mousedown", handleClickOutside);
+  }, []);
   const settingsHasWorkspace = current?.view === "settings" && projects.length > 0;
   const showProjectSidebar = !unconfigured && sidebar && current?.view !== "settings";
   useEffect(() => {
@@ -286,7 +308,7 @@ function Workspace() {
   }, [navigate, returnToWorkspace]);
   return (
     <div className="desktop-shell">
-      <header className="app-header">
+      <header className={`app-header ${mac ? "is-macos" : ""}`} data-tauri-drag-region>
         <div className="header-brand">
           {(current?.view !== "settings" || settingsHasWorkspace) && <button
             className="icon-button"
@@ -298,10 +320,9 @@ function Workspace() {
           >
             <Icon name="panel" />
           </button>}
-          <strong>
-            Sectile <span>Desktop</span>
+          <strong id="app-title">
+            Sectile Desktop
           </strong>
-
         </div>
         <div className="header-actions">
           <div className="theme-toggle" aria-label="Apparence">
@@ -319,7 +340,61 @@ function Workspace() {
             ))}
           </div>
           <button className="icon-button" aria-label="Navigation rapide" title="Navigation rapide · Cmd/Ctrl+K" onClick={() => setPaletteOpen(true)}><Icon name="search" /></button>
+          <div id="connection" className="connection-status" data-state={connected ? "on" : "off"} title={connectionTitle}>
+            {connected && serverUrl ? (
+              <a
+                className="connection-body"
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  void Promise.resolve(invoke("open_external_link", { url: serverUrl })).catch(() => {});
+                }}
+              >
+                <span className="connection-dot" aria-hidden="true" />
+                <span className="connection-label">{connectionText}</span>
+              </a>
+            ) : (
+              <span className="connection-body">
+                <span className="connection-dot" aria-hidden="true" />
+                <span className="connection-label">{connectionText}</span>
+              </span>
+            )}
+          </div>
+          <details className="agent-action-menu" ref={agentMenuRef}>
+            <summary
+              id="agent-actions-more"
+              className="icon-button"
+              title="Agent actions"
+              aria-label="Agent actions"
+            >
+              <Icon name="more" />
+            </summary>
+            <div className="agent-action-panel">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.currentTarget.closest("details")?.removeAttribute("open");
+                  void enableLocalRuntime().then(() => refreshExecutions()).catch(() => {});
+                }}
+              >
+                <Icon name="refresh" />
+                <span>Restart agent</span>
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={(e) => {
+                  e.currentTarget.closest("details")?.removeAttribute("open");
+                  void prepareLocalUpdate().catch(() => {});
+                }}
+              >
+                <Icon name="close" />
+                <span>Stop agent</span>
+              </button>
+            </div>
+          </details>
           <button
+            id="settings"
             className="icon-button"
             title={`Paramètres · ${modifier},`}
             aria-label="Paramètres"

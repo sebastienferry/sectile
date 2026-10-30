@@ -27,9 +27,11 @@ export interface Run {
 export interface Snapshot {
   status: {
     connected: boolean;
+    server?: string;
     runtimeMode?: "local" | "fleet" | "unconfigured";
     capabilities?: string[];
     contractError?: string;
+    text?: string;
   };
   runs: Run[];
 }

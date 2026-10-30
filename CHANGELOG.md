@@ -19,6 +19,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- The Tauri desktop header integrates seamlessly into the macOS window title bar and restores the connection indicator, agent actions menu, and settings gear icon.
 - Newly created tracker tickets now show the status confirmed by the tracker immediately, including after reopening the desktop.
 - A project conversation now supplies its selected project to a Sectile MCP context read when the coding agent omits the identifier; explicit project and task targets remain unchanged.
 
