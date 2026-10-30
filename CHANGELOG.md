@@ -15,6 +15,10 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- Very recent autonomous runs retain their identity after an agent crash; execution is refused if its configured history store cannot save the initial record.
+
+- Autonomous Claude Code and Codex tools now stop when their Go agent crashes, extending the conversation lifetime guard to background task chains.
+
 - Autonomous Codex workflows now use a writable workspace sandbox with automatic approval review, and stream their tools and progress to the desktop instead of stopping silently in read-only mode.
 
 - Managed native Fleet conversations can use their selected backend through an isolated MCP connection without replacing Electron’s shared provider registration.

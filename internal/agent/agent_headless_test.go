@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -163,5 +165,63 @@ func TestHeadlessRunIsStoppable(t *testing.T) {
 	}
 	if run.desktop.Status != "canceled" {
 		t.Fatalf("status = %q, want canceled", run.desktop.Status)
+	}
+}
+
+func TestHeadlessIdentityIsDurableBeforeTheFirstChildEffect(t *testing.T) {
+	server := newHeadlessServer(t)
+	directory := t.TempDir()
+	store := openRunStore(filepath.Join(directory, "runs"))
+	daemon := &agentDaemon{store: store, link: serverLink{serverURL: server.server.URL}}
+	command := "if [ -f " + quoteShell(store.path("durable-headless")) + " ]; then printf CHECKPOINT_PRESENT; else printf CHECKPOINT_MISSING; exit 71; fi"
+	err := daemon.startHeadlessRun("fixture", agentconfig.Dispatch{RunID: "durable-headless"}, agentconfig.Config{ProjectID: "fixture"}, directory, "feat/fixture", nil, command, "claude", "fixture-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	daemon.queue.mu.Lock()
+	run := daemon.queue.runs["durable-headless"]
+	daemon.queue.mu.Unlock()
+	select {
+	case <-run.exited:
+	case <-time.After(10 * time.Second):
+		t.Fatal("headless child did not finish")
+	}
+	if server.captured() != "CHECKPOINT_PRESENT" {
+		t.Fatalf("child ran without its durable identity: %q", server.captured())
+	}
+	data, err := os.ReadFile(store.path("durable-headless"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record storedRun
+	if json.Unmarshal(data, &record) != nil || record.Run.Provider != "claude" || record.Run.Model != "fixture-model" || record.Run.ProjectID != "fixture" {
+		t.Fatal("initial checkpoint lost run identity")
+	}
+	daemon.persistRun("durable-headless", run)
+}
+
+func TestHeadlessStorageFailureRefusesToStartTheProvider(t *testing.T) {
+	server := newHeadlessServer(t)
+	directory := t.TempDir()
+	store := openRunStore(filepath.Join(directory, "runs"))
+	broken := filepath.Join(directory, "not-a-directory")
+	if err := os.WriteFile(broken, []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store.dir = broken
+	daemon := &agentDaemon{store: store, link: serverLink{serverURL: server.server.URL}}
+	marker := filepath.Join(directory, "unexpected-provider-effect")
+	err := daemon.startHeadlessRun("fixture", agentconfig.Dispatch{RunID: "storage-failure"}, agentconfig.Config{ProjectID: "fixture"}, directory, "feat/fixture", nil, "printf unexpected > "+quoteShell(marker), "codex", "fixture-model")
+	if err == nil {
+		t.Fatal("provider launch accepted a failed initial checkpoint")
+	}
+	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+		t.Fatal("provider performed work despite a failed initial checkpoint")
+	}
+	daemon.queue.mu.Lock()
+	status := daemon.queue.runs["storage-failure"].desktop.Status
+	daemon.queue.mu.Unlock()
+	if status != "failed" {
+		t.Fatalf("refused launch status = %q", status)
 	}
 }

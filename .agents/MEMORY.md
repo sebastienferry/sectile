@@ -1,5 +1,10 @@
 # Project Knowledge Base (MEMORY.md)
 
+### Autonomous Provider Lifetime Ownership (2026-10-30)
+
+- `startHeadlessRun` still used `StartDetached` after free conversations moved to `StartOwned`. A real owner-SIGKILL regression reproduced its delayed shell write after the owning test-agent process died. The headless caller now uses the same lifetime guard; process-group ownership alone only protects explicit Stop. Keep output draining, exit status, cancellation and Windows job handling intact.
+- Real Claude startup was fast enough to beat the five-second run-store flush. Checkpoint the complete headless identity before spawning; a configured store error must refuse startup. Ordinary trace tails remain periodic and must not be described as conversation-style per-event journaling.
+
 ### Codex Autonomous Workflow Permissions and Trace (2026-10-30)
 
 - Plain `codex exec` inherits a read-only sandbox and cannot answer scoped MCP approvals. A real pickup run exited zero without advancing New. The built-in invocation now uses the attested `--approve-for-me --json` options (CLI 0.165.0), retaining workspace-write sandboxing and automatic review rather than an unrestricted bypass. User templates and interactive conversations retain their own settings.

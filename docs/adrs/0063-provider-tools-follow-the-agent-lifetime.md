@@ -84,3 +84,27 @@ process-inspection failure followed by retry. The desktop passed TypeScript,
 45 UI tests, four domain tests and 15 Rust tests, and the debug app bundle built.
 Windows process-management code and tests were cross-compiled; the real provider
 SIGKILL scenario was executed on macOS, not on Windows.
+
+
+## Autonomous task extension (2026-10-30)
+
+Autonomous task launches now use the same `StartOwned` boundary as free
+conversations. The previous `StartDetached` caller stopped tools on an explicit
+Stop but left them alive after owner SIGKILL. A headless-owner regression first
+reproduced the delayed shell write and then passed through the lifetime guard.
+Both CLI providers share this caller; stderr, output draining, exit status,
+cancellation and Windows job ownership retain their existing contracts.
+
+A complete initial run record is also written synchronously before the provider
+starts. A fast Claude tool could otherwise begin and lose its local run identity
+when SIGKILL arrived before the ordinary five-second checkpoint. A configured
+store failing this write refuses provider startup. An intentionally unavailable
+store retains its existing advertised lack of persistence. Ordinary autonomous
+trace snapshots remain periodic; this does not extend the free-conversation
+per-event journal guarantee to every terminal line. Interrupted autonomous runs
+remain terminal after recovery and are never automatically replayed.
+
+Tests establish both ordering invariants: the child observes its stored identity
+before its first effect, and a storage failure performs no provider effect. The
+V1 qualification audit records real Claude/Codex 90-second tool checks separately
+from these source regressions.

@@ -180,6 +180,11 @@ sandboxing, routes tool approvals through Codex's automatic reviewer, and stream
 command, file and MCP progress to the desktop's read-only execution trace. An
 approval denial remains a denial; the launcher never supplies an unrestricted
 sandbox or ignores managed rules. Upgrade an older CLI if it rejects these flags.
+Autonomous provider processes use the same owner-lifetime guard as conversations,
+so an agent crash stops their delegated tools as well as explicit interruption.
+Their initial identity is checkpointed before startup; a configured store that
+cannot save it refuses the launch. Autonomous trace tails still use periodic
+snapshots, while free conversations retain their per-event journal.
 Interactive conversations and user-authored command templates keep their own
 permission and output settings. No global Codex configuration is rewritten.
 See [ADR 0069](docs/adrs/0069-codex-autonomous-runs-keep-sandbox-and-stream-progress.md).

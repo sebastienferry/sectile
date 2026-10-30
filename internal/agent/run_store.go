@@ -382,22 +382,30 @@ func (d *agentDaemon) trackRun(id string, run *controlledRun) {
 // persistRun writes one run when it changed since its last write. The run is
 // copied under the queue lock and written outside it.
 func (d *agentDaemon) persistRun(id string, run *controlledRun) {
+	if err := d.checkpointRun(id, run); err != nil {
+		log.Printf("[Agent] Run %s not stored: %v", id, err)
+	}
+}
+
+// checkpointRun also lets provider startup require a durable initial record.
+// Ordinary periodic saves retain their existing best-effort behavior.
+func (d *agentDaemon) checkpointRun(id string, run *controlledRun) error {
 	if d.store == nil {
-		return
+		return nil
 	}
 	run.persistMu.Lock()
 	defer run.persistMu.Unlock()
 	d.queue.mu.Lock()
 	if d.queue.runs[id] != run || run.restored {
 		d.queue.mu.Unlock()
-		return
+		return nil
 	}
 	d.updateConversationJournalLocked(run)
 	if run.journal != nil {
 		journal := run.journal
 		d.queue.mu.Unlock()
 		journal.checkpoint()
-		return
+		return nil
 	}
 	record := storedRun{Run: run.desktop}
 	if c := run.conversation; c != nil && (!run.canceled || run.resumeAfterShutdown) && run.taskID == "" && len(c.env) == 0 && (run.desktop.Provider == "claude" || run.desktop.Provider == "codex") && c.session != "" {
@@ -423,7 +431,7 @@ func (d *agentDaemon) persistRun(id string, run *controlledRun) {
 	// A run that has not started has nothing to show, and would be dropped at
 	// the next start anyway.
 	if !exited && status != "running" {
-		return
+		return nil
 	}
 	record.Run.ID = id
 	record.Run.CancelRequested = false
@@ -434,14 +442,14 @@ func (d *agentDaemon) persistRun(id string, run *controlledRun) {
 	metadata, _ := json.Marshal(record.Conversation)
 	next := runSave{status: status, console: consoleVersion, trace: traceVersion, folders: len(record.Run.Folders), conversation: string(metadata), model: record.Run.Model}
 	if next == saved {
-		return
+		return nil
 	}
 	record.Console, record.Trace = console, lines
 	if err := d.store.save(record); err != nil {
-		log.Printf("[Agent] Run %s not stored: %v", id, err)
-		return
+		return err
 	}
 	d.queue.read(id, func(run *controlledRun) { run.saved = next })
+	return nil
 }
 
 // persistRuns writes every run that changed since its last write.

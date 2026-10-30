@@ -46,23 +46,26 @@ func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispa
 	cmd.Dir = workDir
 	cmd.Stdin = nil
 	cmd.Env = commandEnv(envVars)
+	// Persist the complete identity before any provider can perform work. A
+	// fast first tool must not outrun the ordinary five-second checkpoint.
+	run := d.registerHeadlessRun(taskRef, payload, config, workDir, branch, provider, model, commandReadsReasoning(fullLine))
+	if err := d.checkpointRun(payload.RunID, run); err != nil {
+		failure := fmt.Errorf("Sauvegarde locale de l’exécution impossible avant le démarrage : %w", err)
+		d.finishHeadlessRun(taskRef, payload.RunID, run, "failed", failure.Error())
+		return failure
+	}
 	output, err := cmd.StdoutPipe()
 	if err != nil {
+		d.finishHeadlessRun(taskRef, payload.RunID, run, "failed", err.Error())
 		return err
 	}
-	// Both streams go into the same pipe: a provider CLI writes diagnostics to
-	// either one, and the record is more useful in the order things were printed
-	// than split in two.
+	// Both streams go into the same pipe, retaining provider diagnostics.
 	cmd.Stderr = cmd.Stdout
 
-	// Whether this run is traced is read off the command line that is about to
-	// run: it is the line that decides what its standard output will be.
-	run := d.registerHeadlessRun(taskRef, payload, config, workDir, branch, provider, model, commandReadsReasoning(fullLine))
-	// StartDetached owns the child: its own session or process group, so a stop
-	// reaches it rather than the daemon, no window on Windows, and a handle on
-	// the whole tree. A stop that only reached this shell would leave the
-	// provider CLI running behind it, still holding the pipe read below open.
-	release, err := agentexec.StartDetached(cmd)
+	// Use the same lifetime guard as conversations: even SIGKILL of the agent
+	// must stop autonomous providers and their tools. An ordinary detached
+	// process group only handles explicit Stop and survives owner death.
+	release, err := agentexec.StartOwned(cmd)
 	if err != nil {
 		release()
 		d.finishHeadlessRun(taskRef, payload.RunID, run, "failed", err.Error())
