@@ -522,6 +522,8 @@ test("keyboard navigation opens a prompt and settings while the sidebar width pe
  await screen.findByText("Free prompt for p");
  fireEvent.keyDown(window, { key: ",", ...modifier });
  await screen.findByRole("navigation", { name: "Sections des paramètres" });
+ fireEvent.keyDown(window, { key: ",", ...modifier });
+ await screen.findByText("Free prompt for p");
 });
 test("narrow windows cap the visible sidebar without discarding the saved width",async()=>{
  localStorage.setItem("sectile-tauri.sidebarWidth","368");

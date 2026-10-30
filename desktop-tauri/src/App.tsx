@@ -255,7 +255,11 @@ function Workspace() {
       if (action === "none") return;
       event.preventDefault();
       if (action === "settings") {
-        if (currentRef.current?.view !== "settings") navigate({ id: "settings", name: "Paramètres" }, "settings");
+        if (currentRef.current?.view === "settings") {
+          returnToWorkspace();
+        } else {
+          navigate({ id: "settings", name: "Paramètres" }, "settings");
+        }
       } else if (action === "sidebar") {
         setSidebar(value => !value);
       } else if (action === "prompt" && selected) {
@@ -266,16 +270,20 @@ function Workspace() {
     }
     window.addEventListener("keydown", onShortcut);
     return () => window.removeEventListener("keydown", onShortcut);
-  }, [mac, navigate, paletteOpen, projects]);
+  }, [mac, navigate, paletteOpen, projects, returnToWorkspace]);
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void listen("sectile:open-settings", () => {
-      if (currentRef.current?.view !== "settings") navigate({ id: "settings", name: "Paramètres" }, "settings");
+      if (currentRef.current?.view === "settings") {
+        returnToWorkspace();
+      } else {
+        navigate({ id: "settings", name: "Paramètres" }, "settings");
+      }
     }).then(stop => { if (disposed) stop(); else unlisten = stop; }).catch(() => {});
     return () => { disposed = true; unlisten?.(); };
-  }, [navigate]);
+  }, [navigate, returnToWorkspace]);
   return (
     <div className="desktop-shell">
       <header className="app-header">
@@ -311,7 +319,19 @@ function Workspace() {
             ))}
           </div>
           <button className="icon-button" aria-label="Navigation rapide" title="Navigation rapide · Cmd/Ctrl+K" onClick={() => setPaletteOpen(true)}><Icon name="search" /></button>
-          <button className="icon-button" title={`Paramètres · ${modifier},`} aria-label="Paramètres" aria-keyshortcuts={mac ? "Meta+Comma" : "Control+Comma"} onClick={()=>navigate({id:"settings",name:"Paramètres"},"settings")}><Icon name="settings" /></button>
+          <button
+            className="icon-button"
+            title={`Paramètres · ${modifier},`}
+            aria-label="Paramètres"
+            aria-pressed={current?.view === "settings"}
+            aria-keyshortcuts={mac ? "Meta+Comma" : "Control+Comma"}
+            onClick={() => {
+              if (current?.view === "settings") returnToWorkspace();
+              else navigate({ id: "settings", name: "Paramètres" }, "settings");
+            }}
+          >
+            <Icon name="settings" />
+          </button>
         </div>
       </header>
       <div className="desktop-body">
