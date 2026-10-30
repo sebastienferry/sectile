@@ -24,7 +24,7 @@ release or replace the exact-artifact checks for stages 5 and 8.
 | 2. Lifecycle ownership | Delivered | Store exclusivity, drain/join, provider guards, durable conversation journals and real crash/recovery checks are recorded. |
 | 3. Fresh Local companion | Delivered | One-process backend/agent composition; real Claude/Codex and standard-skill MCP workflow evidence on disposable state. |
 | 4. Managed upgrade and native modes | Delivered within recorded scope | Journaled generation migration, Local/Fleet selection, native setup, isolated pairing/folder/profile tests and retention checks. Fresh OAuth and exact release installation remain stage 5/8 gates. |
-| 5. Compatibility and measured delivery | Open | Protocol and scoped native/runtime checks exist, but remote TLS Fleet, native Codex full-chain launch/result, exact release-state upgrade and end-user performance remain incompletely qualified. |
+| 5. Compatibility and measured delivery | Open | Protocol and scoped native/runtime checks exist. A controlled native Codex full-chain launch/result now passes; remote TLS Fleet, exact release-state upgrade and end-user performance remain incompletely qualified. |
 | 6. Product/UI transition | Complete as a product/distribution contract | Tauri owns operational work; the optional headless server artifact retains API/MCP/auth; Electron remains a compatibility client. |
 | 7. Roadmapping ownership | Complete | Existing web planning remains the V1 owner, unchanged, with no migration or deprecation authorized. |
 | 8. V1 release qualification | Open | No Developer ID/notarization credentials, clean-user signed installation or owner-approved release. No tag or publication is authorized. |
@@ -757,6 +757,20 @@ SIGKILL checks passed after the 90-second delayed write deadline, with no replay
 and terminal run identity restored. See the UX audit and release checklist for
 exact run IDs and evidence boundaries. Native Codex-button qualification remains
 deferred by the owner; the prior candidate does not acquire these fixes.
+
+A later isolated native retake with Tauri `d69c3ac` and Go `f55e8768`
+launched the standard Codex pickup chain from the ticket workflow button in a
+distinct port-52964 QA app. The run used `gpt-6-astra`, passed through
+Clarified, Specified, Implemented and Reviewed via companion MCP, and ended
+with one ready, open MR on a loopback GitLab/Git HTTP fixture. Its pushed SHA,
+four commits, clean worktree, two independent unit tests, unchanged fixture
+main and unchanged shared Claude/Codex MCP registration tables were checked.
+The native view showed the reached target, next manual Finalize step, final
+run and the committed eight-file diff. The companion was started externally
+with fixture CLI environment; this retake does not qualify managed-launcher
+environment propagation, a real tracker, remote Fleet or a signed package.
+Redacted evidence is under
+`src-tauri/target/qualifications/2026-10-30-native-codex-chain/`.
 
 ### Refreshed candidate and owner deferrals (2026-10-30)
 

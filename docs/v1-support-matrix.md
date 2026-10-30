@@ -52,6 +52,17 @@ Real Codex and Claude headless SIGKILL tests then prevented delayed writes after
 Codex launch/result inspection is deferred by the owner, and these development
 checks do not qualify an older retained candidate or a signed package.
 
+The later isolated native Codex retake on Tauri `d69c3ac`/Go `f55e8768`
+closes that specific inspection gap. The native ticket button launched the
+standard pickup skill with `gpt-6-astra` through scoped companion MCP; the
+loopback issue reached Reviewed, two independent unit tests passed, and one
+ready open MR matched the pushed worktree HEAD. The desktop displayed the
+completed run, reached target and eight committed changed files. Shared
+Claude/Codex MCP registrations and fixture main remained unchanged. The QA
+companion used a distinct identifier/port and external fixture CLI environment;
+real tracker writes, managed-launcher environment propagation and signed
+release behavior remain unqualified.
+
 A refreshed unsigned arm64 candidate pairs Tauri `c425821` with clean Go
 `85da2f24`. App/DMG resource verification and six packaged migration checkpoint
 recoveries passed; the current/v0.7.6 protocol harness also passed against this

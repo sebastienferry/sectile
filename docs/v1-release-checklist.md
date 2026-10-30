@@ -724,3 +724,26 @@ Earlier `ba4c512e` and `17a782df` candidates do not acquire the complete fix by
 implication. This native test does not establish canonical default-port startup,
 signed DMG installation, real Jira/OAuth writes, production Fleet or migration
 from an officially released prior Tauri version.
+
+### Native Codex standard chain — passed in an isolated fixture (2026-10-30)
+
+- [x] Launch the standard `pickup` chain from the native ticket workflow
+  button with Codex `gpt-6-astra` and the installed skills. The Go run
+  `2860bcb9-b599-4d5f-a9fd-a6b0ec5ebcd6` completed after MCP-backed
+  Clarified, Specified, Implemented and Reviewed transitions.
+- [x] Independently verify two passing unit tests, syntax compilation and
+  `git diff --check`; `greet("Ada")` and `greet("Grace")` return the specified
+  values. Four commits and eight changed files are on the clean `feat/1`
+  worktree. Its HEAD, pushed branch and the single ready open MR all point to
+  `64456f05c07a22f7ef90a17f71a382a56a0b5e55`; fixture main is unchanged.
+- [x] Check the native final view: reached target Reviewed, next manual
+  Finalize step, completed run and committed-file review with the greeting
+  diff. The shared Claude/Codex `sectile` MCP registration tables retained
+  their original hashes.
+
+This used the separately identified port-52964 QA app with Tauri `d69c3ac`
+and Go `f55e8768`, a disposable loopback GitLab/Git HTTP fixture, and an
+externally started companion carrying fixture CLI environment. It does not
+qualify real tracker writes, managed-launcher environment propagation, remote
+Fleet or signed distribution. Redacted assertions and a native screenshot are
+retained under `src-tauri/target/qualifications/2026-10-30-native-codex-chain/`.
