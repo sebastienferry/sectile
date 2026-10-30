@@ -103,6 +103,9 @@ test("project menu opens the execution queue and groups ticket conversations by 
  render(<App/>);
  const sidebar=screen.getByRole("complementary");
  await within(sidebar).findByText("APP-1");
+ expect(await within(sidebar).findByText("New task")).toBeTruthy();
+ expect(await within(sidebar).findByText("Reviewed task")).toBeTruthy();
+ expect(within(sidebar).queryByText("Clarify this")).toBeNull();
  expect(sidebar.querySelector(".conversation-indicator.session")).not.toBeNull();
  fireEvent.click(within(sidebar).getByLabelText("Actions pour Example"));
  fireEvent.change(within(sidebar).getByRole("combobox",{name:"Grouper les conversations de Example"}),{target:{value:"stage"}});

@@ -6,6 +6,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
+- Name ticket conversations after their ticket in the project sidebar instead of showing the agent skill invocation.
 - Keep all six ticket workflow stages in two balanced rows when the workspace is narrow.
 - Allow the project sidebar to widen in compact desktop windows while reserving space for the conversation.
 - Create tracker tickets and edit their title, Markdown description, priority, issue type and ordered PR/MR links from the native project board, backlog and ticket workflow. The editor uses the Go companion's ticket API, preserving tracker-backed ticket state.

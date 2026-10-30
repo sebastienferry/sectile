@@ -1543,4 +1543,24 @@ their intended order with the sidebar at 300 points; the next-step and chain
 actions remained visible. The [native workflow capture](ux-captures/workflow-stages-native-compact.jpg)
 records the result. Existing QA conversations are free prompts, so this
 retake cannot qualify the PR/MR shortcut of a ticket-linked conversation;
-that remains a separate native check.
+the following native check covers it.
+
+A disposable GitLab ticket `#3` was given a loopback MR URL through the native
+editor. Launching its **Clarifier** step created a real Codex conversation tied
+to that ticket. The native sidebar showed the `#3` key and a separate MR
+shortcut; the conversation status strip showed the same MR, skill, tracker
+status and workflow stage. The [linked conversation capture](ux-captures/ticket-conversation-pr-native.jpg)
+records that state. The run reached an MCP approval request and was then
+interrupted and stopped; no approval or live forge write was made. Because the
+MR URL is synthetic, its state is correctly shown as unknown. UI tests verify
+the URL passed to the native opener; this retake verifies display, not opening
+a real MR in the system browser.
+
+The native run also revealed that the sidebar used the generated
+`$clarify-issue` invocation as its conversation title. Ticket-linked
+conversations now use the ticket title whenever that task is available; free
+prompts retain their own title. After rebuilding and reopening the isolated
+app, the [updated sidebar capture](ux-captures/ticket-conversation-title-native.jpg)
+shows the human-readable ticket title beside the `#3` badge and MR shortcut.
+The stopped conversation and its history survived the replacement. The normal
+port-52963 companion was not touched.

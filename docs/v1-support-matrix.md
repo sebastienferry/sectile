@@ -38,6 +38,11 @@ Go `7af14675` closes the status gap in the same disposable native path: ticket
 and after refresh. The [status capture](ux-captures/ticket-created-status-native.jpg)
 uses the port-52964 QA companion, rebuilt from that Go commit with its fixed
 callback port changed only in a temporary worktree. It is not a release binary.
+An isolated native Codex **Clarifier** launch on that ticket also displayed a
+synthetic MR shortcut in the sidebar and conversation status strip. The run was
+stopped at an MCP approval request; the [conversation capture](ux-captures/ticket-conversation-pr-native.jpg)
+and [updated title capture](ux-captures/ticket-conversation-title-native.jpg)
+qualify the UI path, not a live MR opener or a completed tracker workflow.
 
 Managed native Fleet MCP isolation was added after the retained candidate:
 Tauri launch now selects a session-scoped endpoint with Go `9b0b68f6` or a
