@@ -306,6 +306,28 @@ test("settings remain reachable with the sidebar collapsed", async () => {
  expect(screen.queryByRole("tablist")).toBeNull();
 });
 
+test("keyboard navigation opens a prompt and settings while the sidebar width persists", async () => {
+ vi.mocked(api.listProjects).mockResolvedValue([{ id: "p", name: "Example", path: "/work/example" }]);
+ vi.mocked(invoke).mockImplementation(async command => command === "local_service_log"
+  ? { path: "/test/companion.log", text: "", missing: true, truncated: false }
+  : { enabled: true, ready: true, signedIn: true, agentReady: true, mode: "local", profile: { email: "fixture@example.invalid", displayName: "Fixture" }, trackers: [], projects: [] });
+ render(<App />);
+ await screen.findByRole("button", { name: "Example" });
+ const modifier = /Mac/i.test(navigator.platform || navigator.userAgent) ? { metaKey: true } : { ctrlKey: true };
+ const divider = screen.getByRole("separator", { name: "Redimensionner la barre latérale" });
+ fireEvent.keyDown(divider, { key: "ArrowRight" });
+ expect(divider.getAttribute("aria-valuenow")).toBe("288");
+ expect(localStorage.getItem("sectile-tauri.sidebarWidth")).toBe("288");
+ fireEvent.keyDown(window, { key: "b", ...modifier });
+ expect(screen.queryByRole("complementary")).toBeNull();
+ fireEvent.keyDown(window, { key: "b", ...modifier });
+ expect(screen.getByRole("complementary")).toBeTruthy();
+ fireEvent.keyDown(window, { key: "n", ...modifier });
+ await screen.findByText("Free prompt for p");
+ fireEvent.keyDown(window, { key: ",", ...modifier });
+ await screen.findByRole("navigation", { name: "Sections des paramètres" });
+});
+
 test("settings use one navigation rail and return to the previous workspace", async () => {
  vi.mocked(invoke).mockImplementation(async command => command === "local_service_log"
   ? {path:"/test/companion.log",text:"",missing:true,truncated:false}

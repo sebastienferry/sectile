@@ -17,6 +17,7 @@ existing Sectile Go server, workstation agent and MCP infrastructure.
 - Read-only streamed console output with bounded scrollback and reconnect controls.
 - Launch of saved named orchestration agents with launched/skipped ticket reports.
 - Native setup for a local profile, personal tracker credentials, ticket sources and projects, including folder selection when associating an existing project.
+- Use Cmd/Ctrl+K for navigation, Cmd/Ctrl+, for Settings, Cmd/Ctrl+B for the project sidebar, and Cmd/Ctrl+N for a new prompt in the selected project. Drag the sidebar grip or focus it and use the arrow keys to resize it.
 - Native ticket-source editing and deletion for Local users and Fleet administrators; deletion is available only after the source is no longer linked to projects or tickets.
 - Explicit Local or Fleet runtime selection, with native one-time-code Fleet pairing and private workstation credentials.
 - Automatic startup and reconnection of the Go companion in Local mode or the workstation agent in Fleet mode.

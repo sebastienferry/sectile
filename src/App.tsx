@@ -30,6 +30,7 @@ import {
 } from "./lib/workspace-preference";
 import { useConversation } from "./lib/conversation-controller";
 import { CommandPalette } from "./components/CommandPalette";
+import { shortcutModifier, workspaceShortcut } from "./lib/workspace-shortcuts";
 import "./App.css";
 
 const WorkflowTask = lazy(()=>import("./components/WorkflowTask").then(module=>({default:module.WorkflowTask})));
@@ -51,6 +52,8 @@ export default function App() {
   );
 }
 function Workspace() {
+  const mac = useMemo(() => /Mac/i.test(navigator.platform || navigator.userAgent), []);
+  const modifier = shortcutModifier(mac);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = Number(readPreference("sidebarWidth", "268"));
@@ -160,14 +163,43 @@ function Workspace() {
   const connected = fresh && snapshot?.status.connected;
   const settingsHasWorkspace = current?.view === "settings" && Boolean(workspaceBeforeSettings.current);
   const showProjectSidebar = sidebar && (current?.view !== "settings" || !settingsHasWorkspace);
+  useEffect(() => {
+    function onShortcut(event: KeyboardEvent) {
+      const target = event.target instanceof Element ? event.target : null;
+      const selected = projects.find(project => project.id === currentRef.current?.projectId)
+        ?? projects.find(project => project.id === workspaceBeforeSettings.current?.projectId);
+      const action = workspaceShortcut(event, {
+        mac,
+        modalOpen: paletteOpen || Boolean(document.querySelector("dialog[open]")),
+        terminalFocused: Boolean(target?.closest(".terminal,.xterm")),
+        editableFocused: Boolean(target?.closest("input,textarea,select,[contenteditable='true']")),
+        settingsOpen: currentRef.current?.view === "settings",
+        hasProject: Boolean(selected),
+      });
+      if (action === "none") return;
+      event.preventDefault();
+      if (action === "settings") {
+        if (currentRef.current?.view !== "settings") navigate({ id: "settings", name: "Paramètres" }, "settings");
+      } else if (action === "sidebar") {
+        setSidebar(value => !value);
+      } else if (action === "prompt" && selected) {
+        navigate(selected, "prompt");
+      } else if (action === "folder") {
+        void openFolder();
+      }
+    }
+    window.addEventListener("keydown", onShortcut);
+    return () => window.removeEventListener("keydown", onShortcut);
+  }, [mac, navigate, paletteOpen, projects]);
   return (
     <div className="desktop-shell">
       <header className="app-header">
         <div className="header-brand">
           <button
             className="icon-button"
-            title={settingsHasWorkspace ? "Retourner à l’espace de travail" : "Afficher ou masquer les projets"}
+            title={settingsHasWorkspace ? "Retourner à l’espace de travail" : `Afficher ou masquer les projets · ${modifier}B`}
             aria-label={settingsHasWorkspace ? "Retourner à l’espace de travail" : "Afficher ou masquer les projets"}
+            aria-keyshortcuts={settingsHasWorkspace ? undefined : mac ? "Meta+B" : "Control+B"}
             aria-expanded={showProjectSidebar}
             onClick={returnToWorkspace}
           >
@@ -195,7 +227,7 @@ function Workspace() {
             ))}
           </div>
           <button className="icon-button" aria-label="Navigation rapide" title="Navigation rapide · Cmd/Ctrl+K" onClick={() => setPaletteOpen(true)}><Icon name="search" /></button>
-          <button className="icon-button" title="Paramètres" aria-label="Paramètres" onClick={()=>navigate({id:"settings",name:"Paramètres"},"settings")}><Icon name="settings" /></button>
+          <button className="icon-button" title={`Paramètres · ${modifier},`} aria-label="Paramètres" aria-keyshortcuts={mac ? "Meta+Comma" : "Control+Comma"} onClick={()=>navigate({id:"settings",name:"Paramètres"},"settings")}><Icon name="settings" /></button>
         </div>
       </header>
       <div className="desktop-body">
@@ -290,6 +322,7 @@ function Workspace() {
             className="sidebar-resizer"
             role="separator"
             aria-label="Redimensionner la barre latérale"
+            title="Glisser pour redimensionner · ← → au clavier"
             aria-orientation="vertical"
             aria-valuemin={200}
             aria-valuemax={480}
@@ -379,6 +412,7 @@ function Workspace() {
         onOpenSettings={() => navigate({ id: "settings", name: "Paramètres" }, "settings")}
         onToggleSidebar={returnToWorkspace}
         sidebarActionLabel={settingsHasWorkspace ? "Retourner à l’espace de travail" : sidebar ? "Masquer les projets" : "Afficher les projets"}
+        shortcutModifier={modifier}
       />
     </div>
   );

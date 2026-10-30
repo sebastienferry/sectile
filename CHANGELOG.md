@@ -6,6 +6,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
+- Open desktop settings, toggle the project sidebar and start a project prompt with keyboard shortcuts matching Electron; a visible sidebar grip supports pointer and keyboard resizing.
+
 - Edit or remove ticket sources from native Settings. Existing board and synchronization settings stay intact when editing; a source linked to a project or containing tickets cannot be removed.
 
 - Prepare a configured Local installation for manual update from Services: stop its idle companion, verify store release and quit the desktop, with explicit retry/restart controls on failure. A source-checkout transport-checking command is also available.

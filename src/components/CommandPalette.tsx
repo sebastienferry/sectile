@@ -22,6 +22,7 @@ export function CommandPalette({
   onOpenSettings,
   onToggleSidebar,
   sidebarActionLabel,
+  shortcutModifier,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -33,6 +34,7 @@ export function CommandPalette({
   onOpenSettings: () => void;
   onToggleSidebar: () => void;
   sidebarActionLabel: string;
+  shortcutModifier: string;
 }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -63,11 +65,11 @@ export function CommandPalette({
     const selected = projects.find(project => project.id === selectedProjectId);
     const result: Entry[] = [
       { group: "action", label: "Ouvrir un dossier", detail: "Créer ou retrouver un projet local", run: onOpenFolder },
-      { group: "action", label: "Paramètres", detail: "Configuration du poste", run: onOpenSettings },
-      { group: "action", label: sidebarActionLabel, run: onToggleSidebar },
+      { group: "action", label: "Paramètres", detail: `${shortcutModifier}, · Configuration du poste`, run: onOpenSettings },
+      { group: "action", label: sidebarActionLabel, detail: `${shortcutModifier}B`, run: onToggleSidebar },
     ];
     if (selected) {
-      result.push({ group: "action", label: "Nouveau prompt", detail: selected.name, run: () => onNavigate(selected, "prompt") });
+      result.push({ group: "action", label: "Nouveau prompt", detail: `${shortcutModifier}N · ${selected.name}`, run: () => onNavigate(selected, "prompt") });
       result.push({ group: "action", label: "Ouvrir l’orchestration", detail: selected.name, run: () => onNavigate(selected, "orchestration") });
     }
     for (const project of projects) {
@@ -87,7 +89,7 @@ export function CommandPalette({
       });
     }
     return result;
-  }, [onNavigate, onOpenFolder, onOpenSettings, onToggleSidebar, projects, runs, selectedProjectId, sidebarActionLabel]);
+  }, [onNavigate, onOpenFolder, onOpenSettings, onToggleSidebar, projects, runs, selectedProjectId, sidebarActionLabel, shortcutModifier]);
 
   const shown = useMemo(() => {
     const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
