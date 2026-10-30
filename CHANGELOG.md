@@ -13,6 +13,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Keep managed Fleet Claude Code and Codex sessions connected to their selected backend without changing Electron’s shared MCP registration.
+
 - Ticket workflows now show when the chain's configured target is reached instead of offering another chain launch, including when the ticket advances just before a click.
 - Workflow chain and custom-skill actions now stay unavailable until the project is configured, matching the next-step action.
 - Switching tickets now clears the previous ticket's workflow and draft instructions while the next ticket loads.

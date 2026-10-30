@@ -1040,3 +1040,34 @@ rendering and clicking. This source change has not had a separate native retake.
 The isolated app, companion, forge, Git repositories, worktrees and private
 configuration were removed after the check; the regular companion on 52963
 remained running.
+
+
+### Native Fleet MCP isolation correction (2026-10-30)
+
+Preparing a native Codex chain exposed a gap outside the previously qualified
+Fleet setup slice: managed Fleet launch did not supply a process-scoped MCP
+endpoint. Provider sessions could read the shared Electron registration, while
+explicit skill/MCP preparation could bootstrap it. Tauri now passes its selected
+origin through `SECTILE_DESKTOP_MCP_URL` and disables shared refresh. Go
+`9b0b68f6` accepts HTTPS origins or HTTP loopback for this explicit opt-in,
+preserves the older Local-only endpoint contract, suppresses shared refresh and
+uses the daemon's paired credential privately. External attached agents retain
+their own configuration.
+
+`npm run test:fleet-mcp` passed for real Codex (`gpt-6-astra`) and Claude Code
+(`sonnet`) against packaged server `84e19b1b` and a development build of the Go
+fix on isolated port 64223. Each called `get_project_context` through the scoped
+server, received the actual fixture project and used it in its response. Shared
+Claude and Codex MCP tables remained unchanged. The first harness attempt
+compared the entire Codex preferences file and failed after the tool/response
+checks; the corrected harness parses all MCP tables independently of unrelated
+preferences, using Python TOML parsing. No MCP fields are excluded. Fixtures
+were removed; the regular companion on 52963 remained running.
+
+Argument/environment, no-shared-write and endpoint-validation regressions pass;
+Tauri TypeScript, 16 domain tests, 135 UI tests, production build and 39 Rust
+tests pass. This is real provider/API evidence and native-launch source evidence,
+not a native Fleet full-chain completion. The retained `4063b47`/`84e19b1b`
+candidate predates this fix; a rebuilt native package must be tested before
+claiming it includes the correction. Existing managed agents need a restart to
+acquire the new configuration; external agents are never silently restarted.

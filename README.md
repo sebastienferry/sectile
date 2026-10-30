@@ -202,7 +202,7 @@ a configured workstation editor. Patches are rendered as text.
 
 **Paramètres → Moteurs IA → Skills et connexion MCP Sectile** separates provider
 sign-in from workflow preparation. Choose a source project to install skills.
-For the standalone local runtime, MCP is supplied to native Claude/Codex launches
+For the standalone Local runtime and managed native Fleet agents, MCP is supplied to native Claude/Codex launches
 through process arguments under `sectile_companion`; shared user registrations
 remain untouched. An external agent retains its explicit registration controls
 and requires consent before replacement. No skills are installed on startup.
@@ -419,6 +419,16 @@ It verifies an actual response, shell tool events and results, a running-shell
 start marker before interruption, absence of the delayed file after 95 seconds,
 and resumption of the same conversation. Any required Bash approval is granted
 only once and only when the requested command exactly matches the test command.
+
+For a read-only Fleet MCP isolation check with signed-in CLIs, run
+`npm run test:fleet-mcp` with `SECTILE_TEST_REAL_CODEX=1` and/or
+`SECTILE_TEST_REAL_CLAUDE=1` and the selected server/agent binary paths below.
+The fixture supplies the native Fleet scoped endpoint, approves only the fixture
+project-context read, requires a real tool result and provider answer, and checks
+that shared Claude/Codex MCP registrations remain unchanged (Python 3.11+ parses
+Codex TOML independently of unrelated CLI preferences). It does not set the
+refresh-disable switch, so scoped isolation must work by itself. This is an agent
+API qualification, not a native window or full workflow test.
 
 For a Fleet agent crash test with either or both signed-in CLIs, run
 `npm run test:fleet-crash` with `SECTILE_TEST_REAL_CODEX=1` and/or

@@ -700,6 +700,14 @@ async fn fleet_status(fleet_root: &Path) -> Option<Value> {
     response.json().await.ok()
 }
 
+// A managed Fleet agent shares provider logins with Electron, not its MCP
+// registration. The selected backend is supplied only to child processes.
+fn scope_fleet_mcp(command: &mut Command, server: &str) {
+    command
+        .env("SECTILE_DESKTOP_MCP_URL", server)
+        .env("SECTILE_DISABLE_MCP_REFRESH", "1");
+}
+
 async fn ensure_fleet_agent(
     app: &tauri::AppHandle,
     root: &Path,
@@ -749,6 +757,7 @@ async fn ensure_fleet_agent(
         .arg(&discovery)
         .env("SECTILE_DESKTOP_TOKEN", &runtime.desktop_token)
         .env("SECTILE_DESKTOP_DATA_DIR", &fleet_root);
+    scope_fleet_mcp(&mut cmd, &credentials.server);
     let mut child = cmd
         .spawn()
         .map_err(|_| "Impossible de démarrer l’agent Fleet")?;
@@ -2335,5 +2344,27 @@ mod generation_tests {
         .unwrap();
         assert!(active_root(&root).is_err());
         fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod fleet_mcp_tests {
+    use super::*;
+
+    #[test]
+    fn managed_fleet_uses_a_private_endpoint_without_global_mcp_refresh() {
+        let mut command = Command::new("fixture-agent");
+        command.env_clear();
+        scope_fleet_mcp(&mut command, "https://fleet.example.test");
+        let environment: std::collections::HashMap<_, _> = command.get_envs().collect();
+        assert_eq!(
+            environment.get(std::ffi::OsStr::new("SECTILE_DESKTOP_MCP_URL")),
+            Some(&Some(std::ffi::OsStr::new("https://fleet.example.test")))
+        );
+        assert_eq!(
+            environment.get(std::ffi::OsStr::new("SECTILE_DISABLE_MCP_REFRESH")),
+            Some(&Some(std::ffi::OsStr::new("1")))
+        );
+        assert_eq!(command.get_args().count(), 0);
     }
 }

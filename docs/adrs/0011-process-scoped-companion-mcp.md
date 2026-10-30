@@ -49,3 +49,22 @@ a read-only call through Electron's unchanged shared MCP registration. The chain
 uses a disposable GitLab HTTP fixture, real local Git worktrees and the installed
 forge CLI with repository-local fixture configuration. No production tracker is
 used for transition tests.
+
+
+## Native Fleet extension (2026-10-30)
+
+Managed Fleet agents use the same process-scoped bridge with the selected Fleet
+origin supplied through `SECTILE_DESKTOP_MCP_URL`. This distinct opt-in accepts
+HTTPS origins or HTTP loopback, matching native pairing; the older
+`SECTILE_COMPANION_MCP_URL` contract remains loopback-only. Both retain the
+`sectile_companion` session name so existing skill instructions remain valid.
+The bridge inherits the paired agent/device credential privately. No shared
+OAuth application secret is distributed.
+
+Native Fleet launch disables automatic shared MCP refresh, and the Go agent
+also suppresses refresh when a scoped endpoint is selected. Setup and skill
+installation cannot rewrite Electron's provider registration. Electron and
+standalone agents without these environment settings retain their existing
+behavior. An externally attached agent retains its own launch configuration;
+this extension does not silently take over or restart that process. An already
+running managed agent must restart to acquire the new process configuration.

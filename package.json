@@ -19,7 +19,8 @@
     "licenses:javascript": "node scripts/generate-js-notices.mjs",
     "test:services": "node scripts/test-local-services.mjs",
     "test:fleet-crash": "node scripts/test-fleet-crash.mjs",
-    "test:live-trackers": "node scripts/test-live-trackers.mjs"
+    "test:live-trackers": "node scripts/test-live-trackers.mjs",
+    "test:fleet-mcp": "node scripts/test-fleet-mcp.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
