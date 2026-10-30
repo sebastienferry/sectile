@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- Local desktop updates can stop an idle companion gracefully and verify its data store is released before replacing the application; active executions still prevent shutdown.
+
 - Very recent autonomous runs retain their identity after an agent crash; execution is refused if its configured history store cannot save the initial record.
 
 - Autonomous Claude Code and Codex tools now stop when their Go agent crashes, extending the conversation lifetime guard to background task chains.

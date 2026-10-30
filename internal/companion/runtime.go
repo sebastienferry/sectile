@@ -51,6 +51,7 @@ func readInstallation(root string) (Installation, error) {
 // never discovered through home-directory or environment fallbacks.
 func Run(parent context.Context, root string) (result error) {
 	var restart atomic.Bool
+	var shutdown atomic.Bool
 	defer func() {
 		if restart.Load() && result == nil && parent.Err() == nil {
 			result = ErrRestartRequested
@@ -159,7 +160,7 @@ func Run(parent context.Context, root string) (result error) {
 				case connected <- struct{}{}:
 				default:
 				}
-			}, OnRestart: func() { restart.Store(true); cancel() },
+			}, OnRestart: func() { restart.Store(true); cancel() }, OnShutdown: func() { shutdown.Store(true); cancel() },
 		})
 		close(finished)
 	}()
@@ -179,21 +180,33 @@ func Run(parent context.Context, root string) (result error) {
 	select {
 	case <-connected:
 	case <-finished:
+		if restart.Load() || shutdown.Load() {
+			return nil
+		}
 		return errors.Join(errors.New("embedded agent stopped during startup"), agentErr)
 	case <-startup.Done():
+		if restart.Load() || shutdown.Load() {
+			return nil
+		}
 		return startup.Err()
 	case err := <-served:
 		return err
 	}
 	if err := runtime.WaitForAgent(startup, installation.UserID, agentDeviceID); err != nil {
+		if (restart.Load() || shutdown.Load()) && errors.Is(err, context.Canceled) {
+			return nil
+		}
 		return err
 	}
 	if err := runtime.ActivateWork(installation.UserID, agentDeviceID); err != nil {
+		if restart.Load() || shutdown.Load() {
+			return nil
+		}
 		return err
 	}
 	select {
 	case <-finished:
-		if restart.Load() {
+		if restart.Load() || shutdown.Load() {
 			return nil
 		}
 		return errors.Join(errors.New("embedded agent stopped"), agentErr)

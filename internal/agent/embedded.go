@@ -27,6 +27,7 @@ type EmbeddedConfig struct {
 	PairedAt     time.Time
 	OnConnected  func()
 	OnRestart    func()
+	OnShutdown   func()
 }
 
 // RunEmbedded runs the existing workstation gateway and execution engine in
@@ -75,15 +76,19 @@ func RunEmbedded(parent context.Context, cfg EmbeddedConfig) error {
 	d.pruneRuns()
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	if cfg.OnRestart != nil {
+	if cfg.OnRestart != nil || cfg.OnShutdown != nil {
 		d.restartAgent = cancel
 	}
 	err = d.runDaemon(ctx)
 	d.queue.mu.Lock()
 	restart := d.queue.restartRequested
+	shutdown := d.queue.shuttingDown && !restart
 	d.queue.mu.Unlock()
 	if restart && cfg.OnRestart != nil {
 		cfg.OnRestart()
+	}
+	if shutdown && cfg.OnShutdown != nil {
+		cfg.OnShutdown()
 	}
 	return err
 }

@@ -388,3 +388,10 @@
 
 ### PTY supervisor foreground race (2026-10-29)
 - A fast Codex task launch failure left `agent-exec` alive with a stopped `stty` child. The shell could change the PTY foreground group between a group check and spawning `stty -g`, so checking the group before that external command did not solve it. `StartControlled` now captures and restores terminal settings in process with `term.GetState` and `term.Restore`, and skips the snapshot when it is already outside the foreground group. The isolated read-only Codex failure then left no `agent-exec` process; a workspace-write rerun showed skill tool activity and Electron Stop recorded a canceled run with no supervisor left behind.
+
+
+### Local update preparation and startup cancellation (2026-10-30)
+
+- Quitting Tauri intentionally leaves the companion alive; a bundle replacement can reconnect to old Go code. Use the explicit idle-only preparation role and verify both transport closure and store ownership release. Never infer SQL drain from HTTP 204 or port closure alone.
+- The real companion integration test requested shutdown between agent connection and work activation. Its expected cancellation originally surfaced as `context canceled`. `RunEmbedded` now reports explicit shutdown to its composition owner; startup recognizes requested stop/restart while preserving genuine drain/close errors.
+- Tauri keeps an automatic-start fence after uncertain preparation failures. A Settings remount must still expose retry and explicit restart, without status polling clearing the fence or restarting the companion.

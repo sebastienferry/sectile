@@ -374,3 +374,28 @@ through the embedded companion. The free-conversation MCP child environment now
 receives the embedded daemon's explicit credential rather than relying on a
 standalone CLI `TOKEN` variable. Existing Electron and Fleet source paths were
 not rewritten by this migration.
+
+
+## Manual Local update preparation
+
+The desktop's explicit update action invokes the bundled companion's
+`--prepare-update --data-dir <selected-root>` role. This role never assembles a
+backend or opens SQLite. It validates the existing installation, loopback
+agent discovery and authenticated Local relationship, requests the existing
+idle-only agent shutdown, and waits for both transports and the store lifetime
+lock to release. Acquiring the lock proves the backend's SQL users and embedded
+agent have drained; a successful HTTP acknowledgement alone does not.
+
+The launcher holds its installation/startup locks and fences automatic startup
+while the helper runs. A failed or uncertain preparation leaves that fence in
+place until an explicit retry or user-requested service start. Settings must
+remain readable in that state. The user closes other desktop instances first;
+this is not an updater, a download action or an authorization to interrupt
+active runs. Fleet lifecycle and shared Electron installations are unchanged.
+
+A real in-process companion integration test exercises authenticated shutdown,
+clean runtime return, store release, SQLite reopen and retained project and
+installation identity on an ephemeral port. HTTP fixtures additionally cover
+busy refusal, redirected/unrelated services, early acknowledgement without
+closure and a retained store lock after transport shutdown. This evidence does
+not qualify native app exit, multi-instance updates or signed DMG installation.

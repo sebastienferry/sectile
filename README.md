@@ -424,3 +424,16 @@ The isolated desktop companion uses the Go-owned loopback origin `http://127.0.0
 [Local/Fleet runtime contracts](docs/desktop-runtime-contracts.md) and [ADR 0066](docs/adrs/0066-compose-a-local-companion-without-changing-fleet.md) record the companion and Fleet compatibility boundaries. Phase 1 extracts backend assembly into `internal/backend`, first used by the standalone server. Phase 2 adds store ownership, stoppable backend/agent lifecycles and a Local work gate. The combined companion and journaled migration are now integrated into the Tauri Local launcher. The product-level V1 roadmap is maintained in the Tauri repository at `docs/sectile-v1-migration-plan.md`.
 
 Build the combined Local executable with `go build -o sectile-companion ./cmd/companion`. Tauri invokes it with `--data-dir /absolute/private/root`; on first launch it also invokes `--upgrade` with the packaged legacy server and agent to migrate an existing managed installation. Do not run `--upgrade` against a live or manually managed installation. Managed live-process migration is currently qualified on macOS; on other platforms stop both legacy services before retrying. The original data and verified backup remain in the private installation directory. See the [runtime contract](docs/desktop-runtime-contracts.md) for qualification limits and recovery behavior.
+
+
+Before a manual desktop update, finish Local executions and preparations. The
+native Services action invokes `sectile-companion --prepare-update --data-dir
+/absolute/selected/root`, then quits the desktop only after confirmation. The
+helper authenticates the Local companion and its discovered agent, honors busy
+refusals, requests graceful shutdown, and verifies both loopback transports have
+closed and the Local lifetime/store lock can be acquired. It does not open the
+database, signal processes, change credentials or affect Fleet. The desktop
+holds its installation/startup lock and inhibits automatic startup during this
+operation; close other desktop instances before preparing an update. Structured
+stdout contains readiness or a bounded failure code, never credentials. A
+failed preparation must not be treated as permission to replace the bundle.

@@ -4,12 +4,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"tasks/internal/agent"
 	"tasks/internal/agentattach"
@@ -71,6 +73,7 @@ func main() {
 		}
 	}
 	flags := flag.NewFlagSet("sectile-companion", flag.ExitOnError)
+	prepareUpdate := flags.Bool("prepare-update", false, "stop an idle Local companion before manual app replacement")
 	upgrade := flags.Bool("upgrade", false, "migrate the stopped managed Local installation")
 	legacyServer := flags.String("legacy-server", "", "managed legacy server executable")
 	legacyAgent := flags.String("legacy-agent", "", "managed legacy agent executable")
@@ -78,6 +81,23 @@ func main() {
 	_ = flags.Parse(args)
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+	if *prepareUpdate {
+		if *upgrade {
+			log.Fatal("choose either migration or update preparation")
+		}
+		updateCtx, stop := context.WithTimeout(ctx, 30*time.Second)
+		defer stop()
+		if err := companion.PrepareUpdate(updateCtx, *root); err != nil {
+			code := "unconfirmed"
+			if errors.Is(err, companion.ErrUpdateBusy) {
+				code = "busy"
+			}
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"ready": false, "reason": code})
+			os.Exit(1)
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"ready": true})
+		return
+	}
 	if *upgrade {
 		if err := companion.Upgrade(ctx, *root, *legacyServer, *legacyAgent); err != nil {
 			log.Fatal(err)
