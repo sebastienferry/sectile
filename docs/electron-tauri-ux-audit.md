@@ -1308,7 +1308,21 @@ send text to the agent's read-only execution console.
 Fixture screenshots at 1280 × 720 show the [board](ux-captures/board-selection-1280.png),
 [list](ux-captures/backlog-list-1280.png) and [pinned conversation
 composer](ux-captures/conversation-composer-1280.png). UI tests cover view switching, selection, batch confirmation and
-skill dispatch; Rust validates the batch request before it reaches Go. Native
-macOS verification of this exact UI revision and the terminal action is still
-required before treating the retake as release-qualified. Remote Fleet, Jira
-OAuth consent and signed distribution remain separate open gates.
+skill dispatch; Rust validates the batch request before it reaches Go.
+
+An isolated unsigned macOS app built from Tauri `6a66e3a` (test worktree
+`61550f5`) and Go `8d40b2aa` retained its existing conversation history and
+368 px sidebar width after replacing the previous QA app. Its [native
+conversation capture](ux-captures/conversation-native-workbench.png) shows the
+working-directory copy feedback, airy transcript and composer actions inside
+the window. The native Terminal action was invoked on an existing folder with
+no error shown; the automation surface could not inspect Terminal's contents,
+so its initial working directory is not yet qualified. The native MCP button
+was accessible, but a manual click did not change its displayed unknown status
+on this restored Codex history; the prior real tool-call qualification remains
+the MCP evidence. The `Cmd+,` shortcut also did not navigate in automated
+native input, while `Cmd+B` did; keyboard dispatch for this punctuation key
+needs a separate manual check. Native tracker-backed list/board data was not
+available in this isolated Local profile, so their visual/interaction evidence
+comes from the browser fixture and automated tests. Remote Fleet, Jira OAuth
+consent and signed distribution remain separate open gates.
