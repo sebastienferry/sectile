@@ -90,13 +90,20 @@ func ParseReasoningLine(line string) (events []ReasoningEvent, result string, do
 		return nil, "", false
 	}
 
+	// Codex's top-level error has a string message, while Claude's message is
+	// an object. Select the protocol before decoding either provider's shape.
+	var header struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal([]byte(trimmed), &header) != nil {
+		return nil, "", false
+	}
+	if strings.HasPrefix(header.Type, "item.") || header.Type == "turn.failed" || header.Type == "error" {
+		return parseCodexReasoningLine(trimmed)
+	}
 	var parsed reasoningLine
 	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
 		return nil, "", false
-	}
-
-	if strings.HasPrefix(parsed.Type, "item.") || parsed.Type == "turn.failed" || parsed.Type == "error" {
-		return parseCodexReasoningLine(trimmed)
 	}
 
 	switch parsed.Type {

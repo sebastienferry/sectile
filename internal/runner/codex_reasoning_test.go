@@ -25,6 +25,11 @@ func TestCodexExecTraceShowsCommandsMCPAndCompletedAnswers(t *testing.T) {
 }
 
 func TestCodexExecTraceKeepsFailuresAndBoundsMCPArguments(t *testing.T) {
+	_, fatal, failed := runner.ParseReasoningLine(`{"type":"error","message":"MCP initialization failed"}`)
+	if !failed || fatal != "MCP initialization failed" {
+		t.Fatal("top-level Codex error was lost")
+	}
+
 	_, result, done := runner.ParseReasoningLine(`{"type":"turn.failed","error":{"message":"Provider connection failed"}}`)
 	if !done || result != "Provider connection failed" {
 		t.Fatal("Codex failure was lost")
