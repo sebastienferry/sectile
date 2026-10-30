@@ -629,3 +629,33 @@ production frontend build. The source-checkout Node suite passes 25 tests.
 The regular Local companion remained running throughout; no user installation
 was selected for shutdown or replacement. These are source/runtime proofs,
 not evidence of native button execution or an updated retained DMG.
+
+### Retained native-preparation candidate (2026-10-30)
+
+The unsigned macOS arm64 candidate at
+`src-tauri/target/candidates/2026-10-30-d69c3ac/` now contains the native action.
+It was built in a disposable detached worktree from clean Tauri
+`d69c3ac798fdf99ff2a2006ccf1fb0a25551ebd8` and clean Go
+`ba4c512e8e10d8b6bcdc6b06ee83b16dbdafb43a`. The app and mounted DMG passed
+service hash, architecture, fixed-port and notice verification; `hdiutil verify`
+passed. The DMG is 56,366,854 bytes with SHA-256
+`f77973e0f94a8fe4134e0684aff6b59a288333777f60692b801ccc28ef669b7a`.
+The candidate remains version 0.1.0, unsigned for distribution and ineligible
+for release. Its temporary build worktree was removed; earlier candidates and
+the normal Local companion were preserved.
+
+A separate ephemeral-port binary replacement test started the old companion
+from candidate `2026-10-30-c425821` (Go `85da2f24`), bootstrapped a disposable
+profile and Local project, and stopped it with the new Go preparation helper.
+The same installation then started with the new companion. Real API readback
+confirmed the project; installation bytes and the encryption-key digest were
+unchanged. The new companion was also stopped with the helper and exited zero.
+Both server transports closed after each stop. The tested new executable's
+SHA-256 equals the one embedded in the retained app:
+`cbc28340d116fa2906f71d6d282f7899bbef8ccb9f3187e12b792cb1581f5072`.
+A first observer read reached the intentionally gated API before work activation
+and received 503; the corrected observer waits for API readiness before readback.
+No production data or provider session was copied into this fixture, and it was
+removed after the test. This qualifies the exact service-binary replacement
+slice, not the native button, app exit, DMG installation, tracker/OAuth retention,
+provider conversation upgrade or multi-instance update behavior.

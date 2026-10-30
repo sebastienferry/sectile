@@ -769,3 +769,19 @@ V1.0.0 names the product destination and its eventual compatibility commitment.
 This plan does not bump manifests, create a tag or imply that V1 is the next
 release. Cut a release only through the Go repository's documented tag/changelog
 procedure after the V1 scope and readiness criteria are met and approved.
+
+### Local manual-update lifecycle follow-up (2026-10-30)
+
+The configured Local Services view now includes update preparation. It fences
+automatic startup, requests the existing idle-only authenticated shutdown,
+waits for transport closure and store ownership release, and quits Tauri.
+Failure keeps explicit retry/restart controls available, including after a
+Settings remount. Fleet and the web planning owner remain unchanged.
+
+The exact Go `85da2f24` → `ba4c512e` binary replacement slice passed on a
+private ephemeral-port installation with project, installation identity and
+encryption key retained. The new unsigned candidate is
+`src-tauri/target/candidates/2026-10-30-d69c3ac/`; its native control has not been
+clicked or visually inspected. See the release checklist for its hashes and
+scope. This progress does not close phase 8 or the deferred native, signing,
+Jira consent, unpaired/bootstrap and multi-instance qualification gaps.
