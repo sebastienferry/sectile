@@ -46,6 +46,22 @@ test("sidebar navigation replaces the view without canceling a run", async () =>
   expect(screen.queryByText("Live output")).toBeNull();
   expect(api.stopRun).not.toHaveBeenCalled();
 });
+test("a selected conversation execution keeps project actions out of its toolbar", async () => {
+  vi.mocked(api.executionSnapshot).mockResolvedValue({
+    status: { connected: true, capabilities: [] },
+    runs: [{ id: "conversation", projectId: "p", taskKey: "APP-1", conversation: true, provider: "codex", status: "running", createdAt: "2026-10-28" }],
+  });
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: /Toutes les exécutions/ }));
+  const runButton = await waitFor(() => document.querySelector<HTMLButtonElement>(".execution-list .run-select"));
+  expect(runButton).toBeTruthy();
+  fireEvent.click(runButton!);
+  await screen.findByRole("button", { name: "← Toutes les exécutions" });
+  expect(screen.queryByRole("button", { name: "Tableau", exact: true })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Nouveau prompt", exact: true })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Configurer le projet", exact: true })).toBeNull();
+  expect(screen.getByRole("button", { name: "Nouveau prompt dans Example" })).toBeTruthy();
+});
 test("the native macOS Settings menu opens the existing Settings view", async () => {
   Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
   vi.mocked(invoke).mockResolvedValue({});

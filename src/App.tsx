@@ -678,7 +678,7 @@ function ProjectPane({
           <div className="workspace-path"><p title={workingDirectory}>{workingDirectory || (selection.runId ? "Dossier de l’exécution en cours de chargement…" : "Espace de travail du projet")}</p>{workingDirectory&&<button type="button" className="copy-path" title="Copier le chemin du dossier de travail" aria-label="Copier le chemin du dossier de travail" onClick={()=>void navigator.clipboard.writeText(workingDirectory).then(()=>setPathCopyState("Copié"),()=>setPathCopyState("Copie impossible"))}>{pathCopyState||"Copier"}</button>}</div>
         </div>
         <div className="toolbar-actions">
-          {project && selection.view !== "task" && selection.view !== "ticket-editor" && (
+          {project && selection.view !== "task" && selection.view !== "ticket-editor" && !(selection.view === "executions" && currentRun?.conversation) && (
             <>
               {selection.view !== "board" && !(selection.view === "prompt" && selection.runId) && <button onClick={() => navigate(project, "board")}>
                 <Icon name="board" />

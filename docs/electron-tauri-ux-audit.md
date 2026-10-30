@@ -1582,3 +1582,11 @@ toggle. The full UI suite covers both cases, and a rebuilt isolated native
 bundle on port 52965 reopened the same project after a Settings round trip.
 The removed-project branch is covered by a component test; the native check
 did not delete a project. The user trial on port 52964 stayed open.
+
+The next conversation-focused change hides the generic project toolbar actions
+when the execution supervisor shows a selected conversation. The conversation
+keeps its own actions and execution status; the project-level controls remain
+in the sidebar, while ordinary non-conversation execution details retain their
+board action. UI tests cover both paths. A rebuilt isolated QA bundle on port
+52965 is ready for native inspection; the Mac locked before the window could
+be opened, so this source result is not yet a native visual qualification.
