@@ -1451,3 +1451,13 @@ the [native prompt capture](ux-captures/new-prompt-native-compact.png) records
 the layout. The bundled Go companion was reused without changing the regular
 port-52963 installation. This is a visual and focus check, not a new provider
 execution or remote Fleet qualification.
+
+The next native prompt retake replaces separate profile and engine selectors
+with one menu. It lists saved project profiles and standalone Claude Code/Codex
+choices; switching to an engine removes the profile's model and mode defaults,
+and selecting the profile restores them. At 800 points, the selected provider,
+model and mode fit on one line above folder and terminal actions in the
+[native capture](ux-captures/new-prompt-native-profile-menu.png). The selected
+profile's full name remains in the menu and control tooltip when its visible
+label is truncated. This is a setup interaction check; it did not send a
+provider prompt or change tracker data.

@@ -182,8 +182,9 @@ unavailable there and displays an explanatory message. Use `npm run tauri dev` f
 **Nouveau prompt** starts a free Claude Code or Codex conversation in the project,
 without requiring a tracker ticket. The message field receives focus on entry.
 The context bar shows the actual working
-directory and **Dossiers · N**. The composer keeps provider, model and mode
-choices in one compact row, with each menu accessible by its visible value.
+directory and **Dossiers · N**. The composer combines saved profiles and
+standalone Claude Code/Codex choices in one menu; model and mode remain editable
+beside it.
 **Ajouter un dossier** opens the native selector;
 the folder joins the project, rather than becoming a message-private upload.
 Existing conversations use it from the next message. **Configurer le projet**

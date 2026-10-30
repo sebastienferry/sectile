@@ -54,6 +54,7 @@ export default function ProjectPrompt({ projectId, runId, agentAvailable=true, o
     }).catch(()=>{});
     return()=>{current=false;};
   },[projectId,runId]);
+  const selectedProfile=profiles?.profiles.find(profile=>profile.id===profileId);
   if (runId) return <Conversation id={runId} projectId={projectId} agentAvailable={agentAvailable} directory={directory} folders={folders} run={run} task={task} board={board} onOpenExecution={onOpenExecution} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onArchive={onArchive} onStopped={onStopped} onFoldersChanged={onFoldersChanged} onTitleChanged={onTitleChanged} />;
   return <section className="project-prompt prompt-start prompt-new">
     <div className="prompt-intro"><h2>Nouveau prompt</h2></div>
@@ -69,9 +70,19 @@ export default function ProjectPrompt({ projectId, runId, agentAvailable=true, o
     }}>
       <textarea autoFocus aria-label="Prompt libre" value={draft} disabled={busy} maxLength={32000} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} placeholder="Demandez quelque chose à propos de ce projet…" rows={4} />
       <div className="composer-footer"><div className="composer-options">
-      {profiles?.profiles.length ? <label><span className="sr-only">Profil</span><select aria-label="Profil" title="Choisir un profil" value={profileId} disabled={busy} onChange={e=>{customized.current=true;setProfileId(e.target.value);const profile=profiles.profiles.find(p=>p.id===e.target.value);if(profile){setProvider(profile.provider);setOptions({model:profile.model||undefined,mode:profile.mode||undefined});}}}><option value="">Configuration personnalisée</option>{profiles.profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label> : null}
-      <label className="provider-select"><span className="sr-only">Moteur</span><select aria-label="Moteur" title="Choisir le moteur" value={provider} disabled={busy} onChange={e => { customized.current=true; setProfileId(""); setProvider(e.target.value); setOptions({}); }}><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
-      <TurnSettings compact provider={provider} defaultModel={profiles?.profiles.find(profile=>profile.id===profileId)?.model} value={options} onChange={value=>{customized.current=true;setOptions(value);}} disabled={busy} />
+      <label className="provider-select"><span className="sr-only">Profil ou moteur</span><select aria-label="Profil ou moteur" title={selectedProfile?`${selectedProfile.provider==="codex"?"Codex":"Claude Code"} · ${selectedProfile.name}`:"Choisir un profil ou un moteur"} value={profileId?`profile:${profileId}`:`engine:${provider}`} disabled={busy} onChange={e => {
+        customized.current=true;
+        if(e.target.value.startsWith("profile:")) {
+          const profile=profiles?.profiles.find(item=>item.id===e.target.value.slice(8));
+          if(profile){setProfileId(profile.id);setProvider(profile.provider);setOptions({model:profile.model||undefined,mode:profile.mode||undefined});}
+        } else {
+          setProfileId("");setProvider(e.target.value.slice(7));setOptions({});
+        }
+      }}>
+        {profiles?.profiles.length?<optgroup label="Profils du projet">{profiles.profiles.map(profile=><option key={profile.id} value={`profile:${profile.id}`}>{profile.provider==="codex"?"Codex":"Claude Code"} · {profile.name}</option>)}</optgroup>:null}
+        <optgroup label="Sans profil"><option value="engine:claude">Claude Code</option><option value="engine:codex">Codex</option></optgroup>
+      </select></label>
+      <TurnSettings compact provider={provider} defaultModel={selectedProfile?.model} value={options} onChange={value=>{customized.current=true;setOptions(value);}} disabled={busy} />
       <PromptFolders compact projectId={projectId} directory={directory} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
       <button type="button" className="composer-action" disabled={!directory} title="Ouvrir le terminal dans le dossier de travail" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setError("Impossible d’ouvrir le terminal dans ce dossier."))}><Icon name="terminal"/>Terminal</button>
       </div><button className="send-button" aria-label="Envoyer" title="Envoyer · Entrée" disabled={!agentAvailable || busy || attaching || !draft.trim()}><Icon name="send" /></button></div>

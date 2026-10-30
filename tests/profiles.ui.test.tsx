@@ -12,8 +12,8 @@ afterEach(cleanup);
 test("a project default preloads the new prompt and sends the named profile and options once",async()=>{
  vi.mocked(chat.createConversation).mockResolvedValue({id:"profile-first-turn"});vi.mocked(chat.readConversation).mockResolvedValue({id:"profile-first-turn",busy:false,readOnly:false});
  render(<ProjectPrompt projectId="project" onCreated={()=>{}}/>);
- await screen.findByRole("option",{name:"Review"});
- expect((screen.getByLabelText("Moteur") as HTMLSelectElement).value).toBe("codex");
+ await screen.findByRole("option",{name:"Codex · Review"});
+ expect((screen.getByLabelText("Profil ou moteur") as HTMLSelectElement).value).toBe("profile:review");
  expect((screen.getByLabelText("Mode de conversation") as HTMLSelectElement).value).toBe("plan");
  fireEvent.change(screen.getByLabelText("Prompt libre"),{target:{value:"Review the project"}});fireEvent.click(screen.getByLabelText("Envoyer"));
  await waitFor(()=>expect(chat.controlConversation).toHaveBeenCalledWith("profile-first-turn",{action:"message",message:"Review the project",model:"chosen-model",mode:"plan"}));
@@ -23,8 +23,23 @@ test("late defaults preserve choices made while profiles load",async()=>{
  let resolve!:(value:profiles.ProjectProfiles)=>void;vi.mocked(profiles.conversationProfiles).mockReturnValue(new Promise(done=>resolve=done));
  render(<ProjectPrompt projectId="late-project" onCreated={()=>{}}/>);
  fireEvent.change(screen.getByLabelText("Mode de conversation"),{target:{value:"execute"}});resolve(catalogue);
- await screen.findByRole("option",{name:"Review"});
- expect((screen.getByLabelText("Mode de conversation") as HTMLSelectElement).value).toBe("execute");expect((screen.getByLabelText("Profil") as HTMLSelectElement).value).toBe("");
+ await screen.findByRole("option",{name:"Codex · Review"});
+ expect((screen.getByLabelText("Mode de conversation") as HTMLSelectElement).value).toBe("execute");expect((screen.getByLabelText("Profil ou moteur") as HTMLSelectElement).value).toBe("engine:claude");
+});
+test("the combined menu switches a saved profile to a standalone engine without carrying profile settings",async()=>{
+ vi.mocked(chat.createConversation).mockResolvedValue({id:"standalone-turn"});
+ vi.mocked(chat.readConversation).mockResolvedValue({id:"standalone-turn",busy:false,readOnly:false});
+ render(<ProjectPrompt projectId="project" onCreated={()=>{}}/>);
+ await screen.findByRole("option",{name:"Codex · Review"});
+ const choice=screen.getByLabelText("Profil ou moteur") as HTMLSelectElement;
+ expect(choice.value).toBe("profile:review");
+ fireEvent.change(choice,{target:{value:"engine:claude"}});
+ expect(choice.value).toBe("engine:claude");
+ expect((screen.getByLabelText("Mode de conversation") as HTMLSelectElement).value).toBe("");
+ fireEvent.change(screen.getByLabelText("Prompt libre"),{target:{value:"Explain this project"}});
+ fireEvent.click(screen.getByLabelText("Envoyer"));
+ await waitFor(()=>expect(chat.createConversation).toHaveBeenCalledWith("project","claude"));
+ expect(chat.createConversation).not.toHaveBeenCalledWith("project","claude","review");
 });
 test("saving a project profile only configures the agent and never starts a conversation",async()=>{
  render(<ProjectProfiles projectId="project"/>);await screen.findByLabelText("Profil par défaut");
