@@ -599,4 +599,13 @@ Saved OAuth application credentials are not prefilled in the desktop. Both editi
 
 ## Sectile V1 migration
 
-The [V1.0.0 migration plan](docs/sectile-v1-migration-plan.md) defines Tauri as the future primary agentic board, a headless Go API/MCP/auth backend, Local/Fleet runtime modes and a separate roadmap-integration workstream. The Local companion migration and explicit Fleet pairing are implemented on dedicated branches. Safe mode switching, full Fleet setup, compatibility qualification and later product migration stages remain open.
+The [V1.0.0 migration plan](docs/sectile-v1-migration-plan.md) records the
+current phase status and evidence. Stages 0–4 are delivered on the dedicated
+branches; stages 6–7 are complete as product ownership and distribution
+contracts. The seven scoped Electron-to-Tauri UX convergence lots are complete.
+Stages 5 and 8 remain open for exact release-binary, external integration and
+macOS installation qualification. Local/Fleet selection does not silently
+transfer data or credentials between runtimes. Existing web planning remains
+the V1 owner and is unchanged. See the [candidate support matrix](docs/v1-support-matrix.md)
+for demonstrated combinations rather than interpreting a protocol check as
+full Fleet feature support. No V1 release has been tagged or approved.

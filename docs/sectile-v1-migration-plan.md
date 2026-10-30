@@ -11,6 +11,40 @@ current qualification gaps are listed below. This is not a V1 release.
 The [candidate support matrix](v1-support-matrix.md) summarizes the exact
 client/backend and platform combinations demonstrated by these checks.
 
+## Current readiness (2026-10-30)
+
+This index summarizes the detailed evidence below. "Delivered" describes the
+branch implementation and its recorded scope; it does not certify a signed
+release or replace the exact-artifact checks for stages 5 and 8.
+
+| Stage | Current status | Evidence or remaining requirement |
+| --- | --- | --- |
+| 0. Capture and contracts | Complete | Prototype commits, dedicated branches, runtime contracts and independent design review are recorded. |
+| 1. Backend assembly | Delivered | Shared Go backend serves the unchanged standalone Fleet server and the Local companion; dependency boundaries are tested. |
+| 2. Lifecycle ownership | Delivered | Store exclusivity, drain/join, provider guards, durable conversation journals and real crash/recovery checks are recorded. |
+| 3. Fresh Local companion | Delivered | One-process backend/agent composition; real Claude/Codex and standard-skill MCP workflow evidence on disposable state. |
+| 4. Managed upgrade and native modes | Delivered within recorded scope | Journaled generation migration, Local/Fleet selection, native setup, isolated pairing/folder/profile tests and retention checks. Fresh OAuth and exact release installation remain stage 5/8 gates. |
+| 5. Compatibility and measured delivery | Open | Protocol and scoped native/runtime checks exist, but remote TLS Fleet, native Codex full-chain launch/result, exact release-state upgrade and end-user performance remain incompletely qualified. |
+| 6. Product/UI transition | Complete as a product/distribution contract | Tauri owns operational work; the optional headless server artifact retains API/MCP/auth; Electron remains a compatibility client. |
+| 7. Roadmapping ownership | Complete | Existing web planning remains the V1 owner, unchanged, with no migration or deprecation authorized. |
+| 8. V1 release qualification | Open | No Developer ID/notarization credentials, clean-user signed installation or owner-approved release. No tag or publication is authorized. |
+| Electron-to-Tauri UX convergence | Seven scoped lots complete | Matched baseline, design challenge, navigation, workflow, conversations, supervision, settings and visual-system evidence are in the [UX audit](electron-tauri-ux-audit.md). Later native checks qualify later source changes separately. |
+
+The latest retained testing artifact is
+`src-tauri/target/candidates/2026-10-30-d69c3ac/`: Tauri `d69c3ac` and clean Go
+`ba4c512e`. Its app/DMG verification passes. The current source passes the full
+Go suite, 25 Node tests, 140 UI tests, 41 Rust tests, TypeScript and production
+frontend build. The [release checklist](v1-release-checklist.md) holds the exact
+hashes, commands and qualification limits. The regular installation remains
+unchanged; the candidate has not been activated against its user data.
+
+Owner decisions currently defer native visual verification and fresh Jira
+consent. Apple signing is unavailable. These are not running background jobs
+and no unattended wait will complete them. Remaining technical work must be
+reported separately from those external gates; an estimate for source cleanup
+is not an estimate for full V1 qualification. Do not reopen the deferred
+consent or interrupt the regular companion to manufacture a green result.
+
 ## 1. Product destination
 
 Tauri becomes the main interface for Sectile's agentic work: project/workspace

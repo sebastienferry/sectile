@@ -24,6 +24,18 @@ service-only comparison; release-binary desktop performance remains open.
 
 ## Source and compatibility
 
+Latest source refresh (2026-10-30): clean Go `ba4c512e` passes
+`python3 scripts/compatibility/test-v076-server-current-agent.py`. A current
+agent connects to the v0.7.6 server with 27 advertised operations and no outdated
+flag; the v0.7.6 agent connects to the current server. Both MCP directions expose
+21 tools through direct and STDIO clients, complete the run lifecycle, retain
+distinct task-spec worktrees, and pass read-only `skills_status`, mutating
+`init_git`, and fake GitHub create/stage operations with a personal token.
+Temporary helpers and processes were removed, and the Go checkout stayed clean.
+This is protocol/source compatibility, not native OAuth, remote TLS Fleet,
+real forge writes or a signed desktop release test. Earlier revisions below
+remain historical qualification records.
+
 On 2026-10-30 the current/v0.7.6 binary harness passed again with clean Go
 `84e19b1b`: both agent/server directions, 27 operations, 21 MCP tools,
 direct/STDIO clients, run lifecycle, task-spec worktrees and fake tracker writes.

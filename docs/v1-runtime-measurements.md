@@ -39,9 +39,11 @@ The development binaries measured 42,003,778 bytes for the companion versus
 binaries for Local/Fleet compatibility, so this binary comparison is not a
 package-size reduction.
 
-The latest clean, unsigned package check built Tauri `4bcb4e2` with Go
-`45940914`: the arm64 app is 103.31 MiB and the DMG is 56,331,700 bytes
-(53.72 MiB). The resource verifier, DMG hash and `hdiutil verify` passed; the
-[release checklist](v1-release-checklist.md) records its checksum and open
-signing gates. This newer package size is not a repeat of the startup/RSS
-benchmark above, which still uses Go `f5984122` without a desktop renderer.
+The latest retained clean-source, unsigned package pairs Tauri `d69c3ac` with
+Go `ba4c512e`: the arm64 app is 103.41 MiB and the DMG is 56,366,854 bytes
+(53.76 MiB). App/DMG resource verification, the retained hash and `hdiutil verify`
+passed. The [release checklist](v1-release-checklist.md) records its checksum
+and open native/signing gates. This package measurement does not repeat the
+startup/RSS benchmark above, which still uses Go `f5984122` without a desktop
+renderer. Earlier package measurements remain historical evidence rather than
+current artifact sizes.

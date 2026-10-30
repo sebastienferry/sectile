@@ -9,7 +9,7 @@ binary checks in the [release checklist](v1-release-checklist.md).
 
 | Target | V1 position | Current evidence and limit |
 | --- | --- | --- |
-| macOS arm64 | First release target | An isolated worktree built a 103.31 MiB app and 56,331,700-byte DMG from Tauri `4bcb4e2` and clean Go `45940914`. The resource verifier found the fixed companion port 52963 and 52 license files in both bundles; `hdiutil verify` and the DMG SHA-256 check pass. The app has only an ad hoc signature and Gatekeeper rejects it; notarization and clean-user launch are not qualified. |
+| macOS arm64 | First release target | The latest retained candidate is Tauri `d69c3ac` with clean Go `ba4c512e`: a 103.41 MiB app and 56,366,854-byte DMG. App and mounted-DMG service hashes, arm64 architecture, port 52963, 52 license files, `hdiutil verify` and the retained checksum pass. Configured Local update preparation is included; its native stop-and-quit action is not yet qualified. There is no Developer ID/notarization qualification or clean-user installation proof. Historical package results below do not qualify this candidate by implication. |
 | macOS x86_64 | Not promised for the first release | No native package or runtime qualification is recorded. |
 | Linux | Experimental | A Debian ARM64 package opened a visible window under Xvfb/DBus. Real user desktop, provider and migration workflows across distributions remain unqualified. |
 | Windows | Deferred | Go services cross-build, but native desktop startup, migration, process execution and installer behavior remain unqualified. |
@@ -58,6 +58,30 @@ recoveries passed; the current/v0.7.6 protocol harness also passed against this
 Go source. Native install/service replacement and Codex-button/result inspection
 are explicitly deferred by the owner. The candidate is not signed/notarized and
 has not replaced the regular installation. The prior candidate stays separate.
+
+## Latest candidate and update preparation
+
+The latest source-level v0.7.6/current compatibility refresh uses Go `ba4c512e`.
+It passes both agent/server directions, 27 advertised operations, 21 MCP tools
+through direct/STDIO clients, run lifecycle, distinct task-spec worktrees and
+fake tracker writes. This refresh does not add native Fleet setup, remote TLS
+or external OAuth coverage.
+
+
+Candidate `2026-10-30-d69c3ac` contains Go `ba4c512e` and the configured Local
+Services stop-and-quit action. The helper authenticates its Local runtime,
+honors busy refusal and proves transport closure plus store ownership release.
+A disposable binary replacement from the earlier Go `85da2f24` companion
+retained a project, installation identity and encryption key. The replacement
+executable's hash matches the one in the retained app. This is service-level
+evidence; native rendering/exit, regular-installation activation, signed DMG
+installation, tracker/OAuth retention and provider-session upgrade are still
+separate qualifications. The initial unpaired stop path and multi-instance
+updates remain unqualified slices. No regular installation was changed.
+
+The current source passes the full Go suite, 25 Node tests, 140 UI tests,
+41 Rust tests, TypeScript checking and the production frontend build. Details
+and hashes are in the [release checklist](v1-release-checklist.md).
 
 ## Product ownership and updates
 
