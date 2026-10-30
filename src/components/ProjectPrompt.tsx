@@ -9,6 +9,7 @@ import { Icon } from "./Icon";
 import { TurnSettings } from "./TurnSettings";
 import { QuestionForm } from "./QuestionForm";
 import { ConversationTranscript } from "./ConversationTranscript";
+import { invoke } from "@tauri-apps/api/core";
 
 function sendOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
  if(event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {event.preventDefault();event.currentTarget.form?.requestSubmit();}
@@ -41,7 +42,6 @@ export default function ProjectPrompt({ projectId, runId, onCreated, onTitleChan
   return <section className="project-prompt prompt-start">
     <div className="prompt-intro"><span className="prompt-symbol"><Icon name="chat" /></span><span className="eyebrow">DANS CE PROJET</span>
     <h2>Que voulez-vous faire ?</h2><p>Une idée, une question, une tâche.<br />Commencez simplement par un message.</p></div>
-    <PromptFolders projectId={projectId} directory={directory} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
     <form className="composer" onSubmit={async e => {
       e.preventDefault(); if (busy || attaching || !draft.trim()) return;
       setBusy(true); setError("");
@@ -57,6 +57,8 @@ export default function ProjectPrompt({ projectId, runId, onCreated, onTitleChan
       {profiles?.profiles.length ? <label><span className="composer-option-label">Profil</span><select aria-label="Profil" value={profileId} disabled={busy} onChange={e=>{customized.current=true;setProfileId(e.target.value);const profile=profiles.profiles.find(p=>p.id===e.target.value);if(profile){setProvider(profile.provider);setOptions({model:profile.model||undefined,mode:profile.mode||undefined});}}}><option value="">Configuration personnalisée</option>{profiles.profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label> : null}
       <label className="provider-select"><span className="composer-option-label">Moteur</span><select aria-label="Moteur" value={provider} disabled={busy} onChange={e => { customized.current=true; setProfileId(""); setProvider(e.target.value); setOptions({}); }}><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>
       <TurnSettings compact provider={provider} value={options} onChange={value=>{customized.current=true;setOptions(value);}} disabled={busy} />
+      <PromptFolders compact projectId={projectId} directory={directory} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
+      <button type="button" className="composer-action" disabled={!directory} title="Ouvrir le terminal dans le dossier de travail" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setError("Impossible d’ouvrir le terminal dans ce dossier."))}><Icon name="terminal"/>Terminal</button>
       </div><button className="send-button" aria-label="Envoyer" title="Envoyer · Entrée" disabled={busy || attaching || !draft.trim()}><Icon name="send" /></button></div>
     </form>
     <div className="prompt-suggestions" aria-label="Idées de prompts">{[
@@ -97,11 +99,10 @@ function Conversation({ id, projectId, directory, folders, onFoldersChanged, onT
       <button className="icon-button" aria-label="Actualiser le suivi" title="Actualiser le suivi" disabled={pending || (!!snapshot.busy && !error)} onClick={() => void controller.refresh()}><Icon name="refresh" /></button>
     </header>
     {renaming&&<form className="conversation-rename" onSubmit={async e=>{e.preventDefault();if(savingTitle||!title.trim())return;setSavingTitle(true);setActionError("");try{await renameConversation(id,title.trim());await controller.refresh();onTitleChanged?.();setRenaming(false);}catch(cause){setActionError(String(cause));}finally{setSavingTitle(false);}}}><label>Nom de la conversation<input autoFocus required maxLength={80} value={title} onChange={e=>setTitle(e.target.value)}/></label><button type="button" disabled={savingTitle} onClick={()=>setRenaming(false)}>Annuler</button><button disabled={savingTitle||!title.trim()}>Enregistrer le nom</button></form>}
-    <PromptFolders projectId={projectId} runId={id} directory={directory} folders={folders} readOnly={!loaded||snapshot.readOnly} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
-    <div className="conversation-mcp" aria-label="État MCP renvoyé par le moteur"><span>{snapshot.sectileMcp?.source==="transport"?"Transport MCP du compagnon":"MCP du moteur"} · {snapshot.checkingMcp?"Vérification en cours…":({connected:"Connecté",missing:"Non enregistré",failed:"Échec de connexion","needs-auth":"Connexion requise",pending:"Connexion en cours",unknown:"État non vérifié"} as Record<string,string>)[snapshot.sectileMcp?.status??"unknown"]||"État non vérifié"}</span><button disabled={!loaded||acting||snapshot.checkingMcp||snapshot.readOnly} onClick={()=>void control({action:"checkMcp"}).catch(()=>{})}>Vérifier le MCP de cette conversation</button></div>
     {snapshot.persistenceError && <p className="error" role="alert">{snapshot.persistenceError}</p>}
     <ConversationTranscript snapshot={snapshot} followRequest={followRequest} />
     <div className="conversation-controls">
+    <div className="conversation-interactions">
     {snapshot.approvals?.map(approval => approval.tool === "AskUserQuestion" ? <QuestionForm key={approval.id + JSON.stringify(approval.input)} approval={approval} disabled={acting || !!error || !!snapshot.readOnly} onAnswer={answers => control({ action: "answer", id: approval.id, answers })} onSkip={() => control({ action: "approval", id: approval.id, decision: "deny" })} /> : <section className="prompt-approval" key={approval.id}>
       <strong>Autorisation requise · {approval.tool}</strong><p>{approval.description || approval.reason}</p>
       <pre>{JSON.stringify(approval.input, null, 2)}</pre>
@@ -109,9 +110,13 @@ function Conversation({ id, projectId, directory, folders, onFoldersChanged, onT
       <button disabled={acting || !!error} onClick={() => void control({ action: "approval", id: approval.id, decision: "deny" }).catch(() => {})}>Refuser</button>
     </section>)}
     {(error || actionError) && <p role="alert" className="error">{error || actionError} Vérifiez le suivi avant de renvoyer un message.</p>}
+    </div>
     <form className="composer" onSubmit={e => { e.preventDefault(); if (loaded && !busy && !attaching && !snapshot.readOnly && !error && draft.trim()) { void controller.send(draft, false, options); setDraft(""); setFollowRequest(value => value + 1); } }}>
       <textarea aria-label="Message suivant" rows={3} maxLength={32000} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} disabled={!!snapshot.readOnly} placeholder="Posez une question ou décrivez une modification…" />
       <div className="composer-footer"><TurnSettings compact provider={snapshot.provider} snapshot={snapshot} value={options} onChange={setOptions} disabled={!loaded || busy || !!snapshot.readOnly || !!error || acting} />
+      <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly={!loaded||snapshot.readOnly} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
+      <button type="button" className="composer-action" disabled={!directory} title="Ouvrir le terminal dans le dossier de travail" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Impossible d’ouvrir le terminal dans ce dossier."))}><Icon name="terminal"/>Terminal</button>
+      <button type="button" className={`composer-action mcp-action mcp-${snapshot.sectileMcp?.status??"unknown"}`} disabled={!loaded||acting||snapshot.checkingMcp||snapshot.readOnly} aria-label="Vérifier le MCP de cette conversation" title={`${snapshot.sectileMcp?.source==="transport"?"Transport MCP du compagnon":"MCP du moteur"} · ${snapshot.checkingMcp?"Vérification en cours…":({connected:"Connecté",missing:"Non enregistré",failed:"Échec de connexion","needs-auth":"Connexion requise",pending:"Connexion en cours",unknown:"État non vérifié"} as Record<string,string>)[snapshot.sectileMcp?.status??"unknown"]||"État non vérifié"}`} onClick={()=>void control({action:"checkMcp"}).catch(()=>{})}><span className="mcp-dot"/>MCP</button>
       <button className="send-button" aria-label="Envoyer" title="Envoyer · Entrée" disabled={!loaded || busy || attaching || !!snapshot.readOnly || !!error || !draft.trim()}><Icon name="send" /></button></div>
     </form>
     </div>

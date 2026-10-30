@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listProjects, listTasks } from "./lib/agent";
+import { executionSnapshot, launchTask, listProjects, listTasks } from "./lib/agent";
 import { trackerColumns, type Project, type Task } from "./domain/board";
 import { executionConnectionLabel, isActive, projectRuns, statusLabel, type Run } from "./domain/execution";
 import {
@@ -14,8 +14,9 @@ import { AdvancedFolders } from "./components/AdvancedFolders";
 import { WorkflowSettings } from "./components/WorkflowSettings";
 import { OrchestrationSettings } from "./components/OrchestrationSettings";
 
-import { projectContext, type ProjectContext } from "./lib/workspace";
-import { skillLabels, stages, stageLabels, taskStage } from "./domain/workflow";
+import { openExternalLink, projectContext, providerReadiness, type ProjectContext } from "./lib/workspace";
+import { nextSkill, skillLabels, stages, stageLabels, taskStage } from "./domain/workflow";
+import { launchInput } from "./domain/execution";
 import { AttachedFolderSettings } from "./components/FolderContext";
 import { ProjectProfiles } from "./components/ProjectProfiles";
 import { LocalSettings } from "./components/LocalSettings";
@@ -445,6 +446,8 @@ function ProjectPane({
     return latest;
   }, [monitor.snapshot?.runs, selection.projectId]);
   const workingDirectory = selection.runId ? currentRun?.directory : project?.path;
+  const [pathCopyState,setPathCopyState]=useState("");
+  useEffect(()=>setPathCopyState(""),[workingDirectory]);
   const [taskState, setTaskState] = useState<{projectId:string;items:Task[]}>();
   const tasks = taskState?.projectId === selection.projectId ? taskState.items : [];
   const [errorState, setErrorState] = useState<{projectId:string;message:string}>();
@@ -454,8 +457,16 @@ function ProjectPane({
   const query = queryState?.projectId === selection.projectId ? queryState.value : "";
   const [grouping,setGrouping] = useState("tracker");
   const [compactCards,setCompactCards] = useState(()=>readPreference("boardCards","compact")!=="full");
+  const [ticketView,setTicketView]=useState<"board"|"list">(()=>readPreference("ticketView","board")==="list"?"list":"board");
+  const [selectedTaskIds,setSelectedTaskIds]=useState<string[]>([]);
+  const [batchConfirm,setBatchConfirm]=useState(false);
+  const [launching,setLaunching]=useState(false);
+  const [launchError,setLaunchError]=useState("");
   const [visibleByColumn,setVisibleByColumn] = useState<Record<string,number>>({});
+  const [visibleListCount,setVisibleListCount]=useState(80);
   useEffect(()=>setVisibleByColumn({}),[selection.projectId,query,grouping]);
+  useEffect(()=>setVisibleListCount(80),[selection.projectId,query]);
+  useEffect(()=>{setSelectedTaskIds([]);setBatchConfirm(false);setLaunchError("");},[selection.projectId]);
   const [contextState,setContextState] = useState<{projectId:string;value:ProjectContext}>();
   const [contextError,setContextError] = useState<{projectId:string;message:string}>();
   const [contextRefresh,setContextRefresh] = useState(0);
@@ -495,16 +506,54 @@ function ProjectPane({
     !hasRemoteTasks,
   );
   const visibleTasks = remoteColumns.flatMap(column=>column.tasks);
+  const allRemoteTasks=trackerColumns(tasks).flatMap(column=>column.tasks);
   const columns = grouping === "stage" ? [...stages.map(stage=>({name:stageLabels[stage],tasks:visibleTasks.filter(task=>taskStage(task,context?.board)===stage)})),...(visibleTasks.some(task=>!taskStage(task,context?.board))?[{name:"Étape inconnue",tasks:visibleTasks.filter(task=>!taskStage(task,context?.board))}]:[])] : remoteColumns;
   const count = columns.reduce((n, c) => n + c.tasks.length, 0);
+  const selectedTasks=selectedTaskIds.map(id=>allRemoteTasks.find(task=>task.id===id)).filter((task):task is Task=>Boolean(task));
+  function toggleTask(id:string){setSelectedTaskIds(previous=>previous.includes(id)?previous.filter(item=>item!==id):[...previous,id]);setBatchConfirm(false);}
+  async function startSkill(task:Task,skillId:string){
+    if(launching||!project||!context)return;
+    setLaunching(true);setLaunchError("");
+    try{
+      const [freshTasks,freshContext,state]=await Promise.all([listTasks(project.id),projectContext(project.id),executionSnapshot()]);
+      const freshTask=freshTasks.find(item=>item.id===task.id);
+      if(!freshTask||!freshContext.configured||!state.status.connected||state.status.contractError||state.runs.some(run=>run.projectId===project.id&&run.taskId===task.id&&isActive(run))||taskStage(freshTask,freshContext.board)==="finished"||!freshContext.skills.some(skill=>skill.id===skillId))throw new Error("Workflow unavailable");
+      if(freshContext.aiProvider==="claude"||freshContext.aiProvider==="codex"){
+        const readiness=await providerReadiness(freshContext.aiProvider);
+        if(readiness.steps?.mcp?.configuration?.present&&!readiness.steps.mcp.configuration.valid)throw new Error("MCP unavailable");
+      }
+      await launchTask(project.id,launchInput(task.id,skillId,"",""));
+      await monitor.refresh();
+      navigate(project,"task",undefined,task.id);
+    }catch{setLaunchError("Lancement non confirmé. Vérifiez la configuration et le suivi avant de réessayer.");}
+    finally{setLaunching(false);}
+  }
+  async function startBatch(){
+    if(!project||launching||selectedTasks.length<2)return;
+    setLaunching(true);setLaunchError("");
+    try{
+      const [freshTasks,freshContext,state]=await Promise.all([listTasks(project.id),projectContext(project.id),executionSnapshot()]);
+      if(!freshContext.configured||!freshContext.skills.some(skill=>skill.id==="pickup_issues")||!state.status.connected||state.status.contractError||selectedTasks.some(task=>!freshTasks.some(current=>current.id===task.id&&taskStage(current,freshContext.board)!=="finished")||state.runs.some(run=>run.projectId===project.id&&run.taskId===task.id&&isActive(run))))throw new Error("Batch unavailable");
+      if(freshContext.aiProvider==="claude"||freshContext.aiProvider==="codex"){
+        const readiness=await providerReadiness(freshContext.aiProvider);
+        if(readiness.steps?.mcp?.configuration?.present&&!readiness.steps.mcp.configuration.valid)throw new Error("MCP unavailable");
+      }
+      await launchTask(project.id,{...launchInput(selectedTasks[0].id,"pickup_issues","","autonomous"),batchTaskIds:selectedTasks.map(task=>task.id)});
+      setBatchConfirm(false);setSelectedTaskIds([]);await monitor.refresh();
+    }catch{setLaunchError("Lot non lancé. Vérifiez les tickets, la skill et les exécutions avant de réessayer.");}
+    finally{setLaunching(false);}
+  }
+  function taskMenu(task:Task){
+    const next=context?nextSkill(task,context):undefined;
+    const launchDisabled=launching||!monitor.fresh||taskStage(task,context?.board)==="finished";
+    return <select className="task-actions" aria-label={`Actions pour ${task.key||task.title}`} title="Actions du ticket" defaultValue="" onChange={event=>{const value=event.currentTarget.value;event.currentTarget.value="";if(value==="open"){if(project)navigate(project,"task",undefined,task.id);}else if(value)void startSkill(task,value);}}><option value="">•••</option><option value="open">Voir le workflow</option>{next?.skillId&&<option value={next.skillId} disabled={launchDisabled}>Lancer : {next.label}</option>}{context?.skills.filter(skill=>skill.id!==next?.skillId&&skill.id!=="pickup_issues").map(skill=><option key={skill.id} value={skill.id} disabled={launchDisabled}>Lancer : {skillLabels[skill.id]||skill.id}</option>)}</select>;
+  }
   return (
     <>
       <div className="workspace-toolbar">
         <div>
           <h1>{project?.name ?? "Projet"}</h1>
-          <p title={workingDirectory}>
-            {workingDirectory || (selection.runId ? "Dossier de l’exécution en cours de chargement…" : "Espace de travail du projet")}
-          </p>
+          <div className="workspace-path"><p title={workingDirectory}>{workingDirectory || (selection.runId ? "Dossier de l’exécution en cours de chargement…" : "Espace de travail du projet")}</p>{workingDirectory&&<button type="button" className="copy-path" title="Copier le chemin du dossier de travail" aria-label="Copier le chemin du dossier de travail" onClick={()=>void navigator.clipboard.writeText(workingDirectory).then(()=>setPathCopyState("Copié"),()=>setPathCopyState("Copie impossible"))}>{pathCopyState||"Copier"}</button>}</div>
         </div>
         <div className="toolbar-actions">
           {project && (
@@ -543,6 +592,7 @@ function ProjectPane({
         <div className="board-workspace">
           {error && tasks.length > 0 && <p className="hint" role="status">La dernière actualisation a échoué. Les tickets affichés proviennent de la lecture précédente.</p>}
           {!boardContextPending && !currentContextError && !localOnlyProject && <div className="board-toolbar">
+            <div className="board-view-switch" role="group" aria-label="Vue des tickets"><button type="button" aria-pressed={ticketView==="board"} onClick={()=>{setTicketView("board");savePreference("ticketView","board");}}>Tableau</button><button type="button" aria-pressed={ticketView==="list"} onClick={()=>{setTicketView("list");savePreference("ticketView","list");}}>Liste</button></div>
             <label className="search">
               <Icon name="search" />
               <input
@@ -553,10 +603,15 @@ function ProjectPane({
               />
             </label>
             <label>Regrouper<select aria-label="Regrouper les tickets" value={grouping} onChange={e=>setGrouping(e.target.value)}><option value="tracker">Par statut tracker</option><option value="stage">Par étape du workflow</option></select></label>
-            <button type="button" className="board-density" aria-pressed={compactCards} onClick={()=>setCompactCards(value=>{const next=!value;savePreference("boardCards",next?"compact":"full");return next;})}>Cartes compactes</button>
+            {ticketView==="board"&&<button type="button" className="board-density" aria-pressed={compactCards} onClick={()=>setCompactCards(value=>{const next=!value;savePreference("boardCards",next?"compact":"full");return next;})}>Cartes compactes</button>}
             <span className="badge">{count} tickets</span>
+            <span className="board-selection-count">{selectedTasks.length} sélectionné{selectedTasks.length>1?"s":""}</span>
+            <button type="button" disabled={!selectedTasks.length} onClick={()=>{setSelectedTaskIds([]);setBatchConfirm(false);}}>Effacer la sélection</button>
+            <button type="button" disabled={selectedTasks.length<2||launching||selectedTasks.some(task=>taskStage(task,context?.board)==="finished")||!context?.skills.some(skill=>skill.id==="pickup_issues")} onClick={()=>setBatchConfirm(true)}>Préparer un lot</button>
             <span className="muted">Statuts du tracker · lecture seule</span>
           </div>}
+          {launchError&&<p className="error" role="alert">{launchError}</p>}
+          {batchConfirm&&<section className="batch-confirm" aria-label="Préparer un lot"><strong>Lancer la chaîne sur {selectedTasks.length} tickets</strong><p>Les tickets sélectionnés seront traités ensemble dans un seul espace de travail. Vérifiez leur ordre avant le lancement.</p><ol>{selectedTasks.map(task=><li key={task.id}>{task.key||task.id} · {task.title}</li>)}</ol><button type="button" disabled={launching||selectedTasks.length<2} onClick={()=>void startBatch()}>{launching?"Lancement…":"Lancer le lot"}</button><button type="button" onClick={()=>setBatchConfirm(false)}>Annuler</button></section>}
           {busy && (
             <p className="hint" role="status">
               Actualisation des tickets…
@@ -564,7 +619,7 @@ function ProjectPane({
           )}
           {boardContextPending && !busy && <p className="hint" role="status">Chargement de la configuration du projet…</p>}
           {currentContextError && <div className="error" role="alert">Configuration du tableau indisponible : {currentContextError} <button onClick={()=>setContextRefresh(value=>value+1)}>Réessayer</button></div>}
-          <div className="board" role="region" aria-label="Colonnes de tickets, défilement horizontal" tabIndex={0}>
+          {ticketView==="list"&&!localOnlyProject?<div className="ticket-list" role="region" aria-label="Liste des tickets" tabIndex={0}><table><thead><tr><th aria-label="Sélection"/><th>Clé</th><th>Titre</th><th>Statut</th><th>Priorité</th><th>Moteur</th><th>PR</th><th>Actions</th></tr></thead><tbody>{visibleTasks.slice(0,visibleListCount).map(task=><tr key={task.id}><td><input type="checkbox" aria-label={`Sélectionner ${task.key||task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={()=>toggleTask(task.id)}/></td><td>{task.key||task.id}</td><td><button type="button" className="task-open" onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button>{task.parentKey&&<small className={`epic-chip epic-color-${epicColorIndex(task.parentKey)}`} title={task.parentTitle}>{task.parentKey}</small>}</td><td>{task.trackerStatus||"—"}</td><td><span className={`priority priority-${task.priority||"none"}`}>{task.priority||"—"}</span></td><td>{context?.aiProvider==="claude"?"Claude":context?.aiProvider==="codex"?"Codex":"—"}</td><td>{task.prUrl&&/^https?:\/\//.test(task.prUrl)?<button type="button" className="task-pr-link" aria-label={`Ouvrir la PR de ${task.key||task.title}`} onClick={()=>void openExternalLink(task.prUrl!).catch(()=>setLaunchError("Impossible d’ouvrir la PR."))}>●</button>:"—"}</td><td>{taskMenu(task)}</td></tr>)}</tbody></table>{visibleTasks.length>visibleListCount&&<button type="button" className="board-show-more" onClick={()=>setVisibleListCount(value=>value+80)}>Afficher les 80 suivants · {visibleListCount} sur {visibleTasks.length}</button>}</div>:<div className="board" role="region" aria-label="Colonnes de tickets, défilement horizontal" tabIndex={0}>
             {columns.map((column) => (
               <section className="column" key={column.name}>
                 <h2>
@@ -574,12 +629,14 @@ function ProjectPane({
                 </h2>
                 {visibleBoardTasks(column.tasks,activeTaskRuns,visibleByColumn[column.name] ?? 40).map((task) => {
                   const taskRun = activeTaskRuns.get(task.id);
-                  return <article className={`task ${compactCards?"compact":""}`} key={task.id}>
+                  return <article className={`task ${compactCards?"compact":""} ${task.parentKey?`epic-color-${epicColorIndex(task.parentKey)}`:""}`} key={task.id}>
                     <div className="task-meta">
-                      <span>{task.key || task.id}</span>
-                      <span>{task.source}</span>
+                      <label><input type="checkbox" aria-label={`Sélectionner ${task.key||task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={()=>toggleTask(task.id)}/>{task.key || task.id}</label>
+                      {taskMenu(task)}
                     </div>
                     <h3><button className="task-open" title={task.title} onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button></h3>
+                    {task.parentKey&&<span className={`epic-chip epic-color-${epicColorIndex(task.parentKey)}`} title={task.parentTitle}>{task.parentKey}</span>}
+                    {task.priority&&<span className={`priority priority-${task.priority}`}>{task.priority}</span>}
                     <p className="task-stage">{taskStage(task,context?.board)?stageLabels[taskStage(task,context?.board)!]:"Étape non déterminée"}</p>
                     {taskRun && isActive(taskRun) && <p className="task-run-state" role="status">{skillLabels[taskRun.skill] || taskRun.skill} · {statusLabel(taskRun)}</p>}
                     <footer>
@@ -606,7 +663,7 @@ function ProjectPane({
                 >Afficher {Math.min(40,column.tasks.length-(visibleByColumn[column.name]??40))} suivants · {Math.min(visibleByColumn[column.name]??40,column.tasks.length)} sur {column.tasks.length}</button>}
               </section>
             ))}
-          </div>
+          </div>}
           {!busy && !error && !currentContextError && !boardContextPending && !count && (
             <div className="empty">
               <Icon name="board" />
@@ -647,6 +704,11 @@ function visibleBoardTasks(tasks:Task[],activeRuns:Map<string,Run>,limit:number)
   (run&&isActive(run)?active:others).push(task);
  }
  return active.concat(others).slice(0,limit);
+}
+function epicColorIndex(key:string):number{
+ let value=0;
+ for(const character of key)value=(value*31+character.charCodeAt(0))|0;
+ return Math.abs(value)%6;
 }
 
 function RunNavigation({run,selected,onClick}:{run:Run;selected:boolean;onClick:()=>void}){

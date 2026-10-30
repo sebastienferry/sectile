@@ -8,10 +8,11 @@ existing Sectile Go server, workstation agent and MCP infrastructure.
 
 - Single-view desktop workspace with searchable project navigation, refresh and connection diagnostics.
 - System, light and dark themes, including the streamed console.
-- Read-only board of GitHub, GitLab and Jira tickets returned by the local agent.
-- Columns use remote tracker statuses. Local tasks and unknown sources are excluded.
+- Board and backlog list of GitHub, GitLab and Jira tickets returned by the local agent, with search, selection, priority and epic grouping cues.
+- Columns use remote tracker statuses. Local tasks and unknown sources are excluded. Ticket menus can launch configured agent skills; a selected batch uses the Go `pickup_issues` skill after confirmation.
 - Native authenticated loopback bridge; the agent token never enters the webview.
 - Project-scoped free prompts with Claude Code or Codex, using a lightweight React controller over the Go conversation engine.
+- Conversation composers keep folder attachment, terminal launch and MCP verification in a compact action row. The project folder path beneath the title can be copied. Folder attachment is shared with the project and applies to a running conversation on its next message.
 - Task launch with project-provided skills, inherited or explicit execution mode, and optional instructions.
 - Run monitoring every three seconds, waiting/authentication states and acknowledged cancellation.
 - Read-only streamed console output with bounded scrollback and reconnect controls.

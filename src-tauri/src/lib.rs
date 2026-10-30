@@ -1,6 +1,7 @@
 mod agent;
 mod local;
 mod workspace;
+mod terminal;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -58,6 +59,7 @@ pub fn run() {
             workspace::run_diff,
             workspace::open_run_editor,
             workspace::open_external_link,
+            terminal::open_terminal_at,
             workspace::editor_preference,
             workspace::declare_reviewed,
             workspace::save_orchestration,

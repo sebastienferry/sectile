@@ -11,6 +11,9 @@ export interface Task {
   trackerStatus?: string;
   status: string;
   assignee?: string;
+  priority?: string;
+  parentKey?: string;
+  parentTitle?: string;
   labels?: string[];
   prUrl?: string;
   trackerId?: string;

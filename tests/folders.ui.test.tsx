@@ -9,27 +9,27 @@ test("attachments added in a conversation are project-wide and apply at the next
  vi.mocked(api.attachFolder).mockResolvedValue({path:"/notes",appliesAt:"next-turn"});
  vi.mocked(api.projectFolders).mockResolvedValueOnce([]).mockResolvedValue([{path:"/notes",kind:"folder"}]);
  render(<PromptFolders projectId="project" runId="old-chat" directory="/old-working-directory"/>);
- expect(screen.getByText(/Dossiers du projet ·/)).toBeTruthy();
- fireEvent.click(screen.getByRole("button",{name:"Attacher au projet"}));
+ expect(screen.getByText(/Dossiers ·/)).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Ajouter un dossier"}));
  await screen.findByText("Dossier ajouté au projet · disponible dès le prochain message.");
  expect(api.attachFolder).toHaveBeenCalledWith("project","old-chat");
  expect(screen.getByTitle("/old-working-directory")).toBeTruthy();
- fireEvent.click(screen.getByText(/Dossiers du projet ·/));
+ fireEvent.click(screen.getByText(/Dossiers ·/));
  expect(screen.getByText("/notes")).toBeTruthy();
  expect(screen.getByText("Les dossiers attachés sont partagés par toutes les conversations de ce projet. Leur retrait se fait dans sa configuration.")).toBeTruthy();
  expect(screen.queryByRole("button",{name:/Détacher/})).toBeNull();
 });
 test("new prompt attachments do not create a run, and cancellation leaves context unchanged",async()=>{
  render(<PromptFolders projectId="project" directory="/project"/>);
- fireEvent.click(screen.getByRole("button",{name:"Attacher au projet"}));
- await waitFor(()=>expect(screen.getByRole("button",{name:"Attacher au projet"}).hasAttribute("disabled")).toBe(false));
+ fireEvent.click(screen.getByRole("button",{name:"Ajouter un dossier"}));
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Ajouter un dossier"}).hasAttribute("disabled")).toBe(false));
  expect(api.attachFolder).toHaveBeenCalledWith("project",undefined);
  expect(screen.queryByRole("status")).toBeNull();
  expect(screen.getByTitle("/project")).toBeTruthy();
 });
 test("read-only histories cannot attach and project configuration detaches without deleting files",async()=>{
  const view=render(<PromptFolders projectId="project" runId="history" directory="/old" readOnly/>);
- expect(screen.getByRole("button",{name:"Attacher au projet"}).hasAttribute("disabled")).toBe(true);
+ expect(screen.getByRole("button",{name:"Ajouter un dossier"}).hasAttribute("disabled")).toBe(true);
  view.unmount();vi.mocked(api.projectFolders).mockResolvedValueOnce([{path:"/notes",kind:"missing"}]).mockResolvedValue([]);vi.mocked(api.detachFolder).mockResolvedValue({});
  render(<AttachedFolderSettings projectId="project"/>);
  expect(await screen.findByText("Dossier introuvable")).toBeTruthy();

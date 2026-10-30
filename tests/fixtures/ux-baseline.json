@@ -14,6 +14,8 @@
       "trackerStatus": "Open",
       "status": "to_clarify",
       "priority": "high",
+      "parentKey": "EPIC-42",
+      "parentTitle": "Tracker reliability",
       "assignee": "Ada",
       "labels": ["#untouched"],
       "description": "Expose the most recent tracker synchronization result in the project status view. Keep the remote tracker authoritative and do not change ticket state during a read."
@@ -27,6 +29,8 @@
       "trackerStatus": "In Progress",
       "status": "to_implement",
       "priority": "medium",
+      "parentKey": "EPIC-42",
+      "parentTitle": "Tracker reliability",
       "assignee": "Sam",
       "labels": ["#specified"],
       "description": "Persist conversation identity, history and the selected provider settings when the local agent reconnects."
@@ -40,6 +44,8 @@
       "trackerStatus": "Done",
       "status": "finished",
       "priority": "low",
+      "parentKey": "EPIC-57",
+      "parentTitle": "Documentation",
       "assignee": "Mina",
       "labels": ["#finished"],
       "prUrl": "https://example.test/project/pull/18"

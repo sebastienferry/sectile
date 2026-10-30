@@ -11,8 +11,8 @@ test("an idle conversation follows a pending MCP check without sending a provide
  render(<ProjectPrompt projectId="project" runId={base.id} onCreated={()=>{}}/>);
  const check=screen.getByRole("button",{name:"Vérifier le MCP de cette conversation"});await waitFor(()=>expect(check.hasAttribute("disabled")).toBe(false));
  fireEvent.click(check);
- expect(await screen.findByText("MCP du moteur · Vérification en cours…")).toBeTruthy();
- expect(await screen.findByText("MCP du moteur · Connecté",{}, {timeout:2500})).toBeTruthy();
+ await waitFor(()=>expect(check.getAttribute("title")).toBe("MCP du moteur · Vérification en cours…"));
+ await waitFor(()=>expect(check.getAttribute("title")).toBe("MCP du moteur · Connecté"),{timeout:2500});
  expect(api.controlConversation).toHaveBeenCalledExactlyOnceWith(base.id,{action:"checkMcp"});
  expect(api.readConversation).toHaveBeenCalledTimes(3);
 });

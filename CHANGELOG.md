@@ -6,6 +6,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
+- View tracker tickets as a backlog list, select tickets on the list or board, and prepare a confirmed multi-ticket `pickup_issues` run. Board cards identify their parent epic and expose configured agent skills from a compact menu.
+- Open a native terminal at the current project folder and copy the folder path from the workspace heading.
 - Open desktop settings, toggle the project sidebar and start a project prompt with keyboard shortcuts matching Electron; a visible sidebar grip supports pointer and keyboard resizing.
 
 - Edit or remove ticket sources from native Settings. Existing board and synchronization settings stay intact when editing; a source linked to a project or containing tickets cannot be removed.
@@ -19,6 +21,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Keep the conversation composer visible when an interactive question takes more space than the window provides.
 - Preparing a Local update preserves idle Claude Code and Codex conversations, including Codex sessions with an open RPC connection, while still refusing active work.
 
 - Bundled autonomous Codex workflows use sandboxed automatic review and stream their tools and progress; autonomous Claude/Codex runs stop their tools on agent crash and save their initial history before starting.
@@ -65,6 +68,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Put folder attachment and MCP verification beside model, mode and terminal controls in the composer; give conversation turns more breathing room without adding a separate context bar.
 - Show Claude and OpenAI brand marks in desktop engine settings and keep both connection controls visible at compact window sizes.
 - Show profile, engine, model and mode labels beside the free-prompt composer controls.
 - Local tracker setup now shows personal-token access first and places the retained local OAuth application flow in a secondary disclosure; Fleet keeps backend-managed OAuth first.

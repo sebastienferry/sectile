@@ -62,6 +62,7 @@ export interface LaunchInput {
   skillId: string;
   prompt: string;
   mode: string;
+  batchTaskIds?: string[];
 }
 const activeStates = new Set([
   "queued",

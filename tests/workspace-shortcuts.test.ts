@@ -13,6 +13,7 @@ const context = (overrides: Record<string, unknown> = {}) => ({
 
 test("desktop shortcuts open settings, toggle projects and start a project prompt", () => {
   assert.equal(workspaceShortcut(event(",", { metaKey: true }), context()), "settings");
+  assert.equal(workspaceShortcut(event("Comma", { metaKey: true }), context()), "settings");
   assert.equal(workspaceShortcut(event("b", { metaKey: true }), context()), "sidebar");
   assert.equal(workspaceShortcut(event("n", { metaKey: true }), context()), "prompt");
   assert.equal(workspaceShortcut(event("n", { metaKey: true }), context({ hasProject: false })), "folder");

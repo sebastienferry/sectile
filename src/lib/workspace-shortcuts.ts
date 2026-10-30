@@ -24,7 +24,7 @@ export function workspaceShortcut(event: ShortcutEvent, context: ShortcutContext
   const modifier = context.mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
   if (!modifier || event.altKey || event.shiftKey || event.repeat || event.defaultPrevented || event.isComposing || context.modalOpen) return "none";
   const key = event.key.toLowerCase();
-  if (key === ",") return "settings";
+  if (key === "," || key === "comma") return "settings";
   if (key !== "b" && key !== "n") return "none";
   if (!context.mac && (context.terminalFocused || context.editableFocused)) return "none";
   if (key === "b") return context.settingsOpen ? "none" : "sidebar";

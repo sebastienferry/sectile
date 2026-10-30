@@ -3,8 +3,9 @@
 Date: 2026-10-29
 Status: all seven scoped UX lots are implemented and revalidated against the
 current source on 2026-10-29. Matched captures cover the shared board,
-pre-dispatch prompt and settings surfaces; post-dispatch conversation and
-execution surfaces remain product-specific rather than visual-parity targets.
+pre-dispatch prompt and settings surfaces. Owner-provided Electron conversation,
+backlog and board screenshots on 2026-10-30 add explicit interaction references;
+post-dispatch execution remains product-specific rather than a pixel-parity target.
 This records hierarchy and behavior convergence, not pixel identity.
 
 ## Reference and scope
@@ -1282,3 +1283,32 @@ and returned that project. Neither trace contained a shell or tracker action.
 This closes the previously open **Local macOS bundle** check for the Go
 `8d40b2aa` project-context fix. It does not qualify remote Fleet or a signed
 release bundle. The isolated app and its companion were stopped afterward.
+
+## Owner-directed conversation and backlog retake (2026-10-30)
+
+The owner supplied Electron captures of the composer, an airy conversation,
+ticket list and board. Tauri now puts folder attachment, a native terminal
+launcher and MCP verification directly in the composer. The folder beneath the
+project title has a copy action. The attachment remains project-wide and becomes
+available to an existing conversation at its next message; the control does
+not imply a per-conversation private folder. Question forms scroll separately
+so the composer remains visible at a 720 px high fixture viewport. The
+transcript uses open spacing while tool calls remain grouped in disclosures.
+
+Tracker projects now switch between board and backlog list. Selection persists
+across those views and can prepare a confirmed Go `pickup_issues` batch. Cards
+show priority and a stable color derived from the parent epic key, and their
+native menu launches a configured skill after fresh task, project and execution
+checks. The color is a visual grouping cue, not an imported Jira epic color:
+the current desktop task contract carries the parent key but no epic color.
+Local-only projects still keep their prompt-ready empty state. The terminal
+button opens the native terminal at the current working directory; it does not
+send text to the agent's read-only execution console.
+
+Fixture screenshots at 1280 × 720 show the [board](ux-captures/board-selection-1280.png),
+[list](ux-captures/backlog-list-1280.png) and [pinned conversation
+composer](ux-captures/conversation-composer-1280.png). UI tests cover view switching, selection, batch confirmation and
+skill dispatch; Rust validates the batch request before it reaches Go. Native
+macOS verification of this exact UI revision and the terminal action is still
+required before treating the retake as release-qualified. Remote Fleet, Jira
+OAuth consent and signed distribution remain separate open gates.

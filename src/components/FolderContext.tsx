@@ -18,8 +18,8 @@ function useFolders(projectId:string){
  useEffect(()=>{setFolders([]);void refresh();return()=>{request.current++;};},[projectId]);
  return {folders,unavailable,refresh,context,repositories};
 }
-export function PromptFolders({projectId,runId,directory,folders:runFolders,readOnly=false,onChanged,onPendingChange}:{
- projectId:string;runId?:string;directory?:string;folders?:Run["folders"];readOnly?:boolean;onChanged?:()=>void;onPendingChange?:(pending:boolean)=>void;
+export function PromptFolders({projectId,runId,directory,folders:runFolders,readOnly=false,compact=false,onChanged,onPendingChange}:{
+ projectId:string;runId?:string;directory?:string;folders?:Run["folders"];readOnly?:boolean;compact?:boolean;onChanged?:()=>void;onPendingChange?:(pending:boolean)=>void;
 }){
  const {folders,unavailable,refresh,context,repositories}=useFolders(projectId);
  const [pending,setPending]=useState(false);
@@ -29,11 +29,11 @@ export function PromptFolders({projectId,runId,directory,folders:runFolders,read
  const configured=[...repositories.filter(r=>!r.code&&r.path).map(r=>({path:r.path,name:r.identity,role:"context",attached:false})),...([context?.specPath,context?.issueSpecPath].filter(Boolean) as string[]).map(path=>({path,name:"Spécifications",role:"spec",attached:false}))];
  const listed=[...(runFolders??[]).filter(f=>f.path!==directory),...configured,...folders.map(f=>({path:f.path,name:folderName(f.path),role:"local",attached:true}))].filter((f,index,all)=>f.path!==directory&&all.findIndex(other=>other.path===f.path)===index);
  async function add(){if(acting.current)return;acting.current=true;setPending(true);onPendingChange?.(true);setError("");setNotice("");try{const result=await attachFolder(projectId,runId);if(result){await refresh();onChanged?.();setNotice(result.mappedAs?`Dépôt associé au projet : ${result.mappedAs}. Disponible au prochain message.`:runId?"Dossier ajouté au projet · disponible dès le prochain message.":"Dossier ajouté au projet · disponible au lancement du prompt.");}}catch{setError("Impossible d’ajouter ce dossier. Il est peut-être déjà associé ou indisponible. Vérifiez les dossiers du projet puis réessayez.");}finally{acting.current=false;setPending(false);onPendingChange?.(false);}}
- return <section className="prompt-folders" aria-label="Contexte de travail">
- <div className="prompt-context-toolbar"><span className="working-directory" title={directory}><Icon name="folder"/><span>{directory||"Dossier de travail en cours de chargement…"}</span></span>
- <details><summary>Dossiers du projet · {listed.length+ (directory?1:0)}</summary><ul>{directory&&<li><strong>Travail</strong><code>{directory}</code></li>}{listed.map(f=><li key={f.path}><strong>{f.attached?"Attaché au projet":roleNames[f.role]||f.role}</strong><code>{f.path}</code></li>)}</ul><p>Les dossiers attachés sont partagés par toutes les conversations de ce projet. Leur retrait se fait dans sa configuration.</p>{unavailable&&<p>Dossiers du projet indisponibles. <button type="button" onClick={()=>void refresh()}>Réessayer les dossiers</button></p>}</details>
- <button type="button" title="Partager ce dossier avec les conversations du projet" disabled={pending||readOnly} onClick={()=>void add()}><Icon name="plus"/>{pending?"Ajout en cours…":"Attacher au projet"}</button></div>
- {listed.length>0&&<div className="prompt-context-folders" aria-label="Dossiers supplémentaires utilisés par l’agent">{listed.map(folder=><span key={folder.path} title={folder.path}><Icon name="folder"/><span>{folderName(folder.path)}</span></span>)}</div>}
+ return <section className={`prompt-folders${compact?" compact":""}`} aria-label="Contexte de travail">
+ <div className="prompt-context-toolbar">{!compact&&<span className="working-directory" title={directory}><Icon name="folder"/><span>{directory||"Dossier de travail en cours de chargement…"}</span></span>}
+ <details><summary title="Voir les dossiers disponibles dans ce projet"><Icon name="folder"/> Dossiers · {listed.length+ (directory?1:0)}</summary><ul>{directory&&<li><strong>Travail</strong><code>{directory}</code></li>}{listed.map(f=><li key={f.path}><strong>{f.attached?"Attaché au projet":roleNames[f.role]||f.role}</strong><code>{f.path}</code></li>)}</ul><p>Les dossiers attachés sont partagés par toutes les conversations de ce projet. Leur retrait se fait dans sa configuration.</p>{unavailable&&<p>Dossiers du projet indisponibles. <button type="button" onClick={()=>void refresh()}>Réessayer les dossiers</button></p>}</details>
+ <button type="button" title="Partager ce dossier avec les conversations du projet" disabled={pending||readOnly} onClick={()=>void add()}><Icon name="plus"/>{pending?"Ajout…":"Ajouter un dossier"}</button></div>
+ {!compact&&listed.length>0&&<div className="prompt-context-folders" aria-label="Dossiers supplémentaires utilisés par l’agent">{listed.map(folder=><span key={folder.path} title={folder.path}><Icon name="folder"/><span>{folderName(folder.path)}</span></span>)}</div>}
  {notice&&<p role="status">{notice}</p>}{error&&<p role="alert" className="error">{error}</p>}
  </section>;
 }

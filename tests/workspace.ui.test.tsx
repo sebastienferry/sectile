@@ -96,7 +96,7 @@ test("launch falls back to the project board when the saved conversation is gone
 test("theme selection remains available without tabs", async () => {
   render(<App />);
   await screen.findByRole("button", { name: "Example" });
-  expect(screen.queryByRole("button", { name: "Tableau" })).toBeNull();
+  expect(screen.getAllByRole("button", { name: "Tableau" })).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Thème clair" }));
   expect(document.documentElement.dataset.theme).toBe("light");
   expect(screen.queryByRole("tab")).toBeNull();
@@ -211,6 +211,45 @@ test("tracker-backed projects retain board search, grouping and ticket status",a
  expect(screen.getByText("Statuts du tracker · lecture seule")).toBeTruthy();
  expect(screen.getByText("Remote issue")).toBeTruthy();
  expect(screen.getByRole("region",{name:"Colonnes de tickets, défilement horizontal"}).getAttribute("tabindex")).toBe("0");
+});
+test("the backlog list keeps epic context and selection while switching views",async()=>{
+ vi.mocked(api.listTasks).mockResolvedValue([{id:"t1",key:"APP-1",title:"First issue",source:"jira",trackerStatus:"To Do",status:"to_clarify",parentKey:"EPIC-1",priority:"high"},{id:"t2",key:"APP-2",title:"Second issue",source:"jira",trackerStatus:"To Do",status:"to_clarify",parentKey:"EPIC-1",priority:"medium"}]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
+ render(<App/>);
+ await screen.findByText("First issue");
+ fireEvent.click(screen.getByRole("button",{name:"Liste"}));
+ const list=screen.getByRole("region",{name:"Liste des tickets"});
+ expect(within(list).getAllByText("EPIC-1")).toHaveLength(2);
+ fireEvent.click(within(list).getByRole("checkbox",{name:"Sélectionner APP-1"}));
+ expect(screen.getByText("1 sélectionné")).toBeTruthy();
+ fireEvent.click(within(screen.getByRole("group",{name:"Vue des tickets"})).getByRole("button",{name:"Tableau"}));
+ expect((screen.getByRole("checkbox",{name:"Sélectionner APP-1"}) as HTMLInputElement).checked).toBe(true);
+ expect(localStorage.getItem("sectile-tauri.ticketView")).toBe("board");
+});
+test("a selected ticket batch requires confirmation and uses the Go pickup skill",async()=>{
+ vi.mocked(api.listTasks).mockResolvedValue([{id:"t1",key:"APP-1",title:"First issue",source:"jira",trackerStatus:"To Do",status:"to_clarify"},{id:"t2",key:"APP-2",title:"Second issue",source:"jira",trackerStatus:"To Do",status:"to_clarify"}]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[{id:"pickup_issues"}],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
+ vi.mocked(api.launchTask).mockResolvedValue({});
+ render(<App/>);
+ await screen.findByText("First issue");
+ fireEvent.click(screen.getByRole("checkbox",{name:"Sélectionner APP-1"}));
+ fireEvent.click(screen.getByRole("checkbox",{name:"Sélectionner APP-2"}));
+ fireEvent.click(screen.getByRole("button",{name:"Préparer un lot"}));
+ expect(api.launchTask).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole("button",{name:"Lancer le lot"}));
+ await waitFor(()=>expect(api.launchTask).toHaveBeenCalledWith("p",{taskId:"t1",skillId:"pickup_issues",prompt:"",mode:"autonomous",batchTaskIds:["t1","t2"]}));
+});
+test("the board skill menu launches the selected skill only after refreshing its ticket",async()=>{
+ vi.mocked(api.listTasks).mockResolvedValue([{id:"t1",key:"APP-1",title:"First issue",source:"jira",trackerStatus:"To Do",status:"to_clarify"}]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[{id:"clarify"}],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
+ vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true,capabilities:[]},runs:[]});
+ vi.mocked(api.launchTask).mockResolvedValue({});
+ render(<App/>);
+ await screen.findByText("First issue");
+ const menu=screen.getByRole("combobox",{name:"Actions pour APP-1"});
+ await waitFor(()=>expect((within(menu).getByRole("option",{name:"Lancer : Clarifier"}) as HTMLOptionElement).disabled).toBe(false));
+ fireEvent.change(menu,{target:{value:"clarify"}});
+ await waitFor(()=>expect(api.launchTask).toHaveBeenCalledWith("p",{taskId:"t1",skillId:"clarify",prompt:"",mode:""}));
 });
 test("board density defaults to compact and remembers the detailed choice",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue([{id:"t",key:"APP-2",title:"A long remote issue title",source:"jira",trackerStatus:"To Do",status:"to_clarify"}]);

@@ -13,7 +13,7 @@ test("a first prompt waits until native attachment is confirmed",async()=>{
  vi.mocked(folders.attachFolder).mockReturnValue(new Promise(done=>resolve=done));
  render(<ProjectPrompt projectId="project" directory="/working" onCreated={()=>{}}/>);
  fireEvent.change(screen.getByLabelText("Prompt libre"),{target:{value:"Use the added context"}});
- fireEvent.click(screen.getByRole("button",{name:"Attacher au projet"}));
+ fireEvent.click(screen.getByRole("button",{name:"Ajouter un dossier"}));
  expect(screen.getByRole("button",{name:"Envoyer"}).hasAttribute("disabled")).toBe(true);
  fireEvent.submit(screen.getByLabelText("Prompt libre").closest("form")!);
  expect(chat.createConversation).not.toHaveBeenCalled();

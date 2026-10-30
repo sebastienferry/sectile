@@ -212,12 +212,26 @@ pub struct LaunchTask {
     skill_id: String,
     prompt: String,
     mode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    batch_task_ids: Option<Vec<String>>,
 }
 fn launch_body(input: LaunchTask) -> Result<Value, String> {
     required(&input.task_id)?;
     required(&input.skill_id)?;
     if !["", "interactive", "autonomous"].contains(&input.mode.as_str()) {
         return Err("Mode d’exécution invalide".into());
+    }
+    if let Some(ids) = &input.batch_task_ids {
+        if input.skill_id != "pickup_issues"
+            || input.mode != "autonomous"
+            || ids.len() < 2
+            || ids.len() > 100
+            || ids.first() != Some(&input.task_id)
+            || ids.iter().any(|id| required(id).is_err())
+            || ids.iter().collect::<std::collections::HashSet<_>>().len() != ids.len()
+        {
+            return Err("Lot de tickets invalide".into());
+        }
     }
     let body = serde_json::to_value(input).map_err(|_| "Requête invalide")?;
     if body.to_string().len() > 8192 {
@@ -500,6 +514,7 @@ mod tests {
             skill_id: "implement_issue".into(),
             prompt: "Fix l'API".into(),
             mode: "".into(),
+            batch_task_ids: None,
         })
         .unwrap();
         assert!(body.get("force").is_none());
@@ -598,7 +613,8 @@ mod tests {
                 task_id: "t".into(),
                 skill_id: "s".into(),
                 prompt: "".into(),
-                mode: "unsafe".into()
+                mode: "unsafe".into(),
+                batch_task_ids: None,
             })
             .is_err()
         );
@@ -607,10 +623,25 @@ mod tests {
                 task_id: "t".into(),
                 skill_id: "s".into(),
                 prompt: "x".repeat(8192),
-                mode: "".into()
+                mode: "".into(),
+                batch_task_ids: None,
             })
             .is_err()
         );
+    }
+
+    #[test]
+    fn batch_launch_requires_a_distinct_ordered_autonomous_selection() {
+        let valid = serde_json::json!({"taskId":"first","skillId":"pickup_issues","prompt":"","mode":"autonomous","batchTaskIds":["first","second"]});
+        let body = launch_body(serde_json::from_value(valid.clone()).unwrap()).unwrap();
+        assert_eq!(body["batchTaskIds"], valid["batchTaskIds"]);
+        for invalid in [
+            serde_json::json!({"taskId":"first","skillId":"pickup_issues","prompt":"","mode":"autonomous","batchTaskIds":["second","first"]}),
+            serde_json::json!({"taskId":"first","skillId":"pickup_issues","prompt":"","mode":"autonomous","batchTaskIds":["first","first"]}),
+            serde_json::json!({"taskId":"first","skillId":"clarify","prompt":"","mode":"autonomous","batchTaskIds":["first","second"]}),
+        ] {
+            assert!(launch_body(serde_json::from_value(invalid).unwrap()).is_err());
+        }
     }
 
     #[test]
