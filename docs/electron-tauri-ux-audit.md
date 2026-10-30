@@ -1263,3 +1263,22 @@ regular companion remained on port 52963.
 This qualifies native tracker creation, rename and deletion in Local mode. Fleet
 administrator behavior and the new bundle's MCP project-context fix still need
 their own runtime checks; the UI and Rust tests alone do not establish them.
+
+## Engine settings and scoped MCP retake (2026-10-30)
+
+Tauri `be93c3c` was built as a separate unsigned macOS app with Go `8d40b2aa`.
+Only the disposable build copies used port 52964; the regular companion stayed
+on port 52963. Claude Code and Codex both appeared as connected with the same
+brand marks used by Electron. Both cards fit in the 800 × 820 browser fixture,
+and the native app showed both connected states. Captures are retained at
+[`engine-settings-800.png`](ux-captures/engine-settings-800.png) and
+[`engine-settings-native.png`](ux-captures/engine-settings-native.png).
+
+Fresh native Codex and Claude Code conversations each called the companion's
+`get_project_context` MCP tool with an empty argument object. Codex required
+one-time consent and then returned the selected “Native Codex workflow”
+project. Claude used ToolSearch followed by the same empty-argument MCP call
+and returned that project. Neither trace contained a shell or tracker action.
+This closes the previously open **Local macOS bundle** check for the Go
+`8d40b2aa` project-context fix. It does not qualify remote Fleet or a signed
+release bundle. The isolated app and its companion were stopped afterward.

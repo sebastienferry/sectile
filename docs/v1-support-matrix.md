@@ -47,7 +47,13 @@ exposed a first call without a project identifier, which failed before Codex
 used `list_projects` to retry. Go `8d40b2aa` now supplies the process-bound
 project for that omitted argument, while preserving explicit targets. A real
 STDIO bridge integration test passes; this fix is newer than the retained
-Tauri/Go candidate and has not been retested in a rebuilt desktop bundle.
+Tauri/Go candidate. A later isolated unsigned bundle at Tauri `be93c3c` with Go
+`8d40b2aa` passed fresh native Claude and Codex calls to
+`get_project_context({})`, returning the selected project without listing
+projects first. The same bundle showed both provider cards connected with their
+brand marks; the preceding `1982df5` bundle created, renamed and removed a
+disposable tracker from native Local Settings. These checks do not qualify the
+retained signed-release candidate or remote Fleet.
 
 The controlled Codex service-level chain now reaches Reviewed with standard
 installed skills and scoped MCP, after repairing the disposable forge's feedback

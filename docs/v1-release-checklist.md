@@ -747,3 +747,19 @@ externally started companion carrying fixture CLI environment. It does not
 qualify real tracker writes, managed-launcher environment propagation, remote
 Fleet or signed distribution. Redacted assertions and a native screenshot are
 retained under `src-tauri/target/qualifications/2026-10-30-native-codex-chain/`.
+
+### Current Local desktop MCP retake — passed in an isolated bundle (2026-10-30)
+
+- [x] Package Tauri `be93c3c` with Go `8d40b2aa` using disposable port-52964
+  build copies and a separate app identity. The regular port 52963 companion
+  remains untouched.
+- [x] Start fresh Claude Code and Codex conversations from the native desktop;
+  each calls `sectile_companion.get_project_context` with `{}` and receives the
+  selected project. Codex's one-time MCP consent and both provider histories
+  remain visible in the conversation.
+- [x] Inspect both connected provider cards and their brand marks in the native
+  application. The 800 × 820 browser fixture shows both cards without scrolling.
+
+This is a Local macOS source-bundle check. Remote Fleet, performance on a
+release binary, signed distribution and a production tracker workflow remain
+separate gates.
