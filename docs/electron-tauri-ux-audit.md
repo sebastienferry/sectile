@@ -1574,3 +1574,11 @@ opens that project's board. The [native settings capture](ux-captures/engine-set
 shows readable engine cards with the Claude and OpenAI marks in their intended
 colors; the return action also reopened the board in the same QA app. The
 port-52964 user trial and normal port-52963 companion remained running.
+
+A further settings-return check now handles a project removed while Settings
+stays open: the return action selects an available project board instead of
+restoring an orphaned view. First-run Settings has no inert project-sidebar
+toggle. The full UI suite covers both cases, and a rebuilt isolated native
+bundle on port 52965 reopened the same project after a Settings round trip.
+The removed-project branch is covered by a component test; the native check
+did not delete a project. The user trial on port 52964 stayed open.

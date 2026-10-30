@@ -66,8 +66,8 @@ export function CommandPalette({
     const result: Entry[] = [
       { group: "action", label: "Ouvrir un dossier", detail: "Créer ou retrouver un projet local", run: onOpenFolder },
       { group: "action", label: "Paramètres", detail: `${shortcutModifier}, · Configuration du poste`, run: onOpenSettings },
-      { group: "action", label: sidebarActionLabel, detail: `${shortcutModifier}B`, run: onToggleSidebar },
     ];
+    if (sidebarActionLabel) result.push({ group: "action", label: sidebarActionLabel, detail: `${shortcutModifier}B`, run: onToggleSidebar });
     if (selected) {
       result.push({ group: "action", label: "Nouveau prompt", detail: `${shortcutModifier}N · ${selected.name}`, run: () => onNavigate(selected, "prompt") });
       result.push({ group: "action", label: "Ouvrir l’orchestration", detail: selected.name, run: () => onNavigate(selected, "orchestration") });

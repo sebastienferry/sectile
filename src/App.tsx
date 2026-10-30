@@ -153,16 +153,18 @@ function Workspace() {
       setCurrent(destination);
     }, []);
   const returnToWorkspace = useCallback(() => {
-    const previous = workspaceBeforeSettings.current;
-    if (previous) {
+    if (currentRef.current?.view === "settings") {
+      const previous = workspaceBeforeSettings.current;
       workspaceBeforeSettings.current = null;
-      setCurrent(previous);
-    } else if (current?.view === "settings" && projects.length) {
-      navigate(projects[0], "board");
-    } else {
-      setSidebar(value => !value);
+      if (previous && projects.some(project => project.id === previous.projectId)) {
+        setCurrent(previous);
+      } else if (projects[0]) {
+        navigate(projects[0], "board");
+      }
+      return;
     }
-  }, [current?.view, navigate, projects]);
+    setSidebar(value => !value);
+  }, [navigate, projects]);
   async function refreshProjects() {
     const seq = ++request.current;
     setBusy(true);
@@ -210,7 +212,7 @@ function Workspace() {
     if (project) navigate(project, "board");
   }, [current?.id, fresh, navigate, projects, snapshot?.runs]);
   const connected = fresh && snapshot?.status.connected;
-  const settingsHasWorkspace = current?.view === "settings" && (Boolean(workspaceBeforeSettings.current) || projects.length > 0);
+  const settingsHasWorkspace = current?.view === "settings" && projects.length > 0;
   const showProjectSidebar = sidebar && current?.view !== "settings";
   useEffect(() => {
     function onShortcut(event: KeyboardEvent) {
@@ -253,7 +255,7 @@ function Workspace() {
     <div className="desktop-shell">
       <header className="app-header">
         <div className="header-brand">
-          <button
+          {(current?.view !== "settings" || settingsHasWorkspace) && <button
             className="icon-button"
             title={settingsHasWorkspace ? "Retourner à l’espace de travail" : `Afficher ou masquer les projets · ${modifier}B`}
             aria-label={settingsHasWorkspace ? "Retourner à l’espace de travail" : "Afficher ou masquer les projets"}
@@ -262,7 +264,7 @@ function Workspace() {
             onClick={returnToWorkspace}
           >
             <Icon name="panel" />
-          </button>
+          </button>}
           <strong>
             Sectile <span>Desktop</span>
           </strong>
@@ -495,7 +497,7 @@ function Workspace() {
         onOpenFolder={() => void openFolder()}
         onOpenSettings={() => navigate({ id: "settings", name: "Paramètres" }, "settings")}
         onToggleSidebar={returnToWorkspace}
-        sidebarActionLabel={settingsHasWorkspace ? "Retourner à l’espace de travail" : sidebar ? "Masquer les projets" : "Afficher les projets"}
+        sidebarActionLabel={current?.view === "settings" ? settingsHasWorkspace ? "Retourner à l’espace de travail" : "" : sidebar ? "Masquer les projets" : "Afficher les projets"}
         shortcutModifier={modifier}
       />
     </div>

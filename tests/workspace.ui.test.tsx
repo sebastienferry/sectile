@@ -522,6 +522,30 @@ test("first-run settings hide the project sidebar even before a project exists",
  await screen.findByRole("navigation", { name: "Sections des paramètres" });
  expect(screen.queryByRole("textbox", { name: "Filtrer les projets" })).toBeNull();
  expect(screen.queryByRole("separator", { name: "Redimensionner la barre latérale" })).toBeNull();
+ expect(screen.queryByRole("button", { name: "Afficher ou masquer les projets" })).toBeNull();
+});
+
+test("settings return to an available board after the previous project disappears", async () => {
+ let firstProjectExists = true;
+ vi.mocked(api.listProjects).mockImplementation(async () => firstProjectExists
+  ? [{ id: "p", name: "Example" }, { id: "q", name: "Remaining" }]
+  : [{ id: "q", name: "Remaining" }]);
+ vi.mocked(invoke).mockImplementation(async command => command === "local_setup_status"
+  ? { enabled: true, mode: "local", ready: true, signedIn: true, agentReady: false, projects: [] }
+  : command === "oauth_apps"
+    ? {}
+  : command === "local_service_log"
+    ? { path: "/test/companion.log", text: "", missing: true, truncated: false }
+    : null);
+ render(<App />);
+ fireEvent.click(await screen.findByRole("button", { name: "Paramètres" }));
+ fireEvent.click(await screen.findByRole("button", { name: "Services locaux" }));
+ firstProjectExists = false;
+ fireEvent.click(screen.getByRole("button", { name: "Actualiser" }));
+ await waitFor(() => expect(api.listProjects).toHaveBeenCalledTimes(2));
+ fireEvent.click(await screen.findByRole("button", { name: "Retourner à l’espace de travail" }));
+ expect(await screen.findByRole("heading", { name: "Remaining" })).toBeTruthy();
+ expect(screen.queryByRole("button", { name: "Example" })).toBeNull();
 });
 
 test("an unmapped project asks for its folder before mounting the prompt and keeps the same project", async () => {
