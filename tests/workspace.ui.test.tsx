@@ -164,6 +164,24 @@ test("conversation actions stop a live session and archive and restore a finishe
  fireEvent.click(within(sidebar).getByRole("button",{name:"Restaurer la conversation"}));
  expect(localStorage.getItem("sectile-tauri.archivedConversations")).toBe("[]");
 });
+test("opening a stopped conversation keeps its terminal status in the sidebar", async () => {
+ vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true,capabilities:[]},runs:[
+  {id:"stopped-chat",projectId:"p",conversation:true,title:"Stopped discussion",provider:"codex",status:"stopped",createdAt:"2026-10-30"},
+ ]});
+ vi.mocked(invoke).mockImplementation(async command => command === "read_conversation"
+  ? {id:"stopped-chat",provider:"codex",busy:false,readOnly:true,events:[]}
+  : null);
+ render(<App />);
+ const sidebar=screen.getByRole("complementary");
+ const conversation=await within(sidebar).findByRole("button",{name:/Stopped discussion/});
+ expect(conversation.textContent).toContain("Arrêté");
+ fireEvent.click(conversation);
+ await conversationFor("stopped-chat").refresh();
+ await waitFor(()=>expect(invoke).toHaveBeenCalledWith("read_conversation",{runId:"stopped-chat"}));
+ expect(conversationFor("stopped-chat").getSnapshot().loaded).toBe(true);
+ await waitFor(()=>expect(conversation.textContent).toContain("Arrêté"));
+ expect(conversation.textContent).not.toContain("Lecture seule");
+});
 test("launch restores the last project board instead of selecting the first project", async () => {
   vi.mocked(api.listProjects).mockResolvedValue([
     { id: "p", name: "Example" },

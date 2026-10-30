@@ -1689,3 +1689,14 @@ in one 800-by-700-point window. **Gérer les sources** opened the native
 l’espace de travail** restored the same project settings. This qualifies Local
 navigation and layout on the unsigned QA bundle, not a remote source write,
 Fleet backend, or signed release artifact.
+
+Opening a stopped conversation previously replaced **Arrêté** in the project
+sidebar with **Lecture seule**, even though the Go execution remained stopped.
+Terminal execution state now takes precedence in that sidebar row; the
+conversation status strip still explains that its history is read-only. The
+isolated port-52965 app reopened the saved Codex conversation with **Arrêté**
+both before and after loading the transcript, while the strip showed
+**Historique en lecture seule** and **Exécution : Arrêté**. The
+[native capture](ux-captures/stopped-conversation-status-native.jpg) records
+these distinct states. The UI regression test loads the same conversation
+controller as navigation; it does not qualify a fresh provider execution.

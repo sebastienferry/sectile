@@ -850,6 +850,6 @@ function ConversationNavigation({run,task,selected,onClick}:{run:Run;task?:Task;
   return run.prompt?.trim().split("\n")[0] || "Conversation";
  },[snapshot.events,snapshot.title,run.prompt,run.title,run.taskId,task?.title]);
  const provider=run.provider==="claude"?"Claude Code":run.provider==="codex"?"Codex":run.engineName||"Assistant";
- const activity=error?"Suivi interrompu":loaded&&snapshot.id===run.id?snapshot.approvals?.length?"Votre intervention est requise":snapshot.busy?"En cours":snapshot.readOnly?"Lecture seule":"Prête":statusLabel(run);
+ const activity=!isActive(run)?statusLabel(run):error?"Suivi interrompu":loaded&&snapshot.id===run.id?snapshot.approvals?.length?"Votre intervention est requise":snapshot.busy?"En cours":snapshot.readOnly?"Lecture seule":"Prête":statusLabel(run);
  return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={`${run.taskKey?`${run.taskKey} · `:""}${provider}${run.model ? ` · ${run.model}` : ""} · ${task?.trackerStatus?`${task.trackerStatus} · `:""}${activity}`}><span className={`conversation-indicator ${snapshot.approvals?.length?"needs-input":loaded&&snapshot.busy?"live":isActive(run)?"session":"idle"}`} />{run.taskKey&&<span className="sidebar-task-key">{run.taskKey}</span>}<span className="conversation-navigation-text"><span>{title}</span><small>{provider}{task?.trackerStatus&&` · ${task.trackerStatus}`} · {activity}</small></span></button>;
 }
