@@ -23,6 +23,8 @@ import { AttachedFolderSettings } from "./components/FolderContext";
 import { ProjectProfiles } from "./components/ProjectProfiles";
 import { TaskEditor } from "./components/TaskEditor";
 import { LocalSettings } from "./components/LocalSettings";
+import { ModeOnboarding } from "./components/ModeOnboarding";
+import { localSetupStatus } from "./lib/local";
 import { Icon } from "./components/Icon";
 import { readPreference, savePreference, useAppearance } from "./lib/appearance";
 import {
@@ -90,6 +92,7 @@ function Workspace() {
     finally { folderBusy.current = false; setOpeningFolder(false); }
   }
   const [projects, setProjects] = useState<Project[]>([]);
+  const [unconfigured, setUnconfigured] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [current, setCurrent] = useState<WorkspaceView | null>(null);
@@ -167,6 +170,11 @@ function Workspace() {
     }
     setSidebar(value => !value);
   }, [navigate, projects]);
+  async function handleConfigured() {
+    setUnconfigured(false);
+    await refreshProjects();
+    await refreshExecutions();
+  }
   async function refreshProjects() {
     const seq = ++request.current;
     setBusy(true);
@@ -175,15 +183,30 @@ function Workspace() {
       const items = await listProjects();
       if (seq !== request.current) return;
       setProjects(items);
+      setUnconfigured(false);
       if (!initialized.current && items.length) {
         initialized.current = true;
         const destination = resolveLaunchDestination(readPreference("workspace", ""), items);
         if (destination?.runId) pendingRunRestore.current = destination;
         setCurrent((previous) => previous ?? destination);
       }
-      if (!items.length) setCurrent(previous => previous ?? { id: "settings", projectId: "settings", view: "settings" });
+      if (!items.length) {
+        const status = await localSetupStatus().catch(() => null);
+        if (seq !== request.current) return;
+        if (status && (status.mode === "unconfigured" || status.enabled === false)) {
+          setUnconfigured(true);
+          return;
+        }
+        setCurrent(previous => previous ?? { id: "settings", projectId: "settings", view: "settings" });
+      }
     } catch (cause) {
       if (seq === request.current) {
+        const status = await localSetupStatus().catch(() => null);
+        if (seq !== request.current) return;
+        if (status && (status.mode === "unconfigured" || status.enabled === false)) {
+          setUnconfigured(true);
+          return;
+        }
         setError(String(cause));
         setCurrent(previous => previous ?? { id: "settings", projectId: "settings", view: "settings" });
       }
@@ -215,7 +238,7 @@ function Workspace() {
   }, [current?.id, fresh, navigate, projects, snapshot?.runs]);
   const connected = fresh && snapshot?.status.connected;
   const settingsHasWorkspace = current?.view === "settings" && projects.length > 0;
-  const showProjectSidebar = sidebar && current?.view !== "settings";
+  const showProjectSidebar = !unconfigured && sidebar && current?.view !== "settings";
   useEffect(() => {
     function onShortcut(event: KeyboardEvent) {
       const target = event.target instanceof Element ? event.target : null;
@@ -441,51 +464,63 @@ function Workspace() {
           </>
         )}
         <main className="workspace">
-          {folderError && <div role="alert" className="error">{folderError}
-            {unmapped && <button onClick={async () => {
-              try { await invoke("retry_folder_project", { projectId: unmapped.id, path: unmapped.path }); setFolderError(""); setUnmapped(null); await refreshProjects(); navigate(unmapped, "prompt"); }
-              catch (cause) { setFolderError(String(cause)); }
-            }}>Réessayer l’association</button>}
-          </div>}
-          {error && current?.view !== "settings" && (
-            <div role="alert" className="error">
-              {error}
-              <button onClick={() => void refreshProjects()}>Réessayer</button>
-            </div>
-          )}
-          {!current && (
-            <section className="welcome">
-              <span className="brand-mark">S</span>
-              <h1>Votre espace de travail</h1>
-              <p>
-                Choisissez un projet pour ouvrir son tableau, ou lancez un
-                nouveau prompt.
-              </p>
-            </section>
-          )}
-          {current && (
-            <section className={`workspace-pane ${current.view === "prompt" && current.runId ? "workspace-pane-conversation" : ""}`}>
-              {current.view === "settings" ? (
-                <LocalSettings initialSection={current.settingsSection} onConfigureProject={id=>{const project=projects.find(p=>p.id===id);if(project)navigate(project,"project-settings");}} onOpenFolder={() => void openFolder()} onChanged={() => { setProjects([]); void refreshProjects(); void refreshExecutions(); }} />
-              ) : (
-                <ProjectPane
-                  key={current.id}
-                  selection={current}
-                  project={projects.find((p) => p.id === current.projectId)}
-                  navigate={navigate}
-                  onFolderMapped={(id,path)=>setProjects(items=>items.map(item=>item.id===id?{...item,path}:item))}
-                  onProjectsChanged={() => void refreshProjects()}
-                  navigationTasks={navigationTasks?.projectId===current.projectId?navigationTasks.items:undefined}
-                  onTasksChanged={items=>setNavigationTasks({projectId:current.projectId,items})}
-                  onTaskChanged={task=>setNavigationTasks(previous=>{
-                    const items=previous?.projectId===current.projectId?previous.items:[];
-                    return {projectId:current.projectId,items:[...items.filter(item=>item.id!==task.id),task]};
-                  })}
-                  onContextChanged={value=>setNavigationContext({projectId:current.projectId,value})}
-                  onArchiveConversation={runId=>setArchived(runId,true)}
-                />
+          {unconfigured ? (
+            <ModeOnboarding onConfigured={() => void handleConfigured()} />
+          ) : (
+            <>
+              {folderError && <div role="alert" className="error">{folderError}
+                {unmapped && <button onClick={async () => {
+                  try { await invoke("retry_folder_project", { projectId: unmapped.id, path: unmapped.path }); setFolderError(""); setUnmapped(null); await refreshProjects(); navigate(unmapped, "prompt"); }
+                  catch (cause) { setFolderError(String(cause)); }
+                }}>Réessayer l’association</button>}
+              </div>}
+              {error && current?.view !== "settings" && (
+                <div role="alert" className="error">
+                  {error}
+                  <button onClick={() => void refreshProjects()}>Réessayer</button>
+                </div>
               )}
-            </section>
+              {!current && (
+                <section className="welcome">
+                  <span className="brand-mark">S</span>
+                  <h1>Votre espace de travail</h1>
+                  <p>
+                    Choisissez un projet pour ouvrir son tableau, ou lancez un
+                    nouveau prompt.
+                  </p>
+                </section>
+              )}
+              {current && (
+                <section className={`workspace-pane ${current.view === "prompt" && current.runId ? "workspace-pane-conversation" : ""}`}>
+                  {current.view === "settings" ? (
+                    <LocalSettings
+                      initialSection={current.settingsSection}
+                      hasActiveExecutions={snapshot?.runs.some(isActive) ?? false}
+                      onConfigureProject={id=>{const project=projects.find(p=>p.id===id);if(project)navigate(project,"project-settings");}}
+                      onOpenFolder={() => void openFolder()}
+                      onChanged={() => { setProjects([]); void refreshProjects(); void refreshExecutions(); }}
+                    />
+                  ) : (
+                    <ProjectPane
+                      key={current.id}
+                      selection={current}
+                      project={projects.find((p) => p.id === current.projectId)}
+                      navigate={navigate}
+                      onFolderMapped={(id,path)=>setProjects(items=>items.map(item=>item.id===id?{...item,path}:item))}
+                      onProjectsChanged={() => void refreshProjects()}
+                      navigationTasks={navigationTasks?.projectId===current.projectId?navigationTasks.items:undefined}
+                      onTasksChanged={items=>setNavigationTasks({projectId:current.projectId,items})}
+                      onTaskChanged={task=>setNavigationTasks(previous=>{
+                        const items=previous?.projectId===current.projectId?previous.items:[];
+                        return {projectId:current.projectId,items:[...items.filter(item=>item.id!==task.id),task]};
+                      })}
+                      onContextChanged={value=>setNavigationContext({projectId:current.projectId,value})}
+                      onArchiveConversation={runId=>setArchived(runId,true)}
+                    />
+                  )}
+                </section>
+              )}
+            </>
           )}
         </main>
       </div>

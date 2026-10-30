@@ -14,7 +14,7 @@ const sections = [
  {id:"projects", label:"Projets", icon:"folder", description:"Partez d’un dossier local ou associez un projet à un tracker."},
  {id:"services", label:"Services locaux", icon:"monitor", description:"État de votre installation et outils de diagnostic."},
 ] as const;
-export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, initialSection }: { onChanged: () => void; onOpenFolder?: () => void; onConfigureProject?: (id:string) => void; initialSection?: SettingsSection }) {
+export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, initialSection, hasActiveExecutions }: { onChanged: () => void; onOpenFolder?: () => void; onConfigureProject?: (id:string) => void; initialSection?: SettingsSection; hasActiveExecutions?: boolean }) {
  const [section, setSection] = useState<SettingsSection>(initialSection??"engines");
  const navigated = useRef(!!initialSection);
  const trackerManagement = useRef<HTMLElement>(null);
@@ -185,6 +185,10 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
     <div hidden={section !== "engines"}>{setup?.agentReady ? <ProviderSettings key={`${setup.mode}:${setup.fleetServer??""}`} projects={setup.projects??[]} /> : <article><p>Connectez un agent Local ou Fleet pour vérifier vos moteurs IA.</p><button onClick={()=>setSection("services")}>Configurer la connexion</button></article>}</div>
     <div hidden={section !== "services"}><article>
       <h2>{fleetMode ? "Agent Fleet" : "Services locaux"}</h2>
+      <div className="mode-badge">
+        <Icon name={setup?.mode === "fleet" ? "link" : "monitor"} />
+        <span>Mode actif : {setup?.mode === "fleet" ? "Agent Fleet" : setup?.mode === "local" ? "Compagnon Local" : "Non configuré"}</span>
+      </div>
       <p>{setup?.mode === "fleet" ? `Mode Fleet · ${setup.agentReady ? "agent connecté" : "agent déconnecté"}${setup.fleetServer ? ` · ${setup.fleetServer}` : ""}` : !setup ? "Lecture de la configuration du poste…" : !setup.enabled ? "Choisissez un mode pour connecter ce desktop à Sectile." : setup.ready ? `Mode Local · compagnon prêt · ${setup.agentReady ? "exécution prête" : "en attente du profil"}` : "Le compagnon local ne répond pas."}</p>
       {setup?.backendError && <p role="alert" className="error">{setup.backendError}</p>}
       {setup?.mode === "fleet" && setup.apiSetupAvailable === false && <p className="muted">Cet agent a été attaché sans identifiant API du poste. Configurez les comptes et projets sur le backend Fleet.</p>}
@@ -195,6 +199,36 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
         <p>Terminez les tâches et fermez les autres instances de Tauri. Cette action arrête le compagnon et ferme ce desktop avant le remplacement de l’application. Vos données sont conservées. Aucun téléchargement n’est lancé.</p>
         <button disabled={pending} onClick={() => void prepareUpdate()}>Arrêter et quitter pour mettre à jour</button>
       </details>}
+      {setup?.mode === "local" && (
+        <details className="mode-switch-card">
+          <summary>Basculer vers le mode Fleet (Agent d’équipe)</summary>
+          <p className="muted">Associez ce poste avec un code à usage unique depuis votre profil sur le backend Fleet. Le jeton durable reste dans le stockage privé natif et n’est jamais affiché.</p>
+          <form onSubmit={e => submit(e, async () => {
+            if (hasActiveExecutions && typeof window !== "undefined" && !window.confirm("Des exécutions sont actuellement en cours sur ce poste. Voulez-vous vraiment changer de mode ?")) return;
+            try { await api.pairFleetAgent(fleetUrl, fleetCode); } finally { setFleetCode(""); }
+          }, "Poste associé au backend Fleet.", true)}>
+            <fieldset disabled={pending}>
+              <label>Adresse du backend Fleet<input type="url" required placeholder="https://sectile.example.com" value={fleetUrl} onChange={e => setFleetUrl(e.target.value)} autoComplete="url" /></label>
+              <label>Code de jumelage<input type="password" required autoComplete="off" value={fleetCode} onChange={e => setFleetCode(e.target.value)} /></label>
+              <button className="primary" type="submit">Associer ce poste à Fleet</button>
+            </fieldset>
+          </form>
+          <details><summary>J’ai déjà associé un agent sur ce poste</summary><p className="muted">Tauri peut reprendre explicitement l’agent existant sans modifier son installation partagée.</p><button disabled={pending} onClick={() => {
+            if (hasActiveExecutions && typeof window !== "undefined" && !window.confirm("Des exécutions sont actuellement en cours sur ce poste. Voulez-vous vraiment changer de mode ?")) return;
+            void perform(api.attachFleetAgent, "Agent Fleet associé à ce desktop.", undefined, true);
+          }}>Associer l’agent Fleet existant</button></details>
+        </details>
+      )}
+      {setup?.mode === "fleet" && (
+        <details className="mode-switch-card">
+          <summary>Basculer vers le mode Compagnon local</summary>
+          <p className="muted">Reprenez l’exécution et la gestion de vos tickets en 100% autonome sur ce poste avec votre base SQLite locale.</p>
+          <button disabled={pending} onClick={() => {
+            if (hasActiveExecutions && typeof window !== "undefined" && !window.confirm("Des exécutions sont actuellement en cours sur ce poste. Voulez-vous vraiment changer de mode ?")) return;
+            void perform(api.enableLocalRuntime, "Compagnon local démarré et mode Local sélectionné.", undefined, true);
+          }}>Activer le mode Compagnon local</button>
+        </details>
+      )}
       {setup && (!setup.mode || setup.mode === "unconfigured") && <article><h3>Mode Fleet</h3>
         <p className="muted">Associez ce poste avec un code à usage unique depuis votre profil sur le backend Fleet. Le jeton durable reste dans le stockage privé natif et n’est jamais affiché.</p>
         <form onSubmit={e => submit(e, async () => { try { await api.pairFleetAgent(fleetUrl, fleetCode); } finally { setFleetCode(""); } }, "Poste associé au backend Fleet.", true)}>
@@ -296,7 +330,7 @@ function ServiceLogPanel({active,service}:{active:boolean;service:"companion"|"a
   if(!active)return;
   let current=true;
   setSnapshot(undefined);setLoading(true);setError("");
-  void api.localServiceLog(service).then(value=>{if(current)setSnapshot(value);}).catch(cause=>{if(current)setError(String(cause));}).finally(()=>{if(current)setLoading(false);});
+  void Promise.resolve(api.localServiceLog(service)).then(value=>{if(current && value)setSnapshot(value);}).catch(cause=>{if(current)setError(String(cause));}).finally(()=>{if(current)setLoading(false);});
   return()=>{current=false;};
  },[active,service,refresh]);
  return <article className="service-log">

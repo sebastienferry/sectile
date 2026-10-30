@@ -6,6 +6,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
+- Configure Desktop operating mode (Local Companion vs Fleet Agent) through a dedicated first-launch onboarding screen, with seamless switching available in Settings.
 - Distinguish Claude Code and Codex with their provider colors in engine settings, and simplify the desktop header.
 - Keep first-run Settings readable after creating a profile by hiding the project sidebar and providing a return to the new project.
 - Return from Settings to an available project when the previously open project was removed, and hide the sidebar toggle until a first project exists.

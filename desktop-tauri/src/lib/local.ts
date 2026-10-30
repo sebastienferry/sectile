@@ -15,9 +15,9 @@ export interface LocalSetup {
   credentials?: { credentials: { tracker: string; siteUrl?: string; account?: string; kind?: string; disconnected?: boolean }[] };
   projects?: { id: string; name: string; trackers?: { trackerId: string }[] }[];
 }
-export const localSetupStatus = () => invoke<LocalSetup>("local_setup_status");
+export const localSetupStatus = async () => invoke<LocalSetup>("local_setup_status");
 export interface ServiceLog { path: string; text: string; missing: boolean; truncated: boolean }
-export const localServiceLog = (service: "companion" | "agent") => invoke<ServiceLog>("local_service_log", { service });
+export const localServiceLog = async (service: "companion" | "agent") => invoke<ServiceLog>("local_service_log", { service });
 export const prepareLocalUpdate = () => invoke<void>("prepare_local_update");
 export const enableLocalRuntime = () => invoke<void>("enable_local_runtime");
 export const attachFleetAgent = () => invoke<void>("attach_fleet_agent");

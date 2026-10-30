@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- Sectile Desktop presents a dedicated mode selection onboarding screen on first launch to choose between Local Companion and Fleet Agent, and allows switching modes anytime in Settings.
+
 ### Fixed
 
 - Newly created tracker tickets now show the status confirmed by the tracker immediately, including after reopening the desktop.
