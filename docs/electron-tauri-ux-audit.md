@@ -1361,3 +1361,13 @@ mapping still lacks a native colored-card capture. Automated `Cmd+,` key input
 did not navigate even though selecting the native menu item did; the physical
 key combination remains a manual check. This QA bundle reused its isolated
 port-52964 service binaries and did not touch port 52963.
+
+The `73deeba` board retake rebuilt that isolated native QA app with its existing
+Go `8d40b2aa` companion binaries. A tracker-backed project opened with six
+workflow-stage columns, their distinct tints, and its reviewed ticket in the
+correct column. The [native stage-board capture](ux-captures/board-native-workflow-stages.png)
+records the default layout. The native grouping selector switched to the
+tracker's `opened` status column and back to workflow stages; the UI test
+also covers persistence of the chosen grouping across React remounts. The
+ticket has no parent epic, so a native epic-color proof remains open. This
+unsigned QA app is not a distributed release or remote Fleet qualification.
