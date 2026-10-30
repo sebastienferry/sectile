@@ -34,7 +34,10 @@ Fleet execution and the rebuilt package still require qualification.
 The isolated native `8d8dd70`/packaged Go `9b0b68f6` retake additionally passed
 managed Fleet pairing and automatic agent startup, native folder-only project
 creation, real Claude/Codex scoped MCP reads and responses, and Codex desktop
-close/reopen with context/model/mode/history retained and no tool replay. Its
+close/reopen with context/model/mode/history retained and no tool replay. A
+replacement of that disposable bundle with `d25915f` also preserved Claude’s
+transcript prefix, folder, context, model and mode; its native follow-up needed
+no replay or new tool call. Its
 backend used disposable state on loopback; it does not qualify real remote TLS,
 OAuth, tracker chains or a signed installation.
 

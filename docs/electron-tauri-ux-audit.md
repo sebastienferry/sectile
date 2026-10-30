@@ -1099,3 +1099,15 @@ covers approval, refusal, remembered consent and answered questions. TypeScript,
 confirmation of this wording and Claude bundle-replacement resume follows
 separately; this retake does not establish tracker-chain execution or a signed
 installation.
+
+
+The follow-up native retake passed on the rebuilt `d25915f` test bundle: the
+restored Codex transcript displayed the French authorization heading and
+“Demande autorisée une fois.” Claude's native follow-up returned
+`CLAUDE_REOPEN_OK native-project`; API comparison preserved the exact previous
+history prefix, `sonnet`, default permission mode, folder and context, with no
+additional tools. The Go suite also passed completely. The Mac locked only
+after these UI observations. The test app, agent, backend and disposable state
+were removed using their exact owned identities; the regular companion on
+52963 remained running.
+See the release checklist for the exact replacement boundary and limitations.

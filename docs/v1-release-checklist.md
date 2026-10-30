@@ -467,3 +467,30 @@ not a native Fleet full-chain completion. The retained `4063b47`/`84e19b1b`
 candidate predates this fix; a rebuilt native package must be tested before
 claiming it includes the correction. Existing managed agents need a restart to
 acquire the new configuration; external agents are never silently restarted.
+
+
+Native managed Fleet and replacement verification (2026-10-30): clean Tauri
+`8d8dd70` with packaged Go `9b0b68f6` used a unique bundle identifier and a
+disposable backend on loopback port 49663. Native pairing automatically started
+its private agent. Selecting a folder through the native picker created the
+folder-only project and opened its prompt. Real Codex (`gpt-6-astra`,
+workspace-write) completed a scoped MCP project-context read after one-time
+native approval. Real Claude Code (`sonnet`, default permission mode, displayed
+as execution) completed the same read after tool discovery. Both returned the
+actual project name and showed completed tool activity and connected MCP state.
+Codex survived actual desktop quit/reopen and recalled the name in a follow-up;
+its one tool call was not replayed. Replacing only this test bundle with Tauri
+`d25915f`, keeping the agent/backend running, preserved Claude's exact history
+prefix, folder, model, mode and context. Its native follow-up recalled the
+project without additional tool calls. The rebuilt Codex history visibly showed
+“Authorization: request allowed once” in French instead of the raw `allow`
+value. Packaged service hashes matched the clean Go manifest. The complete Go
+suite and Tauri TypeScript, 16 domain tests, 136 UI tests, production build and
+39 Rust tests passed. These results qualify this isolated native Fleet
+conversation/bundle-replacement slice, not a released-version Local migration,
+remote TLS deployment, OAuth consent, tracker chain or signed installation.
+
+The disposable native app, managed agent, backend, private state and bundle were
+removed after verification. The regular Local companion (PID 89986, port 52963)
+remained running throughout. The retained candidate DMG still names the older
+`4063b47`/`84e19b1b` pairing; it has not been silently replaced with this test app.
