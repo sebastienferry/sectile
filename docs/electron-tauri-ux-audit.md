@@ -1345,3 +1345,19 @@ bootstrap variants, so it supplies no native board proof. This test-only bundle
 did not start or change the regular port-52963 companion. A native board check
 with tracker-backed data remains open; browser fixture captures and UI tests
 must not be presented as a substitute for it.
+
+The subsequent native retake paired Tauri `f9e4551` with the existing isolated
+Go `8d40b2aa` companion at port 52964 under the QA app identity
+`com.sebferry.sectile.nativeupdate20261030`. From a restored Codex conversation,
+the native application menu's “Paramètres…” item opened Settings, and the
+workspace return control restored that conversation. The Codex MCP check
+explained that its disconnected session would verify MCP after the next message;
+this is visible in the [native conversation capture](ux-captures/conversation-native-mcp-feedback.png).
+The same project exposed one tracker-backed ticket on the native board. Its
+checkbox changed the selection count, and the card menu listed the configured
+workflow skills without launching one. The [native board capture](ux-captures/board-native-selection.png)
+shows the selected card. That ticket had no parent epic, so the new epic-color
+mapping still lacks a native colored-card capture. Automated `Cmd+,` key input
+did not navigate even though selecting the native menu item did; the physical
+key combination remains a manual check. This QA bundle reused its isolated
+port-52964 service binaries and did not touch port 52963.
