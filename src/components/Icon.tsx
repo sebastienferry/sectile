@@ -19,6 +19,7 @@ const paths = {
   search: "M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14 M15 15l6 6",
   chevron: "m9 5 7 7-7 7",
   agent: "M5 7h14v13H5z M9 12h.01 M15 12h.01 M9 16h6 M12 3v4",
+  branch: "M6 3v12a4 4 0 0 0 4 4h5 M6 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4 M18 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4 M18 8v5a4 4 0 0 1-4 4 M18 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4",
 };
 export function Icon({ name }: { name: keyof typeof paths }) {
   return (

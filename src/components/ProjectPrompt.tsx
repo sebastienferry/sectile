@@ -6,6 +6,8 @@ import { conversationProfiles, type ProjectProfiles } from "../lib/profiles";
 import { PromptFolders } from "./FolderContext";
 import type { Run } from "../domain/execution";
 import { statusLabel } from "../domain/execution";
+import { isActive } from "../domain/execution";
+import { stopRun } from "../lib/agent";
 import type { Task } from "../domain/board";
 import { skillLabels, stageLabels, taskStage } from "../domain/workflow";
 import type { BoardMapping } from "../lib/workspace";
@@ -14,6 +16,7 @@ import { TurnSettings } from "./TurnSettings";
 import { QuestionForm } from "./QuestionForm";
 import { ConversationTranscript } from "./ConversationTranscript";
 import { invoke } from "@tauri-apps/api/core";
+import { openExternalLink } from "../lib/workspace";
 
 function sendOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
  if(event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {event.preventDefault();event.currentTarget.form?.requestSubmit();}
@@ -23,8 +26,9 @@ interface ProjectPromptProps {
   run?:Run; task?:Task; board?:BoardMapping;
   onCreated:(id:string)=>void; onTitleChanged?:()=>void; onFoldersChanged?:()=>void;
   onOpenExecution?:()=>void; onOpenQueue?:()=>void; onOpenTask?:()=>void;
+  onArchive?:()=>void; onStopped?:()=>void;
 }
-export default function ProjectPrompt({ projectId, runId, onCreated, onTitleChanged, directory, folders, onFoldersChanged, run, task, board, onOpenExecution, onOpenQueue, onOpenTask }: ProjectPromptProps) {
+export default function ProjectPrompt({ projectId, runId, onCreated, onTitleChanged, directory, folders, onFoldersChanged, run, task, board, onOpenExecution, onOpenQueue, onOpenTask, onArchive, onStopped }: ProjectPromptProps) {
   const [provider, setProvider] = useState("claude");
   const [options, setOptions] = useState<TurnOptions>({});
   const [draft, setDraft] = useState("");
@@ -48,7 +52,7 @@ export default function ProjectPrompt({ projectId, runId, onCreated, onTitleChan
     }).catch(()=>{});
     return()=>{current=false;};
   },[projectId,runId]);
-  if (runId) return <Conversation id={runId} projectId={projectId} directory={directory} folders={folders} run={run} task={task} board={board} onOpenExecution={onOpenExecution} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onFoldersChanged={onFoldersChanged} onTitleChanged={onTitleChanged} />;
+  if (runId) return <Conversation id={runId} projectId={projectId} directory={directory} folders={folders} run={run} task={task} board={board} onOpenExecution={onOpenExecution} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onArchive={onArchive} onStopped={onStopped} onFoldersChanged={onFoldersChanged} onTitleChanged={onTitleChanged} />;
   return <section className="project-prompt prompt-start">
     <div className="prompt-intro"><span className="prompt-symbol"><Icon name="chat" /></span><span className="eyebrow">DANS CE PROJET</span>
     <h2>Que voulez-vous faire ?</h2><p>Une idée, une question, une tâche.<br />Commencez simplement par un message.</p></div>
@@ -80,7 +84,7 @@ export default function ProjectPrompt({ projectId, runId, onCreated, onTitleChan
     {error && <p role="alert" className="error">{error}</p>}
   </section>;
 }
-function Conversation({ id, projectId, directory, folders, run, task, board, onOpenExecution, onOpenQueue, onOpenTask, onFoldersChanged, onTitleChanged }: { id:string;projectId:string;directory?:string;folders?:Run["folders"];run?:Run;task?:Task;board?:BoardMapping;onOpenExecution?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onFoldersChanged?:()=>void;onTitleChanged?:()=>void }) {
+function Conversation({ id, projectId, directory, folders, run, task, board, onOpenExecution, onOpenQueue, onOpenTask, onArchive, onStopped, onFoldersChanged, onTitleChanged }: { id:string;projectId:string;directory?:string;folders?:Run["folders"];run?:Run;task?:Task;board?:BoardMapping;onOpenExecution?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onArchive?:()=>void;onStopped?:()=>void;onFoldersChanged?:()=>void;onTitleChanged?:()=>void }) {
   const { controller, snapshot, loaded, pending, error } = useConversation(id);
   const [draft, setDraft] = useState("");
   const [actionError, setActionError] = useState("");
@@ -93,6 +97,8 @@ function Conversation({ id, projectId, directory, folders, run, task, board, onO
   const [renaming,setRenaming] = useState(false);
   const [title,setTitle] = useState("");
   const [savingTitle,setSavingTitle] = useState(false);
+  const [stopping,setStopping] = useState(false);
+  const [linkError,setLinkError] = useState("");
   const busy = pending || snapshot.busy;
   async function control(input: Exclude<ConversationAction, { action: "message" }>) {
     if (acting) throw new Error("Une action est déjà en cours.");
@@ -101,16 +107,29 @@ function Conversation({ id, projectId, directory, folders, run, task, board, onO
     catch (error) { if (input.action !== "answer") setActionError(String(error)); throw error; }
     finally { setActing(false); }
   }
+  async function stopConversation() {
+    if(stopping || !run || !isActive(run))return;
+    setStopping(true);setActionError("");
+    try {await stopRun(id);await controller.refresh();onStopped?.();}
+    catch {setActionError("Arrêt non confirmé. Actualisez le suivi avant de réessayer.");}
+    finally {setStopping(false);}
+  }
   return <section className="project-prompt conversation-prompt">
     <header className="prompt-heading"><Icon name="chat" /><h2>{snapshot.title || (snapshot.provider === "codex" ? "Codex" : snapshot.provider === "claude" ? "Claude Code" : "Conversation du projet")}</h2>
-      {snapshot.canRename && <button aria-label="Renommer la conversation" onClick={()=>{setTitle(snapshot.title||"");setRenaming(true);}}>Renommer</button>}
       <span role="status">{error ? "Suivi interrompu" : busy ? "En cours…" : snapshot.readOnly ? "Lecture seule" : "Prêt"}</span>
       {snapshot.canAdoptConnection && <button disabled={acting || !!error} title="Cet historique n’est pas encore lié à la connexion sélectionnée." onClick={() => void control({ action: "adoptConnection" }).catch(() => {})}>Associer à cette connexion</button>}
       {busy && !snapshot.readOnly && <button disabled={acting} onClick={() => void control({ action: "interrupt" }).catch(() => {})}>Interrompre</button>}
       <button className="icon-button" aria-label="Actualiser le suivi" title="Actualiser le suivi" disabled={pending || (!!snapshot.busy && !error)} onClick={() => void controller.refresh()}><Icon name="refresh" /></button>
+      {(snapshot.canRename||onOpenExecution||run&&isActive(run)||onArchive)&&<details className="conversation-header-menu"><summary aria-label="Actions de la discussion" title="Actions de la discussion">•••</summary><div className="conversation-header-panel">
+        {snapshot.canRename&&<button type="button" aria-label="Renommer la conversation" onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");setTitle(snapshot.title||"");setRenaming(true);}}>Renommer</button>}
+        {onOpenExecution&&<button type="button" onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");onOpenExecution();}}>Voir l’exécution</button>}
+        {run&&isActive(run)&&<button type="button" disabled={stopping||!!run.cancelRequested} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");void stopConversation();}}>{stopping?"Arrêt…":"Arrêter la discussion"}</button>}
+        {onArchive&&<button type="button" disabled={!!run&&isActive(run)} title={run&&isActive(run)?"Arrêtez la discussion avant de l’archiver":undefined} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");onArchive();}}>Archiver la discussion</button>}
+      </div></details>}
     </header>
     {renaming&&<form className="conversation-rename" onSubmit={async e=>{e.preventDefault();if(savingTitle||!title.trim())return;setSavingTitle(true);setActionError("");try{await renameConversation(id,title.trim());await controller.refresh();onTitleChanged?.();setRenaming(false);}catch(cause){setActionError(String(cause));}finally{setSavingTitle(false);}}}><label>Nom de la conversation<input autoFocus required maxLength={80} value={title} onChange={e=>setTitle(e.target.value)}/></label><button type="button" disabled={savingTitle} onClick={()=>setRenaming(false)}>Annuler</button><button disabled={savingTitle||!title.trim()}>Enregistrer le nom</button></form>}
     {snapshot.persistenceError && <p className="error" role="alert">{snapshot.persistenceError}</p>}
+    {linkError&&<p role="alert" className="error">{linkError}</p>}
     <ConversationTranscript snapshot={snapshot} followRequest={followRequest} />
     <div className="conversation-controls">
     <div className="conversation-interactions">
@@ -122,7 +141,7 @@ function Conversation({ id, projectId, directory, folders, run, task, board, onO
     </section>)}
     {(error || actionError) && <p role="alert" className="error">{error || actionError} Vérifiez le suivi avant de renvoyer un message.</p>}
     </div>
-    <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} onOpenExecution={onOpenExecution} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask}/>
+    <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} onOpenExecution={onOpenExecution} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onOpenPr={task?.prUrl&&/^https?:\/\//.test(task.prUrl)?()=>void openExternalLink(task.prUrl!).catch(()=>setLinkError("Impossible d’ouvrir la PR/MR.")):undefined}/>
     <form className="composer" onSubmit={e => { e.preventDefault(); if (loaded && !busy && !attaching && !snapshot.readOnly && !error && draft.trim()) { void controller.send(draft, false, options); setDraft(""); setFollowRequest(value => value + 1); } }}>
       <textarea aria-label="Message suivant" rows={3} maxLength={32000} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} disabled={!!snapshot.readOnly} placeholder="Posez une question ou décrivez une modification…" />
       <div className="composer-footer"><TurnSettings compact provider={snapshot.provider} snapshot={snapshot} value={options} onChange={setOptions} disabled={!loaded || busy || !!snapshot.readOnly || !!error || acting} />
@@ -135,7 +154,7 @@ function Conversation({ id, projectId, directory, folders, run, task, board, onO
     </div>
   </section>;
 }
-function ConversationStatus({snapshot,run,task,board,busy,error,onOpenExecution,onOpenQueue,onOpenTask}:{snapshot:ConversationSnapshot;run?:Run;task?:Task;board?:BoardMapping;busy:boolean;error:boolean;onOpenExecution?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void}) {
+function ConversationStatus({snapshot,run,task,board,busy,error,onOpenExecution,onOpenQueue,onOpenTask,onOpenPr}:{snapshot:ConversationSnapshot;run?:Run;task?:Task;board?:BoardMapping;busy:boolean;error:boolean;onOpenExecution?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onOpenPr?:()=>void}) {
   const stage=task?taskStage(task,board):undefined;
   const activity=error?"Suivi interrompu":snapshot.approvals?.length?"Votre réponse attendue":busy?"Réponse en cours":snapshot.readOnly?"Historique en lecture seule":"Prêt à répondre";
   const execution=run?busy&&run.conversation?"Réponse en cours":statusLabel(run):"Chargement";
@@ -148,6 +167,7 @@ function ConversationStatus({snapshot,run,task,board,busy,error,onOpenExecution,
     </div></details>
     <span>Skill : {run?.skill?skillLabels[run.skill]||run.skill:"Aucune"}</span>
     <span>Ticket : {run?.taskId?<><strong>{task?.key||run.taskKey||run.taskId}</strong> · {task?.trackerStatus||"statut indisponible"}</>:"prompt libre"}</span>
+    {run?.taskId&&<span>PR/MR : {onOpenPr?<button type="button" className="conversation-pr-link" onClick={onOpenPr}><Icon name="branch"/>Ouvrir</button>:"aucune"}</span>}
     <span>Étape : {run?.taskId?stage?stageLabels[stage]:"inconnue":"sans ticket"}</span>
   </div>;
 }

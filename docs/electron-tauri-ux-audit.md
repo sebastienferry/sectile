@@ -1389,3 +1389,22 @@ while refresh stays an icon. The [native header capture](ux-captures/board-nativ
 shows the smaller header and longer visible folder path. Clicking the settings
 icon opened the same project's folder, tracker and conversation settings; the
 Tableau action returned to its ticket board. No project data was changed.
+
+The later conversation retake removes board, new-prompt and project-settings
+buttons from an open conversation. Its header keeps the title and response
+state, with rename, run, stop and archive actions in a compact discussion menu.
+The project name in the sidebar still opens the board and its project actions.
+The [native conversation capture](ux-captures/conversation-context-menu-native.png)
+shows the quieter header and the resize handle centered on its separator;
+the [open-menu capture](ux-captures/conversation-actions-native.png) shows the
+discussion actions. The isolated port-52964 companion retained its existing
+Claude/Codex history. The native screenshot verifies handle alignment, while
+automated pointer drag was interrupted by a foreground app change. Keyboard
+resize retains its automated coverage; native pointer-drag retake remains open.
+
+Ticket-linked conversations now show a PR/MR shortcut only when the tracker
+provides a valid web link. UI tests cover the sidebar shortcut, status strip
+and URL passed to the native link opener. The isolated native project has a
+ticket with a linked MR, but its selected conversation is a free prompt; this
+retake does not claim a native capture of the new ticket-conversation shortcut.
+Remote Fleet and the signed release remain separate qualifications.

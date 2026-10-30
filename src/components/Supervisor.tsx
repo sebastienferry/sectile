@@ -30,6 +30,7 @@ export function Supervisor({
   view = "launch",
   selectedRun = "",
   onSelectRun = () => {},
+  onArchiveConversation,
   initialTaskId = "",
   active = true,
 }: {
@@ -39,6 +40,7 @@ export function Supervisor({
   view?: "launch" | "executions" | "orchestration";
   selectedRun?: string;
   onSelectRun?: (id: string) => void;
+  onArchiveConversation?: (id: string) => void;
   initialTaskId?: string;
   active?: boolean;
 }) {
@@ -468,7 +470,7 @@ export function Supervisor({
                 session dans Sectile Desktop ou le terminal du fournisseur.
               </p>
             )}
-            {run.conversation ? <Suspense fallback={<p>Ouverture de la conversation…</p>}><ProjectPrompt projectId={projectId} runId={run.id} run={run} task={tasks.find(task=>task.id===run.taskId)} directory={run.directory} folders={run.folders} onCreated={()=>{}} onOpenQueue={()=>onSelectRun("")} onFoldersChanged={()=>void refresh()}/></Suspense> : run.sessionId || run.trace || run.restored ? (
+            {run.conversation ? <Suspense fallback={<p>Ouverture de la conversation…</p>}><ProjectPrompt projectId={projectId} runId={run.id} run={run} task={tasks.find(task=>task.id===run.taskId)} directory={run.directory} folders={run.folders} onCreated={()=>{}} onOpenQueue={()=>onSelectRun("")} onArchive={onArchiveConversation?()=>onArchiveConversation(run.id):undefined} onStopped={()=>void refresh()} onFoldersChanged={()=>void refresh()}/></Suspense> : run.sessionId || run.trace || run.restored ? (
               <Suspense fallback={<p>Chargement de la console…</p>}>
                 {active && <RunConsole key={run.id} runId={run.id} />}
               </Suspense>

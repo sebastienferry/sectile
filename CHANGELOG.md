@@ -6,6 +6,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
+- Put rename, stop, archive and execution access in the conversation menu, and show linked PR/MR shortcuts beside ticket conversations and their status.
+- Center the sidebar resize handle on its separator line at all sidebar widths.
 - Show execution, skill, ticket status and workflow stage above the conversation composer, with direct access to the run and project queue. Group project conversations by stage or tracker status and identify live sessions with a blue dot.
 - Stop conversations from their sidebar menu, then archive and restore them from a desktop-specific archived view without deleting Go history.
 - View tracker tickets as a backlog list, select tickets on the list or board, and prepare a confirmed multi-ticket `pickup_issues` run. Board cards identify their parent epic and expose configured agent skills from a compact menu.

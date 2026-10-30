@@ -348,7 +348,7 @@ function Workspace() {
                             Orchestration
                           </button>
                           {showArchivedConversations&&<div className="sidebar-group-label">Archivées <button type="button" onClick={()=>setShowArchivedConversations(false)}>Retour</button></div>}
-                          {conversationGroups(visibleConversations,projectTasks,conversationGrouping,projectBoard).map(group=><div className="sidebar-conversation-group" key={group.label||"recent"}>{group.label&&<div className="sidebar-group-label">{group.label}<span>{group.runs.length}</span></div>}{group.runs.map(run=><div className="sidebar-conversation-row" key={run.id}><RunNavigation run={run} task={projectTasks.find(task=>task.id===run.taskId)} selected={current?.runId===run.id} onClick={()=>navigate(project,"prompt",run.id)} /><details className="conversation-action-menu"><summary aria-label={`Actions de la conversation ${run.title||run.taskKey||run.id}`} title="Actions de la conversation">•••</summary><div className="conversation-action-panel">{!showArchivedConversations&&isActive(run)&&<button type="button" disabled={!fresh||!!stoppingConversationId} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");void stopConversation(run);}}>{stoppingConversationId===run.id?"Arrêt…":"Arrêter la conversation"}</button>}<button type="button" disabled={!showArchivedConversations&&isActive(run)} title={!showArchivedConversations&&isActive(run)?"Arrêtez la conversation avant de l’archiver":undefined} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");setArchived(run.id,!showArchivedConversations);}}>{showArchivedConversations?"Restaurer la conversation":"Archiver la conversation"}</button></div></details></div>)}</div>)}
+                          {conversationGroups(visibleConversations,projectTasks,conversationGrouping,projectBoard).map(group=><div className="sidebar-conversation-group" key={group.label||"recent"}>{group.label&&<div className="sidebar-group-label">{group.label}<span>{group.runs.length}</span></div>}{group.runs.map(run=>{const task=projectTasks.find(item=>item.id===run.taskId);return <div className="sidebar-conversation-row" key={run.id}><RunNavigation run={run} task={task} selected={current?.runId===run.id} onClick={()=>navigate(project,"prompt",run.id)} />{task?.prUrl&&/^https?:\/\//.test(task.prUrl)&&<button className="conversation-pr-action" type="button" aria-label={`Ouvrir la PR/MR de ${task.key||run.taskKey||task.title}`} title="Ouvrir la PR/MR" onClick={()=>void openExternalLink(task.prUrl!).catch(()=>setConversationActionError("Impossible d’ouvrir la PR/MR."))}><Icon name="branch"/></button>}<details className="conversation-action-menu"><summary aria-label={`Actions de la conversation ${run.title||run.taskKey||run.id}`} title="Actions de la conversation">•••</summary><div className="conversation-action-panel">{!showArchivedConversations&&isActive(run)&&<button type="button" disabled={!fresh||!!stoppingConversationId} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");void stopConversation(run);}}>{stoppingConversationId===run.id?"Arrêt…":"Arrêter la conversation"}</button>}<button type="button" disabled={!showArchivedConversations&&isActive(run)} title={!showArchivedConversations&&isActive(run)?"Arrêtez la conversation avant de l’archiver":undefined} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");setArchived(run.id,!showArchivedConversations);}}>{showArchivedConversations?"Restaurer la conversation":"Archiver la conversation"}</button></div></details></div>})}</div>)}
                           {conversationActionError&&<p className="sidebar-action-error" role="alert">{conversationActionError}</p>}
                           {conversations.length>visibleConversationCount&&<button className="sidebar-link" onClick={()=>setVisibleConversationCount(value=>value+8)}>Afficher les conversations suivantes · {visibleConversationCount}/{conversations.length}</button>}
                           <button
@@ -466,6 +466,7 @@ function Workspace() {
                     return {projectId:current.projectId,items:[...items.filter(item=>item.id!==task.id),task]};
                   })}
                   onContextChanged={value=>setNavigationContext({projectId:current.projectId,value})}
+                  onArchiveConversation={runId=>setArchived(runId,true)}
                 />
               )}
             </section>
@@ -498,6 +499,7 @@ function ProjectPane({
   onTasksChanged,
   onTaskChanged,
   onContextChanged,
+  onArchiveConversation,
 }: {
   selection: WorkspaceView;
   project?: Project;
@@ -507,6 +509,7 @@ function ProjectPane({
   onTasksChanged: (tasks:Task[]) => void;
   onTaskChanged: (task:Task) => void;
   onContextChanged: (context:ProjectContext) => void;
+  onArchiveConversation: (runId:string) => void;
   navigate: (
     project: Project,
     view: View,
@@ -663,18 +666,18 @@ function ProjectPane({
         <div className="toolbar-actions">
           {project && (
             <>
-              {selection.view !== "board" && <button onClick={() => navigate(project, "board")}>
+              {selection.view !== "board" && !(selection.view === "prompt" && selection.runId) && <button onClick={() => navigate(project, "board")}>
                 <Icon name="board" />
                 Tableau
               </button>}
-              {(selection.view !== "prompt" || selection.runId) && <button
+              {selection.view !== "prompt" && <button
                 className={selection.view === "board" ? "primary" : "subtle"}
                 onClick={() => navigate(project, "prompt")}
               >
                 <Icon name="plus" />
                 Nouveau prompt
               </button>}
-              {selection.view !== "project-settings" && <button className={selection.view === "board" ? "icon-button" : undefined} title="Configurer le projet" aria-label="Configurer le projet" onClick={() => navigate(project, "project-settings")}><Icon name="settings" />{selection.view !== "board" && "Configurer le projet"}</button>}
+              {selection.view !== "project-settings" && !(selection.view === "prompt" && selection.runId) && <button className={selection.view === "board" ? "icon-button" : undefined} title="Configurer le projet" aria-label="Configurer le projet" onClick={() => navigate(project, "project-settings")}><Icon name="settings" />{selection.view !== "board" && "Configurer le projet"}</button>}
             </>
           )}
           {selection.view === "board" && <button
@@ -693,7 +696,7 @@ function ProjectPane({
           {error}
         </p>
       )}
-      {selection.view === "project-settings" ? <ProjectProfiles key={selection.projectId} projectId={selection.projectId} after={<section className="project-advanced" aria-label="Options avancées du projet"><h2>Options avancées</h2><details className="additional-folder-settings"><summary>Dossiers supplémentaires<small>Contexte partagé entre les conversations du projet</small></summary><AttachedFolderSettings projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/></details><AdvancedFolders projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/><WorkflowSettings projectId={selection.projectId}/><OrchestrationSettings projectId={selection.projectId} onSupervise={()=>{if(project)navigate(project,"orchestration");}}/></section>}><>{project && <ProjectFolderSetup variant="settings" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}<ProjectTrackerSetup projectId={selection.projectId} onChanged={() => {setContextRefresh(value=>value+1);onProjectsChanged();}} /></></ProjectProfiles> : selection.view === "task" && selection.taskId ? <Suspense fallback={<p>Ouverture du workflow…</p>}><WorkflowTask projectId={selection.projectId} taskId={selection.taskId} onBack={()=>{if(project)navigate(project,"board");}} onSetup={()=>{if(project)navigate(project,"settings");}} onExecution={runId=>{if(project)navigate(project,"executions",runId||undefined);}}/></Suspense> : selection.view === "board" ? (
+      {selection.view === "project-settings" ? <ProjectProfiles key={selection.projectId} projectId={selection.projectId} after={<section className="project-advanced" aria-label="Options avancées du projet"><h2>Options avancées</h2><details className="additional-folder-settings"><summary>Dossiers supplémentaires<small>Contexte partagé entre les conversations du projet</small></summary><AttachedFolderSettings projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/></details><AdvancedFolders projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/><WorkflowSettings projectId={selection.projectId}/><OrchestrationSettings projectId={selection.projectId} onSupervise={()=>{if(project)navigate(project,"orchestration");}}/></section>}><>{project && <ProjectFolderSetup variant="settings" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}<ProjectTrackerSetup projectId={selection.projectId} onChanged={() => {setContextRefresh(value=>value+1);onProjectsChanged();}} /></></ProjectProfiles> : selection.view === "task" && selection.taskId ? <Suspense fallback={<p>Ouverture du workflow…</p>}><WorkflowTask projectId={selection.projectId} taskId={selection.taskId} onBack={()=>{if(project)navigate(project,"board");}} onSetup={()=>{if(project)navigate(project,"settings");}} onExecution={runId=>{if(project)navigate(project,"executions",runId||undefined);}} onArchiveConversation={onArchiveConversation}/></Suspense> : selection.view === "board" ? (
         <div className="board-workspace">
           {error && tasks.length > 0 && <p className="hint" role="status">La dernière actualisation a échoué. Les tickets affichés proviennent de la lecture précédente.</p>}
           {!boardContextPending && !currentContextError && !localOnlyProject && <div className="board-toolbar">
@@ -777,13 +780,14 @@ function ProjectPane({
         </div>
       ) : selection.view === "prompt" ? (
         selection.runId || project?.path?.trim() ? <Suspense fallback={<p>Ouverture du prompt…</p>}>
-          <ProjectPrompt key={`${selection.projectId}:${selection.runId??"new"}`} directory={workingDirectory} folders={currentRun?.folders} run={currentRun} task={tasks.find(task=>task.id===currentRun?.taskId)} board={context?.board} onOpenExecution={currentRun&&project?()=>navigate(project,"executions",currentRun.id):undefined} onOpenQueue={project?()=>navigate(project,"executions"):undefined} onOpenTask={currentRun?.taskId&&project?()=>navigate(project,"task",undefined,currentRun.taskId):undefined} onFoldersChanged={()=>void monitor.refresh()} onTitleChanged={()=>void monitor.refresh()} projectId={selection.projectId} runId={selection.runId} onCreated={id => { if (project) navigate(project, "prompt", id); }} />
+          <ProjectPrompt key={`${selection.projectId}:${selection.runId??"new"}`} directory={workingDirectory} folders={currentRun?.folders} run={currentRun} task={tasks.find(task=>task.id===currentRun?.taskId)} board={context?.board} onOpenExecution={currentRun&&project?()=>navigate(project,"executions",currentRun.id):undefined} onOpenQueue={project?()=>navigate(project,"executions"):undefined} onOpenTask={currentRun?.taskId&&project?()=>navigate(project,"task",undefined,currentRun.taskId):undefined} onArchive={currentRun?()=>onArchiveConversation(currentRun.id):undefined} onStopped={()=>void monitor.refresh()} onFoldersChanged={()=>void monitor.refresh()} onTitleChanged={()=>void monitor.refresh()} projectId={selection.projectId} runId={selection.runId} onCreated={id => { if (project) navigate(project, "prompt", id); }} />
         </Suspense> : project ? <ProjectFolderSetup project={project} onMapped={path=>onFolderMapped(project.id,path)} /> : <p>Chargement du projet…</p>
       ) : (
         <Supervisor
           projectId={selection.projectId}
           tasks={tasks}
           onChanged={() => void refresh()}
+          onArchiveConversation={onArchiveConversation}
           view={selection.view as "launch" | "executions" | "orchestration"}
           selectedRun={selectedRun}
           onSelectRun={(id) => {
