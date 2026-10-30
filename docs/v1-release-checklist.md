@@ -589,3 +589,22 @@ were stopped; private fixture state is retained for that deferred check. The
 temporary package worktree and stopped failed setup fixtures were removed. The
 regular companion on port 52963 (PID 89986) remained untouched. Opening the new
 UI while an older companion is running must not be counted as a service upgrade.
+
+
+### Manual Local update preparation (2026-10-30)
+
+Source inspection confirmed that `ensure_server` accepts a ready authenticated
+protocol-1 companion without comparing its binary fingerprint to the bundle.
+Closing Tauri keeps that process alive. The new source-checkout `stop:local`
+command requests an authenticated idle shutdown and waits for connection refusal
+from both Local transports. Nine HTTP fixture tests cover graceful closure,
+busy refusal, Fleet exclusion, unknown generation, remote discovery, non-companion
+or mismatched service, redirects, incomplete shutdown and explicit directory
+selection. The existing agent tests cover shutdown/restart refusal semantics.
+The README now explains the required order: finish runs, quit all desktop
+windows, stop the idle Local services, replace the bundle and reopen.
+
+This does not close the native update gate: no regular companion was stopped,
+and native preparation, full process exit, clean-user installation and bundle
+replacement remain unqualified for the refreshed candidate. The source command
+is not included in the standalone app and is not a substitute for its V1 UX.

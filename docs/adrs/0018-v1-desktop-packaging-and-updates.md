@@ -17,7 +17,9 @@ rollout and rollback behavior before the first supported release is qualified.
 
 For V1, distribute the macOS app as a signed and notarized DMG through the
 project's release page. Users install an update manually by quitting Sectile,
-replacing the application with the downloaded version, and reopening it. Do
+gracefully stopping the idle managed Local companion, replacing the application
+with the downloaded version, and reopening it. Quitting the desktop alone
+leaves the companion running and is insufficient for a service update. Do
 not add an in-app update checker or automatic updater for V1.
 
 Keep the Tauri bundle identifier and user-data layout stable across V1 updates.
@@ -37,3 +39,22 @@ stable artifact and rollback policy.
   checksum, and test that replacing the bundle retains existing Local data.
 - This decision does not authorize a release or close the signing, notarization,
   upgrade-installation, or release-automation qualification gates.
+
+
+## Implementation qualification (2026-10-30)
+
+The launcher currently reuses an authenticated protocol-compatible companion
+without comparing the running binary fingerprint with the packaged service.
+The source-checkout command `npm run stop:local -- --data-dir <absolute-root>`
+provides an explicit graceful stop before manual replacement. It follows only
+the known selected generation, rejects Fleet and remote discovery, authenticates
+the Local server and agent relationship, honors the agent's busy refusal, and
+waits for both loopback connections to refuse connections. Mock HTTP regression
+tests cover the success and refusal paths. It does not send signals or change
+the regular installation during tests.
+
+This command is not a native update flow or proof of process/database exit.
+Before the V1 update gate can close, the desktop must offer an equivalent native
+preparation action, prevent startup races while preparing, verify full service
+exit and qualify replacement on a disposable installation. Do not report a new
+UI attached to an older running companion as a completed backend update.

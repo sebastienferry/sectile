@@ -6,6 +6,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
+- Add a source-checkout Local update preparation command that authenticates the selected companion, requests an idle shutdown and checks both service connections close before manual app replacement.
+
 - Add a tracker to an existing local or Fleet project from its configuration or desktop Settings while retaining its local board and folder.
 - Read bounded Local companion or Fleet agent diagnostics directly in desktop Services, including when the service is unavailable.
 - Include MIT and third-party dependency notices in packaged Tauri applications, with Go notices checked against the selected Go source dependency graph.

@@ -281,6 +281,35 @@ see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the
 The V1 packaging decision is documented in
 [ADR 0018](docs/adrs/0018-v1-desktop-packaging-and-updates.md).
 
+### Preparing a managed Local update
+
+Closing the desktop leaves its Go companion running. Replacing the app bundle
+alone does not replace that process: the next desktop can reconnect to the old
+companion. Before replacing a Local installation, finish its active runs, quit
+**all** Tauri windows and, from this source checkout with Node.js installed, run:
+
+```sh
+npm run stop:local -- --data-dir "$HOME/Library/Application Support/com.sebferry.sectile.tauri/local-runtime"
+```
+
+Use the actual `local-runtime` directory belonging to the installation. The
+example identifier above must match the installed bundle; development and
+qualification bundles can use different identifiers. The command follows the
+selected managed generation, authenticates both loopback services, checks their
+Local relationship, and requests the existing graceful shutdown. It refuses
+Fleet mode, active executions/preparations, redirects, unknown generations and
+mismatched services. Credentials remain in private files and HTTP headers.
+It never sends process signals, edits data or automatically stops active runs.
+A failed command does not authorize replacement. Keep Tauri closed until the
+command confirms both connections stopped, then replace the app and reopen it.
+
+This is a source-checkout maintenance command, not a bundled updater. It checks
+transport shutdown; native clean-user installation, service replacement and
+signed distribution remain release qualification gates. A future native
+update-preparation action must provide the same refusal behavior and prove
+that the companion has fully exited before reporting readiness.
+
+
 ## Layout
 
 | Path                      | Responsibility                                   |
