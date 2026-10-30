@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ProviderPreparation } from "./ProviderPreparation";
-import { Icon } from "./Icon";
+import { ProviderMark } from "./ProviderMark";
 import { invoke } from "@tauri-apps/api/core";
 type ProviderStatus = { installed: boolean; path?: string; authentication: "connected" | "disconnected" | "unknown" };
 export function ProviderSettings({projects=[]}:{projects?:{id:string;name:string}[]}) {
@@ -52,20 +52,21 @@ export function ProviderSettings({projects=[]}:{projects?:{id:string;name:string
   }
   return <article className="provider-settings" aria-label="Moteurs IA">
     <div className="settings-card-heading"><h2>Vos assistants de développement</h2><span className="badge">Exécution locale</span></div>
-    <p>Claude Code et Codex utilisent leur connexion officielle sur ce poste. Ces comptes sont distincts de vos trackers.</p>
-    <button disabled={pending} onClick={() => void refresh()}>Détecter / vérifier les connexions</button>
+    <div className="provider-settings-toolbar"><p>Connectez les CLI installées sur ce poste. Leurs comptes sont distincts des trackers.</p>
+      <button disabled={pending} onClick={() => void refresh()}>Vérifier les connexions</button></div>
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status">{notice}</p>}
     <div className="provider-grid">{([ ["claude", "Claude Code"], ["codex", "Codex"] ] as const).map(([provider, name]) => {
       const status = statuses[provider];
-      return <section className="provider-card" key={provider}><div className="provider-symbol"><Icon name={provider === "claude" ? "agent" : "terminal"} /></div><h3>{name}</h3>
-        <p>{!status ? statusErrors[provider] ? "État de la CLI indisponible" : "Détection en cours…" : !status.installed ? "CLI non détectée" : status.authentication === "connected" ? "CLI détectée · connecté" : status.authentication === "disconnected" ? "CLI détectée · connexion requise" : "CLI détectée · état de connexion indéterminé"}</p>
+      return <section className="provider-card" key={provider}><div className="provider-card-main"><div className="provider-symbol"><ProviderMark provider={provider} /></div><div className="provider-card-copy"><h3>{name}</h3>
+        <p>{!status ? statusErrors[provider] ? "État de la CLI indisponible" : "Détection en cours…" : !status.installed ? "CLI non détectée" : status.authentication === "connected" ? "CLI détectée · connecté" : status.authentication === "disconnected" ? "CLI détectée · connexion requise" : "CLI détectée · état de connexion indéterminé"}</p></div>
+        <button className={status?.authentication === "connected" ? "" : "primary"} disabled={pending || !status?.installed} onClick={() => void login(provider)}>{status?.authentication === "connected" ? `Reconnecter ${name}` : `Se connecter à ${name}`}</button></div>
+        <div className="provider-card-extra">
         {statusErrors[provider] && <p role="alert" className="error">{name} : {statusErrors[provider]}</p>}
         {status?.path && <details className="provider-details"><summary>Détails de l’installation</summary><code>{status.path}</code></details>}
         {status && !status.installed && <p>Installez la CLI officielle, puis relancez la détection. <code>{provider === "claude" ? "https://code.claude.com/docs/en/setup" : "https://developers.openai.com/codex/cli"}</code></p>}
-        <button className={status?.authentication === "connected" ? "" : "primary"} disabled={pending || !status?.installed} onClick={() => void login(provider)}>{status?.authentication === "connected" ? `Reconnecter ${name}` : `Se connecter à ${name}`}</button>
         <ProviderPreparation provider={provider} projects={projects}/>
-      </section>;
+        </div></section>;
     })}</div>
   </article>;
 }

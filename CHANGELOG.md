@@ -63,6 +63,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Show Claude and OpenAI brand marks in desktop engine settings and keep both connection controls visible at compact window sizes.
 - Show profile, engine, model and mode labels beside the free-prompt composer controls.
 - Local tracker setup now shows personal-token access first and places the retained local OAuth application flow in a secondary disclosure; Fleet keeps backend-managed OAuth first.
 - Keep section names readable on one line in the desktop settings index at compact window widths.
