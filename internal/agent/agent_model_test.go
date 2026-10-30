@@ -114,7 +114,7 @@ func TestDispatchCommandResolvesPerSkillModel(t *testing.T) {
 func TestHeadlessCommandLineCarriesTheModel(t *testing.T) {
 	for provider, want := range map[string]string{
 		"claude": "claude -p --permission-mode bypassPermissions --output-format stream-json --verbose --model M 'do it'",
-		"codex":  "codex exec --model M 'do it'",
+		"codex":  "codex exec --approve-for-me --json --model M 'do it'",
 	} {
 		got, err := modeCommandLine(provider, "", "M", "do it", models.SkillModeAutonomous)
 		if err != nil {
@@ -131,7 +131,7 @@ func TestHeadlessCommandLineCarriesTheModel(t *testing.T) {
 func TestHeadlessCommandLineUnchangedWithoutModel(t *testing.T) {
 	for provider, want := range map[string]string{
 		"claude": "claude -p --permission-mode bypassPermissions --output-format stream-json --verbose 'do it'",
-		"codex":  "codex exec 'do it'",
+		"codex":  "codex exec --approve-for-me --json 'do it'",
 	} {
 		got, err := modeCommandLine(provider, "", "", "do it", models.SkillModeAutonomous)
 		if err != nil {

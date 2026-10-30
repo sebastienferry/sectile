@@ -18,13 +18,12 @@ import (
 
 // Asking the engine for its reasoning stream.
 
-// The streaming options reach the one command line Sectile builds for an
-// autonomous Claude run, and nothing else: an engine whose stream format is not
-// attested would be handed flags it does not have.
+// Built-in autonomous providers receive only their attested streaming flags;
+// Claude stream-json and Codex JSONL have separate protocol readers.
 func TestOnlyTheAttestedEngineIsAskedForItsReasoning(t *testing.T) {
 	cases := map[string]string{
 		"claude": "claude -p --permission-mode bypassPermissions --output-format stream-json --verbose 'do it'",
-		"codex":  "codex exec 'do it'",
+		"codex":  "codex exec --approve-for-me --json 'do it'",
 	}
 	for provider, want := range cases {
 		got, err := modeCommandLine(provider, "", "", "do it", models.SkillModeAutonomous)
@@ -416,5 +415,45 @@ func TestEveryWatcherGetsItsOwnReplay(t *testing.T) {
 			t.Fatalf("%s: got %q", name, chunk)
 		}
 		connection.Close()
+	}
+}
+
+func TestCodexExecTraceRoutesToolsLocallyAndAnswerToActivity(t *testing.T) {
+	trace := newRunTrace()
+	var activity strings.Builder
+	input := "{\"type\":\"thread.started\",\"thread_id\":\"fixture\"}\n" +
+		"{\"type\":\"item.started\",\"item\":{\"id\":\"cmd-1\",\"type\":\"command_execution\",\"command\":\"python3 -m unittest\"}}\n" +
+		"{\"type\":\"item.completed\",\"item\":{\"id\":\"answer-1\",\"type\":\"agent_message\",\"text\":\"Tests passed\"}}\n" +
+		"{\"type\":\"turn.completed\",\"usage\":{}}\n" + "fixture diagnostic\n"
+	readTracedOutput(trace, strings.NewReader(input), func(line string) { activity.WriteString(line) })
+	if activity.String() != "Tests passed\nfixture diagnostic\n" {
+		t.Fatalf("protocol leaked into activity: %q", activity.String())
+	}
+	lines, subscription := trace.attach()
+	defer trace.detach(subscription)
+	if !strings.Contains(strings.Join(lines, ""), "python3 -m unittest") || !strings.Contains(strings.Join(lines, ""), "Tests passed") {
+		t.Fatal("live tools or answer missing from local trace")
+	}
+}
+
+func TestCodexJSONDetectionDoesNotInterpretQuotedPromptOrMCPConfiguration(t *testing.T) {
+	for _, line := range []string{
+		"codex exec --approve-for-me --json 'do it'",
+		"'/opt/custom path/codex' exec --json 'do it'",
+		"codex -c 'mcp_servers.fixture={command=\"agent\"}' exec --json 'do it'",
+	} {
+		if !commandReadsReasoning(line) {
+			t.Fatalf("Codex JSON stream not detected: %s", line)
+		}
+	}
+	for _, line := range []string{
+		"codex exec 'explain --json output'",
+		"codex -c 'example=\"--json\"' exec 'do it'",
+		"other exec --json 'do it'",
+		"codex exec 'unclosed",
+	} {
+		if commandReadsReasoning(line) {
+			t.Fatalf("plain command was treated as JSON: %s", line)
+		}
 	}
 }

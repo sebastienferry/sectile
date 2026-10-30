@@ -1,5 +1,12 @@
 # Project Knowledge Base (MEMORY.md)
 
+### Codex Autonomous Workflow Permissions and Trace (2026-10-30)
+
+- Plain `codex exec` inherits a read-only sandbox and cannot answer scoped MCP approvals. A real pickup run exited zero without advancing New. The built-in invocation now uses the attested `--approve-for-me --json` options (CLI 0.165.0), retaining workspace-write sandboxing and automatic review rather than an unrestricted bypass. User templates and interactive conversations retain their own settings.
+- Codex JSONL uses `item.*` and `turn.*`, not Claude stream-json. Normalize command/MCP/file progress into the existing local trace, keep assistant answers/errors on the server activity, and parse shell words when detecting `--json` so quoted prompt text cannot select protocol parsing.
+- Fleet fixture synchronization requires an explicit server read credential (`SECTILE_GITLAB_TOKEN`); personal write credentials alone do not authorize that server-wide read path. A glab fixture needs private config mode 0600 and `.git/glab-cli/config.yml` in each worktree git directory. MR notes/discussions must return lists before the standard review skill can truthfully finish.
+
+
 ### Native Fleet MCP Isolation (2026-10-30)
 
 - Managed Tauri Fleet launch must set `SECTILE_DESKTOP_MCP_URL` as well as disable shared MCP refresh. Suppressing refresh alone leaves provider sessions reading the unrelated Electron registration; skill installation can also bootstrap that shared entry. The scoped bridge uses the paired server/device identity for both Local and Fleet without changing provider homes. The legacy companion endpoint stays loopback-only, while the explicit desktop endpoint accepts HTTPS origins or HTTP loopback. Externally attached agents retain their own configuration.

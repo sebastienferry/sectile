@@ -29,7 +29,7 @@ func TestInteractiveCommandLineOwnsCodexServer(t *testing.T) {
 func TestHeadlessCommandLineCoversAttestedProviders(t *testing.T) {
 	cases := map[string]string{
 		"claude": "claude -p --permission-mode bypassPermissions --output-format stream-json --verbose 'do the thing'",
-		"codex":  "codex exec 'do the thing'",
+		"codex":  "codex exec --approve-for-me --json 'do the thing'",
 	}
 	for provider, want := range cases {
 		got, err := modeCommandLine(provider, "", "", "do the thing", models.SkillModeAutonomous)

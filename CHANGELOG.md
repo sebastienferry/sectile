@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- Autonomous Codex workflows now use a writable workspace sandbox with automatic approval review, and stream their tools and progress to the desktop instead of stopping silently in read-only mode.
+
 - Managed native Fleet conversations can use their selected backend through an isolated MCP connection without replacing Electron’s shared provider registration.
 
 - Workflow launch and MCP instructions now distinguish reusing an active run from starting a new invocation after a completed clarification round.

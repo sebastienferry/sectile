@@ -95,6 +95,10 @@ func ParseReasoningLine(line string) (events []ReasoningEvent, result string, do
 		return nil, "", false
 	}
 
+	if strings.HasPrefix(parsed.Type, "item.") || parsed.Type == "turn.failed" || parsed.Type == "error" {
+		return parseCodexReasoningLine(trimmed)
+	}
+
 	switch parsed.Type {
 	case "result":
 		return nil, resultText(parsed), true
@@ -169,7 +173,7 @@ func resultText(parsed reasoningLine) string {
 // small vocabulary. A tool matching none of it still shows its name.
 var toolDetailKeys = []string{
 	"command", "skill", "file_path", "path", "pattern", "query", "url",
-	"description", "prompt", "trace_id", "issueIdOrKey", "pageId", "name", "regex",
+	"description", "prompt", "trace_id", "issueIdOrKey", "taskId", "taskKey", "projectId", "pageId", "name", "regex",
 }
 
 // toolDetail pulls the readable half of a tool call out of its arguments.

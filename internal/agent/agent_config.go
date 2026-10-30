@@ -534,9 +534,9 @@ func headlessCommandLine(provider, model, prompt, settings string, addDirs ...st
 	case "claude":
 		return words("claude", companionMCPFlags("claude"), "-p", "--permission-mode", "bypassPermissions", reasoning, modelFlag, quoteShell(prompt), dirFlags), nil
 	case "codex":
-		// codex exec is non-interactive, but its approval bypass flag is not
-		// attested here: it is left to a custom template until it is verified.
-		return words("codex", companionMCPFlags("codex"), "exec", reasoning, modelFlag, quoteShell(prompt), dirFlags), nil
+		// Keep workspace-write sandboxing and route approvals through Codex's
+		// automatic reviewer: an exec process has no human input channel.
+		return words("codex", companionMCPFlags("codex"), "exec", "--approve-for-me", "--json", modelFlag, quoteShell(prompt), dirFlags), nil
 	default:
 		return "", fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
 	}
@@ -597,10 +597,8 @@ func templateProvider(template string) string {
 // human watching it.
 var reasoningOptions = []string{"--output-format", "stream-json", "--verbose"}
 
-// engineStreamsReasoning says whether an engine can be asked for that stream.
-// Only an engine that can is ever handed the options, so nothing is passed a
-// flag it does not have, and adding an engine here is a one-line change once its
-// stream format is attested: the reader in internal/runner is Claude's shape.
+// engineStreamsReasoning selects the Claude-style streaming options above.
+// Codex uses its own --json option and parser rather than Claude flags.
 func engineStreamsReasoning(provider string) bool {
 	return strings.EqualFold(strings.TrimSpace(provider), "claude")
 }
@@ -616,7 +614,21 @@ func engineStreamsReasoning(provider string) bool {
 // taken. A template asking for the stream itself is read as one, which is
 // exactly right: its output is that stream.
 func commandReadsReasoning(commandLine string) bool {
-	return strings.Contains(commandLine, strings.Join(reasoningOptions, " "))
+	if strings.Contains(commandLine, strings.Join(reasoningOptions, " ")) {
+		return true
+	}
+	// Inspect shell words so a prompt mentioning --json cannot accidentally
+	// turn a plain/custom command into a protocol stream.
+	words, err := shellCommandWords(commandLine)
+	if err != nil || len(words) < 2 || filepath.Base(words[0]) != "codex" {
+		return false
+	}
+	for _, word := range words[1:] {
+		if word == "--json" {
+			return true
+		}
+	}
+	return false
 }
 
 // liveSessionMode pins the mode of a launch that opens a live provider session.

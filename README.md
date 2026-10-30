@@ -172,6 +172,18 @@ workstation affinity) or target a specific eligible workstation.
 Keep tracker read credentials on the server and personal write credentials
 sealed in your user profile—never in the agent configuration.
 
+### Autonomous Codex workflows
+
+Built-in Codex task chains require a CLI supporting `codex exec --approve-for-me`
+and `--json` (qualified with Codex CLI 0.165.0). The agent keeps workspace-write
+sandboxing, routes tool approvals through Codex's automatic reviewer, and streams
+command, file and MCP progress to the desktop's read-only execution trace. An
+approval denial remains a denial; the launcher never supplies an unrestricted
+sandbox or ignores managed rules. Upgrade an older CLI if it rejects these flags.
+Interactive conversations and user-authored command templates keep their own
+permission and output settings. No global Codex configuration is rewritten.
+See [ADR 0069](docs/adrs/0069-codex-autonomous-runs-keep-sandbox-and-stream-progress.md).
+
 ### Install Sectile in your coding CLI (Skills & MCP)
 
 The workstation agent executes the workflow skills installed on the workstation
