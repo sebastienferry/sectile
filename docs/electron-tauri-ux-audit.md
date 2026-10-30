@@ -1382,3 +1382,10 @@ Clearing selection hides those controls again. The one-ticket fixture leaves
 batch preparation disabled, as intended; a multi-ticket native batch remains
 separately qualified by earlier tests rather than this capture. The QA app
 used port 52964 and did not change the regular port-52963 companion.
+
+The project-header retake makes the free prompt the sole filled action on the
+board. Configuration remains one click away through a labeled settings icon,
+while refresh stays an icon. The [native header capture](ux-captures/board-native-compact-header.png)
+shows the smaller header and longer visible folder path. Clicking the settings
+icon opened the same project's folder, tracker and conversation settings; the
+Tableau action returned to its ticket board. No project data was changed.

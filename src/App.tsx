@@ -573,7 +573,6 @@ function ProjectPane({
         <div className="toolbar-actions">
           {project && (
             <>
-              {selection.view !== "project-settings" && <button onClick={() => navigate(project, "project-settings")}><Icon name="settings" />Configurer le projet</button>}
               {selection.view !== "board" && <button onClick={() => navigate(project, "board")}>
                 <Icon name="board" />
                 Tableau
@@ -585,6 +584,7 @@ function ProjectPane({
                 <Icon name="plus" />
                 Nouveau prompt
               </button>}
+              {selection.view !== "project-settings" && <button className={selection.view === "board" ? "icon-button" : undefined} title="Configurer le projet" aria-label="Configurer le projet" onClick={() => navigate(project, "project-settings")}><Icon name="settings" />{selection.view !== "board" && "Configurer le projet"}</button>}
             </>
           )}
           {selection.view === "board" && <button

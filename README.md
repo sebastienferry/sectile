@@ -187,7 +187,8 @@ next skill, configured pickup stopping point, optional instructions, execution
 history and PR/MR access. The board opens with workflow stage columns and can
 group the same remote tickets by tracker status; that choice is remembered.
 Batch controls appear when tickets are selected, keeping the default board
-toolbar compact.
+toolbar compact. The project header keeps the free prompt prominent and exposes
+settings through its labeled icon.
 Stage labels, per-tracker mappings and statuses determine
 the presentation. The desktop stores no independent task truth.
 

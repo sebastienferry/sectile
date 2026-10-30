@@ -489,7 +489,9 @@ test("project settings change the existing folder and update the toolbar and nex
  vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/old"}]);
  vi.mocked(invoke).mockImplementation(async command=>command==="conversation_profiles"?{profiles:[],defaultId:"",inherited:true}:command==="choose_project_folder"?"/work/new":null);
  render(<App />);
- fireEvent.click(await screen.findByRole("button",{name:"Configurer le projet"}));
+ const settingsButton=await screen.findByRole("button",{name:"Configurer le projet"});
+ expect(settingsButton.classList.contains("icon-button")).toBe(true);
+ fireEvent.click(settingsButton);
  await screen.findByRole("region",{name:"Dossier du projet"});
  expect(screen.queryByRole("button",{name:"Configurer le projet"})).toBeNull();
  expect(screen.getByText("/work/old",{selector:"code"})).toBeTruthy();
