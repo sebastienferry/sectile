@@ -21,6 +21,13 @@ test("live Codex models replace stale workstation suggestions without losing the
  expect((screen.getByLabelText("Identifiant du modèle") as HTMLInputElement).value).toBe("live-model");
  expect((screen.getByLabelText("Mode de conversation") as HTMLSelectElement).value).toBe("execute");
 });
+test("a compact profile model stays a single menu choice without a custom input or mode explanation",async()=>{
+ vi.mocked(api.providerModels).mockResolvedValue([]);
+ render(<TurnSettings compact provider="codex" defaultModel="gpt-6-astra" value={{model:"gpt-6-astra",mode:"execute"}} onChange={vi.fn()} disabled={false}/>);
+ expect((screen.getByLabelText("Modèle") as HTMLSelectElement).value).toBe("gpt-6-astra");
+ expect(screen.queryByLabelText("Identifiant du modèle")).toBeNull();
+ expect(screen.getByText(/Choix appliqués à l’envoi/).hasAttribute("hidden")).toBe(true);
+});
 test("the first project prompt sends model and plan choices once through the controller",async()=>{
  vi.mocked(api.providerModels).mockResolvedValue(["chosen-model"]);
  vi.mocked(api.createConversation).mockResolvedValue({id:"first-turn-options"});

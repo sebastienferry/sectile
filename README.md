@@ -27,6 +27,7 @@ existing Sectile Go server, workstation agent and MCP infrastructure.
 - Native ticket-source editing and deletion for Local users and Fleet administrators; deletion is available only after the source is no longer linked to projects or tickets.
 - Explicit Local or Fleet runtime selection, with native one-time-code Fleet pairing and private workstation credentials.
 - Automatic startup and reconnection of the Go companion in Local mode or the workstation agent in Fleet mode.
+- If the companion is temporarily unavailable, an open conversation keeps its history and draft, blocks sends, and refreshes its status when the connection returns.
 - Service diagnostics in native Settings, with a bounded Local companion or Fleet agent log view that works even when startup fails.
 - French runtime UI; English source documentation.
 
@@ -180,7 +181,9 @@ unavailable there and displays an explanatory message. Use `npm run tauri dev` f
 
 **Nouveau prompt** starts a free Claude Code or Codex conversation in the project,
 without requiring a tracker ticket. The context bar shows the actual working
-directory and **Dossiers · N**. **Ajouter un dossier** opens the native selector;
+directory and **Dossiers · N**. The composer keeps provider, model and mode
+choices in one compact row, with each menu accessible by its visible value.
+**Ajouter un dossier** opens the native selector;
 the folder joins the project, rather than becoming a message-private upload.
 Existing conversations use it from the next message. **Configurer le projet**
 lists attached folders and offers **Détacher**, which never deletes files. Its

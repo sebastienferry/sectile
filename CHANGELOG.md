@@ -26,6 +26,9 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Keep provider, model and mode choices in a compact composer row without repeated captions or native chevrons.
+- Keep conversation history and unsent drafts visible during a companion outage, show the unavailable state instead of stale execution status, and resume tracking after reconnection.
+- Explain a missing companion binary in installed desktop builds without source-build commands.
 - Keep conversation activity dots circular in the project sidebar instead of stretching them across the row.
 - Open Settings through the native macOS Command-comma menu shortcut when the WebView does not receive the key event.
 - Match Electron's epic colors on the desktop board and backlog list when the project enables them, and explain when a restored Codex conversation can check MCP again.

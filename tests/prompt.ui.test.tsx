@@ -67,6 +67,24 @@ test("a free project conversation keeps only relevant status above the composer"
  expect(strip.textContent).not.toContain("Ticket :");
  expect(strip.textContent).not.toContain("Étape :");
 });
+test("an agent outage keeps conversation history and draft while blocking sends until recovery",async()=>{
+ vi.mocked(api.readConversation).mockResolvedValue(snapshot("offline-chat"));
+ const view=render(<ProjectPrompt projectId="p" runId="offline-chat" agentAvailable run={{id:"offline-chat",projectId:"p",conversation:true,status:"running",createdAt:"2026-10-30"}} onCreated={vi.fn()}/>);
+ await screen.findByText("Repository explanation");
+ fireEvent.change(screen.getByRole("textbox",{name:"Message suivant"}),{target:{value:"Continue after recovery"}});
+ view.rerender(<ProjectPrompt projectId="p" runId="offline-chat" agentAvailable={false} run={{id:"offline-chat",projectId:"p",conversation:true,status:"running",createdAt:"2026-10-30"}} onCreated={vi.fn()}/>);
+ expect(screen.getByLabelText("Suivi de la conversation").textContent).toContain("Agent indisponible");
+ expect(screen.getByLabelText("Suivi de la conversation").textContent).toContain("Exécution : Suivi indisponible");
+ expect(screen.getByText("Repository explanation")).toBeTruthy();
+ expect((screen.getByRole("textbox",{name:"Message suivant"}) as HTMLTextAreaElement).value).toBe("Continue after recovery");
+ expect(screen.getByRole("button",{name:"Envoyer"}).hasAttribute("disabled")).toBe(true);
+ fireEvent.submit(screen.getByRole("textbox",{name:"Message suivant"}).closest("form")!);
+ expect(api.controlConversation).not.toHaveBeenCalled();
+ view.rerender(<ProjectPrompt projectId="p" runId="offline-chat" agentAvailable run={{id:"offline-chat",projectId:"p",conversation:true,status:"running",createdAt:"2026-10-30"}} onCreated={vi.fn()}/>);
+ await waitFor(()=>expect(vi.mocked(api.readConversation).mock.calls.length).toBeGreaterThan(1));
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Envoyer"}).hasAttribute("disabled")).toBe(false));
+ expect((screen.getByRole("textbox",{name:"Message suivant"}) as HTMLTextAreaElement).value).toBe("Continue after recovery");
+});
 test("a linked conversation shows ticket and execution state above the composer",async()=>{
  vi.mocked(api.readConversation).mockResolvedValue(snapshot("linked-chat"));
  const openExecution=vi.fn();

@@ -496,9 +496,15 @@ fn binary(app: &tauri::AppHandle, service: &str) -> Result<PathBuf, String> {
             return Ok(development);
         }
     }
-    Err(format!(
-        "Service {service} absent. Exécutez npm run prepare:services puis reconstruisez l’application."
-    ))
+    if cfg!(debug_assertions) {
+        Err(format!(
+            "Service {service} absent. Exécutez npm run prepare:services puis reconstruisez l’application."
+        ))
+    } else {
+        Err(format!(
+            "Le service {service} manque dans cette installation. Réinstallez Sectile Desktop."
+        ))
+    }
 }
 fn command(app: &tauri::AppHandle, root: &Path, service: &str) -> Result<Command, String> {
     let mut cmd = Command::new(binary(app, service)?);
