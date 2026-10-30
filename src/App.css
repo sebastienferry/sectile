@@ -1367,7 +1367,7 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .project-advanced > details[open] { padding-bottom: 18px; }
 .project-advanced .attached-folder-settings > h3 { display: none; }
 .project-profiles .profile-default { margin-top: 16px; }
-.project-profiles .project-folder-settings { padding-bottom: 20px; margin-bottom: 20px; }
+.project-profiles .project-folder-settings { padding-bottom: 16px; margin-bottom: 20px; }
 .project-profiles .project-tracker-setup { padding: 0 0 24px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
 .project-profiles .project-tracker-setup h2 { margin: 0 0 8px; font-size: 22px; }
 .project-profiles .project-tracker-setup form { max-width: 520px; }
@@ -1385,10 +1385,13 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .folder-prompt-setup > .muted { font-size: 12px; margin-top: 12px; }
 .folder-prompt-setup > [role="alert"] { max-width: 600px; }
 
-.project-folder-settings { padding: 12px 0 26px; margin-bottom: 28px; border-bottom: 1px solid var(--border); }
-.project-folder-settings h2 { margin: 10px 0 16px; font-size: 22px; }
-.project-folder-settings .muted { line-height: 1.6; max-width: 680px; }
-.project-folder-path { display: flex; align-items: flex-start; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--sunken); }
+.project-folder-settings { padding: 0 0 16px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+.project-folder-settings-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.project-folder-settings h2 { margin: 0; font-size: 22px; }
+.project-folder-settings-heading button { flex-shrink: 0; }
+.project-folder-settings .muted { line-height: 1.4; max-width: 680px; }
+.project-folder-settings .project-folder-hint { margin: 8px 0 0; font-size: 12px; }
+.project-folder-path { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--sunken); }
 .project-folder-path svg { flex-shrink: 0; }
 .project-folder-path code { overflow-wrap: anywhere; min-width: 0; }
 .project-folder-settings [role="status"] { color: var(--muted); font-size: 13px; }

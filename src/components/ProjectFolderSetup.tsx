@@ -37,10 +37,12 @@ export function ProjectFolderSetup({ project, onMapped, variant = "prompt" }: {
     {error && <p role="alert" className="error">{error}</p>}
   </div>;
   if (variant === "settings") return <section className="project-folder-settings" aria-label="Dossier du projet">
-    <h2>Dossier local</h2>
+    <div className="project-folder-settings-heading">
+      <h2>Dossier local</h2>
+      <button disabled={pending} onClick={() => void chooseFolder()}><Icon name="folder" />{pending ? "Association en cours…" : project.path ? "Changer de dossier" : "Choisir un dossier"}</button>
+    </div>
     {project.path ? <p className="project-folder-path" title={project.path}><Icon name="folder" /><code>{project.path}</code></p> : <p className="muted">Aucun dossier associé à ce projet.</p>}
-    <p className="muted">Ce dossier sera utilisé pour les nouvelles conversations. Les conversations déjà ouvertes conservent leur dossier de travail.</p>
-    <button disabled={pending} onClick={() => void chooseFolder()}><Icon name="folder" />{pending ? "Association en cours…" : project.path ? "Changer de dossier" : "Choisir un dossier"}</button>
+    <p className="muted project-folder-hint">Utilisé pour les nouveaux prompts ; les conversations existantes gardent leur dossier.</p>
     {pending && <p role="status">Choisissez un dossier dans la fenêtre de sélection.</p>}
     {notice && <p role="status">{notice}</p>}
     {error && <p role="alert" className="error">{error}</p>}

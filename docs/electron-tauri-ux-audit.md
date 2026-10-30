@@ -1664,3 +1664,12 @@ opened; cancellation made no change. The source was then deleted through its
 confirmation and the return button restored the same project settings. This
 tests Local navigation and CRUD availability, not a remote tracker read or
 Fleet permissions; those remain separate qualifications.
+
+The project folder block previously placed its native picker below a tall path
+card and a two-line explanation. In the isolated Local app, the picker now sits
+beside the heading, the full path remains visible, and a short note explains
+that existing conversations keep their working directory. At the same compact
+window size, **Source de tickets** and the default conversation profile are
+visible together in the [native retake](ux-captures/project-folder-compact-native.png).
+This is a layout check; changing folders still uses the existing native picker
+and companion mapping flow.

@@ -34,6 +34,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Keep the project folder path and native picker together in a compact settings row, leaving more room for tracker sources and conversation options.
 - Identify conversations by their ticket or prompt title in the execution queue instead of showing a generic console label or run ID.
 - Count open free-prompt sessions separately from active task executions in the supervision heading.
 - Open conversations directly from the execution queue; keep execution review and stop controls in a focused detail view with a return to the conversation.
