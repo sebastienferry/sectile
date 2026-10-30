@@ -80,7 +80,7 @@ test("workflow run status stays on its ticket instead of duplicating the project
   expect(within(sidebar).getByRole("button", { name: /Toutes les exécutions/ })).toBeTruthy();
 });
 test("project menu opens the execution queue and groups ticket conversations by stage",async()=>{
- vi.mocked(api.listTasks).mockResolvedValue([{id:"new",key:"APP-1",title:"New task",status:"to_clarify",source:"jira",trackerStatus:"Open"},{id:"reviewed",key:"APP-2",title:"Reviewed task",status:"to_close",source:"jira",trackerStatus:"Done",prUrl:"https://gitlab.example.com/team/app/-/merge_requests/7"}]);
+ vi.mocked(api.listTasks).mockResolvedValue([{id:"new",key:"APP-1",title:"New task",status:"to_clarify",source:"jira",trackerStatus:"Open"},{id:"reviewed",key:"APP-2",title:"Reviewed task",status:"to_close",source:"jira",trackerStatus:"Done",prUrl:"https://gitlab.example.com/team/app/-/merge_requests/7",prLinks:[{url:"https://gitlab.example.com/team/app/-/merge_requests/7",state:"merged"}]}]);
  vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true,capabilities:[]},runs:[
   {id:"new-run",projectId:"p",taskId:"new",taskKey:"APP-1",conversation:true,title:"Clarify this",provider:"claude",status:"running",skill:"clarify",createdAt:"2026-10-30"},
   {id:"reviewed-run",projectId:"p",taskId:"reviewed",taskKey:"APP-2",conversation:true,title:"Review this",provider:"codex",status:"completed",skill:"adjust",createdAt:"2026-10-29"},
@@ -94,6 +94,7 @@ test("project menu opens the execution queue and groups ticket conversations by 
  expect(localStorage.getItem("sectile-tauri.conversationGrouping")).toBe("stage");
  await within(sidebar).findByText("À clarifier");
  expect(within(sidebar).getByText("Revu")).toBeTruthy();
+ expect(within(sidebar).getByRole("button",{name:"Ouvrir la PR/MR de APP-2"}).getAttribute("title")).toContain("MR !7 · fusionnée");
  fireEvent.click(within(sidebar).getByRole("button",{name:"Ouvrir la PR/MR de APP-2"}));
  expect(workspace.openExternalLink).toHaveBeenCalledWith("https://gitlab.example.com/team/app/-/merge_requests/7");
  fireEvent.click(within(sidebar).getByRole("button",{name:"File des exécutions"}));

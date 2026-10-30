@@ -16,6 +16,7 @@ export interface Task {
   parentTitle?: string;
   labels?: string[];
   prUrl?: string;
+  prLinks?: { url: string; state?: string; branch?: string; repository?: string; missingToken?: string }[];
   trackerId?: string;
   description?: string;
 }

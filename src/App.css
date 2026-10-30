@@ -1063,6 +1063,7 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .conversation-pr-action { display:grid; place-items:center; flex:0 0 auto; width:24px; height:28px; border:0; border-radius:5px; background:transparent; color:#9a72e6; }
 .conversation-pr-action:hover { background:var(--hover); }
 .conversation-pr-action svg { width:14px; height:14px; }
+.conversation-pr-action small { font-size:9px; font-weight:700; }
 .conversation-action-menu { flex:0 0 auto; }
 .conversation-action-menu > summary { list-style:none; cursor:pointer; color:var(--muted); padding:5px 8px; border-radius:6px; font-size:12px; }
 .conversation-action-menu > summary::-webkit-details-marker { display:none; }
@@ -1218,6 +1219,15 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .conversation-header-panel button:hover:not(:disabled) { background:var(--hover); }
 .conversation-pr-link { display:inline-flex; align-items:center; gap:3px; padding:0; border:0; background:transparent; color:#9a72e6; font-size:inherit; cursor:pointer; }
 .conversation-pr-link svg { width:13px; height:13px; }
+.conversation-pr-menu { position:relative; }
+.conversation-pr-menu > summary { cursor:pointer; color:#9a72e6; }
+.conversation-pr-panel { position:absolute; bottom:calc(100% + 4px); left:0; z-index:24; min-width:210px; padding:5px; border:1px solid var(--border-strong); border-radius:8px; background:var(--surface); box-shadow:0 12px 28px var(--shadow); }
+.conversation-pr-panel button { display:flex; align-items:center; gap:6px; width:100%; padding:7px; border:0; background:transparent; text-align:left; white-space:nowrap; font-size:11px; }
+.conversation-pr-panel button:hover { background:var(--hover); }
+.conversation-pr-panel svg { width:13px; height:13px; }
+.workflow-pr-links { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin:10px 0; font-size:11px; }
+.workflow-pr-links strong { color:var(--muted); font-weight:600; }
+.workflow-pr-links button { padding:5px 8px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--accent-text); }
 .prompt-heading > svg { width:15px; }
 .prompt-heading > [role="status"] { font-size:10px; }
 .prompt-heading > button:not(.icon-button) { padding:5px 9px; font-size:10px; }

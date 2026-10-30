@@ -545,6 +545,17 @@ contracts.
 | Native settings | Local/Fleet ownership, profile, tracker, project, provider and service responsibilities remain explicit. Advanced token, permission and execution controls stay available in their scoped sections. |
 | Visual system | Matched theme captures, semantic color roles, AA text contrast, visible focus and reduced-motion behavior are recorded. No broad token change was justified by the captures. |
 
+The subsequent conversation-status pass uses Go's `prLinks` contract to show
+every linked PR/MR and its last known forge state in the conversation strip and
+ticket workflow. The sidebar keeps a compact primary-link shortcut. When Go
+reports a missing forge token or no refreshed state, the desktop says so rather
+than treating the workflow stage as the PR/MR state. Domain and UI regressions
+cover multiple links, state labels and the legacy `prUrl` fallback.
+The isolated macOS app displayed the QA ticket's linked `MR !1 · état inconnu`
+in the workflow. That fixture uses a local forge simulator and does not prove a
+live forge-state refresh; the native capture is
+`docs/ux-captures/workflow-pr-state-native.png`.
+
 Current verification passes on Tauri commit `239d7c1`: `npm run check`, 14
 domain tests, 101 UI tests, 35 Rust tests and `npm run build`. The short-window
 prompt and orchestration surfaces were retaken from the current source at

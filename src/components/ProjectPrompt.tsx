@@ -17,6 +17,7 @@ import { QuestionForm } from "./QuestionForm";
 import { ConversationTranscript } from "./ConversationTranscript";
 import { invoke } from "@tauri-apps/api/core";
 import { openExternalLink } from "../lib/workspace";
+import { pullRequestLabel, pullRequestStateLabel, taskPullRequests } from "../domain/pull-requests";
 
 function sendOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
  if(event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {event.preventDefault();event.currentTarget.form?.requestSubmit();}
@@ -141,7 +142,7 @@ function Conversation({ id, projectId, directory, folders, run, task, board, onO
     </section>)}
     {(error || actionError) && <p role="alert" className="error">{error || actionError} Vérifiez le suivi avant de renvoyer un message.</p>}
     </div>
-    <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} onOpenExecution={onOpenExecution} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onOpenPr={task?.prUrl&&/^https?:\/\//.test(task.prUrl)?()=>void openExternalLink(task.prUrl!).catch(()=>setLinkError("Impossible d’ouvrir la PR/MR.")):undefined}/>
+    <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} onOpenExecution={onOpenExecution} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onOpenPr={url=>void openExternalLink(url).catch(()=>setLinkError("Impossible d’ouvrir la PR/MR."))}/>
     <form className="composer" onSubmit={e => { e.preventDefault(); if (loaded && !busy && !attaching && !snapshot.readOnly && !error && draft.trim()) { void controller.send(draft, false, options); setDraft(""); setFollowRequest(value => value + 1); } }}>
       <textarea aria-label="Message suivant" rows={3} maxLength={32000} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} disabled={!!snapshot.readOnly} placeholder="Posez une question ou décrivez une modification…" />
       <div className="composer-footer"><TurnSettings compact provider={snapshot.provider} snapshot={snapshot} value={options} onChange={setOptions} disabled={!loaded || busy || !!snapshot.readOnly || !!error || acting} />
@@ -154,8 +155,9 @@ function Conversation({ id, projectId, directory, folders, run, task, board, onO
     </div>
   </section>;
 }
-function ConversationStatus({snapshot,run,task,board,busy,error,onOpenExecution,onOpenQueue,onOpenTask,onOpenPr}:{snapshot:ConversationSnapshot;run?:Run;task?:Task;board?:BoardMapping;busy:boolean;error:boolean;onOpenExecution?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onOpenPr?:()=>void}) {
+function ConversationStatus({snapshot,run,task,board,busy,error,onOpenExecution,onOpenQueue,onOpenTask,onOpenPr}:{snapshot:ConversationSnapshot;run?:Run;task?:Task;board?:BoardMapping;busy:boolean;error:boolean;onOpenExecution?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onOpenPr:(url:string)=>void}) {
   const stage=task?taskStage(task,board):undefined;
+  const links=taskPullRequests(task);
   const activity=error?"Suivi interrompu":snapshot.approvals?.length?"Votre réponse attendue":busy?"Réponse en cours":snapshot.readOnly?"Historique en lecture seule":"Prêt à répondre";
   const execution=run?busy&&run.conversation?"Réponse en cours":statusLabel(run):"Chargement";
   return <div className="conversation-status-strip" aria-label="Suivi de la conversation">
@@ -167,7 +169,7 @@ function ConversationStatus({snapshot,run,task,board,busy,error,onOpenExecution,
     </div></details>
     <span>Skill : {run?.skill?skillLabels[run.skill]||run.skill:"Aucune"}</span>
     <span>Ticket : {run?.taskId?<><strong>{task?.key||run.taskKey||run.taskId}</strong> · {task?.trackerStatus||"statut indisponible"}</>:"prompt libre"}</span>
-    {run?.taskId&&<span>PR/MR : {onOpenPr?<button type="button" className="conversation-pr-link" onClick={onOpenPr}><Icon name="branch"/>Ouvrir</button>:"aucune"}</span>}
+    {run?.taskId&&(links.length>1?<details className="conversation-pr-menu"><summary>PR/MR : {links.length} liées</summary><div className="conversation-pr-panel">{links.map(link=><button type="button" key={link.url} onClick={()=>onOpenPr(link.url)}><Icon name="branch"/>{pullRequestLabel(link)} · {pullRequestStateLabel(link)}</button>)}</div></details>:<span>PR/MR : {links.length?<button type="button" className="conversation-pr-link" onClick={()=>onOpenPr(links[0].url)}><Icon name="branch"/>{pullRequestLabel(links[0])} · {pullRequestStateLabel(links[0])}</button>:"aucune"}</span>)}
     <span>Étape : {run?.taskId?stage?stageLabels[stage]:"inconnue":"sans ticket"}</span>
   </div>;
 }

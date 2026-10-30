@@ -73,7 +73,7 @@ test("finished tickets show their result and PR without unavailable launch contr
  vi.mocked(api.listTasks).mockResolvedValue([{...task,status:"finished",labels:["#finished"],prUrl:"https://example.test/pr/1"}]);
  show();
  expect(await screen.findByText("Ce ticket est terminé.")).toBeTruthy();
- expect(screen.getByRole("button",{name:"Ouvrir la PR / MR"})).toBeTruthy();
+ expect(screen.getByRole("button",{name:"PR/MR · état inconnu"})).toBeTruthy();
  expect(screen.queryByRole("button",{name:/Lancer la chaîne/})).toBeNull();
  expect(screen.queryByText("Instructions et autre skill")).toBeNull();
  expect(screen.queryByText(/Préparation skills\/MCP non confirmée/)).toBeNull();
