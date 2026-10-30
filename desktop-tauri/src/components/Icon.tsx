@@ -25,6 +25,24 @@ const paths = {
   branch: "M6 3v12a4 4 0 0 0 4 4h5 M6 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4 M18 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4 M18 8v5a4 4 0 0 1-4 4 M18 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4",
 };
 export function Icon({ name }: { name: keyof typeof paths }) {
+  if (name === "panel") {
+    return (
+      <svg
+        viewBox="0 0 24 24"
+        width="20"
+        height="20"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <rect width="18" height="18" x="3" y="3" rx="2" />
+        <path d="M9 3v18" />
+      </svg>
+    );
+  }
   if (name === "more") {
     return (
       <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">

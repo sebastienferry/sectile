@@ -326,6 +326,7 @@ function Workspace() {
       <header className={`app-header ${mac ? "is-macos" : ""}`} data-tauri-drag-region>
         <div className="header-brand">
           {(current?.view !== "settings" || settingsHasWorkspace) && <button
+            id="toggle-sidebar"
             className="icon-button"
             title={settingsHasWorkspace ? "Retourner à l’espace de travail" : `Afficher ou masquer les projets · ${modifier}B`}
             aria-label={settingsHasWorkspace ? "Retourner à l’espace de travail" : "Afficher ou masquer les projets"}
