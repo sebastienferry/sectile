@@ -9,6 +9,19 @@ backlog and board screenshots on 2026-10-30 add explicit interaction references;
 post-dispatch execution remains product-specific rather than a pixel-parity target.
 This records hierarchy and behavior convergence, not pixel identity.
 
+## Findings ranked by user impact
+
+These were the shortest paths from the owner's feedback to visible friction.
+The linked retakes show their current disposition in the isolated Local app;
+remote Fleet and release qualifications remain separate.
+
+| Impact | Observed mismatch | Current disposition and evidence |
+| --- | --- | --- |
+| High | A folder-only project looked as if it needed a tracker, while tracker creation, editing and removal were hard to reach from project settings. | The project keeps its free prompt and exposes source management beside a single truthful empty state. [Native project capture](ux-captures/project-tracker-source-compact-native.jpg); `ProjectTrackerSetup.tsx` and `LocalSettings.tsx`. |
+| High | A running or stopped conversation scattered execution identity, stop, review and status across the rail, transcript and supervisor; opening a stopped history changed its rail label to “Lecture seule.” | The conversation menu and status strip keep actions and run identity nearby; terminal run status remains stable in the rail. [Native stopped-conversation capture](ux-captures/stopped-conversation-status-native.jpg); `ProjectPrompt.tsx` and `App.tsx`. |
+| Medium | The fixed narrow project rail and repeated project actions reduced workspace width and made navigation less predictable. | The rail resizes by pointer and keyboard, and selected conversations keep their own actions. [Native resized-rail capture](ux-captures/sidebar-resize-native-wide.jpg); `App.tsx`. |
+| Medium | Engine setup compressed Claude Code and Codex cards and used the wrong provider marks. | Both cards and their brand marks fit the compact desktop window with installation and MCP details disclosed on demand. [Native engine capture](ux-captures/engine-settings-single-navigation-native.jpg); `ProviderSettings.tsx`. |
+
 ## Reference and scope
 
 Electron's renderer is in Sectile's Go repository under `desktop/src/`. The
