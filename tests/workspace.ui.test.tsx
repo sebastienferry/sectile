@@ -694,3 +694,28 @@ test("project settings attach a tracker directly to the selected project", async
  expect(screen.queryByRole("button",{name:"Associer le tracker"})).toBeNull();
  expect(invoke).not.toHaveBeenCalledWith("create_local_project",expect.anything());
 });
+test("project tracker setup opens tracker management directly and returns to the project", async () => {
+ const scrollIntoView=vi.fn();
+ const originalScrollIntoView=HTMLElement.prototype.scrollIntoView;
+ HTMLElement.prototype.scrollIntoView=scrollIntoView;
+ try {
+ vi.mocked(invoke).mockImplementation(async command => {
+   if (command === "conversation_profiles") return {profiles:[],defaultId:"",inherited:true};
+   if (command === "local_setup_status") return {enabled:true,mode:"local",ready:true,signedIn:true,agentReady:true,projects:[{id:"p",name:"Example",trackers:[]}],trackers:[{id:"t",name:"Fixture tracker",provider:"github",site:"",scope:"fixture/repo"}]};
+   if (command === "active_tracker_syncs") return [];
+   if (command === "oauth_apps") return {};
+   return null;
+ });
+ render(<App/>);
+ fireEvent.click(await screen.findByRole("button",{name:"Configurer le projet"}));
+ const trackerSetup=await screen.findByRole("region",{name:"Source de tickets du projet"});
+ fireEvent.click(within(trackerSetup).getByRole("button",{name:"Gérer les sources de tickets"}));
+ expect(await screen.findByRole("button",{name:"Comptes et trackers",current:"page"})).toBeTruthy();
+ await waitFor(()=>expect(scrollIntoView).toHaveBeenCalledWith({block:"start"}));
+ expect((scrollIntoView.mock.instances[0] as HTMLElement).classList.contains("tracker-list")).toBe(true);
+ expect(screen.getByRole("button",{name:"Modifier"})).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Supprimer"})).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Retourner à l’espace de travail"}));
+ expect(await screen.findByRole("region",{name:"Source de tickets du projet"})).toBeTruthy();
+ } finally {HTMLElement.prototype.scrollIntoView=originalScrollIntoView;}
+});

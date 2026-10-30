@@ -5,10 +5,12 @@ export function ProjectTrackerSetup({
   projectId,
   setup: suppliedSetup,
   onChanged,
+  onManageTrackers,
 }: {
   projectId?: string;
   setup?: LocalSetup;
   onChanged: () => void;
+  onManageTrackers?: () => void;
 }) {
   const [loadedSetup, setLoadedSetup] = useState<LocalSetup>();
   const [selectedProjectId, setSelectedProjectId] = useState(projectId ?? "");
@@ -48,7 +50,8 @@ export function ProjectTrackerSetup({
     {!setup && !error && <p>Chargement des trackers…</p>}
     {error && <p role="alert" className="error">{error} {!suppliedSetup && <button type="button" onClick={() => {setError("");setReload(value => value + 1);}}>Réessayer</button>}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
-    {setup && !remoteTrackers.length && <p className="muted">Ajoutez d’abord une source dans Paramètres → Comptes et trackers.</p>}
+    {setup && !remoteTrackers.length && <p className="muted">Aucune source distante disponible pour ce projet.</p>}
+    {setup && onManageTrackers && <button type="button" className="project-tracker-manage" onClick={onManageTrackers}>Gérer les sources de tickets</button>}
     {setup && !!remoteTrackers.length && selected?.id && !available.length && <p className="muted">Toutes les sources disponibles sont déjà associées à ce projet.</p>}
     {setup && !!remoteTrackers.length && (!selected?.id || !!available.length) && <form onSubmit={submit}>
       <fieldset disabled={pending}>

@@ -1651,3 +1651,16 @@ shows more space for the transcript at the same window size. Opening **Dossiers*
 in the native app displayed the original working directory. An older history
 that can be adopted returns to the editable composer after adoption in the UI
 test; the native retake covers a stopped Codex conversation only.
+
+Project settings previously told users to find **Comptes et trackers** in
+Settings when no remote source was available, without an action to get there.
+The project now has **Gérer les sources de tickets**, which opens that settings
+section and scrolls to the existing source list when populated, or its create
+form when empty. The isolated port-52965 native retake created a disposable
+GitHub source with a test-only scope, reopened the project settings, and used
+the new action. Its [tracker-management capture](ux-captures/project-tracker-management-native.jpg)
+shows the source and **Modifier**/**Supprimer** controls in view. The edit form
+opened; cancellation made no change. The source was then deleted through its
+confirmation and the return button restored the same project settings. This
+tests Local navigation and CRUD availability, not a remote tracker read or
+Fleet permissions; those remain separate qualifications.

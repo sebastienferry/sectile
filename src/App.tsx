@@ -49,6 +49,7 @@ interface WorkspaceView {
   view: View;
   runId?: string;
   taskId?: string;
+  settingsSection?: "connections";
 }
 export default function App() {
   return (
@@ -136,16 +137,17 @@ function Workspace() {
   const initialized = useRef(false);
   const pendingRunRestore = useRef<WorkspaceDestination | null>(null);
   const navigate = useCallback(
-    (project: Project, view: View, runId?: string, taskId?: string) => {
+    (project: Project, view: View, runId?: string, taskId?: string, settingsSection?: "connections") => {
       if (view === "settings" && currentRef.current?.view !== "settings") {
         workspaceBeforeSettings.current = currentRef.current;
       }
       const destination: WorkspaceView = {
-        id: `${project.id}:${view}:${runId ?? ""}:${taskId ?? ""}`,
+        id: `${project.id}:${view}:${runId ?? ""}:${taskId ?? ""}:${settingsSection ?? ""}`,
         projectId: project.id,
         view,
         runId,
         taskId,
+        settingsSection,
       };
       if (view !== "settings" && view !== "ticket-editor") {
         savePreference("workspace", serializeWorkspaceDestination(createWorkspaceDestination(project.id, view, runId, taskId)));
@@ -464,7 +466,7 @@ function Workspace() {
           {current && (
             <section className={`workspace-pane ${current.view === "prompt" && current.runId ? "workspace-pane-conversation" : ""}`}>
               {current.view === "settings" ? (
-                <LocalSettings onConfigureProject={id=>{const project=projects.find(p=>p.id===id);if(project)navigate(project,"project-settings");}} onOpenFolder={() => void openFolder()} onChanged={() => { setProjects([]); void refreshProjects(); void refreshExecutions(); }} />
+                <LocalSettings initialSection={current.settingsSection} onConfigureProject={id=>{const project=projects.find(p=>p.id===id);if(project)navigate(project,"project-settings");}} onOpenFolder={() => void openFolder()} onChanged={() => { setProjects([]); void refreshProjects(); void refreshExecutions(); }} />
               ) : (
                 <ProjectPane
                   key={current.id}
@@ -529,6 +531,7 @@ function ProjectPane({
     view: View,
     runId?: string,
     taskId?: string,
+    settingsSection?: "connections",
   ) => void;
 }) {
   const monitor = useExecutionMonitor();
@@ -710,7 +713,7 @@ function ProjectPane({
           {error}
         </p>
       )}
-      {selection.view === "project-settings" ? <ProjectProfiles key={selection.projectId} projectId={selection.projectId} after={<section className="project-advanced" aria-label="Options avancées du projet"><h2>Options avancées</h2><details className="additional-folder-settings"><summary>Dossiers supplémentaires<small>Contexte partagé entre les conversations du projet</small></summary><AttachedFolderSettings projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/></details><AdvancedFolders projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/><WorkflowSettings projectId={selection.projectId}/><OrchestrationSettings projectId={selection.projectId} onSupervise={()=>{if(project)navigate(project,"orchestration");}}/></section>}><>{project && <ProjectFolderSetup variant="settings" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}<ProjectTrackerSetup projectId={selection.projectId} onChanged={() => {setContextRefresh(value=>value+1);onProjectsChanged();}} /></></ProjectProfiles> : selection.view === "ticket-editor" ? <TaskEditor projectId={selection.projectId} projectName={project?.name||"Projet"} taskId={selection.taskId} available={!!monitor.fresh&&!!monitor.snapshot?.status.capabilities?.includes("task-page")} onClose={()=>{if(project)navigate(project,selection.taskId?"task":"board",undefined,selection.taskId);}} onSaved={task=>{onTaskChanged(task);void refresh();if(project)navigate(project,"task",undefined,task.id);}}/> : selection.view === "task" && selection.taskId ? <Suspense fallback={<p>Ouverture du workflow…</p>}><WorkflowTask projectId={selection.projectId} taskId={selection.taskId} onBack={()=>{if(project)navigate(project,"board");}} onSetup={()=>{if(project)navigate(project,"settings");}} onEdit={()=>{if(project)navigate(project,"ticket-editor",undefined,selection.taskId);}} onExecution={runId=>{if(project)navigate(project,"executions",runId||undefined);}} onArchiveConversation={onArchiveConversation}/></Suspense> : selection.view === "board" ? (
+      {selection.view === "project-settings" ? <ProjectProfiles key={selection.projectId} projectId={selection.projectId} after={<section className="project-advanced" aria-label="Options avancées du projet"><h2>Options avancées</h2><details className="additional-folder-settings"><summary>Dossiers supplémentaires<small>Contexte partagé entre les conversations du projet</small></summary><AttachedFolderSettings projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/></details><AdvancedFolders projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/><WorkflowSettings projectId={selection.projectId}/><OrchestrationSettings projectId={selection.projectId} onSupervise={()=>{if(project)navigate(project,"orchestration");}}/></section>}><>{project && <ProjectFolderSetup variant="settings" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}<ProjectTrackerSetup projectId={selection.projectId} onChanged={() => {setContextRefresh(value=>value+1);onProjectsChanged();}} onManageTrackers={() => navigate({id:"settings",name:"Paramètres"},"settings",undefined,undefined,"connections")}/></></ProjectProfiles> : selection.view === "ticket-editor" ? <TaskEditor projectId={selection.projectId} projectName={project?.name||"Projet"} taskId={selection.taskId} available={!!monitor.fresh&&!!monitor.snapshot?.status.capabilities?.includes("task-page")} onClose={()=>{if(project)navigate(project,selection.taskId?"task":"board",undefined,selection.taskId);}} onSaved={task=>{onTaskChanged(task);void refresh();if(project)navigate(project,"task",undefined,task.id);}}/> : selection.view === "task" && selection.taskId ? <Suspense fallback={<p>Ouverture du workflow…</p>}><WorkflowTask projectId={selection.projectId} taskId={selection.taskId} onBack={()=>{if(project)navigate(project,"board");}} onSetup={()=>{if(project)navigate(project,"settings");}} onEdit={()=>{if(project)navigate(project,"ticket-editor",undefined,selection.taskId);}} onExecution={runId=>{if(project)navigate(project,"executions",runId||undefined);}} onArchiveConversation={onArchiveConversation}/></Suspense> : selection.view === "board" ? (
         <div className="board-workspace">
           {error && tasks.length > 0 && <p className="hint" role="status">La dernière actualisation a échoué. Les tickets affichés proviennent de la lecture précédente.</p>}
           {!boardContextPending && !currentContextError && !localOnlyProject && <div className="board-toolbar">

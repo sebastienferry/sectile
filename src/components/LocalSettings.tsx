@@ -14,9 +14,11 @@ const sections = [
  {id:"projects", label:"Projets", icon:"folder", description:"Partez d’un dossier local ou associez un projet à un tracker."},
  {id:"services", label:"Services locaux", icon:"monitor", description:"État de votre installation et outils de diagnostic."},
 ] as const;
-export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: { onChanged: () => void; onOpenFolder?: () => void; onConfigureProject?: (id:string) => void }) {
- const [section, setSection] = useState<SettingsSection>("engines");
- const navigated = useRef(false);
+export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, initialSection }: { onChanged: () => void; onOpenFolder?: () => void; onConfigureProject?: (id:string) => void; initialSection?: SettingsSection }) {
+ const [section, setSection] = useState<SettingsSection>(initialSection??"engines");
+ const navigated = useRef(!!initialSection);
+ const trackerManagement = useRef<HTMLElement>(null);
+ const trackerList = useRef<HTMLUListElement>(null);
   const [setup, setSetup] = useState<api.LocalSetup | null>(null);
   const [pending, setPending] = useState(false);
   const [pendingMessage, setPendingMessage] = useState("Enregistrement en cours…");
@@ -57,6 +59,11 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
     }).catch(cause => { if (mounted.current) { setError(String(cause)); setSection("services"); } });
     return () => { mounted.current = false; };
   }, []);
+  useEffect(() => {
+    if (initialSection === "connections" && section === "connections" && setup?.ready) {
+      (setup.trackers?.length ? trackerList.current : trackerManagement.current)?.scrollIntoView?.({block:"start"});
+    }
+  }, [initialSection, section, setup?.ready, setup?.trackers?.length]);
   async function perform(
     action: () => Promise<unknown>,
     message: string,
@@ -225,7 +232,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
         <article><h2>Accès personnel aux trackers</h2><p className="muted">Pour une nouvelle installation Local, enregistrez un jeton personnel du fournisseur. Vos tickets restent gérés par le compagnon sur ce poste.</p>{personalAccess}</article>
         <details><summary>Connexion OAuth locale existante</summary><OAuthConnections credentials={setup.credentials?.credentials} onConnected={() => { void refresh(); onChanged(); }} /></details>
       </>}
-      <article>
+      <article ref={trackerManagement}>
         <h2>Sources de tickets</h2>
         {setup.mode !== "fleet" || setup.profile?.role === "admin" ? <form onSubmit={e => submit(e, async () => { await api.createLocalTracker({ name: trackerName, provider: sourceProvider, site: trackerApiSite(sourceProvider, sourceSite), scope }); setTrackerName(""); setScope(""); }, "Tracker ajouté.")}>
           <fieldset disabled={pending}>
@@ -236,7 +243,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
             <button type="submit">Ajouter le tracker</button>
           </fieldset>
         </form> : <p className="muted">Les trackers sont partagés dans Fleet. Demandez à un administrateur du serveur d’enregistrer une nouvelle source.</p>}
-        <ul className="setup-list tracker-list">{setup.trackers?.map(t => <li key={t.id}>
+        <ul ref={trackerList} className="setup-list tracker-list">{setup.trackers?.map(t => <li key={t.id}>
           <div className="tracker-list-row"><span><strong>{t.name}</strong><small>{t.provider} · {t.scope}{t.site ? ` · ${t.site}` : ""}</small>{trackerSyncs[t.id]&&<TrackerSyncResult activityId={trackerSyncs[t.id].id} onFinished={()=>{setTrackerSyncs(previous=>({...previous,[t.id]:{...previous[t.id],active:false}}));void refresh();onChanged();}}/>}</span>
             <div className="tracker-list-actions"><button disabled={pending||trackerSyncs[t.id]?.active} onClick={() => void perform(async()=>{const active=await api.activeTrackerSyncs().catch(()=>[]);const existing=active.find(activity=>activity.trackerId===t.id);const result=existing?{activity:existing}:await api.syncLocalTracker(t.id);if(!result.activity?.id)throw new Error("Le backend n’a pas fourni de suivi pour cette synchronisation.");setTrackerSyncs(previous=>({...previous,[t.id]:{id:result.activity.id,active:true}}));}, "Synchronisation suivie. Son résultat apparaîtra sous le tracker.")}>Synchroniser</button>
               {(setup.mode !== "fleet" || setup.profile?.role === "admin") && <><button type="button" disabled={pending} onClick={() => {setDeletingTrackerId(null);setEditingTracker(editingTracker?.id === t.id ? null : {...t,site:t.site??""});}}>Modifier</button><button type="button" disabled={pending} onClick={() => {setEditingTracker(null);setDeletingTrackerId(deletingTrackerId === t.id ? null : t.id);}}>Supprimer</button></>}
