@@ -78,6 +78,17 @@ test("finished tickets show their result and PR without unavailable launch contr
  expect(screen.queryByText("Instructions et autre skill")).toBeNull();
  expect(screen.queryByText(/Préparation skills\/MCP non confirmée/)).toBeNull();
 });
+test("unverified engine preparation stays compact and can still open setup",async()=>{
+ const onSetup=vi.fn();
+ vi.mocked(context.providerReadiness).mockResolvedValue({provider:"claude",complete:false,steps:{skills:{status:"unknown"},mcp:{status:"unknown"}}});
+ render(<WorkflowTask projectId="project" taskId="task" onBack={()=>{}} onSetup={onSetup}/>);
+ const summary=await screen.findByText("Préparation du moteur non vérifiée");
+ expect(summary.closest("details")?.hasAttribute("open")).toBe(false);
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Étape suivante : Implémenter"}).hasAttribute("disabled")).toBe(false));
+ fireEvent.click(summary);
+ fireEvent.click(screen.getByRole("button",{name:"Vérifier les moteurs IA"}));
+ expect(onSetup).toHaveBeenCalledOnce();
+});
 test("next-step launch rereads workflow state and preserves the configured chain stop in the UI",async()=>{
  show();const next=await screen.findByRole("button",{name:"Étape suivante : Implémenter"});
  await waitFor(()=>expect(next.hasAttribute("disabled")).toBe(false));

@@ -85,7 +85,7 @@ function WorkflowTaskView({projectId,taskId,onBack,onSetup,onExecution,onArchive
  <ol className="workflow-progress" aria-label="Étapes du workflow">{stages.map(stage=><li key={stage} aria-current={step?.stage===stage?"step":undefined}>{stageLabels[stage]}</li>)}</ol>
  {(error||readError)&&<p role="alert" className="error">{error||readError}</p>}{notice&&<p role="status">{notice}</p>}
  <button disabled={pending} onClick={()=>{setError("");void monitor.refresh();void refresh();}}>Actualiser le workflow</button>
- {task&&project&&!finished&&readinessUnknown&&<aside className="workflow-prerequisite"><p>Préparation skills/MCP non confirmée pour ce moteur. Une installation par plugin peut déjà être prête ; la connexion CLI seule ne le garantit pas.</p><button onClick={onSetup}>Vérifier les moteurs IA</button></aside>}
+ {task&&project&&!finished&&readinessUnknown&&<details className="workflow-prerequisite"><summary>Préparation du moteur non vérifiée</summary><p>Préparation skills/MCP non confirmée pour ce moteur. Une installation par plugin peut déjà être prête ; la connexion CLI seule ne le garantit pas.</p><button onClick={onSetup}>Vérifier les moteurs IA</button></details>}
  {task&&project&&!finished&&mcpConflict&&<p role="alert" className="error">L’entrée MCP existante ne correspond pas à ce compagnon. Vérifiez sa cible dans les moteurs IA avant de lancer le workflow.</p>}
  {step?.reason&&<p role="status">{step.reason}</p>}
  {active&&<p role="status">{skillLabels[active.skill]||active.skill} · {statusLabel(active)}. Une exécution est déjà ouverte pour ce ticket.</p>}

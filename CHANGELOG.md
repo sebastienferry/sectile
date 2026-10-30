@@ -76,6 +76,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Keep the workflow's unverified engine-preparation note in a compact disclosure while leaving real MCP conflicts visible.
 - Make the free prompt the primary project-header action and keep board settings in a compact labeled icon.
 - Keep the ticket board controls on a compact row and show batch actions only after tickets are selected.
 - Open tracker boards with color-coded workflow stages and remember the choice to group by tracker status.

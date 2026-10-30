@@ -559,6 +559,11 @@ That capture also exposed an elongated blue activity indicator in the project
 rail. The generic run-row flex rule matched the conversation indicator; it is
 now scoped to non-conversation run rows. The native retake is recorded in
 `docs/ux-captures/conversation-indicators-native.png`.
+The same workflow capture showed that an unverified engine-preparation note
+occupied a large card even though the launch path rechecks preparation and
+remains available. This note is now a collapsed disclosure; a known MCP
+configuration conflict still renders as an explicit error. The native retake
+is `docs/ux-captures/workflow-preparation-compact-native.png`.
 
 Current verification passes on Tauri commit `239d7c1`: `npm run check`, 14
 domain tests, 101 UI tests, 35 Rust tests and `npm run build`. The short-window
