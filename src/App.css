@@ -535,6 +535,14 @@ body.resizing-sidebar {
   border-radius: 8px;
   padding: 12px;
 }
+.column[data-stage] { background:color-mix(in srgb,var(--stage-color) 13%,var(--sunken)); border-color:color-mix(in srgb,var(--stage-color) 24%,var(--border)); }
+.column[data-stage] .dot { background:var(--stage-color); }
+.column[data-stage="new"] { --stage-color:#8e9aa8; }
+.column[data-stage="clarified"] { --stage-color:#54a7d7; }
+.column[data-stage="specified"] { --stage-color:#9074d4; }
+.column[data-stage="implemented"] { --stage-color:#d59a4b; }
+.column[data-stage="reviewed"] { --stage-color:#60b8a7; }
+.column[data-stage="finished"] { --stage-color:#72ab83; }
 .column h2 {
   display: flex;
   align-items: center;

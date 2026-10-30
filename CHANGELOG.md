@@ -70,6 +70,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Open tracker boards with color-coded workflow stages and remember the choice to group by tracker status.
 - Put folder attachment and MCP verification beside model, mode and terminal controls in the composer; give conversation turns more breathing room without adding a separate context bar.
 - Show Claude and OpenAI brand marks in desktop engine settings and keep both connection controls visible at compact window sizes.
 - Show profile, engine, model and mode labels beside the free-prompt composer controls.

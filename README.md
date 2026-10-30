@@ -184,8 +184,9 @@ folders. Git repositories and plain folders retain Go's worktree/write semantics
 
 A ticket card opens its guided workflow: remote status, six-stage progression,
 next skill, configured pickup stopping point, optional instructions, execution
-history and PR/MR access. The board groups the same remote tickets by tracker
-status or workflow stage. Stage labels, per-tracker mappings and statuses determine
+history and PR/MR access. The board opens with workflow stage columns and can
+group the same remote tickets by tracker status; that choice is remembered.
+Stage labels, per-tracker mappings and statuses determine
 the presentation. The desktop stores no independent task truth.
 
 **Étape suivante** rereads the ticket, project and executions before submitting.

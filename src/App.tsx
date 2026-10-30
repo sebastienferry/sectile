@@ -466,7 +466,7 @@ function ProjectPane({
   const [busy, setBusy] = useState(false);
   const [queryState, setQueryState] = useState<{projectId:string;value:string}>();
   const query = queryState?.projectId === selection.projectId ? queryState.value : "";
-  const [grouping,setGrouping] = useState("tracker");
+  const [grouping,setGrouping] = useState<"stage"|"tracker">(()=>readPreference("boardGrouping","stage")==="tracker"?"tracker":"stage");
   const [compactCards,setCompactCards] = useState(()=>readPreference("boardCards","compact")!=="full");
   const [ticketView,setTicketView]=useState<"board"|"list">(()=>readPreference("ticketView","board")==="list"?"list":"board");
   const [selectedTaskIds,setSelectedTaskIds]=useState<string[]>([]);
@@ -518,7 +518,7 @@ function ProjectPane({
   );
   const visibleTasks = remoteColumns.flatMap(column=>column.tasks);
   const allRemoteTasks=trackerColumns(tasks).flatMap(column=>column.tasks);
-  const columns = grouping === "stage" ? [...stages.map(stage=>({name:stageLabels[stage],tasks:visibleTasks.filter(task=>taskStage(task,context?.board)===stage)})),...(visibleTasks.some(task=>!taskStage(task,context?.board))?[{name:"Étape inconnue",tasks:visibleTasks.filter(task=>!taskStage(task,context?.board))}]:[])] : remoteColumns;
+  const columns = grouping === "stage" ? [...stages.map(stage=>({name:stageLabels[stage],tasks:visibleTasks.filter(task=>taskStage(task,context?.board)===stage),stage})),...(visibleTasks.some(task=>!taskStage(task,context?.board))?[{name:"Étape inconnue",tasks:visibleTasks.filter(task=>!taskStage(task,context?.board)),stage:undefined}]:[])] : remoteColumns.map(column=>({...column,stage:undefined}));
   const count = columns.reduce((n, c) => n + c.tasks.length, 0);
   const selectedTasks=selectedTaskIds.map(id=>allRemoteTasks.find(task=>task.id===id)).filter((task):task is Task=>Boolean(task));
   function toggleTask(id:string){setSelectedTaskIds(previous=>previous.includes(id)?previous.filter(item=>item!==id):[...previous,id]);setBatchConfirm(false);}
@@ -617,7 +617,7 @@ function ProjectPane({
                 onChange={(e) => setQueryState({projectId:selection.projectId,value:e.target.value})}
               />
             </label>
-            <label>Regrouper<select aria-label="Regrouper les tickets" value={grouping} onChange={e=>setGrouping(e.target.value)}><option value="tracker">Par statut tracker</option><option value="stage">Par étape du workflow</option></select></label>
+            <label>Regrouper<select aria-label="Regrouper les tickets" value={grouping} onChange={e=>{const value=e.target.value==="tracker"?"tracker":"stage";setGrouping(value);savePreference("boardGrouping",value);}}><option value="stage">Par étape du workflow</option><option value="tracker">Par statut tracker</option></select></label>
             {ticketView==="board"&&<button type="button" className="board-density" aria-pressed={compactCards} onClick={()=>setCompactCards(value=>{const next=!value;savePreference("boardCards",next?"compact":"full");return next;})}>Cartes compactes</button>}
             <span className="badge">{count} tickets</span>
             <span className="board-selection-count">{selectedTasks.length} sélectionné{selectedTasks.length>1?"s":""}</span>
@@ -636,7 +636,7 @@ function ProjectPane({
           {currentContextError && <div className="error" role="alert">Configuration du tableau indisponible : {currentContextError} <button onClick={()=>setContextRefresh(value=>value+1)}>Réessayer</button></div>}
           {ticketView==="list"&&!localOnlyProject?<div className="ticket-list" role="region" aria-label="Liste des tickets" tabIndex={0}><table><thead><tr><th aria-label="Sélection"/><th>Clé</th><th>Titre</th><th>Statut</th><th>Priorité</th><th>Moteur</th><th>PR</th><th>Actions</th></tr></thead><tbody>{visibleTasks.slice(0,visibleListCount).map(task=><tr key={task.id}><td><input type="checkbox" aria-label={`Sélectionner ${task.key||task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={()=>toggleTask(task.id)}/></td><td>{task.key||task.id}</td><td><button type="button" className="task-open" onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button>{task.parentKey&&<small className="epic-chip" style={epicStyle(task)} title={task.parentTitle}>{task.parentKey}</small>}</td><td>{task.trackerStatus||"—"}</td><td><span className={`priority priority-${task.priority||"none"}`}>{task.priority||"—"}</span></td><td>{context?.aiProvider==="claude"?"Claude":context?.aiProvider==="codex"?"Codex":"—"}</td><td>{task.prUrl&&/^https?:\/\//.test(task.prUrl)?<button type="button" className="task-pr-link" aria-label={`Ouvrir la PR de ${task.key||task.title}`} onClick={()=>void openExternalLink(task.prUrl!).catch(()=>setLaunchError("Impossible d’ouvrir la PR."))}>●</button>:"—"}</td><td>{taskMenu(task)}</td></tr>)}</tbody></table>{visibleTasks.length>visibleListCount&&<button type="button" className="board-show-more" onClick={()=>setVisibleListCount(value=>value+80)}>Afficher les 80 suivants · {visibleListCount} sur {visibleTasks.length}</button>}</div>:<div className="board" role="region" aria-label="Colonnes de tickets, défilement horizontal" tabIndex={0}>
             {columns.map((column) => (
-              <section className="column" key={column.name}>
+              <section className="column" data-stage={column.stage} key={column.name}>
                 <h2>
                   <span className="dot" />
                   {column.name}

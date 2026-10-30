@@ -232,6 +232,23 @@ test("tracker-backed projects retain board search, grouping and ticket status",a
  expect(screen.getByText("Remote issue")).toBeTruthy();
  expect(screen.getByRole("region",{name:"Colonnes de tickets, défilement horizontal"}).getAttribute("tabindex")).toBe("0");
 });
+test("workflow columns open by default and the tracker grouping choice persists",async()=>{
+ vi.mocked(api.listTasks).mockResolvedValue([{id:"t",key:"APP-2",title:"Remote issue",source:"jira",trackerStatus:"To Do",status:"to_clarify"}]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
+ const view=render(<App/>);
+ await screen.findByText("Remote issue");
+ expect(document.querySelector('.column[data-stage="new"]')).not.toBeNull();
+ expect(document.querySelector('.column[data-stage="clarified"]')).not.toBeNull();
+ const grouping=screen.getByRole("combobox",{name:"Regrouper les tickets"}) as HTMLSelectElement;
+ expect(grouping.value).toBe("stage");
+ fireEvent.change(grouping,{target:{value:"tracker"}});
+ expect(localStorage.getItem("sectile-tauri.boardGrouping")).toBe("tracker");
+ expect(document.querySelector('.column[data-stage]')).toBeNull();
+ view.unmount();
+ render(<App/>);
+ await screen.findByText("Remote issue");
+ expect((screen.getByRole("combobox",{name:"Regrouper les tickets"}) as HTMLSelectElement).value).toBe("tracker");
+});
 test("the backlog list keeps epic context and selection while switching views",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue([{id:"t1",key:"APP-1",title:"First issue",source:"jira",trackerStatus:"To Do",status:"to_clarify",parentKey:"EPIC-1",priority:"high"},{id:"t2",key:"APP-2",title:"Second issue",source:"jira",trackerStatus:"To Do",status:"to_clarify",parentKey:"EPIC-1",priority:"medium"}]);
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
@@ -305,6 +322,7 @@ test("a large tracker board renders tickets progressively while search reaches t
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
  render(<App />);
  await screen.findByText("Ticket 1");
+ fireEvent.change(screen.getByRole("combobox",{name:"Regrouper les tickets"}),{target:{value:"tracker"}});
  expect(screen.getByText("1988 tickets")).toBeTruthy();
  expect(document.querySelectorAll(".board .task")).toHaveLength(40);
  fireEvent.click(screen.getByRole("button",{name:"Afficher les tickets suivants dans To Do"}));
