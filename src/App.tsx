@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { executionSnapshot, launchTask, listProjects, listTasks } from "./lib/agent";
 import { trackerColumns, type Project, type Task } from "./domain/board";
 import { epicColorHex } from "./domain/epic-color";
@@ -193,6 +194,15 @@ function Workspace() {
     window.addEventListener("keydown", onShortcut);
     return () => window.removeEventListener("keydown", onShortcut);
   }, [mac, navigate, paletteOpen, projects]);
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen("sectile:open-settings", () => {
+      if (currentRef.current?.view !== "settings") navigate({ id: "settings", name: "Paramètres" }, "settings");
+    }).then(stop => { if (disposed) stop(); else unlisten = stop; }).catch(() => {});
+    return () => { disposed = true; unlisten?.(); };
+  }, [navigate]);
   return (
     <div className="desktop-shell">
       <header className="app-header">

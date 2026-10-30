@@ -3,19 +3,41 @@ mod local;
 mod workspace;
 mod terminal;
 
+#[cfg(target_os = "macos")]
+fn install_settings_menu(app: &mut tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind};
+
+    let menu = Menu::default(app.handle())?;
+    if let Some(MenuItemKind::Submenu(application_menu)) = menu.items()?.into_iter().next() {
+        let settings = MenuItem::with_id(app.handle(), "sectile-settings", "Paramètres…", true, Some("Cmd+,"))?;
+        application_menu.insert(&settings, 2)?;
+    }
+    app.set_menu(menu)?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    use tauri::Emitter;
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(agent::Streams::default())
         .manage(local::LocalRuntime::default())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            install_settings_menu(app)?;
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let _ = local::resume(&handle).await;
             });
             Ok(())
+        })
+        .on_menu_event(|app, event| {
+            if event.id() == "sectile-settings" {
+                let _ = app.emit("sectile:open-settings", ());
+            }
         })
         .invoke_handler(tauri::generate_handler![
             local::open_folder_project,

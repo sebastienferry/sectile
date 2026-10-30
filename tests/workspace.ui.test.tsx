@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("../src/components/ProjectPrompt", () => ({ default: ({ projectId }: {projectId: string}) => <div>Free prompt for {projectId}</div> }));
 import App from "../src/App";
 import type { Task } from "../src/domain/board";
@@ -41,6 +43,24 @@ test("sidebar navigation replaces the view without canceling a run", async () =>
   await screen.findByRole("textbox", { name: "Rechercher des tickets" });
   expect(screen.queryByText("Live output")).toBeNull();
   expect(api.stopRun).not.toHaveBeenCalled();
+});
+test("the native macOS Settings menu opens the existing Settings view", async () => {
+  Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+  vi.mocked(invoke).mockResolvedValue({});
+  let openSettings: (() => void) | undefined;
+  vi.mocked(listen).mockImplementation(async (_event, callback) => {
+    openSettings = () => callback({ event: "sectile:open-settings", id: 1, payload: undefined });
+    return () => {};
+  });
+  try {
+    render(<App />);
+    await screen.findByRole("button", { name: "Example" });
+    await waitFor(() => expect(openSettings).toBeDefined());
+    openSettings?.();
+    expect(await screen.findByRole("heading", { name: "Configuration du poste" })).toBeTruthy();
+  } finally {
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  }
 });
 test("workflow run status stays on its ticket instead of duplicating the project rail row", async () => {
   vi.mocked(api.listProjects).mockResolvedValue([{ id: "p", name: "Example", path: "/work/example" }]);
@@ -96,7 +116,7 @@ test("launch falls back to the project board when the saved conversation is gone
 test("theme selection remains available without tabs", async () => {
   render(<App />);
   await screen.findByRole("button", { name: "Example" });
-  expect(screen.getAllByRole("button", { name: "Tableau" })).toHaveLength(1);
+  expect(await screen.findAllByRole("button", { name: "Tableau" })).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Thème clair" }));
   expect(document.documentElement.dataset.theme).toBe("light");
   expect(screen.queryByRole("tab")).toBeNull();

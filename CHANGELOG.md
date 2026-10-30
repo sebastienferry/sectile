@@ -21,6 +21,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Open Settings through the native macOS Command-comma menu shortcut when the WebView does not receive the key event.
 - Match Electron's epic colors on the desktop board and backlog list when the project enables them, and explain when a restored Codex conversation can check MCP again.
 - Keep the conversation composer visible when an interactive question takes more space than the window provides.
 - Preparing a Local update preserves idle Claude Code and Codex conversations, including Codex sessions with an open RPC connection, while still refusing active work.

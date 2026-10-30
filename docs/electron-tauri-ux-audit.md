@@ -1327,7 +1327,12 @@ was accessible, but a manual click did not change its displayed unknown status
 on this restored Codex history; the prior real tool-call qualification remains
 the MCP evidence. The `Cmd+,` shortcut also did not navigate in automated
 native input, while `Cmd+B` did; keyboard dispatch for this punctuation key
-needs a separate manual check. Native tracker-backed list/board data was not
+needed a native menu path. A later isolated unsigned macOS app with identity
+`com.sebferry.sectile.settingsqa20261030` showed a native “Paramètres…” menu
+item, and activating it left the first-run Settings screen available. A UI test
+now verifies that this native menu event navigates from a workspace to Settings.
+The fresh native profile opened in Settings already, so native board-to-Settings
+navigation remains unqualified. Native tracker-backed list/board data was not
 available in this isolated Local profile, so their visual/interaction evidence
 comes from the browser fixture and automated tests. Remote Fleet, Jira OAuth
 consent and signed distribution remain separate open gates.
