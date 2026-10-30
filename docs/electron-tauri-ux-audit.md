@@ -1600,3 +1600,10 @@ Component tests cover free Codex and ticket-linked Claude examples. The
 frontend, domain, UI and Rust suites pass, but the Mac was locked for this
 bundle's native inspection. Both this and the preceding conversation-toolbar
 change therefore remain open in the native qualification record.
+
+The supervision heading also counted an idle free-prompt provider process as
+an active execution. It now reports active task executions separately from
+open free-prompt sessions, while each row retains its own specific status.
+UI tests cover a task-linked Claude workflow and a free Codex session. This
+wording is source-verified but still awaits native inspection alongside the
+preceding queue changes.

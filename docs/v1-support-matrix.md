@@ -7,14 +7,15 @@ binary checks in the [release checklist](v1-release-checklist.md).
 
 ## Current branch versus retained package
 
-The UX working branch is Tauri `a7421d9` with Go `7af14675`. This is newer
+The UX working branch builds on Tauri `a7421d9` with Go `7af14675`. This is newer
 than the retained `d69c3ac`/`f55e8768` unsigned package below, so its source
 tests and isolated QA windows do not update that package's release evidence.
 Go `8d40b2aa`'s process-bound MCP project-context fix has already passed real
 Claude Code and Codex calls from an isolated unsigned Tauri bundle; the
 retained package predates it. The newer conversation-toolbar and execution
-queue changes (`0998f9b`, `a7421d9`) pass source UI tests. A separate bundle
-with the latest source and a port-52965 companion is staged, but native
+queue changes (`0998f9b`, `a7421d9`), plus separate counting of open free
+conversations, pass source UI tests. A separate bundle with current source and
+a port-52965 companion is staged, but native
 inspection is pending while the Mac is locked. The user's port-52964 trial
 remains on its earlier bundle and has not been replaced.
 

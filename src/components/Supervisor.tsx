@@ -129,6 +129,8 @@ export function Supervisor({
     return()=>{current=false;clearInterval(timer);};
   },[projectId,view,supportsOrchestration]);
   const runs = projectRuns(snapshot?.runs ?? [], projectId);
+  const activeExecutionCount = runs.filter(run => isActive(run) && (!run.conversation || !!run.taskId)).length;
+  const openFreeConversationCount = runs.filter(run => isActive(run) && run.conversation && !run.taskId).length;
   const connected =
     fresh &&
     snapshot?.status.connected === true &&
@@ -406,7 +408,7 @@ export function Supervisor({
         )}
       </details>
       <div hidden={view !== "executions"} className="execution-workspace">
-        <h3>Exécutions de ce poste · {runs.filter(isActive).length} actives</h3>
+        <h3>Exécutions de ce poste · {activeExecutionCount} exécution{activeExecutionCount > 1 ? "s" : ""} active{activeExecutionCount > 1 ? "s" : ""}{openFreeConversationCount > 0 && ` · ${openFreeConversationCount} session${openFreeConversationCount > 1 ? "s" : ""} ouverte${openFreeConversationCount > 1 ? "s" : ""}`}</h3>
         <div className="execution-list" hidden={!!run}>
           {runs.map((item) => (
             <article

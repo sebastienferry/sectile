@@ -36,7 +36,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); });
 test("sidebar navigation replaces the view without canceling a run", async () => {
   render(<App />);
   fireEvent.click(await screen.findByRole("button", { name: /Toutes les exécutions/ }));
-  await screen.findByText("Exécutions de ce poste · 1 actives");
+  await screen.findByText("Exécutions de ce poste · 1 exécution active");
   fireEvent.click(screen.getByRole("button", { name: /APP-1/ }));
   await screen.findByText("Live output");
   expect(screen.queryByRole("tablist")).toBeNull();
@@ -53,6 +53,7 @@ test("a selected conversation execution keeps project actions out of its toolbar
   });
   render(<App />);
   fireEvent.click(await screen.findByRole("button", { name: /Toutes les exécutions/ }));
+  await screen.findByText("Exécutions de ce poste · 0 exécution active · 1 session ouverte");
   const runButton = await waitFor(() => document.querySelector<HTMLButtonElement>(".execution-list .run-select"));
   expect(runButton).toBeTruthy();
   fireEvent.click(runButton!);
@@ -132,7 +133,7 @@ test("project menu opens the execution queue and groups ticket conversations by 
  fireEvent.click(within(sidebar).getByRole("button",{name:"Ouvrir la PR/MR de APP-2"}));
  expect(workspace.openExternalLink).toHaveBeenCalledWith("https://gitlab.example.com/team/app/-/merge_requests/7");
  fireEvent.click(within(sidebar).getByRole("button",{name:"File des exécutions"}));
- await screen.findByText("Exécutions de ce poste · 1 actives");
+ await screen.findByText("Exécutions de ce poste · 1 exécution active");
 });
 test("conversation actions stop a live session and archive and restore a finished one",async()=>{
  vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true,capabilities:[]},runs:[
