@@ -1331,3 +1331,12 @@ needs a separate manual check. Native tracker-backed list/board data was not
 available in this isolated Local profile, so their visual/interaction evidence
 comes from the browser fixture and automated tests. Remote Fleet, Jira OAuth
 consent and signed distribution remain separate open gates.
+
+The later `b0eb4bd` board color retake passes the complete TypeScript, UI,
+Rust and production frontend checks. A separate unsigned macOS fixture bundle
+with identity `com.sebferry.sectile.boardqa20261030` was built to inspect the
+colored cards in a native WebView. Its window remained blank in two fixture
+bootstrap variants, so it supplies no native board proof. This test-only bundle
+did not start or change the regular port-52963 companion. A native board check
+with tracker-backed data remains open; browser fixture captures and UI tests
+must not be presented as a substitute for it.
