@@ -19,6 +19,25 @@ export async function getTask(projectId:string,taskId:string):Promise<Task> {
   requireDesktop();
   return invoke<Task>("get_task",{projectId,taskId});
 }
+export interface TaskTracker {id:string;name?:string;provider:string;scope?:string}
+export interface TaskTrackers {defaultTrackerId?:string;trackers:TaskTracker[]}
+export interface TaskFields {title:string;description:string;priority:string;issueType:string}
+export async function taskTrackers(projectId:string):Promise<TaskTrackers> {
+  requireDesktop();
+  return invoke<TaskTrackers>("task_trackers",{projectId});
+}
+export async function taskIssueTypes(projectId:string,trackerId:string):Promise<{supported:boolean;issueTypes:string[]}> {
+  requireDesktop();
+  return invoke("task_issue_types",{projectId,trackerId});
+}
+export async function createTask(projectId:string,input:TaskFields & {trackerId:string}):Promise<Task> {
+  requireDesktop();
+  return invoke<Task>("create_task",{projectId,input});
+}
+export async function updateTask(projectId:string,taskId:string,changes:Partial<TaskFields>):Promise<Task> {
+  requireDesktop();
+  return invoke<Task>("update_task",{projectId,taskId,changes});
+}
 
 import { Channel } from "@tauri-apps/api/core";
 import type {

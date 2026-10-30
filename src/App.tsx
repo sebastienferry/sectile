@@ -21,6 +21,7 @@ import { nextSkill, skillLabels, stages, stageLabels, taskStage } from "./domain
 import { launchInput } from "./domain/execution";
 import { AttachedFolderSettings } from "./components/FolderContext";
 import { ProjectProfiles } from "./components/ProjectProfiles";
+import { TaskEditor } from "./components/TaskEditor";
 import { LocalSettings } from "./components/LocalSettings";
 import { Icon } from "./components/Icon";
 import { readPreference, savePreference, useAppearance } from "./lib/appearance";
@@ -41,7 +42,7 @@ import "./App.css";
 const WorkflowTask = lazy(()=>import("./components/WorkflowTask").then(module=>({default:module.WorkflowTask})));
 const ProjectPrompt = lazy(() => import("./components/ProjectPrompt"));
 
-type View = WorkspaceViewName | "settings";
+type View = WorkspaceViewName | "settings" | "ticket-editor";
 interface WorkspaceView {
   id: string;
   projectId: string;
@@ -146,7 +147,7 @@ function Workspace() {
         runId,
         taskId,
       };
-      if (view !== "settings") {
+      if (view !== "settings" && view !== "ticket-editor") {
         savePreference("workspace", serializeWorkspaceDestination(createWorkspaceDestination(project.id, view, runId, taskId)));
       }
       setCurrent(destination);
@@ -339,6 +340,7 @@ function Workspace() {
                           <summary aria-label={`Actions pour ${project.name}`} title={`Actions pour ${project.name}`}>•••</summary>
                           <div className="project-action-panel">
                             <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"board");}}>Voir les tickets</button>
+                            <button disabled={!fresh||!snapshot?.status.capabilities?.includes("task-page")} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"ticket-editor");}}>Nouveau ticket</button>
                             <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"executions");}}>File des exécutions</button>
                             <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");setShowArchivedConversations(value=>!value);}}>{showArchivedConversations?"Voir les conversations actives":"Voir les conversations archivées"}</button>
                             <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"prompt");}}>Démarrer un prompt libre</button>
@@ -659,7 +661,7 @@ function ProjectPane({
   function taskMenu(task:Task){
     const next=context?nextSkill(task,context):undefined;
     const launchDisabled=launching||!monitor.fresh||taskStage(task,context?.board)==="finished";
-    return <select className="task-actions" aria-label={`Actions pour ${task.key||task.title}`} title="Actions du ticket" defaultValue="" onChange={event=>{const value=event.currentTarget.value;event.currentTarget.value="";if(value==="open"){if(project)navigate(project,"task",undefined,task.id);}else if(value)void startSkill(task,value);}}><option value="">•••</option><option value="open">Voir le workflow</option>{next?.skillId&&<option value={next.skillId} disabled={launchDisabled}>Lancer : {next.label}</option>}{context?.skills.filter(skill=>skill.id!==next?.skillId&&skill.id!=="pickup_issues").map(skill=><option key={skill.id} value={skill.id} disabled={launchDisabled}>Lancer : {skillLabels[skill.id]||skill.id}</option>)}</select>;
+    return <select className="task-actions" aria-label={`Actions pour ${task.key||task.title}`} title="Actions du ticket" defaultValue="" onChange={event=>{const value=event.currentTarget.value;event.currentTarget.value="";if(value==="open"){if(project)navigate(project,"task",undefined,task.id);}else if(value==="edit"){if(project)navigate(project,"ticket-editor",undefined,task.id);}else if(value)void startSkill(task,value);}}><option value="">•••</option><option value="open">Voir le workflow</option><option value="edit" disabled={!monitor.fresh||!monitor.snapshot?.status.capabilities?.includes("task-page")}>Modifier le ticket</option>{next?.skillId&&<option value={next.skillId} disabled={launchDisabled}>Lancer : {next.label}</option>}{context?.skills.filter(skill=>skill.id!==next?.skillId&&skill.id!=="pickup_issues").map(skill=><option key={skill.id} value={skill.id} disabled={launchDisabled}>Lancer : {skillLabels[skill.id]||skill.id}</option>)}</select>;
   }
   function epicStyle(task:Task):CSSProperties|undefined {
     const color=context?.board?.epicColors ? epicColorHex(task.parentKey) : undefined;
@@ -673,7 +675,7 @@ function ProjectPane({
           <div className="workspace-path"><p title={workingDirectory}>{workingDirectory || (selection.runId ? "Dossier de l’exécution en cours de chargement…" : "Espace de travail du projet")}</p>{workingDirectory&&<button type="button" className="copy-path" title="Copier le chemin du dossier de travail" aria-label="Copier le chemin du dossier de travail" onClick={()=>void navigator.clipboard.writeText(workingDirectory).then(()=>setPathCopyState("Copié"),()=>setPathCopyState("Copie impossible"))}>{pathCopyState||"Copier"}</button>}</div>
         </div>
         <div className="toolbar-actions">
-          {project && selection.view !== "task" && (
+          {project && selection.view !== "task" && selection.view !== "ticket-editor" && (
             <>
               {selection.view !== "board" && !(selection.view === "prompt" && selection.runId) && <button onClick={() => navigate(project, "board")}>
                 <Icon name="board" />
@@ -705,7 +707,7 @@ function ProjectPane({
           {error}
         </p>
       )}
-      {selection.view === "project-settings" ? <ProjectProfiles key={selection.projectId} projectId={selection.projectId} after={<section className="project-advanced" aria-label="Options avancées du projet"><h2>Options avancées</h2><details className="additional-folder-settings"><summary>Dossiers supplémentaires<small>Contexte partagé entre les conversations du projet</small></summary><AttachedFolderSettings projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/></details><AdvancedFolders projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/><WorkflowSettings projectId={selection.projectId}/><OrchestrationSettings projectId={selection.projectId} onSupervise={()=>{if(project)navigate(project,"orchestration");}}/></section>}><>{project && <ProjectFolderSetup variant="settings" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}<ProjectTrackerSetup projectId={selection.projectId} onChanged={() => {setContextRefresh(value=>value+1);onProjectsChanged();}} /></></ProjectProfiles> : selection.view === "task" && selection.taskId ? <Suspense fallback={<p>Ouverture du workflow…</p>}><WorkflowTask projectId={selection.projectId} taskId={selection.taskId} onBack={()=>{if(project)navigate(project,"board");}} onSetup={()=>{if(project)navigate(project,"settings");}} onExecution={runId=>{if(project)navigate(project,"executions",runId||undefined);}} onArchiveConversation={onArchiveConversation}/></Suspense> : selection.view === "board" ? (
+      {selection.view === "project-settings" ? <ProjectProfiles key={selection.projectId} projectId={selection.projectId} after={<section className="project-advanced" aria-label="Options avancées du projet"><h2>Options avancées</h2><details className="additional-folder-settings"><summary>Dossiers supplémentaires<small>Contexte partagé entre les conversations du projet</small></summary><AttachedFolderSettings projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/></details><AdvancedFolders projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/><WorkflowSettings projectId={selection.projectId}/><OrchestrationSettings projectId={selection.projectId} onSupervise={()=>{if(project)navigate(project,"orchestration");}}/></section>}><>{project && <ProjectFolderSetup variant="settings" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}<ProjectTrackerSetup projectId={selection.projectId} onChanged={() => {setContextRefresh(value=>value+1);onProjectsChanged();}} /></></ProjectProfiles> : selection.view === "ticket-editor" ? <TaskEditor projectId={selection.projectId} projectName={project?.name||"Projet"} taskId={selection.taskId} available={!!monitor.fresh&&!!monitor.snapshot?.status.capabilities?.includes("task-page")} onClose={()=>{if(project)navigate(project,selection.taskId?"task":"board",undefined,selection.taskId);}} onSaved={task=>{onTaskChanged(task);void refresh();if(project)navigate(project,"task",undefined,task.id);}}/> : selection.view === "task" && selection.taskId ? <Suspense fallback={<p>Ouverture du workflow…</p>}><WorkflowTask projectId={selection.projectId} taskId={selection.taskId} onBack={()=>{if(project)navigate(project,"board");}} onSetup={()=>{if(project)navigate(project,"settings");}} onEdit={()=>{if(project)navigate(project,"ticket-editor",undefined,selection.taskId);}} onExecution={runId=>{if(project)navigate(project,"executions",runId||undefined);}} onArchiveConversation={onArchiveConversation}/></Suspense> : selection.view === "board" ? (
         <div className="board-workspace">
           {error && tasks.length > 0 && <p className="hint" role="status">La dernière actualisation a échoué. Les tickets affichés proviennent de la lecture précédente.</p>}
           {!boardContextPending && !currentContextError && !localOnlyProject && <div className="board-toolbar">
@@ -722,6 +724,7 @@ function ProjectPane({
             <label className="board-grouping"><span className="sr-only">Regrouper</span><select aria-label="Regrouper les tickets" value={grouping} onChange={e=>{const value=e.target.value==="tracker"?"tracker":"stage";setGrouping(value);savePreference("boardGrouping",value);}}><option value="stage">Par étape du workflow</option><option value="tracker">Par statut tracker</option></select></label>
             {ticketView==="board"&&<button type="button" className="board-density" aria-label="Cartes compactes" title="Basculer la densité des cartes" aria-pressed={compactCards} onClick={()=>setCompactCards(value=>{const next=!value;savePreference("boardCards",next?"compact":"full");return next;})}>{compactCards?"Compact":"Détaillé"}</button>}
             <span className="badge" title="Statuts du tracker · lecture seule">{count} ticket{count>1?"s":""}</span><span className="sr-only">Statuts du tracker · lecture seule</span>
+            <button type="button" className="board-new-ticket" disabled={!monitor.fresh||!monitor.snapshot?.status.capabilities?.includes("task-page")} onClick={()=>{if(project)navigate(project,"ticket-editor");}}><Icon name="plus"/> Nouveau ticket</button>
             {selectedTasks.length>0&&<div className="board-batch-controls"><span className="board-selection-count">{selectedTasks.length} sélectionné{selectedTasks.length>1?"s":""}</span><button type="button" onClick={()=>{setSelectedTaskIds([]);setBatchConfirm(false);}}>Effacer la sélection</button><button type="button" disabled={selectedTasks.length<2||launching||selectedTasks.some(task=>taskStage(task,context?.board)==="finished")||!context?.skills.some(skill=>skill.id==="pickup_issues")} onClick={()=>setBatchConfirm(true)}>Préparer un lot</button></div>}
           </div>}
           {launchError&&<p className="error" role="alert">{launchError}</p>}

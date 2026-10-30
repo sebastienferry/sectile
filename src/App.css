@@ -464,6 +464,8 @@ body.resizing-sidebar {
 .board-toolbar .search { flex: 1 1 180px; min-width: 150px; }
 .board-toolbar .search input { width: 100%; min-width: 0; }
 .board-toolbar .badge { margin:0; white-space:nowrap; }
+.board-new-ticket { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+.board-new-ticket svg { width:14px; height:14px; }
 .board-grouping { flex-shrink: 0; }
 .board-grouping select { max-width: 180px; }
 .board-density {
@@ -1406,6 +1408,20 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .task-stage { color: var(--muted); font-size: 11px; }
 .task-run-state { margin: 5px 0; color: var(--accent-text); font-size: 11px; font-weight: 600; }
 .workflow-task { max-width: 1100px; margin: 0 auto; padding: 24px 30px; overflow: auto; width: 100%; }
+.workflow-task-top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.task-editor { width:min(900px,100%); margin:0 auto; padding:24px 30px 32px; overflow:auto; }
+.task-editor-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; padding-bottom:14px; border-bottom:1px solid var(--divider); }
+.task-editor-heading h2 { margin:5px 0 0; font-size:22px; }
+.task-editor form { display:grid; gap:18px; padding-top:20px; }
+.task-editor label { display:grid; gap:7px; font-size:12px; font-weight:600; }
+.task-editor input,.task-editor select,.task-editor textarea { width:100%; padding:10px 12px; border:1px solid var(--border-strong); border-radius:8px; color:var(--text); background:var(--surface); font:inherit; font-weight:400; }
+.task-editor textarea { min-height:220px; line-height:1.6; resize:vertical; }
+.task-editor-meta { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+.task-editor-meta p { display:grid; gap:7px; margin:0; color:var(--muted); font-size:12px; }
+.task-editor-meta strong { padding:10px 0; color:var(--text); font-size:13px; }
+.task-editor footer { position:sticky; bottom:0; display:flex; align-items:center; justify-content:flex-end; gap:10px; padding:12px 0; border-top:1px solid var(--divider); background:var(--bg); }
+.task-editor footer span { margin-right:auto; color:var(--muted); font-size:11px; }
+@media(max-width:650px) { .task-editor { padding:18px; } .task-editor footer { flex-wrap:wrap; } .task-editor footer span { flex-basis:100%; } }
 .workflow-task > header { margin: 24px 0 16px; }
 .workflow-task h2 { font-size: 24px; letter-spacing: -.5px; }
 .workflow-progress { display: flex; gap: 6px; flex-wrap: wrap; padding: 0; list-style: none; margin: 20px 0; }

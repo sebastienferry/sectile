@@ -19,6 +19,7 @@ export interface Task {
   prLinks?: { url: string; state?: string; branch?: string; repository?: string; missingToken?: string }[];
   trackerId?: string;
   description?: string;
+  issueType?: string;
 }
 export interface Column {
   name: string;

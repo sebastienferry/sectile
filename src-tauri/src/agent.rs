@@ -1,5 +1,5 @@
-use serde::Deserialize;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use std::time::Duration;
 
 #[derive(Deserialize)]
@@ -166,6 +166,75 @@ pub async fn get_task(app: tauri::AppHandle, project_id: String, task_id: String
         None,
     )
     .await
+}
+#[tauri::command]
+pub async fn task_trackers(app: tauri::AppHandle, project_id: String) -> Result<Value, String> {
+    required(&project_id)?;
+    let project = request_agent(app, reqwest::Method::GET, "/desktop/project", &[("id", &project_id)], None).await?;
+    let trackers = project.pointer("/server/trackers").and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(|item| {
+            let id = item["id"].as_str()?;
+            let provider = item["provider"].as_str()?;
+            Some(json!({"id":id,"name":item["name"],"provider":provider,"scope":item["scope"]}))
+        }).collect::<Vec<_>>()).unwrap_or_default();
+    Ok(json!({"defaultTrackerId":project.pointer("/server/defaultTrackerId"),"trackers":trackers}))
+}
+#[tauri::command]
+pub async fn task_issue_types(app: tauri::AppHandle, project_id: String, tracker_id: String) -> Result<Value, String> {
+    required(&project_id)?;
+    required(&tracker_id)?;
+    request_agent(app, reqwest::Method::GET, "/desktop/tasks/issue-types", &[("projectId", &project_id), ("trackerId", &tracker_id)], None).await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateTrackerTask {
+    title: String,
+    description: String,
+    priority: String,
+    issue_type: String,
+    tracker_id: String,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateTrackerTask {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    priority: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    issue_type: Option<String>,
+}
+fn validate_task_fields(title: Option<&str>, description: Option<&str>, priority: Option<&str>, issue_type: Option<&str>) -> Result<(), String> {
+    if title.is_some_and(|value| value.trim().is_empty() || value.chars().count() > 500)
+        || description.is_some_and(|value| value.chars().count() > 60000)
+        || priority.is_some_and(|value| !["urgent", "high", "medium", "low"].contains(&value))
+        || issue_type.is_some_and(|value| value.chars().count() > 100)
+    { return Err("Champs du ticket invalides".into()); }
+    Ok(())
+}
+#[tauri::command]
+pub async fn create_task(app: tauri::AppHandle, project_id: String, input: CreateTrackerTask) -> Result<Value, String> {
+    required(&project_id)?;
+    validate_task_fields(Some(&input.title), Some(&input.description), Some(&input.priority), Some(&input.issue_type))?;
+    if input.tracker_id.len() > 1024 { return Err("Tracker invalide".into()); }
+    request_agent(app, reqwest::Method::POST, "/desktop/create-task", &[], Some(json!({
+        "projectId":project_id,"title":input.title.trim(),"description":input.description,
+        "priority":input.priority,"issueType":input.issue_type,"trackerId":input.tracker_id
+    }))).await
+}
+#[tauri::command]
+pub async fn update_task(app: tauri::AppHandle, project_id: String, task_id: String, changes: UpdateTrackerTask) -> Result<Value, String> {
+    required(&project_id)?;
+    required(&task_id)?;
+    validate_task_fields(changes.title.as_deref(), changes.description.as_deref(), changes.priority.as_deref(), changes.issue_type.as_deref())?;
+    if changes.title.is_none() && changes.description.is_none() && changes.priority.is_none() && changes.issue_type.is_none() {
+        return Err("Aucune modification du ticket".into());
+    }
+    let body = serde_json::to_value(changes).map_err(|_| "Champs du ticket invalides")?;
+    request_agent(app, reqwest::Method::PUT, "/desktop/tasks/detail", &[("projectId", &project_id), ("taskId", &task_id)], Some(body)).await
 }
 #[tauri::command]
 pub async fn execution_snapshot(app: tauri::AppHandle) -> Result<Value, String> {
@@ -1212,5 +1281,18 @@ pub async fn attach_chosen_folder(
             Some(serde_json::json!({"projectId":project_id,"path":path})),
         )
         .await
+    }
+}
+
+#[cfg(test)]
+mod task_fields_tests {
+    use super::validate_task_fields;
+
+    #[test]
+    fn ticket_writes_reject_empty_titles_and_unexpected_priorities() {
+        assert!(validate_task_fields(Some("  "), None, None, None).is_err());
+        assert!(validate_task_fields(Some("Task"), None, Some("critical"), None).is_err());
+        assert!(validate_task_fields(Some("Task"), Some(&"a".repeat(60001)), Some("high"), None).is_err());
+        assert!(validate_task_fields(Some("Task"), Some("Description"), Some("high"), Some("Bug")).is_ok());
     }
 }

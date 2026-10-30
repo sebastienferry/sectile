@@ -11,11 +11,11 @@ import {RunReview} from "./RunReview";
 const RunConsole=lazy(()=>import("./RunConsole").then(module=>({default:module.RunConsole})));
 const ProjectPrompt=lazy(()=>import("./ProjectPrompt"));
 
-type WorkflowTaskProps={projectId:string;taskId:string;onBack:()=>void;onSetup:()=>void;onExecution?:(runId:string)=>void;onArchiveConversation?:(runId:string)=>void};
+type WorkflowTaskProps={projectId:string;taskId:string;onBack:()=>void;onSetup:()=>void;onEdit?:()=>void;onExecution?:(runId:string)=>void;onArchiveConversation?:(runId:string)=>void};
 export function WorkflowTask(props:WorkflowTaskProps){
  return <WorkflowTaskView key={JSON.stringify([props.projectId,props.taskId])} {...props}/>;
 }
-function WorkflowTaskView({projectId,taskId,onBack,onSetup,onExecution,onArchiveConversation}:WorkflowTaskProps){
+function WorkflowTaskView({projectId,taskId,onBack,onSetup,onEdit,onExecution,onArchiveConversation}:WorkflowTaskProps){
  const monitor=useExecutionMonitor();
  const [task,setTask]=useState<Task>();const [project,setProject]=useState<ProjectContext>();
  const [selected,setSelected]=useState("");const [result,setResult]=useState<RunResult>();
@@ -79,7 +79,7 @@ function WorkflowTaskView({projectId,taskId,onBack,onSetup,onExecution,onArchive
   finally{acting.current=false;setPending(false);}
  }
  const readinessUnknown=readiness?.steps?.skills?.status!=="success"||readiness?.steps?.mcp?.status!=="success";
- return <section className="workflow-task"><button onClick={onBack}>← Tickets du projet</button>
+ return <section className="workflow-task"><div className="workflow-task-top"><button onClick={onBack}>← Tickets du projet</button>{task&&onEdit&&<button onClick={onEdit}>Modifier le ticket</button>}</div>
  <header><span className="eyebrow">WORKFLOW DU TICKET · {task?.key||taskId}</span><h2>{task?.title||"Chargement du ticket…"}</h2><p>Statut tracker : {task?.trackerStatus||"Indisponible"}</p><p className="muted">Moteur du projet : {project?.aiProvider==="claude"?"Claude Code":project?.aiProvider==="codex"?"Codex":project?.aiProvider||"Non renseigné"}{project?.aiModel&&` · ${project.aiModel}`}</p></header>
  {task?.description&&<details><summary>Description du ticket</summary><Markdown text={task.description}/></details>}
  <ol className="workflow-progress" aria-label="Étapes du workflow">{stages.map(stage=><li key={stage} aria-current={step?.stage===stage?"step":undefined}>{stageLabels[stage]}</li>)}</ol>
