@@ -1616,4 +1616,12 @@ Codex answer was ready. The same session could still be opened from the
 sidebar. The user trial on port 52964 and normal companion on 52963 were not
 changed. This inspection also exposed remaining visual duplication in the
 selected execution detail: its run header and embedded conversation repeat
-the same title and status, so that detail is the next UX target.
+the same title and status. The next change makes a conversation row open the
+conversation directly. Its execution menu still opens a focused detail with
+stop, change review and working directory, plus a return to the conversation.
+The embedded transcript was removed from that detail. In the rebuilt isolated
+port-52965 app, the stopped Codex row opened the saved “OK QA” conversation;
+**Voir cette exécution** opened the focused detail; **Ouvrir la conversation**
+returned to the same history. The [focused detail capture](ux-captures/conversation-execution-focused-native.jpg)
+records the native result. This was a navigation retake against a previously
+completed run, not a fresh provider execution.

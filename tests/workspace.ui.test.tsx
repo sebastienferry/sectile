@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
-vi.mock("../src/components/ProjectPrompt", () => ({ default: ({ projectId }: {projectId: string}) => <div>Free prompt for {projectId}</div> }));
+vi.mock("../src/components/ProjectPrompt", () => ({ default: ({ projectId, onOpenExecution }: {projectId: string; onOpenExecution?: () => void}) => <div>Free prompt for {projectId}{onOpenExecution && <button onClick={onOpenExecution}>Voir cette exécution</button>}</div> }));
 import App from "../src/App";
 import type { Task } from "../src/domain/board";
 import { conversationFor } from "../src/lib/conversation-controller";
@@ -46,7 +46,7 @@ test("sidebar navigation replaces the view without canceling a run", async () =>
   expect(screen.queryByText("Live output")).toBeNull();
   expect(api.stopRun).not.toHaveBeenCalled();
 });
-test("a selected conversation execution keeps project actions out of its toolbar", async () => {
+test("the execution queue opens a conversation directly and keeps its detail focused", async () => {
   vi.mocked(api.executionSnapshot).mockResolvedValue({
     status: { connected: true, capabilities: [] },
     runs: [{ id: "conversation", projectId: "p", taskKey: "APP-1", conversation: true, provider: "codex", status: "running", createdAt: "2026-10-28" }],
@@ -57,10 +57,16 @@ test("a selected conversation execution keeps project actions out of its toolbar
   const runButton = await waitFor(() => document.querySelector<HTMLButtonElement>(".execution-list .run-select"));
   expect(runButton).toBeTruthy();
   fireEvent.click(runButton!);
+  await screen.findByText("Free prompt for p");
+  expect(screen.queryByRole("button", { name: "← Toutes les exécutions" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Voir cette exécution" }));
   await screen.findByRole("button", { name: "← Toutes les exécutions" });
+  expect(screen.queryByText("Free prompt for p")).toBeNull();
   expect(screen.queryByRole("button", { name: "Tableau", exact: true })).toBeNull();
   expect(screen.queryByRole("button", { name: "Nouveau prompt", exact: true })).toBeNull();
   expect(screen.queryByRole("button", { name: "Configurer le projet", exact: true })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Ouvrir la conversation" }));
+  await screen.findByText("Free prompt for p");
   expect(screen.getByRole("button", { name: "Nouveau prompt dans Example" })).toBeTruthy();
 });
 test("the native macOS Settings menu opens the existing Settings view", async () => {

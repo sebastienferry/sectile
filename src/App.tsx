@@ -802,7 +802,7 @@ function ProjectPane({
           projectId={selection.projectId}
           tasks={tasks}
           onChanged={() => void refresh()}
-          onArchiveConversation={onArchiveConversation}
+          onOpenConversation={id => { if (project) navigate(project, "prompt", id); }}
           view={selection.view as "launch" | "executions" | "orchestration"}
           selectedRun={selectedRun}
           onSelectRun={(id) => {

@@ -19,7 +19,6 @@ import {
   runOrchestration,
   stopRun,
 } from "../lib/agent";
-const ProjectPrompt = lazy(()=>import("./ProjectPrompt"));
 const RunConsole = lazy(() =>
   import("./RunConsole").then((module) => ({ default: module.RunConsole })),
 );
@@ -45,7 +44,7 @@ export function Supervisor({
   view = "launch",
   selectedRun = "",
   onSelectRun = () => {},
-  onArchiveConversation,
+  onOpenConversation,
   initialTaskId = "",
   active = true,
 }: {
@@ -55,7 +54,7 @@ export function Supervisor({
   view?: "launch" | "executions" | "orchestration";
   selectedRun?: string;
   onSelectRun?: (id: string) => void;
-  onArchiveConversation?: (id: string) => void;
+  onOpenConversation?: (id: string) => void;
   initialTaskId?: string;
   active?: boolean;
 }) {
@@ -420,7 +419,7 @@ export function Supervisor({
               <button
                 className="run-select"
                 title={runTitle(item, tasks)}
-                onClick={() => onSelectRun(item.id)}
+                onClick={() => item.conversation && onOpenConversation ? onOpenConversation(item.id) : onSelectRun(item.id)}
               >
                 <strong>{runTitle(item, tasks)}</strong>
                 <span>{runSummary(item)}</span>
@@ -479,7 +478,7 @@ export function Supervisor({
                 session dans Sectile Desktop ou le terminal du fournisseur.
               </p>
             )}
-            {run.conversation ? <Suspense fallback={<p>Ouverture de la conversation…</p>}><ProjectPrompt projectId={projectId} runId={run.id} run={run} task={tasks.find(task=>task.id===run.taskId)} directory={run.directory} folders={run.folders} onCreated={()=>{}} onOpenQueue={()=>onSelectRun("")} onArchive={onArchiveConversation?()=>onArchiveConversation(run.id):undefined} onStopped={()=>void refresh()} onFoldersChanged={()=>void refresh()}/></Suspense> : run.sessionId || run.trace || run.restored ? (
+            {run.conversation ? onOpenConversation && <button type="button" onClick={() => onOpenConversation(run.id)}>Ouvrir la conversation</button> : run.sessionId || run.trace || run.restored ? (
               <Suspense fallback={<p>Chargement de la console…</p>}>
                 {active && <RunConsole key={run.id} runId={run.id} />}
               </Suspense>
