@@ -1922,7 +1922,8 @@ func (d *agentDaemon) idleConversationCanShutdownLocked(run *controlledRun) bool
 	c := run.conversation
 	return d.store != nil && run.desktop.Conversation && run.taskID == "" && run.desktop.TaskID == "" &&
 		!run.canceled && c != nil && c.session != "" && len(c.env) == 0 && !c.busy &&
-		len(c.next) == 0 && len(c.approvals) == 0 && c.input == nil && c.shellContext == "" &&
+		len(c.next) == 0 && len(c.approvals) == 0 &&
+		(c.input == nil || run.desktop.Provider == "codex" && c.codex != nil) && c.shellContext == "" &&
 		!c.checkingMCP && !c.loadingCommands && run.journal.err() == nil &&
 		(run.desktop.Provider == "claude" || run.desktop.Provider == "codex")
 }

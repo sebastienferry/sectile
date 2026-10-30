@@ -400,3 +400,5 @@
 ### Idle conversations and native update admission (2026-10-30)
 
 - Native testing found `/desktop/shutdown` rejected ready Claude/Codex conversations because their provider sessions keep `run.exited` open. Admit only durable idle free conversations under the queue lock, then use existing daemon cleanup/resume journaling; explicit Stop would make them terminal. Preserve refusal for active turns, queued messages, approvals, tracker context, metadata probes and failed journals. Real native replacement must verify both context and no tool replay, not just a 204 response.
+
+- Codex keeps `c.input` attached to its app-server between turns. An idle live Codex RPC connection is not pending user input; the native post-resume shutdown check exposed this distinction. Busy/queued/approval guards still apply.

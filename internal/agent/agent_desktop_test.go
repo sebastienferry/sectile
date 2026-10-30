@@ -1611,6 +1611,11 @@ func TestDesktopUpdateShutdownAllowsOnlyDurableIdleFreeConversations(t *testing.
 	for _, provider := range []string{"claude", "codex"} {
 		t.Run(provider, func(t *testing.T) {
 			run := &controlledRun{desktop: desktopRun{Conversation: true, Provider: provider, Model: "retained-model"}, conversation: &providerConversation{session: "retained-session"}, trace: newRunTrace(), exited: make(chan struct{})}
+			if provider == "codex" {
+				// Codex retains its RPC stdin between turns; it is not pending input.
+				run.conversation.codex = &codexConversation{}
+				run.conversation.input = &conversationInput{}
+			}
 			requested := false
 			d := &agentDaemon{store: openRunStore(t.TempDir()), loopback: loopbackServer{desktopToken: "private"}, queue: runQueue{runs: map[string]*controlledRun{"idle": run}}, restartAgent: func() { requested = true }}
 			req := httptest.NewRequest(http.MethodPost, "/desktop/shutdown", nil)
