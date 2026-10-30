@@ -218,7 +218,7 @@ func (c *trackerCreationRecorder) CreateIssue(ctx context.Context, req tracker.C
 	}
 	c.labels = append([]string{}, req.Labels...)
 	key := strings.ToUpper(req.Tracker.Scope) + "-" + string(rune('0'+c.next))
-	return &models.Task{Key: key, ID: key}, nil
+	return &models.Task{Key: key, ID: key, TrackerStatus: "To Do"}, nil
 }
 
 func TestCreatingATaskCanNameAnotherTrackerOfTheProject(t *testing.T) {
@@ -243,6 +243,9 @@ func TestCreatingATaskCanNameAnotherTrackerOfTheProject(t *testing.T) {
 	}
 	if task.ProjectID != p.ID {
 		t.Fatalf("the new ticket shows the project %q", task.ProjectID)
+	}
+	if task.TrackerStatus != "To Do" || ticketByKey(t, d, task.ID).TrackerStatus != "To Do" {
+		t.Fatalf("the tracker-confirmed status was not retained for %s: %q", task.Key, task.TrackerStatus)
 	}
 }
 

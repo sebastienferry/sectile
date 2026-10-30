@@ -2842,6 +2842,7 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 	// priorityNotice is the adapter's word on a priority it could not send
 	// (#679), handed back to whoever created the ticket.
 	priorityNotice := ""
+	trackerStatus := ""
 	if tsErr == nil && ts != nil && req.Source != "local" && ts.Name() != "local" && ts.Supports(tracker.CapCreate) {
 		created, err := ts.CreateIssue(ctx, tracker.CreateIssueRequest{
 			Tracker:         trk,
@@ -2862,6 +2863,7 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 			local = false
 			extURL = created.ExternalURL
 			priorityNotice = created.PriorityNotice
+			trackerStatus = strings.TrimSpace(created.TrackerStatus)
 		} else {
 			return nil, fmt.Errorf("%s issue creation failed: empty response", trackerDisplayName(ts.Name()))
 		}
@@ -2935,8 +2937,8 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 		}
 		_, err := tx.Exec(`
 			INSERT INTO tasks (id, project_id, tracker_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, creator, creator_avatar, position, due_date, source,
-				external_url, issue_type, parent_key, parent_title, parent_type, sprint, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				external_url, issue_type, parent_key, parent_title, parent_type, sprint, tracker_status, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
 			id,
 			rowProjectID,
@@ -2961,6 +2963,7 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 			parentTitle,
 			parentType,
 			strings.TrimSpace(req.Sprint),
+			trackerStatus,
 			now,
 			now,
 		)
@@ -2989,6 +2992,7 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 		DueDate:        req.DueDate,
 		Sprint:         strings.TrimSpace(req.Sprint),
 		Source:         req.Source,
+		TrackerStatus:  trackerStatus,
 		ExternalURL:    extURL,
 		IssueType:      issueType,
 		ParentKey:      parentKey,
