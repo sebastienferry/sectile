@@ -6,6 +6,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
+- Distinguish Claude Code and Codex with their provider colors in engine settings, and simplify the desktop header.
+- Keep first-run Settings readable after creating a profile by hiding the project sidebar and providing a return to the new project.
 - Name ticket conversations after their ticket in the project sidebar instead of showing the agent skill invocation.
 - Keep all six ticket workflow stages in two balanced rows when the workspace is narrow.
 - Allow the project sidebar to widen in compact desktop windows while reserving space for the conversation.

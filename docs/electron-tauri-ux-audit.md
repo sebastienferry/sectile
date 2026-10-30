@@ -1564,3 +1564,13 @@ app, the [updated sidebar capture](ux-captures/ticket-conversation-title-native.
 shows the human-readable ticket title beside the `#3` badge and MR shortcut.
 The stopped conversation and its history survived the replacement. The normal
 port-52963 companion was not touched.
+
+An independent 800-point **Sectile Brand QA** build on companion port 52965
+exposed a first-run settings layout bug after profile creation: the project
+sidebar appeared next to the Settings navigation and squeezed the engine
+description into a few letters per line. Settings now always use their own
+navigation rail. Once the new profile has a project, the header return action
+opens that project's board. The [native settings capture](ux-captures/engine-settings-single-navigation-native.jpg)
+shows readable engine cards with the Claude and OpenAI marks in their intended
+colors; the return action also reopened the board in the same QA app. The
+port-52964 user trial and normal port-52963 companion remained running.

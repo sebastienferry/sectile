@@ -57,7 +57,7 @@ export function ProviderSettings({projects=[]}:{projects?:{id:string;name:string
     {notice && <p role="status">{notice}</p>}
     <div className="provider-grid">{([ ["claude", "Claude Code"], ["codex", "Codex"] ] as const).map(([provider, name]) => {
       const status = statuses[provider];
-      return <section className="provider-card" key={provider}><div className="provider-card-main"><div className="provider-symbol"><ProviderMark provider={provider} /></div><div className="provider-card-copy"><h3>{name}</h3>
+      return <section className="provider-card" key={provider}><div className="provider-card-main"><div className={`provider-symbol provider-symbol-${provider}`}><ProviderMark provider={provider} /></div><div className="provider-card-copy"><h3>{name}</h3>
         <p>{!status ? statusErrors[provider] ? "État de la CLI indisponible" : "Détection en cours…" : !status.installed ? "CLI non détectée" : status.authentication === "connected" ? "CLI détectée · connecté" : status.authentication === "disconnected" ? "CLI détectée · connexion requise" : "CLI détectée · état de connexion indéterminé"}</p></div>
         <button className={status?.authentication === "connected" ? "" : "primary"} disabled={pending || !status?.installed} onClick={() => void login(provider)}>{status?.authentication === "connected" ? `Reconnecter ${name}` : `Se connecter à ${name}`}</button></div>
         <div className="provider-card-extra">

@@ -157,10 +157,12 @@ function Workspace() {
     if (previous) {
       workspaceBeforeSettings.current = null;
       setCurrent(previous);
+    } else if (current?.view === "settings" && projects.length) {
+      navigate(projects[0], "board");
     } else {
       setSidebar(value => !value);
     }
-  }, []);
+  }, [current?.view, navigate, projects]);
   async function refreshProjects() {
     const seq = ++request.current;
     setBusy(true);
@@ -208,8 +210,8 @@ function Workspace() {
     if (project) navigate(project, "board");
   }, [current?.id, fresh, navigate, projects, snapshot?.runs]);
   const connected = fresh && snapshot?.status.connected;
-  const settingsHasWorkspace = current?.view === "settings" && Boolean(workspaceBeforeSettings.current);
-  const showProjectSidebar = sidebar && (current?.view !== "settings" || !settingsHasWorkspace);
+  const settingsHasWorkspace = current?.view === "settings" && (Boolean(workspaceBeforeSettings.current) || projects.length > 0);
+  const showProjectSidebar = sidebar && current?.view !== "settings";
   useEffect(() => {
     function onShortcut(event: KeyboardEvent) {
       const target = event.target instanceof Element ? event.target : null;
@@ -261,7 +263,6 @@ function Workspace() {
           >
             <Icon name="panel" />
           </button>
-          <span className="brand-mark"><Icon name="terminal" /></span>
           <strong>
             Sectile <span>Desktop</span>
           </strong>

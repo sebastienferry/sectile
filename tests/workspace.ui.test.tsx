@@ -513,6 +513,17 @@ test("settings use one navigation rail and return to the previous workspace", as
  expect(screen.getByRole("button", { name: "Example" })).toBeTruthy();
 });
 
+test("first-run settings hide the project sidebar even before a project exists", async () => {
+ vi.mocked(api.listProjects).mockResolvedValue([]);
+ vi.mocked(invoke).mockImplementation(async command => command === "local_service_log"
+  ? {path:"/test/companion.log",text:"",missing:true,truncated:false}
+  : null);
+ render(<App />);
+ await screen.findByRole("navigation", { name: "Sections des paramètres" });
+ expect(screen.queryByRole("textbox", { name: "Filtrer les projets" })).toBeNull();
+ expect(screen.queryByRole("separator", { name: "Redimensionner la barre latérale" })).toBeNull();
+});
+
 test("an unmapped project asks for its folder before mounting the prompt and keeps the same project", async () => {
  vi.mocked(invoke).mockResolvedValue("/work/example");
  render(<App />);
