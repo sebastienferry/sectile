@@ -12,7 +12,7 @@ import * as workspace from "../src/lib/workspace";
 vi.mock("../src/lib/workspace",async original=>({...await original<typeof workspace>(),projectContext:vi.fn()}));
 import * as api from "../src/lib/agent";
 vi.mock("../src/lib/agent", () => ({
-  listProjects: vi.fn(), listTasks: vi.fn(), executionSnapshot: vi.fn(),
+  listProjects: vi.fn(), listTasks: vi.fn(), getTask: vi.fn(), executionSnapshot: vi.fn(),
   projectSkills: vi.fn(), getOrchestration: vi.fn(), launchTask: vi.fn(),
   stopRun: vi.fn(), runOrchestration: vi.fn(),
 }));
@@ -23,6 +23,7 @@ beforeEach(() => {
   vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   vi.mocked(api.listProjects).mockResolvedValue([{ id: "p", name: "Example" }]);
   vi.mocked(api.listTasks).mockResolvedValue([]);
+  vi.mocked(api.getTask).mockResolvedValue({id:"task",key:"APP-1",title:"Task",status:"to_clarify",source:"jira",trackerStatus:"Open"});
   vi.mocked(api.projectSkills).mockResolvedValue([{ id: "implement_issue" }]);
   vi.mocked(api.getOrchestration).mockResolvedValue({ orchestratorEnabled: false, agents: [] });
   vi.mocked(api.executionSnapshot).mockResolvedValue({
@@ -76,6 +77,47 @@ test("workflow run status stays on its ticket instead of duplicating the project
   const sidebar = screen.getByRole("complementary");
   expect(within(sidebar).queryByText("APP-2")).toBeNull();
   expect(within(sidebar).getByRole("button", { name: /Toutes les exécutions/ })).toBeTruthy();
+});
+test("project menu opens the execution queue and groups ticket conversations by stage",async()=>{
+ vi.mocked(api.listTasks).mockResolvedValue([{id:"new",key:"APP-1",title:"New task",status:"to_clarify",source:"jira",trackerStatus:"Open"},{id:"reviewed",key:"APP-2",title:"Reviewed task",status:"to_close",source:"jira",trackerStatus:"Done"}]);
+ vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true,capabilities:[]},runs:[
+  {id:"new-run",projectId:"p",taskId:"new",taskKey:"APP-1",conversation:true,title:"Clarify this",provider:"claude",status:"running",skill:"clarify",createdAt:"2026-10-30"},
+  {id:"reviewed-run",projectId:"p",taskId:"reviewed",taskKey:"APP-2",conversation:true,title:"Review this",provider:"codex",status:"completed",skill:"adjust",createdAt:"2026-10-29"},
+ ]});
+ render(<App/>);
+ const sidebar=screen.getByRole("complementary");
+ await within(sidebar).findByText("APP-1");
+ expect(sidebar.querySelector(".conversation-indicator.session")).not.toBeNull();
+ fireEvent.click(within(sidebar).getByLabelText("Actions pour Example"));
+ fireEvent.change(within(sidebar).getByRole("combobox",{name:"Grouper les conversations de Example"}),{target:{value:"stage"}});
+ expect(localStorage.getItem("sectile-tauri.conversationGrouping")).toBe("stage");
+ await within(sidebar).findByText("À clarifier");
+ expect(within(sidebar).getByText("Revu")).toBeTruthy();
+ fireEvent.click(within(sidebar).getByRole("button",{name:"File des exécutions"}));
+ await screen.findByText("Exécutions de ce poste · 1 actives");
+});
+test("conversation actions stop a live session and archive and restore a finished one",async()=>{
+ vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true,capabilities:[]},runs:[
+  {id:"live-chat",projectId:"p",conversation:true,title:"Live discussion",provider:"claude",status:"running",skill:"",createdAt:"2026-10-30"},
+  {id:"done-chat",projectId:"p",conversation:true,title:"Finished discussion",provider:"codex",status:"completed",skill:"",createdAt:"2026-10-29"},
+ ]});
+ render(<App/>);
+ const sidebar=screen.getByRole("complementary");
+ await within(sidebar).findByText("Live discussion");
+ fireEvent.click(within(sidebar).getByLabelText("Actions de la conversation Live discussion"));
+ fireEvent.click(within(sidebar).getByRole("button",{name:"Arrêter la conversation"}));
+ await waitFor(()=>expect(api.stopRun).toHaveBeenCalledWith("live-chat"));
+ const finishedActions=within(sidebar).getByLabelText("Actions de la conversation Finished discussion").closest("details")!;
+ fireEvent.click(within(finishedActions).getByLabelText("Actions de la conversation Finished discussion"));
+ fireEvent.click(within(finishedActions).getByRole("button",{name:"Archiver la conversation"}));
+ expect(within(sidebar).queryByText("Finished discussion")).toBeNull();
+ expect(localStorage.getItem("sectile-tauri.archivedConversations")).toBe('["done-chat"]');
+ fireEvent.click(within(sidebar).getByLabelText("Actions pour Example"));
+ fireEvent.click(within(sidebar).getByRole("button",{name:"Voir les conversations archivées"}));
+ expect(within(sidebar).getByText("Finished discussion")).toBeTruthy();
+ fireEvent.click(within(sidebar).getByLabelText("Actions de la conversation Finished discussion"));
+ fireEvent.click(within(sidebar).getByRole("button",{name:"Restaurer la conversation"}));
+ expect(localStorage.getItem("sectile-tauri.archivedConversations")).toBe("[]");
 });
 test("launch restores the last project board instead of selecting the first project", async () => {
   vi.mocked(api.listProjects).mockResolvedValue([

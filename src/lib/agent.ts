@@ -15,6 +15,10 @@ export async function listTasks(projectId: string): Promise<Task[]> {
   requireDesktop();
   return (await invoke<Task[] | null>("list_tasks", { projectId })) ?? [];
 }
+export async function getTask(projectId:string,taskId:string):Promise<Task> {
+  requireDesktop();
+  return invoke<Task>("get_task",{projectId,taskId});
+}
 
 import { Channel } from "@tauri-apps/api/core";
 import type {

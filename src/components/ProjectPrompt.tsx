@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { conversationFor, useConversation } from "../lib/conversation-controller";
-import { createConversation, renameConversation, type ConversationAction, type TurnOptions } from "../lib/conversation";
+import { createConversation, renameConversation, type ConversationAction, type ConversationSnapshot, type TurnOptions } from "../lib/conversation";
 
 import { conversationProfiles, type ProjectProfiles } from "../lib/profiles";
 import { PromptFolders } from "./FolderContext";
 import type { Run } from "../domain/execution";
+import { statusLabel } from "../domain/execution";
+import type { Task } from "../domain/board";
+import { skillLabels, stageLabels, taskStage } from "../domain/workflow";
+import type { BoardMapping } from "../lib/workspace";
 import { Icon } from "./Icon";
 import { TurnSettings } from "./TurnSettings";
 import { QuestionForm } from "./QuestionForm";
@@ -14,7 +18,13 @@ import { invoke } from "@tauri-apps/api/core";
 function sendOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
  if(event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {event.preventDefault();event.currentTarget.form?.requestSubmit();}
 }
-export default function ProjectPrompt({ projectId, runId, onCreated, onTitleChanged, directory, folders, onFoldersChanged }: { directory?:string;folders?:Run["folders"];onFoldersChanged?:()=>void; projectId: string; runId?: string; onCreated: (id: string) => void; onTitleChanged?: () => void }) {
+interface ProjectPromptProps {
+  projectId:string; runId?:string; directory?:string; folders?:Run["folders"];
+  run?:Run; task?:Task; board?:BoardMapping;
+  onCreated:(id:string)=>void; onTitleChanged?:()=>void; onFoldersChanged?:()=>void;
+  onOpenExecution?:()=>void; onOpenQueue?:()=>void; onOpenTask?:()=>void;
+}
+export default function ProjectPrompt({ projectId, runId, onCreated, onTitleChanged, directory, folders, onFoldersChanged, run, task, board, onOpenExecution, onOpenQueue, onOpenTask }: ProjectPromptProps) {
   const [provider, setProvider] = useState("claude");
   const [options, setOptions] = useState<TurnOptions>({});
   const [draft, setDraft] = useState("");
@@ -38,7 +48,7 @@ export default function ProjectPrompt({ projectId, runId, onCreated, onTitleChan
     }).catch(()=>{});
     return()=>{current=false;};
   },[projectId,runId]);
-  if (runId) return <Conversation id={runId} projectId={projectId} directory={directory} folders={folders} onFoldersChanged={onFoldersChanged} onTitleChanged={onTitleChanged} />;
+  if (runId) return <Conversation id={runId} projectId={projectId} directory={directory} folders={folders} run={run} task={task} board={board} onOpenExecution={onOpenExecution} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onFoldersChanged={onFoldersChanged} onTitleChanged={onTitleChanged} />;
   return <section className="project-prompt prompt-start">
     <div className="prompt-intro"><span className="prompt-symbol"><Icon name="chat" /></span><span className="eyebrow">DANS CE PROJET</span>
     <h2>Que voulez-vous faire ?</h2><p>Une idée, une question, une tâche.<br />Commencez simplement par un message.</p></div>
@@ -70,7 +80,7 @@ export default function ProjectPrompt({ projectId, runId, onCreated, onTitleChan
     {error && <p role="alert" className="error">{error}</p>}
   </section>;
 }
-function Conversation({ id, projectId, directory, folders, onFoldersChanged, onTitleChanged }: { id:string;projectId:string;directory?:string;folders?:Run["folders"];onFoldersChanged?:()=>void;onTitleChanged?:()=>void }) {
+function Conversation({ id, projectId, directory, folders, run, task, board, onOpenExecution, onOpenQueue, onOpenTask, onFoldersChanged, onTitleChanged }: { id:string;projectId:string;directory?:string;folders?:Run["folders"];run?:Run;task?:Task;board?:BoardMapping;onOpenExecution?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onFoldersChanged?:()=>void;onTitleChanged?:()=>void }) {
   const { controller, snapshot, loaded, pending, error } = useConversation(id);
   const [draft, setDraft] = useState("");
   const [actionError, setActionError] = useState("");
@@ -112,6 +122,7 @@ function Conversation({ id, projectId, directory, folders, onFoldersChanged, onT
     </section>)}
     {(error || actionError) && <p role="alert" className="error">{error || actionError} Vérifiez le suivi avant de renvoyer un message.</p>}
     </div>
+    <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} onOpenExecution={onOpenExecution} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask}/>
     <form className="composer" onSubmit={e => { e.preventDefault(); if (loaded && !busy && !attaching && !snapshot.readOnly && !error && draft.trim()) { void controller.send(draft, false, options); setDraft(""); setFollowRequest(value => value + 1); } }}>
       <textarea aria-label="Message suivant" rows={3} maxLength={32000} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} disabled={!!snapshot.readOnly} placeholder="Posez une question ou décrivez une modification…" />
       <div className="composer-footer"><TurnSettings compact provider={snapshot.provider} snapshot={snapshot} value={options} onChange={setOptions} disabled={!loaded || busy || !!snapshot.readOnly || !!error || acting} />
@@ -123,4 +134,20 @@ function Conversation({ id, projectId, directory, folders, onFoldersChanged, onT
     </form>
     </div>
   </section>;
+}
+function ConversationStatus({snapshot,run,task,board,busy,error,onOpenExecution,onOpenQueue,onOpenTask}:{snapshot:ConversationSnapshot;run?:Run;task?:Task;board?:BoardMapping;busy:boolean;error:boolean;onOpenExecution?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void}) {
+  const stage=task?taskStage(task,board):undefined;
+  const activity=error?"Suivi interrompu":snapshot.approvals?.length?"Votre réponse attendue":busy?"Réponse en cours":snapshot.readOnly?"Historique en lecture seule":"Prêt à répondre";
+  const execution=run?busy&&run.conversation?"Réponse en cours":statusLabel(run):"Chargement";
+  return <div className="conversation-status-strip" aria-label="Suivi de la conversation">
+    <span className={`conversation-status-activity ${busy?"live":""}`}><span className="conversation-status-dot"/>{activity}</span>
+    <details className="conversation-execution-menu"><summary>Exécution : {execution}</summary><div className="conversation-execution-panel">
+      {onOpenExecution&&<button type="button" onClick={onOpenExecution}>Voir cette exécution</button>}
+      {onOpenQueue&&<button type="button" onClick={onOpenQueue}>Voir la file des exécutions</button>}
+      {onOpenTask&&<button type="button" onClick={onOpenTask}>Ouvrir le workflow du ticket</button>}
+    </div></details>
+    <span>Skill : {run?.skill?skillLabels[run.skill]||run.skill:"Aucune"}</span>
+    <span>Ticket : {run?.taskId?<><strong>{task?.key||run.taskKey||run.taskId}</strong> · {task?.trackerStatus||"statut indisponible"}</>:"prompt libre"}</span>
+    <span>Étape : {run?.taskId?stage?stageLabels[stage]:"inconnue":"sans ticket"}</span>
+  </div>;
 }

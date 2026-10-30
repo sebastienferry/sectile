@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { executionSnapshot, launchTask, listProjects, listTasks } from "./lib/agent";
+import { executionSnapshot, getTask, launchTask, listProjects, listTasks, stopRun } from "./lib/agent";
 import { trackerColumns, type Project, type Task } from "./domain/board";
 import { epicColorHex } from "./domain/epic-color";
 import { executionConnectionLabel, isActive, projectRuns, statusLabel, type Run } from "./domain/execution";
@@ -32,6 +32,7 @@ import {
   type WorkspaceViewName,
 } from "./lib/workspace-preference";
 import { useConversation } from "./lib/conversation-controller";
+import { conversationGroups, type ConversationGrouping } from "./domain/conversation-navigation";
 import { CommandPalette } from "./components/CommandPalette";
 import { shortcutModifier, workspaceShortcut } from "./lib/workspace-shortcuts";
 import "./App.css";
@@ -86,8 +87,41 @@ function Workspace() {
   currentRef.current = current;
   const workspaceBeforeSettings = useRef<WorkspaceView | null>(null);
   const [filter, setFilter] = useState("");
+  const [conversationGrouping, setConversationGrouping] = useState<ConversationGrouping>(() => {
+    const saved = readPreference("conversationGrouping", "recent");
+    return saved === "stage" || saved === "tracker" ? saved : "recent";
+  });
+  const [visibleConversationCount, setVisibleConversationCount] = useState(8);
+  const [archivedConversationIds, setArchivedConversationIds] = useState<string[]>(() => {
+    try { const saved = JSON.parse(readPreference("archivedConversations", "[]")); return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : []; }
+    catch { return []; }
+  });
+  const [showArchivedConversations, setShowArchivedConversations] = useState(false);
+  const [conversationActionError, setConversationActionError] = useState("");
+  const [stoppingConversationId, setStoppingConversationId] = useState("");
+  const [navigationTasks, setNavigationTasks] = useState<{projectId:string;items:Task[]}>();
+  const [navigationContext, setNavigationContext] = useState<{projectId:string;value:ProjectContext}>();
   const [appearance, setAppearance] = useAppearance();
   const { snapshot, fresh, refresh: refreshExecutions } = useExecutionMonitor();
+  function setArchived(runId:string, archived:boolean) {
+    setArchivedConversationIds(previous=>{
+      const next=archived?[...new Set([...previous,runId])]:previous.filter(id=>id!==runId);
+      savePreference("archivedConversations",JSON.stringify(next));
+      return next;
+    });
+    setConversationActionError("");
+    if(archived && currentRef.current?.runId===runId){
+      const project=projects.find(item=>item.id===currentRef.current?.projectId);
+      if(project)navigate(project,"board");
+    }
+  }
+  async function stopConversation(run:Run) {
+    if(stoppingConversationId || !fresh || !isActive(run))return;
+    setStoppingConversationId(run.id);setConversationActionError("");
+    try {await stopRun(run.id);await refreshExecutions();}
+    catch {setConversationActionError("Arrêt non confirmé. Actualisez le suivi avant de réessayer.");}
+    finally {setStoppingConversationId("");}
+  }
   const request = useRef(0);
   const initialized = useRef(false);
   const pendingRunRestore = useRef<WorkspaceDestination | null>(null);
@@ -267,6 +301,10 @@ function Workspace() {
                 .map((project) => {
                   const runs = projectRuns(snapshot?.runs ?? [], project.id);
                   const selected = current?.projectId === project.id;
+                  const conversations = runs.filter(run => run.conversation && archivedConversationIds.includes(run.id)===showArchivedConversations);
+                  const projectTasks = navigationTasks?.projectId === project.id ? navigationTasks.items : [];
+                  const projectBoard = navigationContext?.projectId === project.id ? navigationContext.value.board : undefined;
+                  const visibleConversations = conversations.slice(0, visibleConversationCount);
                   return (
                     <section className="project-group" key={project.id}>
                       <div
@@ -288,6 +326,17 @@ function Workspace() {
                         >
                           <Icon name="plus" />
                         </button>
+                        <details className="project-action-menu">
+                          <summary aria-label={`Actions pour ${project.name}`} title={`Actions pour ${project.name}`}>•••</summary>
+                          <div className="project-action-panel">
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"board");}}>Voir les tickets</button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"executions");}}>File des exécutions</button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");setShowArchivedConversations(value=>!value);}}>{showArchivedConversations?"Voir les conversations actives":"Voir les conversations archivées"}</button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"prompt");}}>Démarrer un prompt libre</button>
+                            <label>Grouper les conversations<select aria-label={`Grouper les conversations de ${project.name}`} value={conversationGrouping} onChange={event=>{const value=event.target.value as ConversationGrouping;setConversationGrouping(value);savePreference("conversationGrouping",value);}}><option value="recent">Par activité récente</option><option value="stage">Par étape du workflow</option><option value="tracker">Par statut tracker</option></select></label>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"project-settings");}}>Réglages du projet</button>
+                          </div>
+                        </details>
                       </div>
                       {selected && (
                         <div className="project-children">
@@ -298,7 +347,10 @@ function Workspace() {
                             <Icon name="agent" />
                             Orchestration
                           </button>
-                          {runs.filter(run => run.conversation).slice(0,8).map(run => <RunNavigation key={run.id} run={run} selected={current?.runId===run.id} onClick={()=>navigate(project,"prompt",run.id)} />)}
+                          {showArchivedConversations&&<div className="sidebar-group-label">Archivées <button type="button" onClick={()=>setShowArchivedConversations(false)}>Retour</button></div>}
+                          {conversationGroups(visibleConversations,projectTasks,conversationGrouping,projectBoard).map(group=><div className="sidebar-conversation-group" key={group.label||"recent"}>{group.label&&<div className="sidebar-group-label">{group.label}<span>{group.runs.length}</span></div>}{group.runs.map(run=><div className="sidebar-conversation-row" key={run.id}><RunNavigation run={run} task={projectTasks.find(task=>task.id===run.taskId)} selected={current?.runId===run.id} onClick={()=>navigate(project,"prompt",run.id)} /><details className="conversation-action-menu"><summary aria-label={`Actions de la conversation ${run.title||run.taskKey||run.id}`} title="Actions de la conversation">•••</summary><div className="conversation-action-panel">{!showArchivedConversations&&isActive(run)&&<button type="button" disabled={!fresh||!!stoppingConversationId} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");void stopConversation(run);}}>{stoppingConversationId===run.id?"Arrêt…":"Arrêter la conversation"}</button>}<button type="button" disabled={!showArchivedConversations&&isActive(run)} title={!showArchivedConversations&&isActive(run)?"Arrêtez la conversation avant de l’archiver":undefined} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");setArchived(run.id,!showArchivedConversations);}}>{showArchivedConversations?"Restaurer la conversation":"Archiver la conversation"}</button></div></details></div>)}</div>)}
+                          {conversationActionError&&<p className="sidebar-action-error" role="alert">{conversationActionError}</p>}
+                          {conversations.length>visibleConversationCount&&<button className="sidebar-link" onClick={()=>setVisibleConversationCount(value=>value+8)}>Afficher les conversations suivantes · {visibleConversationCount}/{conversations.length}</button>}
                           <button
                             className="sidebar-link"
                             onClick={() => navigate(project, "executions")}
@@ -407,6 +459,13 @@ function Workspace() {
                   navigate={navigate}
                   onFolderMapped={(id,path)=>setProjects(items=>items.map(item=>item.id===id?{...item,path}:item))}
                   onProjectsChanged={() => void refreshProjects()}
+                  navigationTasks={navigationTasks?.projectId===current.projectId?navigationTasks.items:undefined}
+                  onTasksChanged={items=>setNavigationTasks({projectId:current.projectId,items})}
+                  onTaskChanged={task=>setNavigationTasks(previous=>{
+                    const items=previous?.projectId===current.projectId?previous.items:[];
+                    return {projectId:current.projectId,items:[...items.filter(item=>item.id!==task.id),task]};
+                  })}
+                  onContextChanged={value=>setNavigationContext({projectId:current.projectId,value})}
                 />
               )}
             </section>
@@ -435,11 +494,19 @@ function ProjectPane({
   navigate,
   onFolderMapped,
   onProjectsChanged,
+  navigationTasks,
+  onTasksChanged,
+  onTaskChanged,
+  onContextChanged,
 }: {
   selection: WorkspaceView;
   project?: Project;
   onFolderMapped: (projectId:string,path:string) => void;
   onProjectsChanged: () => void;
+  navigationTasks?: Task[];
+  onTasksChanged: (tasks:Task[]) => void;
+  onTaskChanged: (task:Task) => void;
+  onContextChanged: (context:ProjectContext) => void;
   navigate: (
     project: Project,
     view: View,
@@ -460,7 +527,7 @@ function ProjectPane({
   const [pathCopyState,setPathCopyState]=useState("");
   useEffect(()=>setPathCopyState(""),[workingDirectory]);
   const [taskState, setTaskState] = useState<{projectId:string;items:Task[]}>();
-  const tasks = taskState?.projectId === selection.projectId ? taskState.items : [];
+  const tasks = taskState?.projectId === selection.projectId ? taskState.items : navigationTasks ?? [];
   const [errorState, setErrorState] = useState<{projectId:string;message:string}>();
   const error = errorState?.projectId === selection.projectId ? errorState.message : "";
   const [busy, setBusy] = useState(false);
@@ -483,7 +550,7 @@ function ProjectPane({
   const [contextRefresh,setContextRefresh] = useState(0);
   const context = contextState?.projectId === selection.projectId ? contextState.value : undefined;
   const currentContextError = contextError?.projectId === selection.projectId ? contextError.message : "";
-  useEffect(()=>{let current=true;setContextError(undefined);void projectContext(selection.projectId).then(data=>{if(current){setContextState({projectId:selection.projectId,value:data});setContextError(undefined);}}).catch(cause=>{if(current)setContextError({projectId:selection.projectId,message:String(cause)});});return()=>{current=false;};},[selection.projectId,contextRefresh]);
+  useEffect(()=>{let current=true;setContextError(undefined);void projectContext(selection.projectId).then(data=>{if(current){setContextState({projectId:selection.projectId,value:data});onContextChanged(data);setContextError(undefined);}}).catch(cause=>{if(current)setContextError({projectId:selection.projectId,message:String(cause)});});return()=>{current=false;};},[selection.projectId,contextRefresh]);
   const [selectedRun, setSelectedRun] = useState(selection.runId ?? "");
   const request = useRef(0);
   async function refresh() {
@@ -492,7 +559,7 @@ function ProjectPane({
     setErrorState(undefined);
     try {
       const items = await listTasks(selection.projectId);
-      if (seq === request.current) setTaskState({projectId:selection.projectId,items});
+      if (seq === request.current) {setTaskState({projectId:selection.projectId,items});onTasksChanged(items);}
     } catch (cause) {
       if (seq === request.current) setErrorState({projectId:selection.projectId,message:String(cause)});
     } finally {
@@ -500,9 +567,32 @@ function ProjectPane({
     }
   }
   useEffect(() => {
-    if(selection.view !== "prompt" && selection.view !== "project-settings" && selection.view !== "task") void refresh();
+    if(selection.view !== "project-settings" && selection.view !== "task" && (selection.view !== "prompt" || projectRuns(monitor.snapshot?.runs ?? [],selection.projectId).some(run=>!!run.taskId))) void refresh();
     return () => { request.current++; };
-  }, [selection.projectId, selection.view]);
+  }, [selection.projectId, selection.view, monitor.snapshot?.runs.some(run=>run.projectId===selection.projectId&&!!run.taskId)]);
+  useEffect(()=>{
+    if(selection.view!=="prompt"||!currentRun?.taskId)return;
+    let current=true,reading=false;
+    const taskId=currentRun.taskId;
+    const read=async()=>{
+      if(reading)return;
+      reading=true;
+      try{
+        const task=await getTask(selection.projectId,taskId);
+        if(current&&task?.id===taskId){
+          setTaskState(previous=>{
+            const items=previous?.projectId===selection.projectId?previous.items:navigationTasks??[];
+            return {projectId:selection.projectId,items:[...items.filter(item=>item.id!==task.id),task]};
+          });
+          onTaskChanged(task);
+        }
+      }catch{/* Keep the last known ticket state while its tracker is unavailable. */}
+      finally{reading=false;}
+    };
+    void read();
+    const timer=setInterval(()=>void read(),15000);
+    return()=>{current=false;clearInterval(timer);};
+  },[selection.projectId,selection.view,currentRun?.taskId]);
   const remoteColumns = trackerColumns(tasks, query);
   const hasRemoteTasks = trackerColumns(tasks).some(column => column.tasks.length > 0);
   const trackers = context?.board?.trackers ?? [];
@@ -603,7 +693,7 @@ function ProjectPane({
           {error}
         </p>
       )}
-      {selection.view === "project-settings" ? <ProjectProfiles key={selection.projectId} projectId={selection.projectId} after={<section className="project-advanced" aria-label="Options avancées du projet"><h2>Options avancées</h2><details className="additional-folder-settings"><summary>Dossiers supplémentaires<small>Contexte partagé entre les conversations du projet</small></summary><AttachedFolderSettings projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/></details><AdvancedFolders projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/><WorkflowSettings projectId={selection.projectId}/><OrchestrationSettings projectId={selection.projectId} onSupervise={()=>{if(project)navigate(project,"orchestration");}}/></section>}><>{project && <ProjectFolderSetup variant="settings" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}<ProjectTrackerSetup projectId={selection.projectId} onChanged={() => {setContextRefresh(value=>value+1);onProjectsChanged();}} /></></ProjectProfiles> : selection.view === "task" && selection.taskId ? <Suspense fallback={<p>Ouverture du workflow…</p>}><WorkflowTask projectId={selection.projectId} taskId={selection.taskId} onBack={()=>{if(project)navigate(project,"board");}} onSetup={()=>{if(project)navigate(project,"settings");}}/></Suspense> : selection.view === "board" ? (
+      {selection.view === "project-settings" ? <ProjectProfiles key={selection.projectId} projectId={selection.projectId} after={<section className="project-advanced" aria-label="Options avancées du projet"><h2>Options avancées</h2><details className="additional-folder-settings"><summary>Dossiers supplémentaires<small>Contexte partagé entre les conversations du projet</small></summary><AttachedFolderSettings projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/></details><AdvancedFolders projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/><WorkflowSettings projectId={selection.projectId}/><OrchestrationSettings projectId={selection.projectId} onSupervise={()=>{if(project)navigate(project,"orchestration");}}/></section>}><>{project && <ProjectFolderSetup variant="settings" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}<ProjectTrackerSetup projectId={selection.projectId} onChanged={() => {setContextRefresh(value=>value+1);onProjectsChanged();}} /></></ProjectProfiles> : selection.view === "task" && selection.taskId ? <Suspense fallback={<p>Ouverture du workflow…</p>}><WorkflowTask projectId={selection.projectId} taskId={selection.taskId} onBack={()=>{if(project)navigate(project,"board");}} onSetup={()=>{if(project)navigate(project,"settings");}} onExecution={runId=>{if(project)navigate(project,"executions",runId||undefined);}}/></Suspense> : selection.view === "board" ? (
         <div className="board-workspace">
           {error && tasks.length > 0 && <p className="hint" role="status">La dernière actualisation a échoué. Les tickets affichés proviennent de la lecture précédente.</p>}
           {!boardContextPending && !currentContextError && !localOnlyProject && <div className="board-toolbar">
@@ -687,7 +777,7 @@ function ProjectPane({
         </div>
       ) : selection.view === "prompt" ? (
         selection.runId || project?.path?.trim() ? <Suspense fallback={<p>Ouverture du prompt…</p>}>
-          <ProjectPrompt key={`${selection.projectId}:${selection.runId??"new"}`} directory={workingDirectory} folders={currentRun?.folders} onFoldersChanged={()=>void monitor.refresh()} onTitleChanged={()=>void monitor.refresh()} projectId={selection.projectId} runId={selection.runId} onCreated={id => { if (project) navigate(project, "prompt", id); }} />
+          <ProjectPrompt key={`${selection.projectId}:${selection.runId??"new"}`} directory={workingDirectory} folders={currentRun?.folders} run={currentRun} task={tasks.find(task=>task.id===currentRun?.taskId)} board={context?.board} onOpenExecution={currentRun&&project?()=>navigate(project,"executions",currentRun.id):undefined} onOpenQueue={project?()=>navigate(project,"executions"):undefined} onOpenTask={currentRun?.taskId&&project?()=>navigate(project,"task",undefined,currentRun.taskId):undefined} onFoldersChanged={()=>void monitor.refresh()} onTitleChanged={()=>void monitor.refresh()} projectId={selection.projectId} runId={selection.runId} onCreated={id => { if (project) navigate(project, "prompt", id); }} />
         </Suspense> : project ? <ProjectFolderSetup project={project} onMapped={path=>onFolderMapped(project.id,path)} /> : <p>Chargement du projet…</p>
       ) : (
         <Supervisor
@@ -718,11 +808,11 @@ function visibleBoardTasks(tasks:Task[],activeRuns:Map<string,Run>,limit:number)
  return active.concat(others).slice(0,limit);
 }
 
-function RunNavigation({run,selected,onClick}:{run:Run;selected:boolean;onClick:()=>void}){
- if(run.conversation)return <ConversationNavigation run={run} selected={selected} onClick={onClick} />;
+function RunNavigation({run,task,selected,onClick}:{run:Run;task?:Task;selected:boolean;onClick:()=>void}){
+ if(run.conversation)return <ConversationNavigation run={run} task={task} selected={selected} onClick={onClick} />;
  return <button className={`sidebar-run ${selected ? "selected" : ""}`} title={statusLabel(run)} onClick={onClick}><span className={`dot ${isActive(run) ? "live" : ""}`} /><span>{run.taskKey || run.skill || "Exécution"}</span><small>{run.engineName || statusLabel(run)}</small></button>;
 }
-function ConversationNavigation({run,selected,onClick}:{run:Run;selected:boolean;onClick:()=>void}){
+function ConversationNavigation({run,task,selected,onClick}:{run:Run;task?:Task;selected:boolean;onClick:()=>void}){
  // Subscribe to already loaded transcripts; navigation never fetches histories.
  const {snapshot,loaded,error}=useConversation(run.id);
  const title=useMemo(()=>{
@@ -732,5 +822,5 @@ function ConversationNavigation({run,selected,onClick}:{run:Run;selected:boolean
  },[snapshot.events,snapshot.title,run.prompt,run.title]);
  const provider=run.provider==="claude"?"Claude Code":run.provider==="codex"?"Codex":run.engineName||"Assistant";
  const activity=error?"Suivi interrompu":loaded&&snapshot.id===run.id?snapshot.approvals?.length?"Votre intervention est requise":snapshot.busy?"En cours":snapshot.readOnly?"Lecture seule":"Prête":statusLabel(run);
- return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={`${provider}${run.model ? ` · ${run.model}` : ""} · ${activity}`}><Icon name="chat" /><span className="conversation-navigation-text"><span>{title}</span><small>{provider}{run.model && ` · ${run.model}`} · {activity}</small></span></button>;
+ return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={`${run.taskKey?`${run.taskKey} · `:""}${provider}${run.model ? ` · ${run.model}` : ""} · ${task?.trackerStatus?`${task.trackerStatus} · `:""}${activity}`}><span className={`conversation-indicator ${snapshot.approvals?.length?"needs-input":loaded&&snapshot.busy?"live":isActive(run)?"session":"idle"}`} />{run.taskKey&&<span className="sidebar-task-key">{run.taskKey}</span>}<span className="conversation-navigation-text"><span>{title}</span><small>{provider}{task?.trackerStatus&&` · ${task.trackerStatus}`} · {activity}</small></span></button>;
 }

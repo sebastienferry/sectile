@@ -370,6 +370,13 @@ Code or Codex, and send a request. Follow the answer, inspect tool details, allo
 or deny a tool request, and interrupt the current turn from the conversation.
 Select the conversation in the project sidebar to return to it; navigating away
 does not stop Go. Ticket-specific skill launch stays on each board card.
+The conversation status strip shows execution, skill, ticket and workflow stage;
+its execution menu opens the run or project queue. The project menu groups
+conversations by recent activity, workflow stage or tracker status. Each
+conversation's sidebar menu can stop its Go session. Once stopped, it can be
+archived; the project menu switches to archived conversations so they can be
+opened or restored. Archive visibility is a preference on this desktop, while
+Go retains the transcript and run history.
 
 The conversation view uses a lightweight React controller over native IPC. Go owns
 history, execution, permissions and interruption. The controller polls while a

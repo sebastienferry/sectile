@@ -155,6 +155,19 @@ pub async fn list_tasks(app: tauri::AppHandle, project_id: String) -> Result<Val
     .await
 }
 #[tauri::command]
+pub async fn get_task(app: tauri::AppHandle, project_id: String, task_id: String) -> Result<Value, String> {
+    required(&project_id)?;
+    required(&task_id)?;
+    request_agent(
+        app,
+        reqwest::Method::GET,
+        "/desktop/tasks/detail",
+        &[("projectId", &project_id), ("taskId", &task_id)],
+        None,
+    )
+    .await
+}
+#[tauri::command]
 pub async fn execution_snapshot(app: tauri::AppHandle) -> Result<Value, String> {
     let runtime_mode = runtime_mode_key(crate::local::runtime_mode(&app)?);
     let mut status = request_agent(

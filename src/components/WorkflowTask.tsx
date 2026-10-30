@@ -10,11 +10,11 @@ import {RunReview} from "./RunReview";
 const RunConsole=lazy(()=>import("./RunConsole").then(module=>({default:module.RunConsole})));
 const ProjectPrompt=lazy(()=>import("./ProjectPrompt"));
 
-type WorkflowTaskProps={projectId:string;taskId:string;onBack:()=>void;onSetup:()=>void};
+type WorkflowTaskProps={projectId:string;taskId:string;onBack:()=>void;onSetup:()=>void;onExecution?:(runId:string)=>void};
 export function WorkflowTask(props:WorkflowTaskProps){
  return <WorkflowTaskView key={JSON.stringify([props.projectId,props.taskId])} {...props}/>;
 }
-function WorkflowTaskView({projectId,taskId,onBack,onSetup}:WorkflowTaskProps){
+function WorkflowTaskView({projectId,taskId,onBack,onSetup,onExecution}:WorkflowTaskProps){
  const monitor=useExecutionMonitor();
  const [task,setTask]=useState<Task>();const [project,setProject]=useState<ProjectContext>();
  const [selected,setSelected]=useState("");const [result,setResult]=useState<RunResult>();
@@ -94,9 +94,9 @@ function WorkflowTaskView({projectId,taskId,onBack,onSetup}:WorkflowTaskProps){
  {task?.prUrl&&/^https?:\/\//.test(task.prUrl)&&<p><button onClick={()=>void openExternalLink(task.prUrl!).catch(()=>setError("Impossible d’ouvrir le lien de PR / MR."))}>Ouvrir la PR / MR</button></p>}
  {step?.stage==="implemented"&&task?.prUrl&&<details className="manual-review"><summary>Déclarer la revue validée</summary><p>Cette action enregistre explicitement l’étape « Revu » sur le serveur. Elle ne lance aucune skill et ne fusionne pas la PR.</p><label>Justification<textarea value={reviewNote} onChange={e=>setReviewNote(e.target.value)} maxLength={1000}/></label><button disabled={blocked||!reviewNote.trim()} onClick={()=>{if(acting.current)return;acting.current=true;setPending(true);void declareReviewed(projectId,taskId,reviewNote).then(()=>refresh()).catch(()=>setError("Validation non confirmée. Actualisez le ticket avant de réessayer.")).finally(()=>{acting.current=false;setPending(false);});}}>Enregistrer la revue validée</button></details>}
  {!!runs.length&&<label>Exécution<select aria-label="Exécution du ticket" value={run?.id??""} onChange={e=>setSelected(e.target.value)}>{runs.map(r=><option key={r.id} value={r.id}>{skillLabels[r.skill]||r.skill} · {statusLabel(r)} · {new Date(r.createdAt).toLocaleString("fr")}</option>)}</select></label>}
- {run&&<section className="workflow-run"><div className="run-heading"><h3>{skillLabels[run.skill]||run.skill} · {statusLabel(run)}</h3>{isActive(run)&&<button disabled={pending||!monitor.fresh||run.cancelRequested} onClick={()=>{void stopRun(run.id).then(()=>monitor.refresh()).catch(()=>setError("Arrêt non confirmé. Actualisez le suivi."));}}>{run.cancelRequested?"Arrêt demandé…":"Arrêter l’exécution"}</button>}</div><p role="status">{skillResultLabel(run,result)}</p><p className="muted">Une fin de processus ne valide pas une étape : les rapports du serveur font foi.</p><RunReview key={run.id} run={run}/><TaskOutput projectId={projectId} run={run} onChanged={()=>void monitor.refresh()}/></section>}
+ {run&&<section className="workflow-run"><div className="run-heading"><h3>{skillLabels[run.skill]||run.skill} · {statusLabel(run)}</h3>{isActive(run)&&<button disabled={pending||!monitor.fresh||run.cancelRequested} onClick={()=>{void stopRun(run.id).then(()=>monitor.refresh()).catch(()=>setError("Arrêt non confirmé. Actualisez le suivi."));}}>{run.cancelRequested?"Arrêt demandé…":"Arrêter l’exécution"}</button>}</div><p role="status">{skillResultLabel(run,result)}</p><p className="muted">Une fin de processus ne valide pas une étape : les rapports du serveur font foi.</p><RunReview key={run.id} run={run}/><TaskOutput projectId={projectId} run={run} task={task} board={project?.board} onExecution={onExecution} onChanged={()=>void monitor.refresh()}/></section>}
  </section>;
 }
-function TaskOutput({projectId,run,onChanged}:{projectId:string;run:Run;onChanged:()=>void}){
- return run.conversation?<Suspense fallback={<p>Ouverture de la conversation…</p>}><ProjectPrompt projectId={projectId} runId={run.id} directory={run.directory} folders={run.folders} onCreated={()=>{}} onFoldersChanged={onChanged}/></Suspense>:run.sessionId||run.trace||run.restored?<Suspense fallback={<p>Ouverture de la console…</p>}><RunConsole runId={run.id}/></Suspense>:<p>La console sera disponible après la prise en charge par Go.</p>;
+function TaskOutput({projectId,run,task,board,onExecution,onChanged}:{projectId:string;run:Run;task?:Task;board?:ProjectContext["board"];onExecution?:(runId:string)=>void;onChanged:()=>void}){
+ return run.conversation?<Suspense fallback={<p>Ouverture de la conversation…</p>}><ProjectPrompt projectId={projectId} runId={run.id} run={run} task={task} board={board} directory={run.directory} folders={run.folders} onCreated={()=>{}} onOpenExecution={onExecution?()=>onExecution(run.id):undefined} onOpenQueue={onExecution?()=>onExecution(""):undefined} onFoldersChanged={onChanged}/></Suspense>:run.sessionId||run.trace||run.restored?<Suspense fallback={<p>Ouverture de la console…</p>}><RunConsole runId={run.id}/></Suspense>:<p>La console sera disponible après la prise en charge par Go.</p>;
 }

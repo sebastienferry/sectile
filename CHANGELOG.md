@@ -6,6 +6,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
+- Show execution, skill, ticket status and workflow stage above the conversation composer, with direct access to the run and project queue. Group project conversations by stage or tracker status and identify live sessions with a blue dot.
+- Stop conversations from their sidebar menu, then archive and restore them from a desktop-specific archived view without deleting Go history.
 - View tracker tickets as a backlog list, select tickets on the list or board, and prepare a confirmed multi-ticket `pickup_issues` run. Board cards identify their parent epic and expose configured agent skills from a compact menu.
 - Open a native terminal at the current project folder and copy the folder path from the workspace heading.
 - Open desktop settings, toggle the project sidebar and start a project prompt with keyboard shortcuts matching Electron; a visible sidebar grip supports pointer and keyboard resizing.
