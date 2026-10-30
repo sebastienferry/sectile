@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sectile Tauri Rust dependency notices</title>
+  <style>
+    :root { color-scheme: light dark; font: 15px/1.55 system-ui, sans-serif; }
+    body { margin: 0; padding: 2rem; background: Canvas; color: CanvasText; }
+    main { max-width: 960px; margin: auto; }
+    pre { padding: 1rem; overflow: auto; white-space: pre-wrap; border: 1px solid #8886; border-radius: .5rem; }
+    li { margin: .3rem 0; }
+    a { color: LinkText; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Sectile Tauri Rust dependency notices</h1>
+  <p>Third-party Rust crates used by the native macOS arm64 and x86_64 desktop builds.</p>
+  <h2>License overview</h2>
+  <ul>
+    {{#each overview}}
+    <li><a href="#{{id}}">{{name}}</a> ({{count}})</li>
+    {{/each}}
+  </ul>
+  <h2>License texts and crate attributions</h2>
+  {{#each licenses}}
+  <section>
+    <h3 id="{{id}}">{{name}}</h3>
+    <ul>
+      {{#each used_by}}
+      <li><a href="{{#if crate.repository}}{{crate.repository}}{{else}}https://crates.io/crates/{{crate.name}}{{/if}}">{{crate.name}} {{crate.version}}</a> — {{crate.license}}</li>
+      {{/each}}
+    </ul>
+    <pre>{{text}}</pre>
+  </section>
+  {{/each}}
+</main>
+</body>
+</html>

@@ -1,0 +1,13 @@
+import {useRef,useState} from "react";
+import {chooseRepositoryFolder,chooseSpecificationFolder,projectContext,projectRepositories,type ProjectContext,type ProjectRepository} from "../lib/workspace";
+export function AdvancedFolders({projectId,onChanged}:{projectId:string;onChanged?:()=>void}){
+ const [context,setContext]=useState<ProjectContext>();const [repositories,setRepositories]=useState<ProjectRepository[]>([]);
+ const [loaded,setLoaded]=useState(false),[pending,setPending]=useState(false),[error,setError]=useState("");const acting=useRef(false);
+ async function refresh(){const [project,repos]=await Promise.all([projectContext(projectId),projectRepositories(projectId)]);setContext(project);setRepositories(Array.isArray(repos)?repos:[]);setLoaded(true);}
+ async function act(action:()=>Promise<unknown>){if(acting.current)return;acting.current=true;setPending(true);setError("");try{await action();if(action!==refresh)await refresh();onChanged?.();}catch{setError("Impossible de confirmer ce dossier. Vérifiez le dépôt attendu et l’association du projet.");}finally{acting.current=false;setPending(false);}}
+ return <details className="advanced-folders" onToggle={e=>{if(e.currentTarget.open&&!loaded)void act(refresh);}}><summary>Dépôts et dossiers de spécifications<small>Associer les dépôts Git et les emplacements Macro / Issue</small></summary><p className="muted">Ces rôles complètent les dossiers attachés. Un dépôt déclaré doit correspondre à son remote ; ses worktrees et PR restent gérés par Go.</p>
+ {error&&<p role="alert" className="error">{error}</p>}
+ {context&&([ ["macro","Macro",context.specPath,context.specDefault,context.specKind],["issue","Issue",context.issueSpecPath,context.issueSpecDefault,context.issueSpecKind] ] as const).map(([kind,label,path,fallback,state])=><section key={kind}><h4>Spécifications {label}</h4><code>{path||fallback||"Dossier de travail non configuré"}</code><p className="muted">{path?"Dossier distinct":"Suit le dossier de travail"}{state==="missing"&&" · Dossier introuvable"}</p><button disabled={pending} onClick={()=>void act(()=>chooseSpecificationFolder(projectId,kind))}>Choisir le dossier {label}</button>{path&&<button disabled={pending} onClick={()=>void act(()=>chooseSpecificationFolder(projectId,kind,true))}>Utiliser le dossier de travail pour {label}</button>}</section>)}
+ {repositories.filter(r=>!r.code).map(repo=><section key={repo.identity}><h4>{repo.identity}</h4><code>{repo.path||"Dossier non associé"}</code><button disabled={pending} onClick={()=>void act(()=>chooseRepositoryFolder(projectId,repo.identity))}>Associer le dépôt {repo.identity}</button></section>)}
+ </details>;
+}

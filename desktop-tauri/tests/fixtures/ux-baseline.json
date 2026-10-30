@@ -1,0 +1,332 @@
+{
+  "project": {
+    "id": "project-a",
+    "name": "Project A",
+    "path": "/tmp/sectile-ux-fixture/workspace"
+  },
+  "tasks": [
+    {
+      "id": "task-2605",
+      "title": "Add a health summary to tracker sync",
+      "key": "PE-2605",
+      "source": "jira",
+      "trackerId": "tracker-jira",
+      "trackerStatus": "Open",
+      "status": "to_clarify",
+      "priority": "high",
+      "parentKey": "EPIC-42",
+      "parentTitle": "Tracker reliability",
+      "assignee": "Ada",
+      "labels": ["#untouched"],
+      "description": "Expose the most recent tracker synchronization result in the project status view. Keep the remote tracker authoritative and do not change ticket state during a read."
+    },
+    {
+      "id": "task-2606",
+      "title": "Keep conversation context after reconnect",
+      "key": "PE-2606",
+      "source": "jira",
+      "trackerId": "tracker-jira",
+      "trackerStatus": "In Progress",
+      "status": "to_implement",
+      "priority": "medium",
+      "parentKey": "EPIC-42",
+      "parentTitle": "Tracker reliability",
+      "assignee": "Sam",
+      "labels": ["#specified"],
+      "description": "Persist conversation identity, history and the selected provider settings when the local agent reconnects."
+    },
+    {
+      "id": "task-2607",
+      "title": "Document the read-only board contract",
+      "key": "PE-2607",
+      "source": "jira",
+      "trackerId": "tracker-jira",
+      "trackerStatus": "Done",
+      "status": "finished",
+      "priority": "low",
+      "parentKey": "EPIC-57",
+      "parentTitle": "Documentation",
+      "assignee": "Mina",
+      "labels": ["#finished"],
+      "prUrl": "https://example.test/project/pull/18"
+    }
+  ],
+  "runs": [
+    {
+      "id": "run-tools",
+      "conversation": true,
+      "provider": "codex",
+      "model": "gpt-5.4-codex",
+      "title": "Add a health summary to tracker sync",
+      "prompt": "Add a health summary to tracker sync",
+      "projectId": "project-a",
+      "taskId": "",
+      "taskKey": "",
+      "skill": "discuss",
+      "status": "running",
+      "createdAt": "2026-10-29T09:20:00Z",
+      "startedAt": "2026-10-29T09:20:01Z",
+      "directory": "/tmp/sectile-ux-fixture/workspace",
+      "folders": [
+        {
+          "path": "/tmp/sectile-ux-fixture/design",
+          "name": "design",
+          "role": "shared",
+          "attached": true
+        }
+      ]
+    },
+    {
+      "id": "run-question",
+      "conversation": true,
+      "provider": "claude",
+      "model": "claude-sonnet-4-5",
+      "title": "Choose the sync summary behavior",
+      "prompt": "Choose the sync summary behavior",
+      "projectId": "project-a",
+      "taskId": "task-2606",
+      "taskKey": "PE-2606",
+      "skill": "discuss",
+      "status": "running",
+      "waitingSince": "2026-10-29T09:24:00Z",
+      "createdAt": "2026-10-29T09:22:00Z",
+      "directory": "/tmp/sectile-ux-fixture/workspace"
+    },
+    {
+      "id": "run-review",
+      "conversation": false,
+      "provider": "codex",
+      "model": "gpt-5.4-codex",
+      "title": "Implement tracker health summary",
+      "projectId": "project-a",
+      "taskId": "task-2605",
+      "taskKey": "PE-2605",
+      "skill": "implement",
+      "status": "completed",
+      "createdAt": "2026-10-29T08:40:00Z",
+      "startedAt": "2026-10-29T08:40:05Z",
+      "directory": "/tmp/sectile-ux-fixture/workspace"
+    },
+    {
+      "id": "run-implement",
+      "conversation": false,
+      "provider": "codex",
+      "model": "gpt-5.4-codex",
+      "title": "Implement tracker health summary",
+      "projectId": "project-a",
+      "taskId": "task-2605",
+      "taskKey": "PE-2605",
+      "skill": "implement",
+      "status": "running",
+      "createdAt": "2026-10-29T09:26:00Z",
+      "startedAt": "2026-10-29T09:26:02Z",
+      "directory": "/tmp/sectile-ux-fixture/workspace"
+    }
+  ],
+  "board": {
+    "trackerColumns": [
+      { "name": "Open", "statuses": ["Open"] },
+      { "name": "In Progress", "statuses": ["In Progress"] },
+      { "name": "Done", "statuses": ["Done"] }
+    ],
+    "stageColumns": {
+      "new": ["Open"],
+      "specified": ["In Progress"],
+      "finished": ["Done"]
+    },
+    "trackers": [
+      {
+        "trackerId": "tracker-jira",
+        "provider": "jira",
+        "trackerColumns": [
+          { "name": "Open", "statuses": ["Open"] },
+          { "name": "In Progress", "statuses": ["In Progress"] },
+          { "name": "Done", "statuses": ["Done"] }
+        ],
+        "stageColumns": {
+          "new": ["Open"],
+          "specified": ["In Progress"],
+          "finished": ["Done"]
+        }
+      }
+    ]
+  },
+  "conversations": {
+    "run-tools": {
+      "id": "run-tools",
+      "title": "Add a health summary to tracker sync",
+      "provider": "codex",
+      "model": "gpt-5.4-codex",
+      "mode": "execute",
+      "models": [
+        { "model": "gpt-5.4-codex" },
+        { "model": "gpt-5.3-codex" }
+      ],
+      "busy": true,
+      "readOnly": false,
+      "sectileMcp": { "status": "connected", "source": "transport" },
+      "partial": "I found the sync result path. I’m checking which fields the desktop can safely show.",
+      "events": [
+        "{\"kind\":\"user\",\"text\":\"Add a health summary to tracker sync\"}",
+        "{\"kind\":\"assistant\",\"text\":\"I’ll trace the current tracker sync response and add a compact read-only summary.\\n\\n## Current behavior\\n\\nThe board reads the latest remote task state.\\n\\n- Keep the tracker as the source of truth\\n- Show the last successful synchronization time\\n- Keep failures visible without hiding cached tickets\"}",
+        "{\"kind\":\"tool\",\"tool\":\"Read\",\"toolId\":\"tool-read\",\"text\":\"Read\",\"detail\":\"src/lib/agent.ts\"}",
+        "{\"kind\":\"tool\",\"tool\":\"Search\",\"toolId\":\"tool-search\",\"text\":\"Search\",\"detail\":\"Find tracker sync status projections\"}",
+        "{\"kind\":\"tool_result\",\"toolId\":\"tool-search\",\"text\":\"Found 3 relevant call sites\"}",
+        "{\"kind\":\"tool_result\",\"toolId\":\"tool-read\",\"text\":\"The desktop uses the read-only project context route.\"}",
+        "{\"kind\":\"tool\",\"tool\":\"Bash\",\"toolId\":\"tool-test\",\"text\":\"Bash\",\"detail\":\"npm run check\"}",
+        "{\"kind\":\"tool_result\",\"toolId\":\"tool-test\",\"text\":\"Typecheck passed\"}"
+      ]
+    },
+    "run-question": {
+      "id": "run-question",
+      "title": "Choose the sync summary behavior",
+      "provider": "claude",
+      "model": "claude-sonnet-4-5",
+      "mode": "plan",
+      "models": [
+        { "model": "claude-sonnet-4-5" },
+        { "model": "claude-opus-4-1" }
+      ],
+      "busy": false,
+      "readOnly": false,
+      "events": [
+        "{\"kind\":\"user\",\"text\":\"Choose the sync summary behavior\"}",
+        "{\"kind\":\"assistant\",\"text\":\"I can show the last successful sync and the latest error. Which level of detail should the board include?\"}",
+        "{\"kind\":\"tool\",\"tool\":\"AskUserQuestion\",\"toolId\":\"question-1\",\"text\":\"AskUserQuestion\",\"detail\":\"Choose how sync status should appear\"}"
+      ],
+      "approvals": [
+        {
+          "id": "question-1",
+          "tool": "AskUserQuestion",
+          "input": {
+            "questions": [
+              {
+                "header": "Summary",
+                "question": "What should the project board show?",
+                "multiSelect": false,
+                "isSecret": false,
+                "options": [
+                  { "label": "Last success", "description": "Show the last successful sync time." },
+                  { "label": "Last success and errors", "description": "Also surface the most recent failure." }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "projectContext": {
+    "configured": true,
+    "path": "/tmp/sectile-ux-fixture/workspace",
+    "issueTracker": "jira",
+    "aiProvider": "codex",
+    "aiModel": "gpt-5.4-codex",
+    "skills": [
+      { "id": "clarify", "command": "clarify-issue" },
+      { "id": "specify", "command": "specify-issue" },
+      { "id": "implement", "command": "implement-issue" },
+      { "id": "adjust", "command": "adjust-issue" },
+      { "id": "handoff", "command": "handoff-issue" },
+      { "id": "pickup", "command": "pickup-issue" },
+      { "id": "discuss", "command": "discuss" }
+    ],
+    "board": {
+      "trackerColumns": [
+        { "name": "Open", "statuses": ["Open"] },
+        { "name": "In Progress", "statuses": ["In Progress"] },
+        { "name": "Done", "statuses": ["Done"] }
+      ],
+      "stageColumns": {
+        "new": ["Open"],
+        "specified": ["In Progress"],
+        "finished": ["Done"]
+      },
+      "trackers": [
+        {
+          "trackerId": "tracker-jira",
+          "provider": "jira",
+          "trackerColumns": [
+            { "name": "Open", "statuses": ["Open"] },
+            { "name": "In Progress", "statuses": ["In Progress"] },
+            { "name": "Done", "statuses": ["Done"] }
+          ],
+          "stageColumns": {
+            "new": ["Open"],
+            "specified": ["In Progress"],
+            "finished": ["Done"]
+          }
+        }
+      ]
+    },
+    "policy": {
+      "prCreationStage": "implemented",
+      "fullChainStopStage": "reviewed",
+      "defaultSkillMode": "interactive"
+    }
+  },
+  "diff": {
+    "directory": "/tmp/sectile-ux-fixture/workspace",
+    "branch": "feat/tracker-health-summary",
+    "isClean": false,
+    "complete": true,
+    "filesChanged": 2,
+    "additions": 28,
+    "deletions": 6,
+    "warnings": [],
+    "files": [
+      {
+        "path": "src/components/SyncHealth.tsx",
+        "status": "added",
+        "kind": "text",
+        "patch": "diff --git a/src/components/SyncHealth.tsx b/src/components/SyncHealth.tsx\\nnew file mode 100644\\n--- /dev/null\\n+++ b/src/components/SyncHealth.tsx\\n@@ -0,0 +1,18 @@\\n+export function SyncHealth() {\\n+  return <aside aria-live=\"polite\">\\n+    <strong>Last sync</strong>\\n+    <span>2 minutes ago</span>\\n+  </aside>;\\n+}"
+      },
+      {
+        "path": "src/lib/agent.ts",
+        "status": "modified",
+        "kind": "text",
+        "patch": "diff --git a/src/lib/agent.ts b/src/lib/agent.ts\\n--- a/src/lib/agent.ts\\n+++ b/src/lib/agent.ts\\n@@ -12,6 +12,12 @@\\n export async function listTasks(projectId: string): Promise<Task[]> {\\n   requireDesktop();\\n-  return (await invoke<Task[] | null>(\"list_tasks\", { projectId })) ?? [];\\n+  const tasks = await invoke<Task[] | null>(\"list_tasks\", { projectId });\\n+  return tasks ?? [];\\n }"
+      }
+    ]
+  },
+  "localSetup": {
+    "enabled": true,
+    "mode": "local",
+    "ready": true,
+    "signedIn": true,
+    "agentReady": true,
+    "apiSetupAvailable": true,
+    "dataDirectory": "/tmp/sectile-ux-fixture/data",
+    "profile": { "email": "ux-fixture@example.test", "displayName": "UX Fixture", "role": "admin" },
+    "trackers": [
+      { "id": "tracker-jira", "name": "Project Jira", "provider": "jira", "scope": "EXAMPLE" }
+    ],
+    "credentials": {
+      "credentials": [
+        { "tracker": "jira", "siteUrl": "https://example.atlassian.net", "account": "UX Fixture", "kind": "oauth" }
+      ]
+    },
+    "projects": [{ "id": "project-a", "name": "Project A" }]
+  },
+  "runResult": {
+    "activity": { "id": "run-review", "taskId": "task-2605", "skillId": "implement", "status": "completed" },
+    "successor": null,
+    "task": { "status": "to_test", "labels": ["#implemented"] }
+  },
+  "providerReadiness": {
+    "provider": "codex",
+    "steps": {
+      "skills": { "status": "success", "scope": "project" },
+      "mcp": { "status": "success", "configuration": { "present": true, "valid": true }, "message": "Connected" }
+    },
+    "complete": true
+  },
+  "orchestration": {
+    "orchestratorEnabled": true,
+    "orchestratorMaxConcurrent": 3,
+    "orchestratorActiveRuns": 1,
+    "agents": [
+      { "id": "agent-backlog", "name": "Backlog", "file": "BACKLOG.md", "guidelines": "Work on ready tasks only." }
+    ]
+  }
+}

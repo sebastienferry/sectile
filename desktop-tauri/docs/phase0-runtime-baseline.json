@@ -1,0 +1,190 @@
+{
+  "measuredAt": "2026-10-29T01:43:01.264055+00:00",
+  "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+  "architecture": "arm64",
+  "longLivedLocalGoProcesses": 2,
+  "services": {
+    "server": {
+      "port": 52963,
+      "medianRssMiB": 34.55
+    },
+    "agent": {
+      "port": 58936,
+      "medianRssMiB": 21.12
+    }
+  },
+  "busyExecutions": 0,
+  "agentConnected": true,
+  "warmDiscoveryMedianMs": 0.34,
+  "samples": 10,
+  "jiraOAuth": {
+    "configured": true,
+    "callback": "http://127.0.0.1:52963/auth/jira/callback",
+    "credentialKind": "oauth",
+    "realMyselfCheckSucceeded": true
+  },
+  "artifacts": {
+    "server": {
+      "bytes": 37192786,
+      "sha256": "e4a5e3064aa7e65111288753b0d7c5fbfcab0edeb44f94be3e108613cedcb20c"
+    },
+    "agent": {
+      "bytes": 20613170,
+      "sha256": "e61fdf882ea0ef109bb27eea71495c3fd1e78a1bf5a1f078a0cc34bd40ccf2c4"
+    },
+    "desktop": {
+      "bytes": 39526304,
+      "sha256": "8ab16ddb786d324e8e60b02ba4e2a8c8779c43f56a6ee3e29188d6bc99b07794"
+    }
+  },
+  "prototypeSources": {
+    "sectile": "4576ca30ea4969bcec9be1a424e96ad677107cf7",
+    "tauri": "afa466c801f146a00d7ef745907b5fc95c59be4c"
+  },
+  "startup": {
+    "method": "Three fresh disposable SQLite stores, isolated HOME, no tracker or provider execution; warm filesystem caches. Backend uses ordinary loopback server mode on a reserved ephemeral port; the fixed-port production installation is not stopped. Timings exclude native UI launch.",
+    "samples": [
+      {
+        "repetition": 1,
+        "freshBackendReadyMs": 131.4,
+        "pairedAgentReadyMs": 152.0,
+        "freshBackendPairingAgentTotalMs": 287.9
+      },
+      {
+        "repetition": 2,
+        "freshBackendReadyMs": 74.8,
+        "pairedAgentReadyMs": 107.2,
+        "freshBackendPairingAgentTotalMs": 185.1
+      },
+      {
+        "repetition": 3,
+        "freshBackendReadyMs": 75.0,
+        "pairedAgentReadyMs": 109.5,
+        "freshBackendPairingAgentTotalMs": 187.4
+      }
+    ],
+    "medianMs": {
+      "freshBackendReadyMs": 75.0,
+      "pairedAgentReadyMs": 109.5,
+      "freshBackendPairingAgentTotalMs": 187.4
+    }
+  },
+  "tauriChecks": [
+    {
+      "check": "typecheck",
+      "exitCode": 0,
+      "seconds": 1.82
+    },
+    {
+      "check": "domain",
+      "exitCode": 0,
+      "seconds": 0.55
+    },
+    {
+      "check": "ui",
+      "exitCode": 0,
+      "seconds": 6.14
+    },
+    {
+      "check": "production-build",
+      "exitCode": 0,
+      "seconds": 1.34
+    },
+    {
+      "check": "rust-format",
+      "exitCode": 0,
+      "seconds": 0.21
+    },
+    {
+      "check": "rust",
+      "exitCode": 0,
+      "seconds": 15.25
+    }
+  ],
+  "goChecks": {
+    "packageResults": [
+      {
+        "Action": "skip",
+        "Package": "tasks/cmd/agent",
+        "Elapsed": 0
+      },
+      {
+        "Action": "pass",
+        "Package": "tasks/internal/agentmcp",
+        "Elapsed": 0.468
+      },
+      {
+        "Action": "pass",
+        "Package": "tasks/cmd/server",
+        "Elapsed": 1.063
+      },
+      {
+        "Action": "pass",
+        "Package": "tasks/internal/localruntime",
+        "Elapsed": 0.842
+      },
+      {
+        "Action": "pass",
+        "Package": "tasks/internal/taskmcp",
+        "Elapsed": 5.654
+      },
+      {
+        "Action": "pass",
+        "Package": "tasks/internal/agentexec",
+        "Elapsed": 12.701
+      },
+      {
+        "Action": "pass",
+        "Package": "tasks/internal/handlers",
+        "Elapsed": 25.084
+      },
+      {
+        "Action": "pass",
+        "Package": "tasks/internal/db",
+        "Elapsed": 27.435
+      },
+      {
+        "Action": "pass",
+        "Package": "tasks/internal/agent",
+        "Elapsed": 133.763
+      }
+    ],
+    "passingTestEventsIncludingSubtests": 2150,
+    "failures": []
+  },
+  "mcp": {
+    "local": {
+      "mcpConnected": true,
+      "realListProjectsSucceeded": true,
+      "target": "companion"
+    },
+    "fleet": {
+      "mcpConnected": true,
+      "realListProjectsSucceeded": true,
+      "target": "shared"
+    },
+    "electron": {
+      "electronMCPConnected": true,
+      "readOnlyToolSucceeded": true
+    }
+  },
+  "debugAppAllocatedKiB": 95160,
+  "toolchain": {
+    "go": "go version go1.26.3 darwin/arm64",
+    "node": "v26.3.0",
+    "cargo": "cargo 1.96.0 (30a34c682 2026-05-25) (Homebrew)"
+  },
+  "limits": [
+    "RSS covers only two Go processes and is not unique/proportional memory; desktop/WebKit/provider subprocesses excluded.",
+    "Warm discovery is not native UI cold startup; fresh-store timings use isolated ephemeral-port ordinary server mode.",
+    "Existing deployed debug artifact hashes are recorded separately from the source checkpoint.",
+    "Remote MCP reads do not validate distributed cluster behavior or cross-version mutation semantics.",
+    "No production runtime restart or migration was performed."
+  ],
+  "engineeringContracts": {
+    "repository": "sectile",
+    "commit": "b92f35a61028bc822398aa677e56a0f9ef2680f9",
+    "document": "docs/desktop-runtime-contracts.md",
+    "architectureDecision": "docs/adrs/0066-compose-a-local-companion-without-changing-fleet.md"
+  }
+}
