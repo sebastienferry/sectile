@@ -127,6 +127,19 @@ test("a finished discussion archives through its own menu without sending a prov
  expect(archive).toHaveBeenCalledOnce();
  expect(api.controlConversation).not.toHaveBeenCalled();
 });
+test("a stopped discussion describes the saved turn as completed while the composer remains read only",async()=>{
+ vi.mocked(api.readConversation).mockResolvedValue({...snapshot("stopped-chat"),readOnly:true,events:[
+  JSON.stringify({kind:"assistant",text:"OK QA"}),
+  JSON.stringify({kind:"notice",text:"Prêt pour votre prochain message"}),
+  JSON.stringify({kind:"notice",text:"Conversation arrêtée"}),
+ ]});
+ render(<ProjectPrompt projectId="p" runId="stopped-chat" onCreated={vi.fn()}/>);
+ await screen.findByText("OK QA");
+ expect(screen.getByText("Réponse terminée")).toBeTruthy();
+ expect(screen.getByText("Conversation arrêtée")).toBeTruthy();
+ expect(screen.queryByText("Prêt pour votre prochain message")).toBeNull();
+ expect(screen.getByRole("textbox",{name:"Message suivant"}).hasAttribute("disabled")).toBe(true);
+});
 test("pending tools require an explicit decision; navigation does not interrupt Go", async () => {
   vi.mocked(api.readConversation).mockResolvedValue({ ...snapshot("approval-chat"), approvals: [{ id: "tool-1", tool: "Bash", input: { command: "git status" } }] });
   const view = render(<ProjectPrompt projectId="project-three" runId="approval-chat" onCreated={vi.fn()} />);

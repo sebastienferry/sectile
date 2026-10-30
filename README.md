@@ -394,7 +394,8 @@ then return to the conversation from that detail. Each conversation's sidebar
 menu can stop its Go session. Once stopped, it can be
 archived; the project menu switches to archived conversations so they can be
 opened or restored. Archive visibility is a preference on this desktop, while
-Go retains the transcript and run history.
+Go retains the transcript and run history. A stopped conversation labels its
+saved turn as completed and keeps the composer read-only.
 Conversation headers keep long titles and discussion actions on one line;
 response state stays beside the composer. Click the project in the sidebar to
 return to its board. Ticket conversations show a PR/MR link in the sidebar and

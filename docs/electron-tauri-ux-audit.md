@@ -1635,3 +1635,13 @@ The closed change review is now an inline disclosure. At the same 800-by-700
 point window size, the [compact detail capture](ux-captures/conversation-execution-compact-native.jpg)
 shows the controls and review entry without scrolling. This verifies layout and
 accessibility in the isolated Local app; it does not qualify a new provider run.
+
+A stopped Codex conversation retained a historic "Prêt pour votre prochain
+message" notice immediately before its "Conversation arrêtée" notice. Tauri
+now presents that saved turn-completion notice as "Réponse terminée" without
+rewriting the stored event or changing Electron's backend text. The rebuilt
+port-52965 native app showed the preserved "OK QA" answer, the completed-turn
+label, the stopped state and a disabled composer in the
+[stopped conversation capture](ux-captures/stopped-conversation-native.jpg).
+The disabled composer still occupies substantial space; replacing it with a
+concise read-only footer is a separate UX follow-up.
