@@ -79,6 +79,21 @@ test("workflow run status stays on its ticket instead of duplicating the project
   expect(within(sidebar).queryByText("APP-2")).toBeNull();
   expect(within(sidebar).getByRole("button", { name: /Toutes les exécutions/ })).toBeTruthy();
 });
+test("ticket workflow keeps its own return action without repeated project controls",async()=>{
+ vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
+ vi.mocked(api.listTasks).mockResolvedValue([{id:"task",key:"APP-1",title:"A tracked ticket",status:"to_clarify",source:"jira",trackerStatus:"Open"}]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
+ render(<App/>);
+ fireEvent.click(await screen.findByRole("button",{name:"Ouvrir le workflow de APP-1"}));
+ expect(await screen.findByRole("heading",{name:"A tracked ticket"})).toBeTruthy();
+ expect(screen.getByRole("button",{name:"← Tickets du projet"})).toBeTruthy();
+ expect(screen.queryByRole("button",{name:"Tableau"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Nouveau prompt"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Configurer le projet"})).toBeNull();
+ expect(screen.getByRole("button",{name:"Nouveau prompt dans Example"})).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"← Tickets du projet"}));
+ expect(await screen.findByRole("textbox",{name:"Rechercher des tickets"})).toBeTruthy();
+});
 test("project menu opens the execution queue and groups ticket conversations by stage",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue([{id:"new",key:"APP-1",title:"New task",status:"to_clarify",source:"jira",trackerStatus:"Open"},{id:"reviewed",key:"APP-2",title:"Reviewed task",status:"to_close",source:"jira",trackerStatus:"Done",prUrl:"https://gitlab.example.com/team/app/-/merge_requests/7",prLinks:[{url:"https://gitlab.example.com/team/app/-/merge_requests/7",state:"merged"}]}]);
  vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true,capabilities:[]},runs:[

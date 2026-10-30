@@ -564,6 +564,11 @@ occupied a large card even though the launch path rechecks preparation and
 remains available. This note is now a collapsed disclosure; a known MCP
 configuration conflict still renders as an explicit error. The native retake
 is `docs/ux-captures/workflow-preparation-compact-native.png`.
+The ticket workflow also repeated board, prompt and project-settings actions in
+its header despite having its own return action and the project sidebar. The
+workflow now keeps the project identity and path in its header, then uses the
+ticket-level return action; the native retake is
+`docs/ux-captures/workflow-focused-header-native.png`.
 
 Current verification passes on Tauri commit `239d7c1`: `npm run check`, 14
 domain tests, 101 UI tests, 35 Rust tests and `npm run build`. The short-window

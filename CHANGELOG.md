@@ -76,6 +76,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Keep project navigation in the sidebar while ticket workflows use one return action instead of repeating project controls in their header.
 - Keep the workflow's unverified engine-preparation note in a compact disclosure while leaving real MCP conflicts visible.
 - Make the free prompt the primary project-header action and keep board settings in a compact labeled icon.
 - Keep the ticket board controls on a compact row and show batch actions only after tickets are selected.

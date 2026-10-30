@@ -16,6 +16,7 @@ existing Sectile Go server, workstation agent and MCP infrastructure.
 - Ticket conversations show linked pull requests and merge requests with their last known forge state; the status strip and ticket workflow list every link, while the sidebar provides a compact shortcut to the primary link. An unavailable forge credential is shown explicitly rather than implying a current state.
 - Task launch with project-provided skills, inherited or explicit execution mode, and optional instructions.
 - Ticket workflows keep unverified provider preparation in a compact disclosure; actual MCP configuration conflicts remain visible before launch.
+- Ticket workflows use one return action to the board, with project prompts and settings available from the project sidebar.
 - Run monitoring every three seconds, waiting/authentication states and acknowledged cancellation.
 - Read-only streamed console output with bounded scrollback and reconnect controls.
 - Launch of saved named orchestration agents with launched/skipped ticket reports.
