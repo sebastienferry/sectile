@@ -19,6 +19,7 @@ existing Sectile Go server, workstation agent and MCP infrastructure.
 - Task launch with project-provided skills, inherited or explicit execution mode, and optional instructions.
 - Ticket workflows keep unverified provider preparation in a compact disclosure; actual MCP configuration conflicts remain visible before launch.
 - Ticket workflows use one return action to the board, with project prompts and settings available from the project sidebar.
+- Workflow stages stay in a balanced two-row layout in compact windows, including when the project sidebar is expanded.
 - Run monitoring every three seconds, waiting/authentication states and acknowledged cancellation.
 - Read-only streamed console output with bounded scrollback and reconnect controls.
 - Launch of saved named orchestration agents with launched/skipped ticket reports.

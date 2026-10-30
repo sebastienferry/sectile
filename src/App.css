@@ -1407,7 +1407,7 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .task-open { padding: 0; background: none; border: 0; text-align: left; font: inherit; color: inherit; }
 .task-stage { color: var(--muted); font-size: 11px; }
 .task-run-state { margin: 5px 0; color: var(--accent-text); font-size: 11px; font-weight: 600; }
-.workflow-task { max-width: 1100px; margin: 0 auto; padding: 24px 30px; overflow: auto; width: 100%; }
+.workflow-task { max-width: 1100px; margin: 0 auto; padding: 24px 30px; overflow: auto; width: 100%; container-type: inline-size; }
 .workflow-task-top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .task-editor { width:min(900px,100%); margin:0 auto; padding:24px 30px 32px; overflow:auto; }
 .task-editor-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; padding-bottom:14px; border-bottom:1px solid var(--divider); }
@@ -1435,9 +1435,10 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 @media(max-width:650px) { .task-editor { padding:18px; } .task-editor footer { flex-wrap:wrap; } .task-editor footer span { flex-basis:100%; } }
 .workflow-task > header { margin: 24px 0 16px; }
 .workflow-task h2 { font-size: 24px; letter-spacing: -.5px; }
-.workflow-progress { display: flex; gap: 6px; flex-wrap: wrap; padding: 0; list-style: none; margin: 20px 0; }
-.workflow-progress li { padding: 9px 12px; border: 1px solid var(--border); border-radius: 20px; color: var(--muted); font-size: 12px; }
+.workflow-progress { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; padding: 0; list-style: none; margin: 20px 0; }
+.workflow-progress li { padding: 9px 8px; border: 1px solid var(--border); border-radius: 20px; color: var(--muted); font-size: 12px; text-align: center; white-space: nowrap; }
 .workflow-progress [aria-current="step"] { background: var(--selected); color: var(--accent-text); border-color: var(--accent); }
+@container (max-width: 700px) { .workflow-progress { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .workflow-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0; }
 .workflow-prerequisite { padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; margin-top: 12px; font-size: 12px; color: var(--muted); }
 .workflow-prerequisite summary { cursor: pointer; }

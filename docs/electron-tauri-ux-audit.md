@@ -1534,3 +1534,13 @@ fully visible at the wider setting while the ticket workflow remained usable.
 The [expanded sidebar capture](ux-captures/sidebar-resize-native-wide.jpg)
 records the native 300-point state. The port-52964 companion retained the
 existing project and ticket; the regular port-52963 installation was untouched.
+
+The expanded sidebar made the workflow's final stage wrap alone below the
+other five badges. The ticket workflow now uses a six-column progression when
+its own content area is wide enough, and two balanced rows of three in compact
+content areas. The rebuilt 800-point native QA app showed all six stages in
+their intended order with the sidebar at 300 points; the next-step and chain
+actions remained visible. The [native workflow capture](ux-captures/workflow-stages-native-compact.jpg)
+records the result. Existing QA conversations are free prompts, so this
+retake cannot qualify the PR/MR shortcut of a ticket-linked conversation;
+that remains a separate native check.
