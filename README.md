@@ -180,7 +180,8 @@ unavailable there and displays an explanatory message. Use `npm run tauri dev` f
 ## Start, monitor and stop work
 
 **Nouveau prompt** starts a free Claude Code or Codex conversation in the project,
-without requiring a tracker ticket. The context bar shows the actual working
+without requiring a tracker ticket. The message field receives focus on entry.
+The context bar shows the actual working
 directory and **Dossiers · N**. The composer keeps provider, model and mode
 choices in one compact row, with each menu accessible by its visible value.
 **Ajouter un dossier** opens the native selector;

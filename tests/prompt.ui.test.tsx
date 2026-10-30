@@ -16,6 +16,8 @@ test("a free prompt creates a project-scoped Go conversation and crosses IPC onc
   vi.mocked(api.readConversation).mockResolvedValue(snapshot("new-project-chat"));
   const created = vi.fn();
   render(<ProjectPrompt projectId="project-one" onCreated={created} />);
+  expect(screen.getByRole("heading",{name:"Nouveau prompt"})).toBeTruthy();
+  expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Prompt libre" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Prompt libre" }), { target: { value: "Explain the project" } });
   fireEvent.click(screen.getByRole("button", { name: "Envoyer" }));
   await waitFor(() => expect(created).toHaveBeenCalledWith("new-project-chat"));

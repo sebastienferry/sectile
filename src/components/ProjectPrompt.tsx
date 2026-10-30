@@ -55,9 +55,8 @@ export default function ProjectPrompt({ projectId, runId, agentAvailable=true, o
     return()=>{current=false;};
   },[projectId,runId]);
   if (runId) return <Conversation id={runId} projectId={projectId} agentAvailable={agentAvailable} directory={directory} folders={folders} run={run} task={task} board={board} onOpenExecution={onOpenExecution} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onArchive={onArchive} onStopped={onStopped} onFoldersChanged={onFoldersChanged} onTitleChanged={onTitleChanged} />;
-  return <section className="project-prompt prompt-start">
-    <div className="prompt-intro"><span className="prompt-symbol"><Icon name="chat" /></span><span className="eyebrow">DANS CE PROJET</span>
-    <h2>Que voulez-vous faire ?</h2><p>Une idée, une question, une tâche.<br />Commencez simplement par un message.</p></div>
+  return <section className="project-prompt prompt-start prompt-new">
+    <div className="prompt-intro"><h2>Nouveau prompt</h2></div>
     <form className="composer" onSubmit={async e => {
       e.preventDefault(); if (!agentAvailable || busy || attaching || !draft.trim()) return;
       setBusy(true); setError("");
@@ -68,7 +67,7 @@ export default function ProjectPrompt({ projectId, runId, agentAvailable=true, o
       } catch (cause) { setError(String(cause)); }
       finally { setBusy(false); }
     }}>
-      <textarea aria-label="Prompt libre" value={draft} disabled={busy} maxLength={32000} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} placeholder="Demandez quelque chose à propos de ce projet…" rows={4} />
+      <textarea autoFocus aria-label="Prompt libre" value={draft} disabled={busy} maxLength={32000} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} placeholder="Demandez quelque chose à propos de ce projet…" rows={4} />
       <div className="composer-footer"><div className="composer-options">
       {profiles?.profiles.length ? <label><span className="sr-only">Profil</span><select aria-label="Profil" title="Choisir un profil" value={profileId} disabled={busy} onChange={e=>{customized.current=true;setProfileId(e.target.value);const profile=profiles.profiles.find(p=>p.id===e.target.value);if(profile){setProvider(profile.provider);setOptions({model:profile.model||undefined,mode:profile.mode||undefined});}}}><option value="">Configuration personnalisée</option>{profiles.profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label> : null}
       <label className="provider-select"><span className="sr-only">Moteur</span><select aria-label="Moteur" title="Choisir le moteur" value={provider} disabled={busy} onChange={e => { customized.current=true; setProfileId(""); setProvider(e.target.value); setOptions({}); }}><option value="claude">Claude Code</option><option value="codex">Codex</option></select></label>

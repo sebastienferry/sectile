@@ -1443,3 +1443,11 @@ and URL passed to the native link opener. The isolated native project has a
 ticket with a linked MR, but its selected conversation is a free prompt; this
 retake does not claim a native capture of the new ticket-conversation shortcut.
 Remote Fleet and the signed release remain separate qualifications.
+
+An isolated native prompt retake on the existing port-52964 QA identity shows
+the shorter project-prompt introduction and the composer near the project
+header in an 800-point window. The message field receives focus on entry;
+the [native prompt capture](ux-captures/new-prompt-native-compact.png) records
+the layout. The bundled Go companion was reused without changing the regular
+port-52963 installation. This is a visual and focus check, not a new provider
+execution or remote Fleet qualification.
