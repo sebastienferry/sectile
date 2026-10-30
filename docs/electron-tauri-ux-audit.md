@@ -1588,22 +1588,32 @@ when the execution supervisor shows a selected conversation. The conversation
 keeps its own actions and execution status; the project-level controls remain
 in the sidebar, while ordinary non-conversation execution details retain their
 board action. UI tests cover both paths. A rebuilt isolated QA bundle on port
-52965 is ready for native inspection; the Mac locked before the window could
-be opened, so this source result is not yet a native visual qualification.
+52965 later opened a real Codex conversation and confirmed that its selected
+execution detail has no generic project toolbar actions. The
+[native detail capture](ux-captures/conversation-execution-detail-native.jpg)
+records the result.
 
 The execution queue had a separate scan failure: a free conversation was
 listed as “Console libre,” and its detail header used the run UUID. It now
 uses the saved conversation title (or first prompt line), while a ticket
 conversation uses its ticket key and title. Provider, skill and run state stay
 in the secondary line; long titles retain their full accessible value.
-Component tests cover free Codex and ticket-linked Claude examples. The
-frontend, domain, UI and Rust suites pass, but the Mac was locked for this
-bundle's native inspection. Both this and the preceding conversation-toolbar
-change therefore remain open in the native qualification record.
+Component tests cover free Codex and ticket-linked Claude examples. In the
+port-52965 native QA app, a prompt in a disposable Git folder received the
+exact Codex reply “OK QA.” Its execution queue showed the prompt title and
+“Codex · Session active,” and the selected detail used the same title. The
+[native queue capture](ux-captures/conversation-execution-queue-native.jpg)
+records the list; the [detail capture](ux-captures/conversation-execution-detail-native.jpg)
+records the selected view. Ticket-linked Claude remains component-tested for
+this particular queue title rule; it was not repeated in this native retake.
 
 The supervision heading also counted an idle free-prompt provider process as
 an active execution. It now reports active task executions separately from
 open free-prompt sessions, while each row retains its own specific status.
-UI tests cover a task-linked Claude workflow and a free Codex session. This
-wording is source-verified but still awaits native inspection alongside the
-preceding queue changes.
+UI tests cover a task-linked Claude workflow and a free Codex session. The
+native QA queue showed “0 exécution active · 1 session ouverte” after the
+Codex answer was ready. The same session could still be opened from the
+sidebar. The user trial on port 52964 and normal companion on 52963 were not
+changed. This inspection also exposed remaining visual duplication in the
+selected execution detail: its run header and embedded conversation repeat
+the same title and status, so that detail is the next UX target.

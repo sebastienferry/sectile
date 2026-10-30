@@ -14,13 +14,16 @@ Go `8d40b2aa`'s process-bound MCP project-context fix has already passed real
 Claude Code and Codex calls from an isolated unsigned Tauri bundle; the
 retained package predates it. The newer conversation-toolbar and execution
 queue changes (`0998f9b`, `a7421d9`), plus separate counting of open free
-conversations, pass source UI tests. A separate bundle with current source and
-a port-52965 companion is staged, but native
-inspection is pending while the Mac is locked. The user's port-52964 trial
-remains on its earlier bundle and has not been replaced.
+conversations (`989926d`), pass source UI tests. An isolated port-52965 bundle
+with these changes opened a real Codex prompt in a disposable Git folder,
+received “OK QA,” then displayed the prompt title, provider and open-session
+count in the native execution queue. Its selected detail kept the conversation
+menu and omitted generic project toolbar actions. This is native UX evidence
+for this Local bundle, not a signed-release or Fleet result. The user's
+port-52964 trial remains on its earlier bundle and has not been replaced.
 
-Current open checks include native inspection of those two UX changes,
-deployed remote Fleet with TLS and real tracker/OAuth flows, renderer-inclusive
+Current open checks include deployed remote Fleet with TLS and real
+tracker/OAuth flows, renderer-inclusive
 startup and memory measurements, clean-user installation, and signed and
 notarized macOS distribution. Fresh Jira OAuth consent remains deferred by the
 owner. No current branch result should be read as a V1 release claim.
