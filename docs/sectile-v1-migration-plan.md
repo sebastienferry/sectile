@@ -692,6 +692,22 @@ client migration are separate qualifications.
 - Separate any roadmap deprecation from runtime extraction and preserve tracker
   source-of-truth and caller attribution throughout.
 
+### Packaged Fleet crash recovery evidence (2026-10-30)
+Packaged Fleet crash recovery (2026-10-30): `npm run test:fleet-crash` passed
+with both signed-in providers using the candidate's exact Go `84e19b1b`
+server and agent executables. The isolated Fleet server used loopback port
+61848; Local discovery correctly returned 404. Codex (`gpt-6-astra`, execution)
+and Claude Code (`sonnet`, execution) each answered a first turn and started a
+90-second delayed shell write. SIGKILL of the fixture agent stopped the tool:
+the delayed file was absent after 95 seconds. Restart restored the history,
+model and mode; a follow-up recalled the context and checked the file without
+replaying the original tool. Both provider checks passed and the fixture
+cleaned up its processes and data. The regular companion on 52963 (PID 89986)
+remained running. The harness now allocates a Fleet port without rebuilding or
+changing the shipped Local callback port. This qualifies packaged Fleet
+conversation recovery through the agent API; it does not qualify native Fleet
+onboarding, remote tracker writes, OAuth consent or a signed installation.
+
 ## 6. Repository and branch strategy
 
 - Sectile Go: `refactor/embedded-local-backend`, from preserved prototype commit

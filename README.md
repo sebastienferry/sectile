@@ -422,9 +422,11 @@ only once and only when the requested command exactly matches the test command.
 
 For a Fleet agent crash test with either or both signed-in CLIs, run
 `npm run test:fleet-crash` with `SECTILE_TEST_REAL_CODEX=1` and/or
-`SECTILE_TEST_REAL_CLAUDE=1`. Set `SECTILE_TEST_SERVER_BINARY` to a disposable
-Go server build whose `internal/localruntime.Port` and `Origin` use an unused
-loopback port; keep the shipped fixed-port binaries unchanged. The test creates
+`SECTILE_TEST_REAL_CLAUDE=1`. Set `SECTILE_TEST_SERVER_BINARY` and
+`SECTILE_TEST_AGENT_BINARY` to the packaged executables to qualify. The harness
+allocates a free loopback Fleet port, or uses `SECTILE_TEST_FLEET_PORT` when set;
+no Local callback-port rebuild is needed. Local runtime discovery stays disabled.
+The test creates
 an isolated server, account, agent and Git folder, kills only that agent during
 an active 90-second shell tool, and checks after 95 seconds that the delayed
 file is absent. It restarts the agent and verifies history, model, mode,

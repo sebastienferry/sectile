@@ -420,3 +420,19 @@ launched against the user's existing installation. A running older companion
 can remain attached, so opening the new UI alone must not be counted as a
 runtime upgrade test. This is a local testing candidate, not a V1 release or
 a closure of the remaining runtime/migration/integration gates.
+
+
+Packaged Fleet crash recovery (2026-10-30): `npm run test:fleet-crash` passed
+with both signed-in providers using the candidate's exact Go `84e19b1b`
+server and agent executables. The isolated Fleet server used loopback port
+61848; Local discovery correctly returned 404. Codex (`gpt-6-astra`, execution)
+and Claude Code (`sonnet`, execution) each answered a first turn and started a
+90-second delayed shell write. SIGKILL of the fixture agent stopped the tool:
+the delayed file was absent after 95 seconds. Restart restored the history,
+model and mode; a follow-up recalled the context and checked the file without
+replaying the original tool. Both provider checks passed and the fixture
+cleaned up its processes and data. The regular companion on 52963 (PID 89986)
+remained running. The harness now allocates a Fleet port without rebuilding or
+changing the shipped Local callback port. This qualifies packaged Fleet
+conversation recovery through the agent API; it does not qualify native Fleet
+onboarding, remote tracker writes, OAuth consent or a signed installation.

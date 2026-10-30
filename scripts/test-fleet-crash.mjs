@@ -2,7 +2,6 @@
 // Run with SECTILE_TEST_REAL_CODEX=1 and/or SECTILE_TEST_REAL_CLAUDE=1.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -40,15 +39,22 @@ async function fetchJSON(origin, route, method = 'GET', body, headers = {}) {
   assert.ok(response.ok, `${method} ${route}: HTTP ${response.status}`);
   return response.status === 204 ? null : response.json();
 }
-const metadata = spawnSync(binary('server'), ['--local-runtime-info'], { encoding: 'utf8', windowsHide: true });
-assert.equal(metadata.status, 0, 'The test server must report its fixed Local callback port');
-const port = JSON.parse(metadata.stdout).port;
+const requestedPort = Number(process.env.SECTILE_TEST_FLEET_PORT ?? 0);
+assert.ok(Number.isInteger(requestedPort) && requestedPort >= 0 && requestedPort <= 65535, 'SECTILE_TEST_FLEET_PORT must be an integer between 0 and 65535');
 const reservation = createServer();
 await new Promise((resolve, reject) => {
-  reservation.once('error', () => reject(new Error(`The test server port ${port} is occupied; build a disposable Go server with a different localruntime.Port and localruntime.Origin.`)));
-  reservation.listen(port, '127.0.0.1', resolve);
+  reservation.once('error', reject);
+  reservation.listen(requestedPort, '127.0.0.1', resolve);
 });
+const port = reservation.address().port;
 await new Promise(resolve => reservation.close(resolve));
+const versions = {};
+for (const name of ['server', 'agent']) {
+  const result = spawnSync(binary(name), ['--version'], { encoding: 'utf8', windowsHide: true });
+  assert.equal(result.status, 0, `The packaged ${name} must report its version`);
+  versions[name] = result.stdout.trim();
+}
+console.log(JSON.stringify({ versions, port, providers }));
 const data = await mkdtemp(join(tmpdir(), 'sectile-fleet-crash-'));
 function start(name, args, extra) {
   const child = spawn(binary(name), args, { cwd: data, env: { ...baseEnv, ...extra }, stdio: 'ignore', windowsHide: true });
@@ -70,13 +76,12 @@ try {
   await mkdir(workspace);
   assert.equal(spawnSync('git', ['init', workspace], { stdio: 'ignore', windowsHide: true }).status, 0);
   const origin = `http://127.0.0.1:${port}`;
-  const localKey = randomUUID();
   start('server', [], {
     HOME: data, USERPROFILE: data, PORT: String(port), SECTILE_SERVER_HOST: '127.0.0.1',
     SECTILE_SERVER_DATA_DIR: join(data, 'server'), DB_PATH: join(data, 'server/tasks.db'),
-    SECTILE_LOCAL_RUNTIME_KEY: localKey,
   });
-  await until(() => fetchJSON(origin, '/api/local-runtime', 'GET', undefined, { Authorization: `Bearer ${localKey}` }), 30000);
+  await until(() => fetchJSON(origin, '/api/health'), 30000);
+  assert.equal((await fetch(origin + '/api/local-runtime')).status, 404, 'The Fleet fixture must not enable Local runtime discovery');
   const signIn = await fetch(origin + '/auth/local', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'fleet-crash@example.invalid' }) });
   assert.equal(signIn.status, 200);
   const cookie = signIn.headers.get('set-cookie').split(';')[0];
