@@ -807,6 +807,10 @@ body.resizing-sidebar {
 }
 .run-select strong {
   font-size: 13px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .run-select span,
 .run-select small {
@@ -826,6 +830,10 @@ body.resizing-sidebar {
 .run-heading h3 {
   font-size: 14px;
   font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .text-button {
   background: transparent;

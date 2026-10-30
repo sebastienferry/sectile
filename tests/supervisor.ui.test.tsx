@@ -123,6 +123,20 @@ test("stop waits for agent acknowledgement and displays refusal", async () => {
   await screen.findByText("Exit not confirmed");
   expect(screen.queryByText(/Arrêt confirmé/)).toBeNull();
 });
+test("the execution queue names free and ticket conversations by their work", async () => {
+  vi.mocked(api.executionSnapshot).mockResolvedValue({
+    status: { connected: true, capabilities: [] },
+    runs: [
+      { ...run, id: "free", taskId: "", taskKey: "", conversation: true, title: "Inspect API errors", provider: "codex", skill: "" },
+      { ...run, id: "ticket", taskId: "t2", taskKey: "APP-2", conversation: true, title: "$clarify-issue", provider: "claude", skill: "clarify" },
+    ],
+  });
+  mount("executions");
+  const free = await screen.findByTitle("Inspect API errors");
+  expect(free.textContent).toContain("Codex · Session active");
+  expect(screen.getByTitle("APP-2 · Fix search").textContent).toContain("Claude Code · clarify · Session active");
+  expect(screen.queryByText("Console libre")).toBeNull();
+});
 test("orchestration submits only the selected saved agent and reports skips", async () => {
   vi.mocked(api.runOrchestration).mockResolvedValue({
     evaluatedCount: 2,

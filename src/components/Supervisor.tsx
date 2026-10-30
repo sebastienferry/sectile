@@ -3,6 +3,7 @@ import { useExecutionMonitor } from "./ExecutionMonitor";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { Task } from "../domain/board";
 import type { Orchestration, OrchestrationReport } from "../domain/execution";
+import type { Run } from "../domain/execution";
 import {
   canLaunchTask,
   canStop,
@@ -22,6 +23,20 @@ const ProjectPrompt = lazy(()=>import("./ProjectPrompt"));
 const RunConsole = lazy(() =>
   import("./RunConsole").then((module) => ({ default: module.RunConsole })),
 );
+
+function runTitle(run: Run, tasks: Task[]): string {
+  const task = tasks.find(item => item.id === run.taskId);
+  if (run.conversation) {
+    if (task?.title) return [run.taskKey, task.title].filter(Boolean).join(" · ");
+    return run.title?.trim() || run.prompt?.trim().split("\n")[0] || run.taskKey || "Conversation";
+  }
+  return run.taskKey || task?.title || run.taskId || "Console libre";
+}
+
+function runSummary(run: Run): string {
+  const provider = run.provider === "claude" ? "Claude Code" : run.provider === "codex" ? "Codex" : run.engineName || "Assistant";
+  return [run.conversation ? provider : run.skill || run.engineName, run.conversation ? run.skill : "", statusLabel(run)].filter(Boolean).join(" · ");
+}
 
 export function Supervisor({
   projectId,
@@ -402,17 +417,11 @@ export function Supervisor({
             >
               <button
                 className="run-select"
+                title={runTitle(item, tasks)}
                 onClick={() => onSelectRun(item.id)}
               >
-                <strong>
-                  {item.taskKey ||
-                    tasks.find((t) => t.id === item.taskId)?.title ||
-                    item.taskId ||
-                    "Console libre"}
-                </strong>
-                <span>
-                  {item.skill || item.engineName} · {statusLabel(item)}
-                </span>
+                <strong>{runTitle(item, tasks)}</strong>
+                <span>{runSummary(item)}</span>
                 <small>
                   {new Date(item.createdAt).toLocaleString("fr-FR")}
                   {item.engineName ? ` · ${item.engineName}` : ""}
@@ -442,9 +451,7 @@ export function Supervisor({
               ← Toutes les exécutions
             </button>
             <div className="run-heading">
-              <h3>
-                {run.taskKey || run.id} · {statusLabel(run)}
-              </h3>
+              <h3 title={runTitle(run, tasks)}>{runTitle(run, tasks)} · {statusLabel(run)}</h3>
               <button
                 className="danger"
                 disabled={!!pending || !canStop(run, fresh)}

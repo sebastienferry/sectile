@@ -34,6 +34,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Identify conversations by their ticket or prompt title in the execution queue instead of showing a generic console label or run ID.
 - Keep long conversation titles and their actions on one row; show response state once, beside the composer.
 - Show both Claude Code and Codex without scrolling in the AI engine settings at a compact desktop window size, while retaining connection and MCP details.
 - Choose a saved project profile or an unprofiled Claude Code/Codex engine from one prompt menu, with the selected model and mode still editable.

@@ -1590,3 +1590,13 @@ in the sidebar, while ordinary non-conversation execution details retain their
 board action. UI tests cover both paths. A rebuilt isolated QA bundle on port
 52965 is ready for native inspection; the Mac locked before the window could
 be opened, so this source result is not yet a native visual qualification.
+
+The execution queue had a separate scan failure: a free conversation was
+listed as “Console libre,” and its detail header used the run UUID. It now
+uses the saved conversation title (or first prompt line), while a ticket
+conversation uses its ticket key and title. Provider, skill and run state stay
+in the secondary line; long titles retain their full accessible value.
+Component tests cover free Codex and ticket-linked Claude examples. The
+frontend, domain, UI and Rust suites pass, but the Mac was locked for this
+bundle's native inspection. Both this and the preceding conversation-toolbar
+change therefore remain open in the native qualification record.
