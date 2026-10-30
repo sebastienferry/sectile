@@ -71,7 +71,7 @@ function Workspace() {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  const sidebarMaximum = windowWidth <= 900 ? Math.max(200, Math.floor(windowWidth * 0.32)) : 480;
+  const sidebarMaximum = Math.max(200, Math.min(480, windowWidth - 500));
   const visibleSidebarWidth = Math.min(sidebarWidth, sidebarMaximum);
   const sidebarDrag = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
   const [openingFolder, setOpeningFolder] = useState(false);

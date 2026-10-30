@@ -1435,7 +1435,8 @@ the [open-menu capture](ux-captures/conversation-actions-native.png) shows the
 discussion actions. The isolated port-52964 companion retained its existing
 Claude/Codex history. The native screenshot verifies handle alignment, while
 automated pointer drag was interrupted by a foreground app change. Keyboard
-resize retains its automated coverage; native pointer-drag retake remains open.
+resize retains its automated coverage; a later native pointer retake is recorded
+below.
 
 Ticket-linked conversations now show a PR/MR shortcut only when the tracker
 provides a valid web link. UI tests cover the sidebar shortcut, status strip
@@ -1522,3 +1523,14 @@ The status remained after returning to the board, reopening the workflow and
 refreshing it. The [native status capture](ux-captures/ticket-created-status-native.jpg)
 records the result. The fake GitLab API also returned issue `#3` with state
 `opened`; no live forge was modified.
+
+The sidebar pointer retake closed the remaining native drag check. In the
+800-point QA window, the old 32% cap put the default 256-point sidebar at its
+maximum, so dragging right appeared inert. The cap now reserves 500 points for
+the workspace and allows the sidebar to reach 300 points at this window size.
+The rebuilt isolated QA app moved from 256 to 300 points with a native pointer
+drag, then returned to 256 points with a second drag. The project name became
+fully visible at the wider setting while the ticket workflow remained usable.
+The [expanded sidebar capture](ux-captures/sidebar-resize-native-wide.jpg)
+records the native 300-point state. The port-52964 companion retained the
+existing project and ticket; the regular port-52963 installation was untouched.

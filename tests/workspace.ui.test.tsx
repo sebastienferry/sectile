@@ -486,9 +486,9 @@ test("narrow windows cap the visible sidebar without discarding the saved width"
  await screen.findByRole("button",{name:"Example"});
  const sidebar=screen.getByRole("complementary");
  const divider=screen.getByRole("separator",{name:"Redimensionner la barre latérale"});
- expect(sidebar.style.width).toBe("256px");
- expect(divider.getAttribute("aria-valuenow")).toBe("256");
- expect(divider.getAttribute("aria-valuemax")).toBe("256");
+ expect(sidebar.style.width).toBe("300px");
+ expect(divider.getAttribute("aria-valuenow")).toBe("300");
+ expect(divider.getAttribute("aria-valuemax")).toBe("300");
  expect(localStorage.getItem("sectile-tauri.sidebarWidth")).toBe("368");
  vi.stubGlobal("innerWidth",1280);
  fireEvent(window,new Event("resize"));
