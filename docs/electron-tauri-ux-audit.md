@@ -1508,3 +1508,17 @@ confirmed the complete native create path. The
 [created-board capture](ux-captures/ticket-created-board-native.png) is the
 visual record. The test left `#2` only in the isolated QA data and loopback
 fixture. It does not qualify a live forge, OAuth, remote Fleet or a signed app.
+
+A final native retake exposed a status persistence gap: a newly created tracker
+ticket opened its workflow with `Statut tracker : Indisponible`, even though the
+GitLab create response included `opened`. Go `7af14675` now saves the tracker
+status returned by the adapter in the initial task insert and returns it to
+the desktop. The isolated QA bundle paired current Tauri with that Go commit;
+its companion was rebuilt from a temporary worktree with only the QA callback
+port changed from 52963 to 52964. That port-specific binary is not a release
+artifact. Creating disposable issue `#3` through the native **Nouveau ticket**
+form produced a tracker POST and displayed `Statut tracker : opened` immediately.
+The status remained after returning to the board, reopening the workflow and
+refreshing it. The [native status capture](ux-captures/ticket-created-status-native.jpg)
+records the result. The fake GitLab API also returned issue `#3` with state
+`opened`; no live forge was modified.

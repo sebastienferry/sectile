@@ -33,6 +33,11 @@ changed the remote title and a second native edit restored it; creating ticket
 The [native board capture](ux-captures/ticket-created-board-native.png) records
 the result. This qualifies the native write path against a disposable tracker,
 not GitHub/GitLab/Jira production writes, Fleet or a signed release package.
+Go `7af14675` closes the status gap in the same disposable native path: ticket
+`#3` displayed the GitLab `opened` state immediately, after workflow reopen,
+and after refresh. The [status capture](ux-captures/ticket-created-status-native.jpg)
+uses the port-52964 QA companion, rebuilt from that Go commit with its fixed
+callback port changed only in a temporary worktree. It is not a release binary.
 
 Managed native Fleet MCP isolation was added after the retained candidate:
 Tauri launch now selects a session-scoped endpoint with Go `9b0b68f6` or a
