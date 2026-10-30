@@ -58,3 +58,24 @@ Before the V1 update gate can close, the desktop must offer an equivalent native
 preparation action, prevent startup races while preparing, verify full service
 exit and qualify replacement on a disposable installation. Do not report a new
 UI attached to an older running companion as a completed backend update.
+
+
+## Native preparation implementation (2026-10-30)
+
+Configured Local Services now exposes an explicit stop-and-quit action. Tauri
+holds the setup/startup locks and installation lock, suspends automatic startup,
+and invokes the bundled Go `--prepare-update` role. The helper authenticates the
+companion/agent relationship, honors the existing busy refusal, and requires
+both transport closure and store lifetime ownership release. This strengthens
+the earlier Node maintenance command, which checks transports only. On helper
+failure, Tauri retains the startup fence; Settings remounts still expose retry
+and the existing explicit service-start action. Successful preparation exits
+Tauri before releasing its installation/startup locks.
+
+The action does not download an update, stop Fleet, modify shared Electron
+configuration or interrupt active tasks. Other desktop instances must be closed
+first. The initial unpaired/bootstrap state remains unsupported by the native
+preparation action. Go integration tests use a real companion on an ephemeral
+port and verify retained data after SQL reopen; UI tests cover acknowledgement,
+busy failure, remount recovery and Fleet exclusion. Native button/exit and DMG
+replacement qualification remain open while the owner defers visual testing.

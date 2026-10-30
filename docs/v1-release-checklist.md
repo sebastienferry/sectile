@@ -608,3 +608,24 @@ This does not close the native update gate: no regular companion was stopped,
 and native preparation, full process exit, clean-user installation and bundle
 replacement remain unqualified for the refreshed candidate. The source command
 is not included in the standalone app and is not a substitute for its V1 UX.
+
+
+### Native Local preparation implementation (2026-10-30)
+
+The configured Local Services action now invokes the bundled Go preparation
+role, verifies store ownership release as well as both transport closures, and
+quits Tauri on success. Automatic startup is fenced during preparation and
+uncertain failure; Settings keeps explicit retry and restart controls after a
+remount. A real ephemeral-port companion test verifies graceful return, SQLite
+reopen and retained project/installation identity. The initial unpaired state,
+multiple desktop instances, native exit/rendering and replacement of the
+refreshed app remain unqualified. This source change is newer than candidate
+`2026-10-30-c425821`; that retained candidate does not contain the new action.
+
+Validation for the native preparation source lot: Go `ba4c512e` passes
+`go test ./...`; the real companion and HTTP update tests also pass with
+`-race`. Tauri passes 140 UI tests, 41 Rust tests, TypeScript checking and the
+production frontend build. The source-checkout Node suite passes 25 tests.
+The regular Local companion remained running throughout; no user installation
+was selected for shutdown or replacement. These are source/runtime proofs,
+not evidence of native button execution or an updated retained DMG.

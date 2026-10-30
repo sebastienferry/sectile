@@ -6,7 +6,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
-- Add a source-checkout Local update preparation command that authenticates the selected companion, requests an idle shutdown and checks both service connections close before manual app replacement.
+- Prepare a configured Local installation for manual update from Services: stop its idle companion, verify store release and quit the desktop, with explicit retry/restart controls on failure. A source-checkout transport-checking command is also available.
 
 - Add a tracker to an existing local or Fleet project from its configuration or desktop Settings while retaining its local board and folder.
 - Read bounded Local companion or Fleet agent diagnostics directly in desktop Services, including when the service is unavailable.

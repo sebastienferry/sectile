@@ -24,6 +24,7 @@ pub fn run() {
             local::oauth_status,
             local::cancel_oauth,
             local::enable_local_runtime,
+            local::prepare_local_update,
             local::pair_fleet_agent,
             local::attach_fleet_agent,
             local::local_setup_status,

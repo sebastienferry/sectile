@@ -1206,3 +1206,23 @@ were stopped; private fixture state is retained for that deferred check. The
 temporary package worktree and stopped failed setup fixtures were removed. The
 regular companion on port 52963 (PID 89986) remained untouched. Opening the new
 UI while an older companion is running must not be counted as a service upgrade.
+
+
+## Manual update lifecycle inconsistency (2026-10-30)
+
+Source inspection found that quitting the desktop intentionally retains the
+Local companion, while manual update instructions assumed replacing the app
+also replaces its running Go service. The protocol-only startup probe can
+reuse that older process. A new advanced Services action prepares a configured
+Local installation: finish work, close other instances, stop the idle companion
+and quit Tauri after transport closure and store ownership release. It does not
+present a fake download/updater or stop Fleet. A failed preparation leaves a
+startup fence; explicit retry and service restart remain available even after
+Settings remounts. No status refresh follows an acknowledged stop.
+
+The actual companion integration test verifies clean stop and retained project
+and installation identity after SQLite reopen. UI tests cover double clicks,
+post-acknowledgement refresh suppression, refusal recovery, remount recovery and
+Fleet exclusion. Native rendering/exit and bundle replacement remain deferred;
+the unpaired/bootstrap stop path and multi-instance update guarantee remain
+release gates rather than inferred successes.

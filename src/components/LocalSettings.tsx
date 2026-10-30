@@ -81,6 +81,20 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       try { await refresh(); onChanged(); } catch { /* Keep the original error. */ }
     } finally { busy.current = false; if (mounted.current) setPending(false); }
   }
+  async function prepareUpdate() {
+    if (busy.current) return;
+    busy.current = true; setPending(true); setError(""); setNotice("");
+    setPendingMessage("Arrêt du compagnon et sauvegarde des données avant fermeture…");
+    try {
+      // Native code fences automatic startup and exits after store release.
+      // Do not refresh status here: that could undo an acknowledged shutdown.
+      await api.prepareLocalUpdate();
+      if (mounted.current) setNotice("Services arrêtés. Fermeture du desktop pour la mise à jour…");
+    } catch (cause) {
+      busy.current = false;
+      if (mounted.current) { setError(String(cause)); setPending(false); }
+    }
+  }
   function submit(event: FormEvent, action: () => Promise<unknown>, message: string, hydrateProfile = false) {
     event.preventDefault(); void perform(action, message, undefined, hydrateProfile);
   }
@@ -168,6 +182,10 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
       {setup?.dataDirectory && <p className="muted runtime-path">{setup.dataDirectory}</p>}
       <p className="muted">{setup?.mode === "fleet" ? setup.apiSetupAvailable === false ? "Cet agent Fleet est géré par son installation d’origine." : "L’agent Fleet démarre automatiquement sur ce poste et continue en arrière-plan lorsque vous fermez le desktop." : "Le compagnon démarre automatiquement. Il continue en arrière-plan lorsque vous fermez le desktop, pour laisser les tâches se terminer."}</p>
       {setup && setup.mode !== "fleet" && <button disabled={pending} onClick={() => void perform(api.enableLocalRuntime, "Compagnon local démarré et mode Local sélectionné.")}>{setup.enabled ? "Vérifier / démarrer le compagnon local" : "Démarrer en mode Local"}</button>}
+      {setup?.mode === "local" && (setup.agentReady || setup.updatePreparing) && <details className="update-preparation"><summary>Mettre à jour l’application</summary>
+        <p>Terminez les tâches et fermez les autres instances de Tauri. Cette action arrête le compagnon et ferme ce desktop avant le remplacement de l’application. Vos données sont conservées. Aucun téléchargement n’est lancé.</p>
+        <button disabled={pending} onClick={() => void prepareUpdate()}>Arrêter et quitter pour mettre à jour</button>
+      </details>}
       {setup && (!setup.mode || setup.mode === "unconfigured") && <article><h3>Mode Fleet</h3>
         <p className="muted">Associez ce poste avec un code à usage unique depuis votre profil sur le backend Fleet. Le jeton durable reste dans le stockage privé natif et n’est jamais affiché.</p>
         <form onSubmit={e => submit(e, async () => { try { await api.pairFleetAgent(fleetUrl, fleetCode); } finally { setFleetCode(""); } }, "Poste associé au backend Fleet.", true)}>

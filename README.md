@@ -283,10 +283,20 @@ The V1 packaging decision is documented in
 
 ### Preparing a managed Local update
 
+For a configured Local installation, open **Settings → Services locaux →
+Mettre à jour l’application** and choose **Arrêter et quitter pour mettre à
+jour**. Finish active executions/preparations and close other desktop instances
+first. The desktop asks the bundled Go helper to authenticate the Local runtime,
+stop it gracefully, and verify both transports and the data-store lifetime lock
+are released. Only then does it quit. On failure it keeps automatic startup
+suspended; retry preparation or explicitly start the companion to keep working.
+The action is absent in Fleet and does not download an update. The initial
+unpaired/bootstrap state is not yet covered by this native action.
+
 Closing the desktop leaves its Go companion running. Replacing the app bundle
 alone does not replace that process: the next desktop can reconnect to the old
-companion. Before replacing a Local installation, finish its active runs, quit
-**all** Tauri windows and, from this source checkout with Node.js installed, run:
+companion. For source-checkout maintenance, finish its active runs, quit **all** Tauri
+windows and, with Node.js installed, run:
 
 ```sh
 npm run stop:local -- --data-dir "$HOME/Library/Application Support/com.sebferry.sectile.tauri/local-runtime"
@@ -305,9 +315,9 @@ command confirms both connections stopped, then replace the app and reopen it.
 
 This is a source-checkout maintenance command, not a bundled updater. It checks
 transport shutdown; native clean-user installation, service replacement and
-signed distribution remain release qualification gates. A future native
-update-preparation action must provide the same refusal behavior and prove
-that the companion has fully exited before reporting readiness.
+signed distribution remain release qualification gates. The native action adds verification that all store users have drained and
+released their lifetime lock; this source-checkout fallback only checks the
+transports. Native app exit and bundle replacement still require qualification.
 
 
 ## Layout

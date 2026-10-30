@@ -23,6 +23,7 @@ pub struct LocalRuntime(
     pub tokio::sync::Mutex<()>,
     pub std::sync::atomic::AtomicBool,
     pub tokio::sync::Mutex<()>,
+    pub std::sync::atomic::AtomicBool,
 );
 
 pub fn invalidate(app: &tauri::AppHandle) {
@@ -585,6 +586,7 @@ async fn ensure_server(
     root: &Path,
     installation: &Installation,
 ) -> Result<(), String> {
+    require_runtime_start(app)?;
     let info = runtime_info(app, root)?;
     if info["port"].as_u64() != Some(u64::from(installation.port)) {
         return Err("Port local incompatible avec le rappel OAuth enregistré".into());
@@ -1014,9 +1016,21 @@ fn require_unconfigured_runtime(mode: Option<RuntimeMode>) -> Result<(), String>
     Ok(())
 }
 
+fn require_runtime_start(app: &tauri::AppHandle) -> Result<(), String> {
+    if app
+        .state::<LocalRuntime>()
+        .3
+        .load(std::sync::atomic::Ordering::Acquire)
+    {
+        return Err("Mise à jour en préparation. Réessayez l’arrêt ou démarrez explicitement les services depuis les paramètres.".into());
+    }
+    Ok(())
+}
+
 pub async fn resume(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<LocalRuntime>();
     let _lock = state.2.lock().await;
+    require_runtime_start(app)?;
     let root = root(app)?;
     if runtime_mode(app)?.is_some() || active_root(&root)?.join("installation.json").exists() {
         ensure_runtime_connection_id(&root)?;
@@ -1040,6 +1054,52 @@ pub async fn resume(app: &tauri::AppHandle) -> Result<(), String> {
     state.1.store(true, std::sync::atomic::Ordering::Release);
     Ok(())
 }
+#[tauri::command]
+pub async fn prepare_local_update(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<LocalRuntime>();
+    // Match explicit setup lock order and exclude an in-flight startup/resume.
+    let _setup = state.0.lock().await;
+    let _startup = state.2.lock().await;
+    if runtime_mode(&app)? != Some(RuntimeMode::Local) {
+        return Err(
+            "La préparation de mise à jour est réservée au compagnon Local géré par ce desktop."
+                .into(),
+        );
+    }
+    let root = root(&app)?;
+    let _installation = installation_lock(&root)?;
+    let data = active_root(&root)?;
+    let mut stop = command(&app, &root, "companion")?;
+    stop.arg("--prepare-update")
+        .arg("--data-dir")
+        .arg(data)
+        .stdout(Stdio::piped());
+    // Preserve this fence on failure too: a timeout can follow an acknowledged
+    // shutdown. Only a deliberate restart or retry may change that intent.
+    state.3.store(true, std::sync::atomic::Ordering::Release);
+    state.1.store(false, std::sync::atomic::Ordering::Release);
+    let output = tauri::async_runtime::spawn_blocking(move || stop.output())
+        .await
+        .map_err(|_| "Préparation de mise à jour interrompue")?
+        .map_err(|_| "Impossible de préparer la mise à jour du compagnon")?;
+    validate_update_result(output.status.success(), &output.stdout)?;
+    // The helper proved that the agent, HTTP server and store users stopped.
+    // Exit while the installation/startup locks still exclude another launch.
+    app.exit(0);
+    Ok(())
+}
+
+fn validate_update_result(success: bool, bytes: &[u8]) -> Result<(), String> {
+    let response = serde_json::from_slice::<Value>(bytes).unwrap_or(Value::Null);
+    if success && response["ready"] == true {
+        return Ok(());
+    }
+    if response["reason"] == "busy" {
+        return Err("Terminez les exécutions et préparations actives avant la mise à jour. Pour continuer à travailler, cliquez sur Vérifier / démarrer le compagnon local.".into());
+    }
+    Err("Arrêt non confirmé. Réessayez ou démarrez explicitement le compagnon depuis les paramètres. Consultez companion.log si nécessaire.".into())
+}
+
 #[tauri::command]
 pub async fn enable_local_runtime(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<LocalRuntime>();
@@ -1074,6 +1134,9 @@ pub async fn enable_local_runtime(app: tauri::AppHandle) -> Result<(), String> {
         )?;
     }
     let installation = read_installation(&root)?;
+    // Only this explicit user action cancels update preparation. Polling never does.
+    state.3.store(false, std::sync::atomic::Ordering::Release);
+    state.1.store(false, std::sync::atomic::Ordering::Release);
     ensure_server(&app, &root, &installation).await?;
     ensure_agent(&app, &root, &installation).await?;
     save_mode(&root, RuntimeMode::Local, None)
@@ -1084,6 +1147,14 @@ pub async fn local_setup_status(app: tauri::AppHandle) -> Result<Value, String> 
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
     let root = root(&app)?;
+    if state.3.load(std::sync::atomic::Ordering::Acquire) {
+        // A settings remount must retain explicit recovery controls without
+        // polling accidentally restarting a service whose shutdown is pending.
+        return Ok(json!({"enabled":true,"ready":false,"signedIn":false,
+            "agentReady":false,"mode":"local","updatePreparing":true,
+            "dataDirectory":active_root(&root)?,
+            "backendError":"Redémarrage automatique suspendu pour la mise à jour. Réessayez l’arrêt ou démarrez explicitement le compagnon."}));
+    }
     if runtime_mode(&app)? == Some(RuntimeMode::Fleet) {
         let server = selected_fleet_server(&root)?;
         let unavailable = |error: String| {
@@ -2366,5 +2437,34 @@ mod fleet_mcp_tests {
             Some(&Some(std::ffi::OsStr::new("1")))
         );
         assert_eq!(command.get_args().count(), 0);
+    }
+}
+
+#[cfg(test)]
+mod update_preparation_tests {
+    use super::validate_update_result;
+
+    #[test]
+    fn update_requires_both_successful_exit_and_explicit_readiness() {
+        assert!(validate_update_result(true, br#"{"ready":true}"#).is_ok());
+        for (success, payload) in [
+            (false, br#"{"ready":true}"#.as_slice()),
+            (true, br#"{"ready":false}"#.as_slice()),
+            (true, b"not json".as_slice()),
+        ] {
+            assert!(validate_update_result(success, payload).is_err());
+        }
+    }
+
+    #[test]
+    fn update_errors_use_safe_guidance_instead_of_service_output() {
+        assert!(
+            validate_update_result(false, br#"{"reason":"busy"}"#)
+                .unwrap_err()
+                .contains("exécutions")
+        );
+        let error =
+            validate_update_result(false, br#"{"reason":"private-credential"}"#).unwrap_err();
+        assert!(!error.contains("private-credential"));
     }
 }

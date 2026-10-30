@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { LocalSettings } from "../src/components/LocalSettings";
 import * as api from "../src/lib/local";
 vi.mock("../src/components/OAuthConnections", () => ({ OAuthConnections: ({serverManaged}:{serverManaged?:boolean}) => <div data-server-managed={String(serverManaged??false)}>OAuth connections</div> }));
-vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), localServiceLog: vi.fn(), enableLocalRuntime: vi.fn(), attachFleetAgent: vi.fn(), pairFleetAgent: vi.fn(), saveLocalProfile: vi.fn(), saveLocalCredential: vi.fn(), createLocalTracker: vi.fn(), createLocalProject: vi.fn(), attachProjectTracker: vi.fn(), chooseProjectFolder: vi.fn(), syncLocalTracker: vi.fn(), trackerSyncStatus: vi.fn(), activeTrackerSyncs: vi.fn() }));
+vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), localServiceLog: vi.fn(), enableLocalRuntime: vi.fn(), prepareLocalUpdate: vi.fn(), attachFleetAgent: vi.fn(), pairFleetAgent: vi.fn(), saveLocalProfile: vi.fn(), saveLocalCredential: vi.fn(), createLocalTracker: vi.fn(), createLocalProject: vi.fn(), attachProjectTracker: vi.fn(), chooseProjectFolder: vi.fn(), syncLocalTracker: vi.fn(), trackerSyncStatus: vi.fn(), activeTrackerSyncs: vi.fn() }));
 const ready = { enabled: true, ready: true, signedIn: true, agentReady: true, profile: { email: "fixture@example.invalid", displayName: "Fixture" }, trackers: [{id:"t",name:"Tracker",provider:"github",scope:"fixture/repo"}], projects: [{id:"p",name:"Project"}] };
 beforeEach(() => { vi.resetAllMocks(); vi.mocked(api.localServiceLog).mockResolvedValue({path:"/test/companion.log",text:"service ready",missing:false,truncated:false}); vi.mocked(api.activeTrackerSyncs).mockResolvedValue([]); });
 afterEach(() => cleanup());
@@ -335,4 +335,55 @@ test("an existing folder project can gain a tracker without creating another pro
  await waitFor(() => expect(api.attachProjectTracker).toHaveBeenCalledWith("p", "t"));
  await waitFor(() => expect(changed).toHaveBeenCalled());
  expect(api.createLocalProject).not.toHaveBeenCalled();
+});
+
+
+test("Local update preparation does not refresh or relaunch after acknowledgement", async () => {
+ vi.mocked(api.localSetupStatus).mockResolvedValue({...ready,mode:"local"});
+ let finish!:()=>void;
+ vi.mocked(api.prepareLocalUpdate).mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+ const changed=vi.fn();
+ render(<LocalSettings onChanged={changed}/>);
+ fireEvent.click(await screen.findByRole("button",{name:"Services locaux",exact:true}));
+ fireEvent.click(screen.getByText("Mettre à jour l’application"));
+ const stop=screen.getByRole("button",{name:"Arrêter et quitter pour mettre à jour"});
+ fireEvent.click(stop);fireEvent.click(stop);
+ expect(api.prepareLocalUpdate).toHaveBeenCalledOnce();
+ expect(stop.hasAttribute("disabled")).toBe(true);
+ finish();
+ await screen.findByText("Services arrêtés. Fermeture du desktop pour la mise à jour…");
+ expect(api.localSetupStatus).toHaveBeenCalledOnce();
+ expect(api.enableLocalRuntime).not.toHaveBeenCalled();
+ expect(changed).not.toHaveBeenCalled();
+});
+
+test("Local update refusal leaves explicit retry and service restart available", async () => {
+ vi.mocked(api.localSetupStatus).mockResolvedValue({...ready,mode:"local"});
+ vi.mocked(api.prepareLocalUpdate).mockRejectedValue("Terminez les exécutions actives.");
+ render(<LocalSettings onChanged={vi.fn()}/>);
+ fireEvent.click(await screen.findByRole("button",{name:"Services locaux",exact:true}));
+ fireEvent.click(screen.getByText("Mettre à jour l’application"));
+ const stop=screen.getByRole("button",{name:"Arrêter et quitter pour mettre à jour"});
+ fireEvent.click(stop);
+ await screen.findByText("Terminez les exécutions actives.");
+ expect(stop.hasAttribute("disabled")).toBe(false);
+ expect(screen.getByRole("button",{name:"Vérifier / démarrer le compagnon local"}).hasAttribute("disabled")).toBe(false);
+ expect(api.localSetupStatus).toHaveBeenCalledOnce();
+});
+
+test("Fleet does not expose the Local update stop action", async () => {
+ vi.mocked(api.localSetupStatus).mockResolvedValue({...ready,mode:"fleet",fleetServer:"https://fleet.example.invalid"});
+ render(<LocalSettings onChanged={vi.fn()}/>);
+ fireEvent.click(await screen.findByRole("button",{name:"Connexion et services",exact:true}));
+ expect(screen.queryByRole("button",{name:"Arrêter et quitter pour mettre à jour",hidden:true})).toBeNull();
+});
+
+
+test("reopening Settings during update preparation retains retry and explicit restart", async () => {
+ vi.mocked(api.localSetupStatus).mockResolvedValue({enabled:true,mode:"local",ready:false,agentReady:false,updatePreparing:true});
+ render(<LocalSettings onChanged={vi.fn()}/>);
+ await screen.findByRole("button",{name:"Vérifier / démarrer le compagnon local"});
+ fireEvent.click(screen.getByText("Mettre à jour l’application"));
+ expect(screen.getByRole("button",{name:"Arrêter et quitter pour mettre à jour"})).toBeTruthy();
+ expect(api.enableLocalRuntime).not.toHaveBeenCalled();
 });
