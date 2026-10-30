@@ -1246,3 +1246,20 @@ compared. Captures and redacted results are retained under
 `src-tauri/target/qualifications/2026-10-30-native-update/`. The regular user
 installation, Jira and Developer ID signing were left untouched. This closes
 the requested native update/conversation slice, not every V1 release gate.
+
+## Native tracker management retake (2026-10-30)
+
+Tauri `1982df5` with Go `8d40b2aa` was packaged as a separate unsigned macOS
+application using the existing QA identity and port 52964. The Go port and OAuth
+origin were changed only in a disposable build worktree; the production Go
+worktree and the regular port 52963 were unchanged. In the native Settings
+window, an isolated GitHub tracker was created, renamed through **Modifier**,
+and removed after the explicit **Supprimer** confirmation. The accessibility
+tree showed “Tracker ajouté.”, “Tracker modifié.” and “Tracker supprimé.”, with
+the renamed entry appearing and then disappearing. The retained linked GitLab
+fixture was not modified. The test companion was stopped afterward while the
+regular companion remained on port 52963.
+
+This qualifies native tracker creation, rename and deletion in Local mode. Fleet
+administrator behavior and the new bundle's MCP project-context fix still need
+their own runtime checks; the UI and Rust tests alone do not establish them.
