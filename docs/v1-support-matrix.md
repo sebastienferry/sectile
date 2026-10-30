@@ -41,6 +41,14 @@ no replay or new tool call. Its
 backend used disposable state on loopback; it does not qualify real remote TLS,
 OAuth, tracker chains or a signed installation.
 
+A later native Local free prompt in the isolated QA app confirmed automatic
+companion startup and a real Codex `get_project_context` MCP response. It also
+exposed a first call without a project identifier, which failed before Codex
+used `list_projects` to retry. Go `8d40b2aa` now supplies the process-bound
+project for that omitted argument, while preserving explicit targets. A real
+STDIO bridge integration test passes; this fix is newer than the retained
+Tauri/Go candidate and has not been retested in a rebuilt desktop bundle.
+
 The controlled Codex service-level chain now reaches Reviewed with standard
 installed skills and scoped MCP, after repairing the disposable forge's feedback
 and MR-description responses. Three tests, preserved commits, one ready open MR,
