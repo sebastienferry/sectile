@@ -1483,3 +1483,16 @@ refresh and discussion actions on one row; the composer strip remains the
 single UI-owned response state. The restored transcript, model, mode, folder
 and scoped MCP control stayed visible in the isolated port-52964 bundle with
 Go `8d40b2aa`. This was a read-only native check, not a new provider run.
+
+The ticket-editor retake restores creation from the project board and project
+menu, plus editing from ticket cards and workflows. The
+[native creation capture](ux-captures/ticket-editor-native.png) shows the
+primary tracker fields; the [native link capture](ux-captures/ticket-editor-pr-links-native.png)
+shows ordered PR/MR links in a disclosure, with the save action visible after
+scrolling in an 800-by-700-point window. A disposable GitLab test-double ticket
+loaded with its existing link, and adding then removing a second link returned
+the form to its unchanged state. The test did not save or create a tracker
+ticket. UI tests cover create and update payloads, link ordering and rejection;
+Go agent tests cover forwarded tracker writes and PR/MR link validation. The
+isolated bundle used port 52964 and Go `8d40b2aa`; real tracker writes from
+the native window remain a separate qualification.

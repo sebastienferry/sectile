@@ -6,7 +6,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
-- Create tracker tickets and edit their title, Markdown description, priority and issue type from the native project board, backlog and ticket workflow. The editor writes through the Go companion to the selected remote tracker.
+- Create tracker tickets and edit their title, Markdown description, priority, issue type and ordered PR/MR links from the native project board, backlog and ticket workflow. The editor uses the Go companion's ticket API, preserving tracker-backed ticket state.
 - Put rename, stop, archive and execution access in the conversation menu.
 - Show each linked PR/MR and its last known state in ticket conversations and workflows, including a compact sidebar shortcut and a clear indication when forge authentication prevents a state refresh.
 - Center the sidebar resize handle on its separator line at all sidebar widths.

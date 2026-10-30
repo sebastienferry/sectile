@@ -3,6 +3,13 @@ export interface Project {
   name: string;
   path?: string;
 }
+export interface TaskPullRequest {
+  url: string;
+  state?: string;
+  branch?: string;
+  repository?: string;
+  missingToken?: string;
+}
 export interface Task {
   id: string;
   title: string;
@@ -16,7 +23,7 @@ export interface Task {
   parentTitle?: string;
   labels?: string[];
   prUrl?: string;
-  prLinks?: { url: string; state?: string; branch?: string; repository?: string; missingToken?: string }[];
+  prLinks?: TaskPullRequest[];
   trackerId?: string;
   description?: string;
   issueType?: string;

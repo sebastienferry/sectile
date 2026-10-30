@@ -22,6 +22,7 @@ export async function getTask(projectId:string,taskId:string):Promise<Task> {
 export interface TaskTracker {id:string;name?:string;provider:string;scope?:string}
 export interface TaskTrackers {defaultTrackerId?:string;trackers:TaskTracker[]}
 export interface TaskFields {title:string;description:string;priority:string;issueType:string}
+export type TaskUpdateFields = Partial<TaskFields> & {prLinks?: import("../domain/board").TaskPullRequest[]};
 export async function taskTrackers(projectId:string):Promise<TaskTrackers> {
   requireDesktop();
   return invoke<TaskTrackers>("task_trackers",{projectId});
@@ -34,7 +35,7 @@ export async function createTask(projectId:string,input:TaskFields & {trackerId:
   requireDesktop();
   return invoke<Task>("create_task",{projectId,input});
 }
-export async function updateTask(projectId:string,taskId:string,changes:Partial<TaskFields>):Promise<Task> {
+export async function updateTask(projectId:string,taskId:string,changes:TaskUpdateFields):Promise<Task> {
   requireDesktop();
   return invoke<Task>("update_task",{projectId,taskId,changes});
 }

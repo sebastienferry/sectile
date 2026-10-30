@@ -24,6 +24,12 @@ binary checks in the [release checklist](v1-release-checklist.md).
 | Electron 0.7.5 with current Go server and agent | An isolated window loaded projects and a task board. A tracked task against Go `25a8e77d` displayed real Codex activity; Electron Stop canceled its delegated shell tool and the 90-second marker remained absent after 170 seconds. | Remote tracker mutations from the Electron window and execution against a signed release package remain unqualified. Electron remains a compatibility client; no retirement date is set. |
 | Existing MCP clients with the tested current/v0.7.6 server-agent pairings | The binary harness passed its 21-tool contract and read-only STDIO bridge call in both directions. | This does not qualify every MCP client registration, provider-specific consent or remote mutation. |
 
+A later isolated Tauri ticket-editor retake on bundled Go `8d40b2aa` confirmed
+native create and edit forms, an existing ticket's ordered PR/MR links, and
+an add/remove interaction without saving. Source tests cover the Go write
+contracts. No native tracker write was submitted in this retake, so the Local
+native write qualification in the table remains open.
+
 Managed native Fleet MCP isolation was added after the retained candidate:
 Tauri launch now selects a session-scoped endpoint with Go `9b0b68f6` or a
 qualified successor. Real Claude/Codex project-context calls passed through that

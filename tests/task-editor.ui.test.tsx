@@ -48,3 +48,30 @@ test("a project without a remote tracker cannot create a local ticket copy", asy
   expect((screen.getByRole("button",{name:"Créer le ticket"}) as HTMLButtonElement).disabled).toBe(true);
   expect(api.createTask).not.toHaveBeenCalled();
 });
+
+test("editing PR/MR links keeps existing metadata and sends their new order", async () => {
+  vi.mocked(api.taskTrackers).mockResolvedValue({defaultTrackerId:"be",trackers:[{id:"be",provider:"gitlab",name:"Backend"}]});
+  vi.mocked(api.taskIssueTypes).mockResolvedValue({supported:true,issueTypes:[]});
+  const loaded = {id:"t",key:"BE-2",title:"Review",priority:"medium",trackerId:"be",status:"reviewed",prLinks:[{url:"https://gitlab.example/g/p/-/merge_requests/1",state:"merged",branch:"feat/old"},{url:"https://gitlab.example/g/p/-/merge_requests/2",state:"open"}]};
+  vi.mocked(api.getTask).mockResolvedValue(loaded);
+  vi.mocked(api.updateTask).mockResolvedValue(loaded);
+  render(<TaskEditor projectId="p" projectName="Project" taskId="t" available onClose={vi.fn()} onSaved={vi.fn()}/>);
+  await screen.findByDisplayValue("Review");
+  fireEvent.click(screen.getByText("Liens PR/MR · 2"));
+  fireEvent.click(screen.getByRole("button",{name:"Descendre https://gitlab.example/g/p/-/merge_requests/1"}));
+  fireEvent.click(screen.getByRole("button",{name:"Enregistrer"}));
+  await waitFor(() => expect(api.updateTask).toHaveBeenCalledExactlyOnceWith("p","t",{prLinks:[loaded.prLinks[1],loaded.prLinks[0]]}));
+});
+
+test("invalid and duplicate PR/MR links are rejected without changing the ticket", async () => {
+  vi.mocked(api.taskTrackers).mockResolvedValue({defaultTrackerId:"be",trackers:[{id:"be",provider:"gitlab",name:"Backend"}]});
+  vi.mocked(api.taskIssueTypes).mockResolvedValue({supported:true,issueTypes:[]});
+  vi.mocked(api.getTask).mockResolvedValue({id:"t",title:"Review",priority:"medium",trackerId:"be",status:"reviewed",prLinks:[{url:"https://gitlab.example/g/p/-/merge_requests/1"}]});
+  render(<TaskEditor projectId="p" projectName="Project" taskId="t" available onClose={vi.fn()} onSaved={vi.fn()}/>);
+  await screen.findByDisplayValue("Review");
+  fireEvent.click(screen.getByText("Liens PR/MR · 1"));
+  fireEvent.change(screen.getByRole("textbox",{name:"URL PR/MR"}),{target:{value:"https://token@gitlab.example/g/p/-/merge_requests/2"}});
+  fireEvent.click(screen.getByRole("button",{name:"Ajouter un lien"}));
+  expect(screen.getByRole("alert").textContent).toMatch(/invalide/);
+  expect(api.updateTask).not.toHaveBeenCalled();
+});

@@ -206,6 +206,30 @@ pub struct UpdateTrackerTask {
     priority: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     issue_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pr_links: Option<Vec<TrackerPullRequest>>,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TrackerPullRequest {
+    url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repository: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    missing_token: Option<String>,
+}
+fn valid_pull_request_url(value: &str) -> bool {
+    reqwest::Url::parse(value).is_ok_and(|url| {
+        ["http", "https"].contains(&url.scheme())
+            && url.host_str().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && value.len() <= 2048
+    })
 }
 fn validate_task_fields(title: Option<&str>, description: Option<&str>, priority: Option<&str>, issue_type: Option<&str>) -> Result<(), String> {
     if title.is_some_and(|value| value.trim().is_empty() || value.chars().count() > 500)
@@ -230,7 +254,10 @@ pub async fn update_task(app: tauri::AppHandle, project_id: String, task_id: Str
     required(&project_id)?;
     required(&task_id)?;
     validate_task_fields(changes.title.as_deref(), changes.description.as_deref(), changes.priority.as_deref(), changes.issue_type.as_deref())?;
-    if changes.title.is_none() && changes.description.is_none() && changes.priority.is_none() && changes.issue_type.is_none() {
+    if changes.pr_links.as_ref().is_some_and(|links| links.len() > 50 || links.iter().any(|link| !valid_pull_request_url(&link.url))) {
+        return Err("Lien PR/MR invalide".into());
+    }
+    if changes.title.is_none() && changes.description.is_none() && changes.priority.is_none() && changes.issue_type.is_none() && changes.pr_links.is_none() {
         return Err("Aucune modification du ticket".into());
     }
     let body = serde_json::to_value(changes).map_err(|_| "Champs du ticket invalides")?;
@@ -1286,7 +1313,7 @@ pub async fn attach_chosen_folder(
 
 #[cfg(test)]
 mod task_fields_tests {
-    use super::validate_task_fields;
+    use super::{validate_task_fields, valid_pull_request_url};
 
     #[test]
     fn ticket_writes_reject_empty_titles_and_unexpected_priorities() {
@@ -1294,5 +1321,11 @@ mod task_fields_tests {
         assert!(validate_task_fields(Some("Task"), None, Some("critical"), None).is_err());
         assert!(validate_task_fields(Some("Task"), Some(&"a".repeat(60001)), Some("high"), None).is_err());
         assert!(validate_task_fields(Some("Task"), Some("Description"), Some("high"), Some("Bug")).is_ok());
+    }
+    #[test]
+    fn pull_request_links_reject_credentials_and_non_web_urls() {
+        assert!(valid_pull_request_url("https://github.com/example/project/pull/1"));
+        assert!(!valid_pull_request_url("https://token@github.com/example/project/pull/1"));
+        assert!(!valid_pull_request_url("file:///tmp/pull-request"));
     }
 }
