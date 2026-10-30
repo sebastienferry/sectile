@@ -115,9 +115,12 @@ installation, tracker/OAuth retention and provider-session upgrade are still
 separate qualifications. The initial unpaired stop path and multi-instance
 updates remain unqualified slices. No regular installation was changed.
 
-The current source passes the full Go suite, 25 Node tests, 140 UI tests,
-41 Rust tests, TypeScript checking and the production frontend build. Details
-and hashes are in the [release checklist](v1-release-checklist.md).
+The Tauri `73deeba` source passes 28 Node tests, 151 UI tests, 43 Rust tests,
+TypeScript checking and the production frontend build. Its workflow-stage board
+was then checked in an isolated unsigned native QA app and documented at
+`230bccd`. These source checks do not replace the retained candidate's package
+or release qualification. Details and hashes for that candidate are in the
+[release checklist](v1-release-checklist.md).
 
 ## Product ownership and updates
 
