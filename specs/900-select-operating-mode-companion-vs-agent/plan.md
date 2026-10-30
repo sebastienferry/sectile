@@ -6,38 +6,72 @@
 - Tauri backend: Rust, Tauri 2 in `desktop-tauri/src-tauri/src/`
 - Go services: `cmd/companion`, `cmd/agent`, `cmd/server` (bundled binaries in `src-tauri/binaries/`)
 
-## Design
+## Architecture & Data Contracts
 
-### 1. First-Launch Onboarding Component (`ModeOnboarding.tsx`)
-Create a dedicated component `desktop-tauri/src/components/ModeOnboarding.tsx`:
-- Rendered in `desktop-tauri/src/App.tsx` when `setup.mode === "unconfigured"` or `!setup.mode`.
-- Displays a clean, two-card choice:
-  1. **Mode Compagnon Local**
-     - Description: "Exécution et gestion de tickets 100% autonomes sur votre poste. Base de données locale intégrée, sans serveur distant requis."
-     - Action: Calls `api.enableLocalRuntime()`.
-  2. **Mode Agent Fleet**
-     - Description: "Connectez votre poste à un serveur central Sectile d'équipe. Partagez vos projets et déléguez l'orchestration tout en conservant l'exécution en local."
-     - Action: Opens the inline pairing form (URL + Pairing Code) or "Attach existing agent".
-- Includes clear status and error handling.
+### 1. Runtime State & Detection
+In `desktop-tauri/src/lib/local.ts` and `desktop-tauri/src-tauri/src/local.rs`:
+- `LocalSetup` interface:
+  ```typescript
+  export interface LocalSetup {
+    enabled: boolean;
+    mode?: "unconfigured" | "local" | "fleet";
+    fleetServer?: string;
+    backendError?: string;
+    updatePreparing?: boolean;
+    ready?: boolean;
+    signedIn?: boolean;
+    agentReady?: boolean;
+    apiSetupAvailable?: boolean;
+    dataDirectory?: string;
+    profile?: { email: string; displayName: string; role?: string };
+    trackers?: { id: string; name: string; provider: string; site: string; scope: string }[];
+    credentials?: { credentials: { tracker: string; siteUrl?: string; account?: string; kind?: string; disconnected?: boolean }[] };
+    projects?: { id: string; name: string; trackers?: { trackerId: string }[] }[];
+  }
+  ```
+- Unconfigured condition in `App.tsx`:
+  When `setup && (!setup.mode || setup.mode === "unconfigured")`, instead of falling back to `{ view: "settings" }`, render `<ModeOnboarding onConfigured={...} />`.
 
-### 2. Mode Switching in Settings (`LocalSettings.tsx`)
-Update `desktop-tauri/src/components/LocalSettings.tsx`:
-- Under the `services` section:
-  - Display the current active mode prominently with a status badge.
-  - When in `Local` mode: Show an expandable or explicit section "Basculer vers le mode Fleet (Agent d'équipe)" with the pairing form (`pairFleetAgent`) and "Attach existing agent" (`attachFleetAgent`).
-  - When in `Fleet` mode: Show an explicit action "Basculer vers le mode Compagnon local" which invokes `enableLocalRuntime()`.
-  - Ensure the state refresh cleanly reloads projects and execution monitors after mode transition.
+### 2. Components Design
 
-### 3. Tauri Runtime Handling (`local.rs`)
-In `desktop-tauri/src-tauri/src/local.rs`:
-- Verify `enable_local_runtime` properly stops or re-targets active connections when switching from Fleet to Local.
-- Verify `pair_fleet_agent` and `attach_fleet_agent` properly update `runtime-mode.json` when switching from Local to Fleet.
-- Ensure the background daemon lifecycle (`LocalRuntime`) is preserved and not abruptly SIGKILLed during UI window close events (`tauri::WindowEvent::CloseRequested`).
+#### A. `ModeOnboarding.tsx`
+- Location: `desktop-tauri/src/components/ModeOnboarding.tsx`
+- Props: `onConfigured: () => void`
+- State:
+  - `selectedMode`: `"local" | "fleet" | null`
+  - `fleetUrl`, `fleetCode`
+  - `pending`: boolean, `error`: string
+- Layout:
+  - Header: Sectile logo mark + Title "Bienvenue dans Sectile Desktop" + Subtitle "Choisissez votre mode d'utilisation pour commencer".
+  - Two cards:
+    1. **Mode Compagnon Local**:
+       - Icon: `laptop` / `folder`
+       - Description: "100% autonome sur votre poste avec base de données SQLite locale embarquée. Idéal pour un usage individuel et sans serveur d'équipe."
+       - Button: "Démarrer en mode Compagnon" -> triggers `api.enableLocalRuntime()`.
+    2. **Mode Agent Fleet**:
+       - Icon: `cloud` / `link`
+       - Description: "Connectez votre poste à une instance centrale Sectile. Les tickets et l'orchestration sont partagés avec votre équipe, l'exécution reste locale."
+       - Button / Form: Opens URL and Pairing Code inputs -> triggers `api.pairFleetAgent(url, code)` or `api.attachFleetAgent()`.
+
+#### B. Mode Switching in `LocalSettings.tsx`
+- Location: `desktop-tauri/src/components/LocalSettings.tsx`
+- Refactor the `services` section:
+  - Prominent badge displaying the active mode (`Mode Compagnon Local` or `Mode Agent Fleet`).
+  - Section "Changer de mode de fonctionnement" :
+    - If current mode is `Local`: Provide button or disclosure "Basculer vers le mode Fleet", revealing the Fleet pairing form.
+    - If current mode is `Fleet`: Provide button "Basculer vers le mode Compagnon local".
+  - Guard modal: If `activeExecutions > 0` (via `useExecutionMonitor()` or `activeTrackerSyncs`), display an accessible confirmation dialog before invoking `enableLocalRuntime` or `pairFleetAgent`.
+
+### 3. Tauri Rust Lifecycle (`src-tauri/src/local.rs` & `lib.rs`)
+- Verify that `enable_local_runtime` properly stops existing fleet child connections if switching from Fleet to Local.
+- Verify `pair_fleet_agent` and `attach_fleet_agent` cleanly shut down the local companion if switching from Local to Fleet.
+- Confirm window close behavior leaves background processes alive, and `resume` on setup reconnects cleanly.
 
 ## Target Files
 
-- `desktop-tauri/src/components/ModeOnboarding.tsx` (new component)
-- `desktop-tauri/src/components/LocalSettings.tsx` (mode switcher enhancements)
-- `desktop-tauri/src/App.tsx` (render onboarding when unconfigured)
-- `desktop-tauri/src-tauri/src/local.rs` (runtime mode transition support)
-- `desktop-tauri/tests/mode-selection.test.ts` (unit tests for onboarding & settings mode switching)
+- `desktop-tauri/src/components/ModeOnboarding.tsx`: New onboarding component.
+- `desktop-tauri/src/components/LocalSettings.tsx`: Mode switching controls and confirmation guard.
+- `desktop-tauri/src/App.tsx`: App-level routing for unconfigured onboarding state.
+- `desktop-tauri/src/App.css`: Onboarding card layout and responsive styles.
+- `desktop-tauri/tests/mode-onboarding.test.tsx`: Unit tests for onboarding choices and error states.
+- `desktop-tauri/tests/mode-switching.test.tsx`: Unit tests for settings mode switcher and active runs guard.
