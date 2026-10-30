@@ -43,21 +43,46 @@ test("header displays Sectile Desktop branding and draggable region", async () =
   expect(header?.hasAttribute("data-tauri-drag-region")).toBe(true);
 });
 
-test("header displays connection indicator with link to server", async () => {
+test("header displays local companion status when in local mode", async () => {
+  render(<App />);
+  const companionLabel = await screen.findByText("Compagnon local");
+  expect(companionLabel).toBeDefined();
+  const connectionContainer = document.querySelector("#connection");
+  expect(connectionContainer?.getAttribute("data-state")).toBe("on");
+  expect(connectionContainer?.getAttribute("data-mode")).toBe("local");
+  expect(connectionContainer?.querySelector(".connection-dot")).toBeDefined();
+  expect(connectionContainer?.querySelector("a")).toBeNull();
+
+  const moreButton = await screen.findByLabelText("Actions du compagnon local");
+  fireEvent.click(moreButton);
+  expect(await screen.findByText("Redémarrer le compagnon")).toBeDefined();
+  expect(screen.getByText("Arrêter le compagnon")).toBeDefined();
+});
+
+test("header displays connection indicator with link to server in fleet mode", async () => {
+  vi.mocked(api.executionSnapshot).mockResolvedValue({
+    status: { connected: true, runtimeMode: "fleet", server: "https://sectile.example.com", capabilities: [] },
+    runs: [],
+  });
   render(<App />);
   const connectionLink = await screen.findByText("Connected");
   expect(connectionLink).toBeDefined();
   const connectionContainer = document.querySelector("#connection");
   expect(connectionContainer?.getAttribute("data-state")).toBe("on");
-  expect(connectionContainer?.querySelector(".connection-dot")).toBeDefined();
+  expect(connectionContainer?.getAttribute("data-mode")).toBe("fleet");
 
   fireEvent.click(connectionLink);
-  expect(invoke).toHaveBeenCalledWith("open_external_link", { url: "http://localhost:8090" });
+  expect(invoke).toHaveBeenCalledWith("open_external_link", { url: "https://sectile.example.com" });
+
+  const moreButton = await screen.findByLabelText("Actions de l’agent Fleet");
+  fireEvent.click(moreButton);
+  expect(await screen.findByText("Redémarrer l’agent")).toBeDefined();
+  expect(screen.getByText("Arrêter l’agent")).toBeDefined();
 });
 
-test("header displays disconnected indicator when status is disconnected", async () => {
+test("header displays disconnected indicator when status is disconnected in fleet mode", async () => {
   vi.mocked(api.executionSnapshot).mockResolvedValue({
-    status: { connected: false, capabilities: [] },
+    status: { connected: false, runtimeMode: "fleet", capabilities: [] },
     runs: [],
   });
   render(<App />);
@@ -65,16 +90,6 @@ test("header displays disconnected indicator when status is disconnected", async
   expect(notConnected).toBeDefined();
   const connectionContainer = document.querySelector("#connection");
   expect(connectionContainer?.getAttribute("data-state")).toBe("off");
-});
-
-test("header includes agent actions menu with restart and stop options", async () => {
-  render(<App />);
-  const moreButton = await screen.findByLabelText("Agent actions");
-  expect(moreButton).toBeDefined();
-
-  fireEvent.click(moreButton);
-  expect(await screen.findByText("Restart agent")).toBeDefined();
-  expect(screen.getByText("Stop agent")).toBeDefined();
 });
 
 test("header includes theme toggle controls and settings button", async () => {

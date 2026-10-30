@@ -1127,12 +1127,16 @@ a.connection-body:hover {
 .connection-status[data-state="on"] .connection-dot {
   background: #10a37f;
 }
-.connection-status[data-state="on"] .connection-label {
+.connection-status[data-mode="fleet"][data-state="on"] .connection-label {
   color: #5aa7ff;
   font-weight: 500;
 }
-:root[data-theme="light"] .connection-status[data-state="on"] .connection-label {
+:root[data-theme="light"] .connection-status[data-mode="fleet"][data-state="on"] .connection-label {
   color: #0049a8;
+}
+.connection-status[data-mode="local"][data-state="on"] .connection-label {
+  color: var(--text);
+  font-weight: 500;
 }
 
 /* Agent Action Menu */

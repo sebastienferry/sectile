@@ -237,18 +237,33 @@ function Workspace() {
     if (project) navigate(project, "board");
   }, [current?.id, fresh, navigate, projects, snapshot?.runs]);
   const connected = fresh && snapshot?.status.connected;
-  const serverUrl = snapshot?.status.server || (connected ? "http://localhost:8090" : undefined);
+  const runtimeMode = snapshot?.status.runtimeMode ?? "local";
+  const isFleet = runtimeMode === "fleet";
+  const serverUrl = isFleet ? snapshot?.status.server : undefined;
   const contractError = snapshot?.status.contractError;
-  const connectionText = connected
-    ? "Connected"
-    : contractError
-    ? "Server incompatible"
-    : "Not connected";
-  const connectionTitle = connected
-    ? serverUrl
-      ? `Open ${serverUrl} in the default browser`
-      : "Connected"
-    : contractError || snapshot?.status.text || "The local agent does not reach the Sectile server.";
+
+  let connectionText: string;
+  let connectionTitle: string;
+
+  if (isFleet) {
+    connectionText = connected
+      ? "Connected"
+      : contractError
+      ? "Server incompatible"
+      : "Not connected";
+    connectionTitle = connected
+      ? serverUrl
+        ? `Open ${serverUrl} in the default browser`
+        : "Connected"
+      : contractError || snapshot?.status.text || "The local agent does not reach the Sectile server.";
+  } else {
+    connectionText = connected
+      ? "Compagnon local"
+      : "Compagnon indisponible";
+    connectionTitle = connected
+      ? "Compagnon local actif · Prêt pour les exécutions"
+      : "Le compagnon local est indisponible. Redémarrez-le depuis le menu ou les paramètres.";
+  }
   const agentMenuRef = useRef<HTMLDetailsElement | null>(null);
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -340,8 +355,8 @@ function Workspace() {
             ))}
           </div>
           <button className="icon-button" aria-label="Navigation rapide" title="Navigation rapide · Cmd/Ctrl+K" onClick={() => setPaletteOpen(true)}><Icon name="search" /></button>
-          <div id="connection" className="connection-status" data-state={connected ? "on" : "off"} title={connectionTitle}>
-            {connected && serverUrl ? (
+          <div id="connection" className="connection-status" data-state={connected ? "on" : "off"} data-mode={runtimeMode} title={connectionTitle}>
+            {isFleet && connected && serverUrl ? (
               <a
                 className="connection-body"
                 href="#"
@@ -364,8 +379,8 @@ function Workspace() {
             <summary
               id="agent-actions-more"
               className="icon-button"
-              title="Agent actions"
-              aria-label="Agent actions"
+              title={isFleet ? "Actions de l’agent Fleet" : "Actions du compagnon local"}
+              aria-label={isFleet ? "Actions de l’agent Fleet" : "Actions du compagnon local"}
             >
               <Icon name="more" />
             </summary>
@@ -378,7 +393,7 @@ function Workspace() {
                 }}
               >
                 <Icon name="refresh" />
-                <span>Restart agent</span>
+                <span>{isFleet ? "Redémarrer l’agent" : "Redémarrer le compagnon"}</span>
               </button>
               <button
                 type="button"
@@ -389,7 +404,7 @@ function Workspace() {
                 }}
               >
                 <Icon name="close" />
-                <span>Stop agent</span>
+                <span>{isFleet ? "Arrêter l’agent" : "Arrêter le compagnon"}</span>
               </button>
             </div>
           </details>
