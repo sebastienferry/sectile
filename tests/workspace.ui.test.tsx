@@ -230,6 +230,8 @@ test("tracker-backed projects retain board search, grouping and ticket status",a
  expect(screen.getByRole("combobox",{name:"Regrouper les tickets"})).toBeTruthy();
  expect(screen.getByText("Statuts du tracker · lecture seule")).toBeTruthy();
  expect(screen.getByText("Remote issue")).toBeTruthy();
+ expect(screen.queryByRole("button",{name:"Effacer la sélection"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Préparer un lot"})).toBeNull();
  expect(screen.getByRole("region",{name:"Colonnes de tickets, défilement horizontal"}).getAttribute("tabindex")).toBe("0");
 });
 test("workflow columns open by default and the tracker grouping choice persists",async()=>{
@@ -282,6 +284,7 @@ test("a selected ticket batch requires confirmation and uses the Go pickup skill
  await screen.findByText("First issue");
  fireEvent.click(screen.getByRole("checkbox",{name:"Sélectionner APP-1"}));
  fireEvent.click(screen.getByRole("checkbox",{name:"Sélectionner APP-2"}));
+ expect(screen.getByRole("button",{name:"Effacer la sélection"})).toBeTruthy();
  fireEvent.click(screen.getByRole("button",{name:"Préparer un lot"}));
  expect(api.launchTask).not.toHaveBeenCalled();
  fireEvent.click(screen.getByRole("button",{name:"Lancer le lot"}));

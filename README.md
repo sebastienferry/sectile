@@ -186,6 +186,8 @@ A ticket card opens its guided workflow: remote status, six-stage progression,
 next skill, configured pickup stopping point, optional instructions, execution
 history and PR/MR access. The board opens with workflow stage columns and can
 group the same remote tickets by tracker status; that choice is remembered.
+Batch controls appear when tickets are selected, keeping the default board
+toolbar compact.
 Stage labels, per-tracker mappings and statuses determine
 the presentation. The desktop stores no independent task truth.
 

@@ -447,10 +447,15 @@ body.resizing-sidebar {
 .board-toolbar {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 16px 22px;
+  gap: 8px;
+  padding: 12px 22px;
   flex-wrap: wrap;
 }
+.board-toolbar .search { flex: 1 1 180px; min-width: 150px; }
+.board-toolbar .search input { width: 100%; min-width: 0; }
+.board-toolbar .badge { margin:0; white-space:nowrap; }
+.board-grouping { flex-shrink: 0; }
+.board-grouping select { max-width: 180px; }
 .board-density {
   padding: 6px 9px;
   border: 1px solid var(--border);
@@ -466,7 +471,8 @@ body.resizing-sidebar {
 .board-view-switch button { border:0; border-radius:0; background:transparent; padding:7px 11px; font-size:11px; color:var(--muted); }
 .board-view-switch button[aria-pressed="true"] { background:var(--selected); color:var(--accent-text); }
 .board-selection-count { color:var(--muted); font-size:11px; }
-.board-toolbar > button:disabled { opacity:.45; }
+.board-batch-controls { display:flex; align-items:center; gap:8px; flex-basis:100%; }
+.board-batch-controls button:disabled { opacity:.45; }
 .batch-confirm { margin:0 22px 14px; padding:14px; border:1px solid var(--accent); border-radius:10px; background:var(--surface); font-size:12px; }
 .batch-confirm p { color:var(--muted); }
 .batch-confirm ol { max-height:100px; overflow:auto; }

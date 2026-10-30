@@ -1371,3 +1371,14 @@ tracker's `opened` status column and back to workflow stages; the UI test
 also covers persistence of the chosen grouping across React remounts. The
 ticket has no parent epic, so a native epic-color proof remains open. This
 unsigned QA app is not a distributed release or remote Fleet qualification.
+
+The next native board retake removes the permanently disabled batch controls
+from the idle toolbar. At the isolated QA window's 1280-point width, view
+switching, search, grouping, density and ticket count fit on one row in the
+[idle capture](ux-captures/board-native-compact-toolbar.png). Selecting the
+tracker-backed ticket reveals selection count, clear and batch controls in a
+separate row, as shown in the [selected capture](ux-captures/board-native-selection-toolbar.png).
+Clearing selection hides those controls again. The one-ticket fixture leaves
+batch preparation disabled, as intended; a multi-ticket native batch remains
+separately qualified by earlier tests rather than this capture. The QA app
+used port 52964 and did not change the regular port-52963 companion.
