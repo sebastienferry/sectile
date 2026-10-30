@@ -83,3 +83,20 @@ test("recovered streaming fragments are marked interrupted and keep their Markdo
  expect(screen.getByText("Assistant · réponse interrompue")).toBeTruthy();
  expect(screen.getByText("fragment").tagName).toBe("STRONG");
 });
+
+
+test("approval history uses French decisions without translating provider or user text", () => {
+ render(<ConversationTranscript snapshot={snapshot([
+  {kind:"approval",text:"allow"},
+  {kind:"approval",text:"deny"},
+  {kind:"approval",text:"always"},
+  {kind:"approval",text:"answer",detail:"Color → Blue"},
+  {kind:"assistant",text:"allow"},
+  {kind:"user",text:"deny"},
+ ])} />);
+ expect(screen.getAllByText("Autorisation")).toHaveLength(4);
+ for (const label of ["Demande autorisée une fois.","Demande refusée.","Autorisation mémorisée.","Réponse envoyée."]) expect(screen.getByText(label)).toBeTruthy();
+ expect(screen.getByText("Color → Blue")).toBeTruthy();
+ expect(screen.getByText("allow")).toBeTruthy();
+ expect(screen.getByText("deny")).toBeTruthy();
+});

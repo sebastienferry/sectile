@@ -2,6 +2,13 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { decodeEvents, type ConversationEvent, type ConversationSnapshot } from "../lib/conversation";
 import { Markdown } from "./Markdown";
 
+const approvalLabels: Record<string, string> = {
+  allow: "Demande autorisée une fois.",
+  deny: "Demande refusée.",
+  always: "Autorisation mémorisée.",
+  answer: "Réponse envoyée.",
+};
+
 interface ToolEntry { key: number; call?: ConversationEvent; result?: ConversationEvent }
 type Row = { key: number; event: ConversationEvent } | { key: number; tools: ToolEntry[] };
 export function transcriptRows(events: ConversationEvent[]): Row[] {
@@ -62,8 +69,8 @@ export function ConversationTranscript({ snapshot, followRequest = 0 }: { snapsh
     setPaused(!following.current);
   }}><div ref={content}>
     {rows.map(row => "tools" in row ? <Tools key={row.key} tools={row.tools} busy={snapshot.busy} /> : <article className={`prompt-event prompt-${row.event.kind}`} key={row.key}>
-      <strong>{row.event.interrupted ? "Assistant · réponse interrompue" : ({ user: "Vous", assistant: "Assistant", error: "Erreur", thinking: "Réflexion" } as Record<string, string>)[row.event.kind] ?? "Activité"}</strong>
-      {row.event.kind === "assistant" ? <Markdown text={row.event.text} /> : <p>{row.event.text}</p>}
+      <strong>{row.event.interrupted ? "Assistant · réponse interrompue" : ({ user: "Vous", assistant: "Assistant", error: "Erreur", thinking: "Réflexion", approval: "Autorisation" } as Record<string, string>)[row.event.kind] ?? "Activité"}</strong>
+      {row.event.kind === "assistant" ? <Markdown text={row.event.text} /> : <p>{row.event.kind === "approval" ? approvalLabels[row.event.text] ?? row.event.text : row.event.text}</p>}
       {row.event.detail && <details><summary>Détails</summary><pre>{row.event.detail}</pre></details>}
     </article>)}
     {snapshot.partial && <article className="prompt-event"><strong>Assistant</strong><Markdown text={snapshot.partial} /></article>}

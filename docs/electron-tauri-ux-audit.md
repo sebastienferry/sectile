@@ -1071,3 +1071,31 @@ not a native Fleet full-chain completion. The retained `4063b47`/`84e19b1b`
 candidate predates this fix; a rebuilt native package must be tested before
 claiming it includes the correction. Existing managed agents need a restart to
 acquire the new configuration; external agents are never silently restarted.
+
+
+### Native managed Fleet retake and approval wording (2026-10-30)
+
+An isolated unsigned Tauri `8d8dd70` app with clean packaged Go `9b0b68f6`
+services used a unique app identity and a disposable Fleet backend on port
+49663. Native pairing started the managed workstation agent automatically.
+The native folder picker created a folder-only project and opened its prompt.
+Real Codex (`gpt-6-astra`, execution/workspace-write) requested project-context
+MCP consent, accepted a one-time native approval and returned
+`NATIVE_FLEET_MCP_OK native-project`. Its completed tool and connected MCP state
+were visible. Closing the actual test app, reopening it and sending a follow-up
+returned `REOPEN_OK native-project`; API checks confirmed the model, mode and
+single original tool call. A separate native Claude Code prompt (`sonnet`,
+execution/default permission mode) used ToolSearch and the scoped context tool,
+then returned `NATIVE_FLEET_CLAUDE_OK native-project` with completed tools and
+connected MCP state. No real tracker was modified. The regular Local companion
+remained running on 52963.
+
+The Codex approval history exposed a UI inconsistency: a completed decision
+rendered as “Activity allow” instead of a readable French outcome. The transcript
+now labels these entries as authorizations and translates the known decisions,
+while preserving user/provider prose and answer details. A rendering regression
+covers approval, refusal, remembered consent and answered questions. TypeScript,
+16 domain tests, 136 UI tests, production build and 39 Rust tests pass. Native
+confirmation of this wording and Claude bundle-replacement resume follows
+separately; this retake does not establish tracker-chain execution or a signed
+installation.

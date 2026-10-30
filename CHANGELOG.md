@@ -13,6 +13,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Conversation history now describes approval decisions in French instead of exposing protocol values such as `allow` and `deny`.
+
 - Keep managed Fleet Claude Code and Codex sessions connected to their selected backend without changing Electron’s shared MCP registration.
 
 - Ticket workflows now show when the chain's configured target is reached instead of offering another chain launch, including when the ticket advances just before a click.

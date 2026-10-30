@@ -31,6 +31,13 @@ agent fix with shared MCP registrations unchanged. The old candidate and
 externally attached agents do not acquire this behavior by implication. Native
 Fleet execution and the rebuilt package still require qualification.
 
+The isolated native `8d8dd70`/packaged Go `9b0b68f6` retake additionally passed
+managed Fleet pairing and automatic agent startup, native folder-only project
+creation, real Claude/Codex scoped MCP reads and responses, and Codex desktop
+close/reopen with context/model/mode/history retained and no tool replay. Its
+backend used disposable state on loopback; it does not qualify real remote TLS,
+OAuth, tracker chains or a signed installation.
+
 ## Product ownership and updates
 
 Interactive Tauri tracker conversations require Go server/agent `920e313f` or
