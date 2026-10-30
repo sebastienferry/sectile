@@ -56,7 +56,8 @@ test("the React controller renders Go state, sends only the next message and res
   await waitFor(() => expect(screen.getByRole("button", { name: "Actualiser le suivi" }).hasAttribute("disabled")).toBe(false));
   fireEvent.click(screen.getByRole("button", { name: "Actualiser le suivi" }));
   await waitFor(() => expect(screen.getByLabelText("Suivi de la conversation").textContent).toContain("Historique en lecture seule"));
-  expect(screen.getByRole("textbox", { name: "Message suivant" }).hasAttribute("disabled")).toBe(true);
+  expect(screen.queryByRole("textbox", { name: "Message suivant" })).toBeNull();
+  expect(screen.getByLabelText("Options de l’historique")).toBeTruthy();
 });
 test("a free project conversation keeps only relevant status above the composer",async()=>{
  vi.mocked(api.readConversation).mockResolvedValue(snapshot("free-chat"));
@@ -127,7 +128,7 @@ test("a finished discussion archives through its own menu without sending a prov
  expect(archive).toHaveBeenCalledOnce();
  expect(api.controlConversation).not.toHaveBeenCalled();
 });
-test("a stopped discussion describes the saved turn as completed while the composer remains read only",async()=>{
+test("a stopped discussion describes the saved turn as completed and replaces the composer with a compact history footer",async()=>{
  vi.mocked(api.readConversation).mockResolvedValue({...snapshot("stopped-chat"),readOnly:true,events:[
   JSON.stringify({kind:"assistant",text:"OK QA"}),
   JSON.stringify({kind:"notice",text:"Prêt pour votre prochain message"}),
@@ -138,7 +139,9 @@ test("a stopped discussion describes the saved turn as completed while the compo
  expect(screen.getByText("Réponse terminée")).toBeTruthy();
  expect(screen.getByText("Conversation arrêtée")).toBeTruthy();
  expect(screen.queryByText("Prêt pour votre prochain message")).toBeNull();
- expect(screen.getByRole("textbox",{name:"Message suivant"}).hasAttribute("disabled")).toBe(true);
+ expect(screen.queryByRole("textbox",{name:"Message suivant"})).toBeNull();
+ expect(screen.getByLabelText("Suivi de la conversation").textContent).toContain("Historique en lecture seule");
+ expect(screen.getByRole("button",{name:"Terminal"})).toBeTruthy();
 });
 test("pending tools require an explicit decision; navigation does not interrupt Go", async () => {
   vi.mocked(api.readConversation).mockResolvedValue({ ...snapshot("approval-chat"), approvals: [{ id: "tool-1", tool: "Bash", input: { command: "git status" } }] });

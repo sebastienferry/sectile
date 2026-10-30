@@ -159,7 +159,10 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
     {agentAvailable && (error || actionError) && <p role="alert" className="error">{error || actionError} Vérifiez le suivi avant de renvoyer un message.</p>}
     </div>
     <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} agentAvailable={agentAvailable} onOpenExecution={onOpenExecution} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onOpenPr={url=>void openExternalLink(url).catch(()=>setLinkError("Impossible d’ouvrir la PR/MR."))}/>
-    <form className="composer" onSubmit={e => { e.preventDefault(); if (agentAvailable && loaded && !busy && !attaching && !snapshot.readOnly && !error && draft.trim()) { void controller.send(draft, false, options); setDraft(""); setFollowRequest(value => value + 1); } }}>
+    {snapshot.readOnly ? <div className="conversation-readonly-footer" aria-label="Options de l’historique">
+      <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly onChanged={onFoldersChanged}/>
+      <button type="button" className="composer-action" disabled={!directory} title="Ouvrir le terminal dans le dossier de travail" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Impossible d’ouvrir le terminal dans ce dossier."))}><Icon name="terminal"/>Terminal</button>
+    </div> : <form className="composer" onSubmit={e => { e.preventDefault(); if (agentAvailable && loaded && !busy && !attaching && !snapshot.readOnly && !error && draft.trim()) { void controller.send(draft, false, options); setDraft(""); setFollowRequest(value => value + 1); } }}>
       <textarea aria-label="Message suivant" rows={3} maxLength={32000} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} disabled={!!snapshot.readOnly} placeholder="Posez une question ou décrivez une modification…" />
       <div className="composer-footer"><TurnSettings compact provider={snapshot.provider} snapshot={snapshot} value={options} onChange={setOptions} disabled={!loaded || busy || !!snapshot.readOnly || !!error || acting} />
       <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly={!loaded||snapshot.readOnly} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
@@ -167,7 +170,7 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
       <button type="button" className={`composer-action mcp-action mcp-${snapshot.sectileMcp?.status??"unknown"}`} disabled={!agentAvailable||!loaded||acting||snapshot.checkingMcp||snapshot.readOnly} aria-label="Vérifier le MCP de cette conversation" title={`${snapshot.sectileMcp?.source==="transport"?"Transport MCP du compagnon":"MCP du moteur"} · ${snapshot.checkingMcp?"Vérification en cours…":({connected:"Connecté",missing:"Non enregistré",failed:"Échec de connexion","needs-auth":"Connexion requise",pending:"Connexion en cours",unknown:"État non vérifié"} as Record<string,string>)[snapshot.sectileMcp?.status??"unknown"]||"État non vérifié"}`} onClick={()=>void control({action:"checkMcp"}).then(()=>{const current=controller.getSnapshot().snapshot;setMcpFeedback(current.provider==="codex"&&!current.checkingMcp&&current.sectileMcp?.status==="unknown"?"Codex vérifiera le MCP au prochain message, après la reconnexion de sa session.":"");}).catch(()=>{})}><span className="mcp-dot"/>MCP</button>
       <button className="send-button" aria-label="Envoyer" title="Envoyer · Entrée" disabled={!agentAvailable || !loaded || busy || attaching || !!snapshot.readOnly || !!error || !draft.trim()}><Icon name="send" /></button></div>
       {mcpFeedback&&snapshot.sectileMcp?.status==="unknown"&&<p className="composer-feedback" role="status">{mcpFeedback}</p>}
-    </form>
+    </form>}
     </div>
   </section>;
 }

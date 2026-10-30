@@ -1276,6 +1276,9 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .conversation-controls { max-height:58%; border:0; padding-top:8px; overflow:hidden; display:flex; flex-direction:column; min-height:0; }
 .conversation-interactions { overflow:auto; flex:0 1 auto; min-height:0; }
 .conversation-controls .composer { margin:0; }
+.conversation-readonly-footer { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; padding:12px 4px; border-top:1px solid var(--divider); color:var(--muted); font-size:11px; }
+.conversation-readonly-footer .prompt-folders { flex:none; }
+.conversation-readonly-footer .composer-action { font-size:11px; }
 .conversation-status-strip { display:flex; align-items:center; flex-wrap:wrap; gap:5px 12px; padding:3px 4px 8px; color:var(--muted); font-size:10px; flex-shrink:0; }
 .conversation-status-strip strong { color:var(--text); font-weight:600; }
 .conversation-status-activity { display:inline-flex; align-items:center; gap:6px; color:var(--text); font-weight:600; }

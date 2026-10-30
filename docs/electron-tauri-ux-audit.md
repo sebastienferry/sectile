@@ -1643,5 +1643,11 @@ rewriting the stored event or changing Electron's backend text. The rebuilt
 port-52965 native app showed the preserved "OK QA" answer, the completed-turn
 label, the stopped state and a disabled composer in the
 [stopped conversation capture](ux-captures/stopped-conversation-native.jpg).
-The disabled composer still occupies substantial space; replacing it with a
-concise read-only footer is a separate UX follow-up.
+The disabled composer still occupied substantial space. The next native retake
+replaces it with a single-row, read-only footer. The status strip continues to
+identify the stopped execution; the footer retains folder inspection and the
+terminal shortcut. Its [compact conversation capture](ux-captures/stopped-conversation-compact-native.jpg)
+shows more space for the transcript at the same window size. Opening **Dossiers**
+in the native app displayed the original working directory. An older history
+that can be adopted returns to the editable composer after adoption in the UI
+test; the native retake covers a stopped Codex conversation only.

@@ -29,7 +29,8 @@ test("new prompt attachments do not create a run, and cancellation leaves contex
 });
 test("read-only histories cannot attach and project configuration detaches without deleting files",async()=>{
  const view=render(<PromptFolders projectId="project" runId="history" directory="/old" readOnly/>);
- expect(screen.getByRole("button",{name:"Ajouter un dossier"}).hasAttribute("disabled")).toBe(true);
+ expect(screen.queryByRole("button",{name:"Ajouter un dossier"})).toBeNull();
+ expect(screen.getAllByText("/old").length).toBeGreaterThan(0);
  view.unmount();vi.mocked(api.projectFolders).mockResolvedValueOnce([{path:"/notes",kind:"missing"}]).mockResolvedValue([]);vi.mocked(api.detachFolder).mockResolvedValue({});
  render(<AttachedFolderSettings projectId="project"/>);
  expect(await screen.findByText("Dossier introuvable")).toBeTruthy();
