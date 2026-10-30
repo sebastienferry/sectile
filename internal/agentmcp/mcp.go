@@ -2,6 +2,7 @@ package agentmcp
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -65,6 +66,33 @@ func bridgeHTTPClient(token, runID string) *http.Client {
 	return client
 }
 
+// A desktop conversation already names its project in the bridge's process
+// environment. Resolve an omitted get_project_context target there so a model
+// does not have to discover and guess among the user's other projects.
+func projectContextArguments(name string, arguments any, projectID string) any {
+	if name != "get_project_context" || strings.TrimSpace(projectID) == "" {
+		return arguments
+	}
+	raw, err := json.Marshal(arguments)
+	if err != nil {
+		return arguments
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return arguments
+	}
+	if fields == nil {
+		fields = make(map[string]any)
+	}
+	for _, key := range []string{"projectId", "taskKey"} {
+		if value, present := fields[key]; present && value != nil && value != "" {
+			return arguments
+		}
+	}
+	fields["projectId"] = strings.TrimSpace(projectID)
+	return fields
+}
+
 // runMCPCommand relays MCP over stdio without opening a local database. All log
 // output goes to stderr; stdout belongs exclusively to the protocol transport.
 // Run executes the stdio MCP bridge until its context ends.
@@ -96,6 +124,7 @@ func Run(ctx context.Context, args []string) error {
 	}
 	defer session.Close()
 	seen := map[string]bool{}
+	projectID := os.Getenv("SECTILE_PROJECT_ID")
 	proxy := mcp.NewServer(&mcp.Implementation{Name: "sectile", Version: "1.0.0"}, nil)
 	for tool, err := range session.Tools(ctx, nil) {
 		if err != nil {
@@ -111,7 +140,7 @@ func Run(ctx context.Context, args []string) error {
 		}
 		seen[tool.Name] = true
 		proxy.AddTool(tool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return session.CallTool(ctx, &mcp.CallToolParams{Name: req.Params.Name, Arguments: req.Params.Arguments})
+			return session.CallTool(ctx, &mcp.CallToolParams{Name: req.Params.Name, Arguments: projectContextArguments(req.Params.Name, req.Params.Arguments, projectID)})
 		})
 	}
 	if len(seen) != 21 {

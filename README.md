@@ -370,6 +370,9 @@ HTTP loopback are accepted, without credentials, path, query or fragment. A
 scoped endpoint also suppresses automatic shared-registration refresh; the paired
 key and device identity travel through the child environment. Both scoped
 variables absent preserves Electron and workstation registration behavior.
+In a project conversation, the bridge uses its process-scoped
+`SECTILE_PROJECT_ID` for a `get_project_context` call that omits both target
+identifiers. Explicit project or task targets still take precedence.
 
 A local companion can also set a random `SECTILE_LOCAL_RUNTIME_KEY` to enable
 authenticated `GET /api/local-runtime` discovery (protocol 1). It requires

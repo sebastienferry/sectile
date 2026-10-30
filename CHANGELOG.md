@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- A project conversation now supplies its selected project to a Sectile MCP context read when the coding agent omits the identifier; explicit project and task targets remain unchanged.
+
 - Idle Claude Code and Codex conversations no longer block a Local update or restart; their sessions remain resumable while active turns, questions and queued messages still prevent shutdown.
 
 - Local desktop updates can stop an idle companion gracefully and verify its data store is released before replacing the application; active executions still prevent shutdown.

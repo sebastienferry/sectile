@@ -252,7 +252,7 @@ func TestMCPStdioBridge(t *testing.T) {
 		// Under -race every process sleeps a second before exiting
 		// (atexit_sleep_ms), and Close waits for the child. With one child
 		// per legacy name that alone nearly spends the budget, so CI timed out.
-		command.Env = append(os.Environ(), "SECTILE_MCP_HELPER=1", "SECTILE_AGENT_URL="+d.loopback.url, "SECTILE_AGENT_TOKEN="+d.link.token,
+		command.Env = append(os.Environ(), "SECTILE_MCP_HELPER=1", "SECTILE_AGENT_URL="+d.loopback.url, "SECTILE_AGENT_TOKEN="+d.link.token, "SECTILE_PROJECT_ID=default",
 			"GORACE="+strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0"))
 		session, err := mcp.NewClient(&mcp.Implementation{Name: "stdio-test", Version: "1"}, nil).Connect(ctx, &mcp.CommandTransport{Command: command}, nil)
 		if err != nil {
@@ -267,6 +267,14 @@ func TestMCPStdioBridge(t *testing.T) {
 	list, err := session.ListTools(ctx, nil)
 	if err != nil || len(list.Tools) != 21 {
 		t.Fatalf("stdio discovery %v %v", list, err)
+	}
+	contextResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "get_project_context", Arguments: map[string]any{}})
+	if err != nil || contextResult.IsError {
+		t.Fatalf("bound project context: %v %v", contextResult, err)
+	}
+	contextJSON, err := json.Marshal(contextResult.StructuredContent)
+	if err != nil || !strings.Contains(string(contextJSON), `"projectId":"default"`) {
+		t.Fatalf("bound project context did not resolve the desktop project: %s (%v)", contextJSON, err)
 	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_tasks", Arguments: map[string]any{"projectId": "default"}})
 	if err != nil || result.IsError {
