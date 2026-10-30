@@ -7,7 +7,8 @@ binary checks in the [release checklist](v1-release-checklist.md).
 
 ## Current branch versus retained package
 
-The UX working branch builds on Tauri `a7421d9` with Go `7af14675`. This is newer
+The UX working branch has native retakes through Tauri `32e76f2` with Go
+`7af14675` as the current source checkout. This is newer
 than the retained `d69c3ac`/`f55e8768` unsigned package below, so its source
 tests and isolated QA windows do not update that package's release evidence.
 Go `8d40b2aa`'s process-bound MCP project-context fix has already passed real
@@ -23,10 +24,13 @@ for this Local bundle, not a signed-release or Fleet result. The user's
 port-52964 trial remains on its earlier bundle and has not been replaced.
 
 Current open checks include deployed remote Fleet with TLS and real
-tracker/OAuth flows, renderer-inclusive
-startup and memory measurements, clean-user installation, and signed and
+tracker/OAuth flows, reproducible renderer-inclusive startup and memory
+measurements on exact release binaries, clean-user installation, and signed and
 notarized macOS distribution. Fresh Jira OAuth consent remains deferred by the
 owner. No current branch result should be read as a V1 release claim.
+An [exploratory native Local sample](v1-runtime-measurements.md#exploratory-desktop-inclusive-local-sample-2026-10-30)
+now includes the renderer and companion, but its unsigned QA binary, coarse
+observation timing and unmatched host state do not close that gate.
 
 ## Platform and delivery
 
