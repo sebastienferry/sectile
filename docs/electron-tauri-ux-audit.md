@@ -1625,3 +1625,13 @@ port-52965 app, the stopped Codex row opened the saved “OK QA” conversation;
 returned to the same history. The [focused detail capture](ux-captures/conversation-execution-focused-native.jpg)
 records the native result. This was a navigation retake against a previously
 completed run, not a fresh provider execution.
+
+The focused execution detail still stacked the global heading, poll interval,
+active-run count, navigation, title and a large closed review card. The next
+native retake removes the count from a selected detail, shortens the freshness
+label while retaining its three-second interval as a tooltip, places return
+navigation beside the back link, and keeps the run state beside the title.
+The closed change review is now an inline disclosure. At the same 800-by-700
+point window size, the [compact detail capture](ux-captures/conversation-execution-compact-native.jpg)
+shows the controls and review entry without scrolling. This verifies layout and
+accessibility in the isolated Local app; it does not qualify a new provider run.

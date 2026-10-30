@@ -824,8 +824,7 @@ body.resizing-sidebar {
 .run-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 15px;
+  gap: 12px;
 }
 .run-heading h3 {
   font-size: 14px;
@@ -834,6 +833,25 @@ body.resizing-sidebar {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin: 0;
+}
+.run-heading .danger {
+  margin-left: auto;
+}
+.run-status {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.run-detail-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 16px;
+}
+.run-detail-nav > button:last-child:not(:first-child) {
+  font-size: 11px;
 }
 .text-button {
   background: transparent;
@@ -844,6 +862,14 @@ body.resizing-sidebar {
 }
 .run-detail > p {
   overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.run-detail .run-review {
+  padding: 0;
+  border: 0;
+  margin: 8px 0;
+}
+.run-detail .run-review > summary {
   font-size: 12px;
 }
 .console-panel {

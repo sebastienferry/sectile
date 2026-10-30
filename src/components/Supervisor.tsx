@@ -176,20 +176,21 @@ export function Supervisor({
             ? "Nouveau lancement"
             : view === "orchestration"
               ? "Orchestration"
-              : "Exécutions"}
+              : run ? "Détails de l’exécution" : "Exécutions"}
         </h2>
-        <span className="muted">
+        <span className="muted" title="Actualisation automatique toutes les 3 s">
           {fresh
-            ? `Dernière lecture : ${lastRead} · toutes les 3 s`
+            ? `À jour · ${lastRead}`
             : "État non vérifié"}
         </span>
         <button
+          aria-label="Actualiser le suivi"
           onClick={() => {
             void refresh();
             setReload((v) => v + 1);
           }}
         >
-          Actualiser le suivi
+          Actualiser
         </button>
       </div>
       {pollError && (
@@ -407,7 +408,7 @@ export function Supervisor({
         )}
       </details>
       <div hidden={view !== "executions"} className="execution-workspace">
-        <h3>Exécutions de ce poste · {activeExecutionCount} exécution{activeExecutionCount > 1 ? "s" : ""} active{activeExecutionCount > 1 ? "s" : ""}{openFreeConversationCount > 0 && ` · ${openFreeConversationCount} session${openFreeConversationCount > 1 ? "s" : ""} ouverte${openFreeConversationCount > 1 ? "s" : ""}`}</h3>
+        {!run && <h3>Exécutions de ce poste · {activeExecutionCount} exécution{activeExecutionCount > 1 ? "s" : ""} active{activeExecutionCount > 1 ? "s" : ""}{openFreeConversationCount > 0 && ` · ${openFreeConversationCount} session${openFreeConversationCount > 1 ? "s" : ""} ouverte${openFreeConversationCount > 1 ? "s" : ""}`}</h3>}
         <div className="execution-list" hidden={!!run}>
           {runs.map((item) => (
             <article
@@ -448,11 +449,15 @@ export function Supervisor({
         )}
         {run && (
           <section className="run-detail">
-            <button className="text-button" onClick={() => onSelectRun("")}>
-              ← Toutes les exécutions
-            </button>
+            <div className="run-detail-nav">
+              <button className="text-button" onClick={() => onSelectRun("")}>
+                ← Toutes les exécutions
+              </button>
+              {run.conversation && onOpenConversation && <button type="button" onClick={() => onOpenConversation(run.id)}>Ouvrir la conversation</button>}
+            </div>
             <div className="run-heading">
-              <h3 title={runTitle(run, tasks)}>{runTitle(run, tasks)} · {statusLabel(run)}</h3>
+              <h3 title={runTitle(run, tasks)}>{runTitle(run, tasks)}</h3>
+              <span className="run-status">{statusLabel(run)}</span>
               <button
                 className="danger"
                 disabled={!!pending || !canStop(run, fresh)}
@@ -478,7 +483,7 @@ export function Supervisor({
                 session dans Sectile Desktop ou le terminal du fournisseur.
               </p>
             )}
-            {run.conversation ? onOpenConversation && <button type="button" onClick={() => onOpenConversation(run.id)}>Ouvrir la conversation</button> : run.sessionId || run.trace || run.restored ? (
+            {!run.conversation && (run.sessionId || run.trace || run.restored ? (
               <Suspense fallback={<p>Chargement de la console…</p>}>
                 {active && <RunConsole key={run.id} runId={run.id} />}
               </Suspense>
@@ -486,7 +491,7 @@ export function Supervisor({
               <p>
                 La console n’est pas encore disponible pour cette exécution.
               </p>
-            )}
+            ))}
           </section>
         )}
       </div>
