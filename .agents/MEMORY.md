@@ -1,5 +1,10 @@
 # Project Knowledge Base (MEMORY.md)
 
+### Native Fleet MCP Isolation (2026-10-30)
+
+- Managed Tauri Fleet launch must set `SECTILE_DESKTOP_MCP_URL` as well as disable shared MCP refresh. Suppressing refresh alone leaves provider sessions reading the unrelated Electron registration; skill installation can also bootstrap that shared entry. The scoped bridge uses the paired server/device identity for both Local and Fleet without changing provider homes. The legacy companion endpoint stays loopback-only, while the explicit desktop endpoint accepts HTTPS origins or HTTP loopback. Externally attached agents retain their own configuration.
+
+
 ### Desktop Tracker Launch Connection Identity (2026-10-30)
 
 - Tracker skills return through server dispatch, independently of the HTTP launch response. Bind the initiating desktop connection to the response's explicit `runId` in either arrival order; ticket-only correlation can attach an unrelated dispatch. `activity.id` identifies a separate launch activity and must never be used as the execution ID. Older servers without `runId` cannot qualify this connection-bound interactive path.

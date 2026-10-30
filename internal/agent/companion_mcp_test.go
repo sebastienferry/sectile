@@ -106,3 +106,60 @@ func TestEmbeddedConversationUsesExplicitDaemonCredential(t *testing.T) {
 		t.Fatal("embedded conversation lost its explicit machine credential")
 	}
 }
+
+func TestNativeFleetMCPUsesSelectedOriginWithoutSharedRegistration(t *testing.T) {
+	home := testhome.Temp(t)
+	path := filepath.Join(home, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("existing Electron configuration")
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SECTILE_DESKTOP_MCP_URL", "https://fleet.example.test")
+	t.Setenv("SECTILE_COMPANION_MCP_URL", "http://127.0.0.1:9876")
+	daemon := &agentDaemon{link: serverLink{serverURL: "https://fleet.example.test", token: "fleet-private-key", deviceID: "fleet-device"}}
+	if err := daemon.refreshMCPConnections(); err != nil {
+		t.Fatal(err)
+	}
+	for _, provider := range []string{"claude", "codex"} {
+		args := strings.Join(companionMCPArgs(provider), " ")
+		if !strings.Contains(args, companionMCPName) || !strings.Contains(args, "https://fleet.example.test") || strings.Contains(args, "fleet-private-key") || strings.Contains(args, "127.0.0.1") {
+			t.Fatalf("%s did not use the selected Fleet origin privately", provider)
+		}
+		if _, err := daemon.registerMCP(provider, "/unused"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	env := daemon.companionEnvironment(map[string]string{})
+	if env["SECTILE_AGENT_TOKEN"] != "fleet-private-key" || env["SECTILE_DEVICE_ID"] != "fleet-device" {
+		t.Fatal("Fleet bridge lost the paired identity")
+	}
+	actual, err := os.ReadFile(path)
+	if err != nil || string(actual) != string(original) {
+		t.Fatal("native Fleet changed Electron's shared configuration")
+	}
+}
+
+func TestNativeFleetMCPRejectsUnsafeOriginsWithoutSharedFallback(t *testing.T) {
+	for _, endpoint := range []string{"http://fleet.example.test", "https://user:secret@fleet.example.test", "https://fleet.example.test/path", "https://fleet.example.test?key=secret", "https://fleet.example.test?", "https://fleet.example.test#fragment"} {
+		t.Run(endpoint, func(t *testing.T) {
+			t.Setenv("SECTILE_DESKTOP_MCP_URL", endpoint)
+			for _, provider := range []string{"claude", "codex"} {
+				args := companionMCPArgs(provider)
+				if len(args) != 1 || args[0] != "--invalid-companion-mcp-endpoint" {
+					t.Fatal("unsafe Fleet origin did not fail closed")
+				}
+			}
+		})
+	}
+	for _, endpoint := range []string{"https://fleet.example.test", "http://127.0.0.1:9876", "http://localhost:9876", "http://[::1]:9876"} {
+		t.Run(endpoint, func(t *testing.T) {
+			t.Setenv("SECTILE_DESKTOP_MCP_URL", endpoint)
+			if args := companionMCPArgs("codex"); len(args) < 2 {
+				t.Fatal("valid Fleet origin was rejected")
+			}
+		})
+	}
+}

@@ -3,18 +3,24 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"net"
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"tasks/internal/agenthttp"
 )
 
 const companionMCPName = "sectile_companion"
 
-// The native launcher supplies this process-only endpoint. Never register it in
-// user or project provider files: those may belong to another desktop instance.
+// Native launchers supply a process-only endpoint, including a remote Fleet
+// backend. Never register it in shared provider files belonging to another app.
 func companionMCPURL() string {
+	if endpoint := os.Getenv("SECTILE_DESKTOP_MCP_URL"); endpoint != "" {
+		return endpoint
+	}
 	return os.Getenv("SECTILE_COMPANION_MCP_URL")
 }
 
@@ -50,7 +56,7 @@ func companionMCPArgs(provider string) []string {
 		return nil
 	}
 	u, err := url.Parse(endpoint)
-	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Port() == "" || u.Path != "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	if err != nil || !validScopedMCPEndpoint(u) {
 		// Fail closed during provider configuration parsing rather than falling
 		// back to the shared registration when a launcher is misconfigured.
 		return []string{"--invalid-companion-mcp-endpoint"}
@@ -73,6 +79,20 @@ func companionMCPArgs(provider string) []string {
 	return []string{"-c", "mcp_servers.sectile.enabled=false", "-c", entry}
 }
 
+// Keep the original Local contract strict. The separate native Fleet opt-in
+// accepts HTTPS origins and HTTP loopback fixtures, as the desktop pairing does.
+func validScopedMCPEndpoint(u *url.URL) bool {
+	if u.Hostname() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return false
+	}
+	if os.Getenv("SECTILE_DESKTOP_MCP_URL") == "" {
+		return u.Scheme == "http" && u.Hostname() == "127.0.0.1" && u.Port() != ""
+	}
+	ip := net.ParseIP(u.Hostname())
+	loopback := u.Hostname() == "localhost" || (ip != nil && ip.IsLoopback())
+	return u.Scheme == "https" || (u.Scheme == "http" && loopback)
+}
+
 func companionMCPFlags(provider string) string {
 	args := companionMCPArgs(provider)
 	for i := range args {
@@ -81,8 +101,8 @@ func companionMCPFlags(provider string) string {
 	return strings.Join(args, " ")
 }
 
-// companionEnvironment supplies the embedded daemon's explicit credential.
-// Free conversations cannot depend on the standalone CLI's TOKEN environment.
+// companionEnvironment supplies the selected daemon's explicit credential.
+// Native conversations cannot depend on the standalone CLI's TOKEN environment.
 func (d *agentDaemon) companionEnvironment(env map[string]string) map[string]string {
 	if companionMCPURL() != "" && companionMCPURL() == d.link.serverURL {
 		env["SECTILE_AGENT_TOKEN"] = d.link.token

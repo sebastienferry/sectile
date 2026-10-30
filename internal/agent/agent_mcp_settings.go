@@ -262,7 +262,7 @@ func (d *agentDaemon) registerMCP(provider, executable string) (string, error) {
 func (d *agentDaemon) refreshMCPConnections() error {
 	// A companion can own a separate backend without taking over registrations
 	// belonging to another installation. Explicit repair remains user initiated.
-	if os.Getenv("SECTILE_DISABLE_MCP_REFRESH") == "1" || (d != nil && d.disableMCPRefresh) {
+	if companionMCPURL() != "" || os.Getenv("SECTILE_DISABLE_MCP_REFRESH") == "1" || (d != nil && d.disableMCPRefresh) {
 		return nil
 	}
 	settings, err := d.readSettings()

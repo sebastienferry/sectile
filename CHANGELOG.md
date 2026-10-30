@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- Managed native Fleet conversations can use their selected backend through an isolated MCP connection without replacing Electron’s shared provider registration.
+
 - Workflow launch and MCP instructions now distinguish reusing an active run from starting a new invocation after a completed clarification round.
 - Desktop-launched tracker workflows retain their connection identity, allowing users to answer provider questions and approve MCP tools directly in the conversation.
 - Desktop conversations now show Sectile's own start, progress, interruption and restart notices in French across Claude Code, Codex and Antigravity.

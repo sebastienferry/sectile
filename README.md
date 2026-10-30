@@ -347,8 +347,12 @@ For native Claude/Codex launches, `SECTILE_COMPANION_MCP_URL` supplies an isolat
 MCP connection to that loopback server. The process-only `sectile_companion`
 bridge inherits the paired key privately; it never rewrites user registrations.
 In this mode setup reports session scope, and direct CLI templates use the
-`{mcpArgs}` slot for their isolated connection. Without this variable, existing
-Electron and workstation registration behavior is unchanged.
+`{mcpArgs}` slot for their isolated connection. Managed native Fleet agents use
+`SECTILE_DESKTOP_MCP_URL` for their selected backend instead: HTTPS origins and
+HTTP loopback are accepted, without credentials, path, query or fragment. A
+scoped endpoint also suppresses automatic shared-registration refresh; the paired
+key and device identity travel through the child environment. Both scoped
+variables absent preserves Electron and workstation registration behavior.
 
 A local companion can also set a random `SECTILE_LOCAL_RUNTIME_KEY` to enable
 authenticated `GET /api/local-runtime` discovery (protocol 1). It requires
