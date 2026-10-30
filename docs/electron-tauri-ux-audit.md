@@ -1171,3 +1171,38 @@ These were development binaries of the committed fixes against packaged Go
 `9b0b68f6` server services; the newly packaged source pairing requires its own
 artifact verification. All Go packages passed, including startup-write ordering,
 storage-failure refusal, owner-SIGKILL, explicit cancellation and trace routing.
+
+
+## Refreshed unsigned candidate (2026-10-30)
+
+Tauri `c4258210c209bc58be02cf7aaef69c382043931c` and clean Go
+`85da2f243a9792bb76660b47e68b37a788e201d6` were packaged in an isolated detached
+worktree, without replacing the regular app or companion. The arm64 app/DMG
+verifier passed for embedded service hashes, architecture, fixed port 52963 and
+52 license files; `hdiutil verify` passed. The DMG is 56,356,912 bytes with SHA-256
+`b9d3bd3e1bef85e84adcecd357da94cbc1e54ac411ea8f9c3e12039cd629d0d0`.
+The retained artifact directory is `src-tauri/target/candidates/2026-10-30-c425821/`
+and contains the app, DMG, manifest, checksums and scope notes. It has no Developer
+ID signature or notarization and is not release-eligible. No release/tag/version
+bump was performed.
+
+The exact packaged Go `85da2f24` companion also recovered the six source-prepared
+durable migration boundaries, preserving installation identity, API credential,
+encryption key, personal token, encrypted OAuth app/grants, projects, ticket,
+snapshot/journal bytes, backup and the legacy DB fence. This remains packaged
+checkpoint recovery, not a native installer, real grant refresh or arbitrary
+process-kill timing inside migration.
+
+The current/v0.7.6 compatibility harness passed again against source `85da2f24`:
+27 operations, 21 MCP tools, both direct/STDIO directions, run lifecycle,
+task-spec worktrees and fake tracker writes with personal credentials. It does
+not qualify older servers for the connection-bound native tracker conversation
+path requiring explicit `runId`, nor general Fleet OAuth/setup support.
+
+Native inspection and install/service-replacement checks were explicitly
+postponed by the owner. An isolated app with a distinct identity and the same Go
+service hashes was prepared without launching it. Test backend/forge processes
+were stopped; private fixture state is retained for that deferred check. The
+temporary package worktree and stopped failed setup fixtures were removed. The
+regular companion on port 52963 (PID 89986) remained untouched. Opening the new
+UI while an older companion is running must not be counted as a service upgrade.

@@ -721,6 +721,17 @@ and terminal run identity restored. See the UX audit and release checklist for
 exact run IDs and evidence boundaries. Native Codex-button qualification remains
 deferred by the owner; the prior candidate does not acquire these fixes.
 
+### Refreshed candidate and owner deferrals (2026-10-30)
+
+A clean unsigned arm64 candidate now pairs Tauri `c425821` and Go `85da2f24`.
+Package/resource/notice/DMG verification, all six packaged migration checkpoint
+recoveries and the refreshed v0.7.6/current protocol harness passed. Exact hashes,
+evidence and limits are recorded in the release checklist. The regular
+installation is unchanged. The owner postponed locked-Mac visual checks; do not
+repeat the unlock request. Fresh Jira consent remains deferred and Apple signing
+credentials remain unavailable. These checks do not close native install,
+service replacement or release approval gates.
+
 ## 6. Repository and branch strategy
 
 - Sectile Go: `refactor/embedded-local-backend`, from preserved prototype commit
