@@ -1,8 +1,9 @@
 # Electron and Tauri desktop UX audit
 
 Date: 2026-10-29
-Status: all seven scoped UX lots are implemented and revalidated against the
-current source on 2026-10-29. Matched captures cover the shared board,
+Status: all seven scoped UX lots were implemented and revalidated on
+2026-10-29; targeted native retakes continued through Tauri `32e76f2` on
+2026-10-30. Matched captures cover the shared board,
 pre-dispatch prompt and settings surfaces. Owner-provided Electron conversation,
 backlog and board screenshots on 2026-10-30 add explicit interaction references;
 post-dispatch execution remains product-specific rather than a pixel-parity target.
