@@ -5,7 +5,7 @@ import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const source = resolve(process.env.SECTILE_SOURCE_DIR || join(root, '../sectile'));
+const source = resolve(process.env.SECTILE_SOURCE_DIR || join(root, '..'));
 const output = join(root, 'src-tauri/binaries');
 const staging = join(output, `.build-${process.pid}`);
 const services = ['server', 'agent', 'companion'];
