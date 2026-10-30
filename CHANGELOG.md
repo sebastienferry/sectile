@@ -6,6 +6,8 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
+- Edit or remove ticket sources from native Settings. Existing board and synchronization settings stay intact when editing; a source linked to a project or containing tickets cannot be removed.
+
 - Prepare a configured Local installation for manual update from Services: stop its idle companion, verify store release and quit the desktop, with explicit retry/restart controls on failure. A source-checkout transport-checking command is also available.
 
 - Add a tracker to an existing local or Fleet project from its configuration or desktop Settings while retaining its local board and folder.
@@ -61,6 +63,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Changed
 
+- Show profile, engine, model and mode labels beside the free-prompt composer controls.
 - Local tracker setup now shows personal-token access first and places the retained local OAuth application flow in a secondary disclosure; Fleet keeps backend-managed OAuth first.
 - Keep section names readable on one line in the desktop settings index at compact window widths.
 - Tracker boards open with compact ticket cards, with a saved control to restore the detailed layout.

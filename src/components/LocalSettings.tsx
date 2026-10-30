@@ -34,6 +34,8 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
   const [sourceSite, setSourceSite] = useState("");
   const [trackerName, setTrackerName] = useState("");
   const [scope, setScope] = useState("");
+  const [editingTracker, setEditingTracker] = useState<{ id: string; name: string; provider: string; site: string; scope: string } | null>(null);
+  const [deletingTrackerId, setDeletingTrackerId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState("");
   const [trackerId, setTrackerId] = useState("");
   const [projectId, setProjectId] = useState("");
@@ -234,7 +236,22 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject }: {
             <button type="submit">Ajouter le tracker</button>
           </fieldset>
         </form> : <p className="muted">Les trackers sont partagés dans Fleet. Demandez à un administrateur du serveur d’enregistrer une nouvelle source.</p>}
-        <ul className="setup-list">{setup.trackers?.map(t => <li key={t.id}><span>{t.name} <small>{t.provider} · {t.scope}</small>{trackerSyncs[t.id]&&<TrackerSyncResult activityId={trackerSyncs[t.id].id} onFinished={()=>{setTrackerSyncs(previous=>({...previous,[t.id]:{...previous[t.id],active:false}}));void refresh();onChanged();}}/>}</span><button disabled={pending||trackerSyncs[t.id]?.active} onClick={() => void perform(async()=>{const active=await api.activeTrackerSyncs().catch(()=>[]);const existing=active.find(activity=>activity.trackerId===t.id);const result=existing?{activity:existing}:await api.syncLocalTracker(t.id);if(!result.activity?.id)throw new Error("Le backend n’a pas fourni de suivi pour cette synchronisation.");setTrackerSyncs(previous=>({...previous,[t.id]:{id:result.activity.id,active:true}}));}, "Synchronisation suivie. Son résultat apparaîtra sous le tracker.")}>Synchroniser</button></li>)}</ul>
+        <ul className="setup-list tracker-list">{setup.trackers?.map(t => <li key={t.id}>
+          <div className="tracker-list-row"><span><strong>{t.name}</strong><small>{t.provider} · {t.scope}{t.site ? ` · ${t.site}` : ""}</small>{trackerSyncs[t.id]&&<TrackerSyncResult activityId={trackerSyncs[t.id].id} onFinished={()=>{setTrackerSyncs(previous=>({...previous,[t.id]:{...previous[t.id],active:false}}));void refresh();onChanged();}}/>}</span>
+            <div className="tracker-list-actions"><button disabled={pending||trackerSyncs[t.id]?.active} onClick={() => void perform(async()=>{const active=await api.activeTrackerSyncs().catch(()=>[]);const existing=active.find(activity=>activity.trackerId===t.id);const result=existing?{activity:existing}:await api.syncLocalTracker(t.id);if(!result.activity?.id)throw new Error("Le backend n’a pas fourni de suivi pour cette synchronisation.");setTrackerSyncs(previous=>({...previous,[t.id]:{id:result.activity.id,active:true}}));}, "Synchronisation suivie. Son résultat apparaîtra sous le tracker.")}>Synchroniser</button>
+              {(setup.mode !== "fleet" || setup.profile?.role === "admin") && <><button type="button" disabled={pending} onClick={() => {setDeletingTrackerId(null);setEditingTracker(editingTracker?.id === t.id ? null : {...t,site:t.site??""});}}>Modifier</button><button type="button" disabled={pending} onClick={() => {setEditingTracker(null);setDeletingTrackerId(deletingTrackerId === t.id ? null : t.id);}}>Supprimer</button></>}
+            </div></div>
+          {editingTracker?.id === t.id && <form className="tracker-editor" onSubmit={e => submit(e, async () => {await api.updateLocalTracker(t.id,{name:editingTracker.name,provider:editingTracker.provider,site:trackerApiSite(editingTracker.provider,editingTracker.site),scope:editingTracker.scope});setEditingTracker(null);}, "Tracker modifié.")}>
+            <fieldset disabled={pending}><label>Nom du tracker à modifier<input required value={editingTracker.name} onChange={e=>setEditingTracker({...editingTracker,name:e.target.value})}/></label>
+              <label>Fournisseur du tracker à modifier<select value={editingTracker.provider} onChange={e=>setEditingTracker({...editingTracker,provider:e.target.value,site:""})}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
+              <label>Adresse du tracker à modifier<input type="url" required={editingTracker.provider==="jira"} value={editingTracker.site} onChange={e=>setEditingTracker({...editingTracker,site:e.target.value})}/></label>
+              <label>Dépôt ou clé à modifier<input required value={editingTracker.scope} onChange={e=>setEditingTracker({...editingTracker,scope:e.target.value})}/></label>
+              <p className="muted">Si le tracker contient déjà des tickets, seul son nom peut changer.</p>
+              <div className="tracker-list-actions"><button className="primary" type="submit">Enregistrer les modifications</button><button type="button" onClick={()=>setEditingTracker(null)}>Annuler</button></div>
+            </fieldset>
+          </form>}
+          {deletingTrackerId === t.id && <div className="tracker-delete-confirm"><p>Supprimer « {t.name} » ? Seul un tracker sans projet associé et sans ticket peut être supprimé.</p><div className="tracker-list-actions"><button type="button" disabled={pending} onClick={()=>void perform(async()=>{await api.deleteLocalTracker(t.id);setDeletingTrackerId(null);},"Tracker supprimé.")}>Confirmer la suppression</button><button type="button" disabled={pending} onClick={()=>setDeletingTrackerId(null)}>Annuler</button></div></div>}
+        </li>)}</ul>
       </article></div>
       <div hidden={section !== "projects"}>
       {onConfigureProject && !!setup.projects?.length && <article><h2>Vos projets</h2><div className="profile-list">{setup.projects.map(project=><div className="profile-card" key={project.id}><strong>{project.name}</strong><button onClick={()=>onConfigureProject(project.id)}>Configurer {project.name}</button></div>)}</div></article>}

@@ -11,7 +11,7 @@ export interface LocalSetup {
   apiSetupAvailable?: boolean;
   dataDirectory?: string;
   profile?: { email: string; displayName: string; role?: string };
-  trackers?: { id: string; name: string; provider: string; scope: string }[];
+  trackers?: { id: string; name: string; provider: string; site: string; scope: string }[];
   credentials?: { credentials: { tracker: string; siteUrl?: string; account?: string; kind?: string; disconnected?: boolean }[] };
   projects?: { id: string; name: string; trackers?: { trackerId: string }[] }[];
 }
@@ -25,6 +25,8 @@ export const pairFleetAgent = (serverUrl: string, pairingCode: string) => invoke
 export const saveLocalProfile = (email: string, displayName: string) => invoke<void>("save_local_profile", { email, displayName });
 export const saveLocalCredential = (input: { tracker: string; siteUrl: string; email: string; token: string }) => invoke<void>("save_local_credential", { input });
 export const createLocalTracker = (input: { name: string; provider: string; site: string; scope: string }) => invoke("create_local_tracker", { input });
+export const updateLocalTracker = (trackerId: string, input: { name: string; provider: string; site: string; scope: string }) => invoke("update_local_tracker", { trackerId, input });
+export const deleteLocalTracker = (trackerId: string) => invoke("delete_local_tracker", { trackerId });
 export const createLocalProject = (name: string, trackerId: string) => invoke("create_local_project", { name, trackerId });
 export const attachProjectTracker = (projectId: string, trackerId: string) => invoke("attach_project_tracker", { projectId, trackerId });
 export const chooseProjectFolder = (projectId: string) => invoke<string | null>("choose_project_folder", { projectId });

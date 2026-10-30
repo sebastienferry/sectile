@@ -4,8 +4,30 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { LocalSettings } from "../src/components/LocalSettings";
 import * as api from "../src/lib/local";
 vi.mock("../src/components/OAuthConnections", () => ({ OAuthConnections: ({serverManaged}:{serverManaged?:boolean}) => <div data-server-managed={String(serverManaged??false)}>OAuth connections</div> }));
-vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), localServiceLog: vi.fn(), enableLocalRuntime: vi.fn(), prepareLocalUpdate: vi.fn(), attachFleetAgent: vi.fn(), pairFleetAgent: vi.fn(), saveLocalProfile: vi.fn(), saveLocalCredential: vi.fn(), createLocalTracker: vi.fn(), createLocalProject: vi.fn(), attachProjectTracker: vi.fn(), chooseProjectFolder: vi.fn(), syncLocalTracker: vi.fn(), trackerSyncStatus: vi.fn(), activeTrackerSyncs: vi.fn() }));
+vi.mock("../src/lib/local", () => ({ localSetupStatus: vi.fn(), localServiceLog: vi.fn(), enableLocalRuntime: vi.fn(), prepareLocalUpdate: vi.fn(), attachFleetAgent: vi.fn(), pairFleetAgent: vi.fn(), saveLocalProfile: vi.fn(), saveLocalCredential: vi.fn(), createLocalTracker: vi.fn(), updateLocalTracker: vi.fn(), deleteLocalTracker: vi.fn(), createLocalProject: vi.fn(), attachProjectTracker: vi.fn(), chooseProjectFolder: vi.fn(), syncLocalTracker: vi.fn(), trackerSyncStatus: vi.fn(), activeTrackerSyncs: vi.fn() }));
 const ready = { enabled: true, ready: true, signedIn: true, agentReady: true, profile: { email: "fixture@example.invalid", displayName: "Fixture" }, trackers: [{id:"t",name:"Tracker",provider:"github",scope:"fixture/repo"}], projects: [{id:"p",name:"Project"}] };
+test("an administrator can edit a tracker and explicitly confirm deletion", async () => {
+ vi.mocked(api.localSetupStatus).mockResolvedValue({...ready,mode:"local"});
+ vi.mocked(api.updateLocalTracker).mockResolvedValue({});
+ vi.mocked(api.deleteLocalTracker).mockResolvedValue({});
+ render(<LocalSettings onChanged={vi.fn()}/>);
+ fireEvent.click(await screen.findByRole("button",{name:"Comptes et trackers"}));
+ fireEvent.click(screen.getByRole("button",{name:"Modifier"}));
+ fireEvent.change(screen.getByLabelText("Nom du tracker à modifier"),{target:{value:"Renamed"}});
+ fireEvent.click(screen.getByRole("button",{name:"Enregistrer les modifications"}));
+ await waitFor(()=>expect(api.updateLocalTracker).toHaveBeenCalledWith("t",{name:"Renamed",provider:"github",site:"",scope:"fixture/repo"}));
+ fireEvent.click(screen.getByRole("button",{name:"Supprimer"}));
+ expect(api.deleteLocalTracker).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole("button",{name:"Confirmer la suppression"}));
+ await waitFor(()=>expect(api.deleteLocalTracker).toHaveBeenCalledWith("t"));
+});
+test("a Fleet member cannot edit or delete shared trackers", async () => {
+ vi.mocked(api.localSetupStatus).mockResolvedValue({...ready,mode:"fleet",profile:{...ready.profile,role:"member"}});
+ render(<LocalSettings onChanged={vi.fn()}/>);
+ fireEvent.click(await screen.findByRole("button",{name:"Comptes et trackers"}));
+ expect(screen.queryByRole("button",{name:"Modifier"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Supprimer"})).toBeNull();
+});
 beforeEach(() => { vi.resetAllMocks(); vi.mocked(api.localServiceLog).mockResolvedValue({path:"/test/companion.log",text:"service ready",missing:false,truncated:false}); vi.mocked(api.activeTrackerSyncs).mockResolvedValue([]); });
 afterEach(() => cleanup());
 test("provider detection starts only after the agent becomes available", async () => {

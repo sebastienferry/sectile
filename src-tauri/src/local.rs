@@ -1480,6 +1480,16 @@ pub struct TrackerInput {
     site: String,
     scope: String,
 }
+fn edited_tracker(mut current: Value, input: TrackerInput) -> Result<Value, String> {
+    let fields = current
+        .as_object_mut()
+        .ok_or("Configuration du tracker illisible")?;
+    fields.insert("name".into(), json!(input.name));
+    fields.insert("provider".into(), json!(input.provider));
+    fields.insert("site".into(), json!(input.site));
+    fields.insert("scope".into(), json!(input.scope));
+    Ok(current)
+}
 #[tauri::command]
 pub async fn create_local_tracker(
     app: tauri::AppHandle,
@@ -1490,6 +1500,57 @@ pub async fn create_local_tracker(
     let _lock = state.0.lock().await;
     let root = root(&app)?;
     selected_request(&root,Method::POST,"/api/admin/trackers",Some(json!({"name":input.name,"provider":input.provider,"site":input.site,"scope":input.scope,"autoSyncEnabled":true,"autoSyncIntervalMin":5}))).await
+}
+#[tauri::command]
+pub async fn update_local_tracker(
+    app: tauri::AppHandle,
+    tracker_id: String,
+    input: TrackerInput,
+) -> Result<Value, String> {
+    if uuid::Uuid::parse_str(&tracker_id).is_err() {
+        return Err("Identifiant de tracker invalide".into());
+    }
+    remote_provider(&input.provider)?;
+    if input.name.trim().is_empty() || input.scope.trim().is_empty() {
+        return Err("Nom et dépôt ou clé du projet requis".into());
+    }
+    let state = app.state::<LocalRuntime>();
+    let _lock = state.0.lock().await;
+    let root = root(&app)?;
+    let route = format!("/api/admin/trackers/{tracker_id}");
+    // The Go endpoint replaces the whole tracker. Retain board mappings and
+    // synchronization settings that this focused desktop form does not edit.
+    let current = selected_request(&root, Method::GET, &route, None).await?;
+    selected_request(&root, Method::PUT, &route, Some(edited_tracker(current, input)?))
+        .await
+        .map_err(|error| {
+            if error.contains("HTTP 409") {
+                "Ce tracker contient déjà des tickets : sa source ne peut plus changer. Son nom peut être modifié.".into()
+            } else {
+                error
+            }
+        })
+}
+#[tauri::command]
+pub async fn delete_local_tracker(
+    app: tauri::AppHandle,
+    tracker_id: String,
+) -> Result<Value, String> {
+    if uuid::Uuid::parse_str(&tracker_id).is_err() {
+        return Err("Identifiant de tracker invalide".into());
+    }
+    let state = app.state::<LocalRuntime>();
+    let _lock = state.0.lock().await;
+    let root = root(&app)?;
+    selected_request(&root, Method::DELETE, &format!("/api/admin/trackers/{tracker_id}"), None)
+        .await
+        .map_err(|error| {
+            if error.contains("HTTP 409") {
+                "Ce tracker est encore utilisé par un projet ou contient des tickets. Retirez ces liens avant de le supprimer.".into()
+            } else {
+                error
+            }
+        })
 }
 #[tauri::command]
 pub async fn create_local_project(
@@ -2466,5 +2527,28 @@ mod update_preparation_tests {
         let error =
             validate_update_result(false, br#"{"reason":"private-credential"}"#).unwrap_err();
         assert!(!error.contains("private-credential"));
+    }
+}
+
+#[cfg(test)]
+mod tracker_edit_tests {
+    use super::{TrackerInput, edited_tracker};
+    use serde_json::json;
+
+    #[test]
+    fn editing_source_fields_keeps_board_and_sync_settings() {
+        let previous = json!({"name":"Old","provider":"gitlab","site":"https://gitlab.com/api/v4",
+            "scope":"team/old","boardId":"board-9","stageColumns":{"active":["Doing"]},
+            "autoSyncEnabled":false,"autoSyncIntervalMin":30,"ticketCount":4});
+        let updated = edited_tracker(previous, TrackerInput {
+            name: "New".into(), provider: "gitlab".into(),
+            site: "https://gitlab.com/api/v4".into(), scope: "team/old".into(),
+        }).unwrap();
+        assert_eq!(updated["name"], "New");
+        assert_eq!(updated["boardId"], "board-9");
+        assert_eq!(updated["stageColumns"]["active"], json!(["Doing"]));
+        assert_eq!(updated["autoSyncEnabled"], false);
+        assert_eq!(updated["autoSyncIntervalMin"], 30);
+        assert_eq!(updated["ticketCount"], 4);
     }
 }

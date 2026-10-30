@@ -32,6 +32,8 @@ pub fn run() {
             local::save_local_profile,
             local::save_local_credential,
             local::create_local_tracker,
+            local::update_local_tracker,
+            local::delete_local_tracker,
             local::create_local_project,
             local::attach_project_tracker,
             local::sync_local_tracker,
