@@ -1473,3 +1473,13 @@ window size. Opening Codex's Skills/MCP disclosure confirmed that preparation,
 permissions and the scoped MCP state remain accessible. The unsigned isolated
 QA app used port 52964 and bundled Go `8d40b2aa`; this visual retake did not
 send a new provider prompt or qualify remote Fleet.
+
+The next 800-by-700-point native conversation retake found an idle state in
+both the title row and the pinned composer strip. A long title also wrapped
+the refresh and discussion controls below it. The [before capture](ux-captures/conversation-heading-before-compact.png)
+and [after capture](ux-captures/conversation-heading-native-compact.png) use
+the same restored Codex conversation. The header now holds a truncated title,
+refresh and discussion actions on one row; the composer strip remains the
+single UI-owned response state. The restored transcript, model, mode, folder
+and scoped MCP control stayed visible in the isolated port-52964 bundle with
+Go `8d40b2aa`. This was a read-only native check, not a new provider run.

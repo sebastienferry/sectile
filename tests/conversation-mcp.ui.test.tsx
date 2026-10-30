@@ -34,5 +34,5 @@ test("an unbound saved conversation requires and records explicit connection ado
  await waitFor(()=>expect(adopt.hasAttribute("disabled")).toBe(false));
  fireEvent.click(adopt);
  await waitFor(()=>expect(api.controlConversation).toHaveBeenCalledExactlyOnceWith(base.id,{action:"adoptConnection"}));
- await waitFor(()=>expect(screen.getByRole("status").textContent).toBe("Prêt"));
+ await waitFor(()=>expect(screen.getByLabelText("Suivi de la conversation").textContent).toContain("Prêt à répondre"));
 });

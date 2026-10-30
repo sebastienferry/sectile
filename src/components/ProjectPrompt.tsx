@@ -133,8 +133,7 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
     finally {setStopping(false);}
   }
   return <section className="project-prompt conversation-prompt">
-    <header className="prompt-heading"><Icon name="chat" /><h2>{snapshot.title || (snapshot.provider === "codex" ? "Codex" : snapshot.provider === "claude" ? "Claude Code" : "Conversation du projet")}</h2>
-      <span role="status">{!agentAvailable ? "Agent indisponible" : error ? "Suivi interrompu" : busy ? "En cours…" : snapshot.readOnly ? "Lecture seule" : "Prêt"}</span>
+    <header className="prompt-heading"><Icon name="chat" /><h2 title={snapshot.title || undefined}>{snapshot.title || (snapshot.provider === "codex" ? "Codex" : snapshot.provider === "claude" ? "Claude Code" : "Conversation du projet")}</h2>
       {snapshot.canAdoptConnection && <button disabled={!agentAvailable || acting || !!error} title="Cet historique n’est pas encore lié à la connexion sélectionnée." onClick={() => void control({ action: "adoptConnection" }).catch(() => {})}>Associer à cette connexion</button>}
       {busy && !snapshot.readOnly && <button disabled={!agentAvailable || acting} onClick={() => void control({ action: "interrupt" }).catch(() => {})}>Interrompre</button>}
       <button className="icon-button" aria-label="Actualiser le suivi" title="Actualiser le suivi" disabled={pending || (!!snapshot.busy && !error)} onClick={() => void controller.refresh()}><Icon name="refresh" /></button>

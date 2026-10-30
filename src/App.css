@@ -1212,8 +1212,8 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 }
 .conversation-prompt { max-width:1060px; padding:0 32px 20px; }
 .workspace-pane-conversation { overflow:hidden; }
-.conversation-prompt .prompt-heading { min-height:51px; padding:6px 0; gap:10px; border-bottom:1px solid var(--divider); margin-bottom:6px; color:var(--muted); }
-.conversation-prompt .prompt-heading h2 { font-size:12px; font-weight:500; color:var(--text); }
+.conversation-prompt .prompt-heading { min-height:42px; padding:6px 0; gap:10px; flex-wrap:nowrap; border-bottom:1px solid var(--divider); margin-bottom:6px; color:var(--muted); }
+.conversation-prompt .prompt-heading h2 { flex:1; font-size:12px; font-weight:500; color:var(--text); }
 .conversation-header-menu { position:relative; flex:0 0 auto; }
 .conversation-header-menu > summary { list-style:none; cursor:pointer; color:var(--muted); padding:5px 9px; border-radius:6px; font-size:15px; line-height:1; }
 .conversation-header-menu > summary::-webkit-details-marker { display:none; }

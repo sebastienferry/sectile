@@ -55,7 +55,7 @@ test("a subsequent Codex message applies the chosen model and execution mode and
  await waitFor(()=>expect(api.controlConversation).toHaveBeenCalledWith("next-turn-options",{action:"message",message:"Implement it",model:"next-model",mode:"execute"}));
  vi.mocked(api.readConversation).mockResolvedValue({id:"next-turn-options",provider:"codex",busy:false,readOnly:true});
  await waitFor(()=>expect(screen.getByRole("button",{name:"Actualiser le suivi"}).hasAttribute("disabled")).toBe(false));
- fireEvent.click(screen.getByRole("button",{name:"Actualiser le suivi"}));await screen.findByText("Lecture seule");
+ fireEvent.click(screen.getByRole("button",{name:"Actualiser le suivi"}));await waitFor(()=>expect(screen.getByLabelText("Suivi de la conversation").textContent).toContain("Historique en lecture seule"));
  expect(screen.getByRole("group",{name:"Prochain message"}).hasAttribute("disabled")).toBe(true);
 });
 test("custom models remain available when the catalogue fails",async()=>{

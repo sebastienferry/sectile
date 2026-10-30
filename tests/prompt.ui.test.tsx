@@ -55,7 +55,7 @@ test("the React controller renders Go state, sends only the next message and res
   vi.mocked(api.readConversation).mockResolvedValue({ ...snapshot("history-chat"), readOnly: true });
   await waitFor(() => expect(screen.getByRole("button", { name: "Actualiser le suivi" }).hasAttribute("disabled")).toBe(false));
   fireEvent.click(screen.getByRole("button", { name: "Actualiser le suivi" }));
-  await screen.findByText("Lecture seule");
+  await waitFor(() => expect(screen.getByLabelText("Suivi de la conversation").textContent).toContain("Historique en lecture seule"));
   expect(screen.getByRole("textbox", { name: "Message suivant" }).hasAttribute("disabled")).toBe(true);
 });
 test("a free project conversation keeps only relevant status above the composer",async()=>{
@@ -68,6 +68,7 @@ test("a free project conversation keeps only relevant status above the composer"
  expect(strip.textContent).not.toContain("Skill :");
  expect(strip.textContent).not.toContain("Ticket :");
  expect(strip.textContent).not.toContain("Étape :");
+ expect(screen.getByRole("heading",{level:2}).closest("header")?.querySelector('[role="status"]')).toBeNull();
 });
 test("an agent outage keeps conversation history and draft while blocking sends until recovery",async()=>{
  vi.mocked(api.readConversation).mockResolvedValue(snapshot("offline-chat"));
@@ -153,7 +154,7 @@ test("streamed state exposes interruption and the next turn waits for Go to beco
   vi.mocked(api.readConversation).mockResolvedValue(snapshot("live-chat"));
   fireEvent.click(screen.getByRole("button", { name: "Interrompre" }));
   await waitFor(() => expect(api.controlConversation).toHaveBeenCalledWith("live-chat", { action: "interrupt" }));
-  await screen.findByText("Prêt");
+  await waitFor(() => expect(screen.getByLabelText("Suivi de la conversation").textContent).toContain("Prêt à répondre"));
   expect(screen.queryByText("Working draft")).toBeNull();
 });
 test("a lost send acknowledgement is never replayed and observation recovers", async () => {
@@ -195,7 +196,7 @@ test("a failed read during execution leaves observation recovery available", asy
   await screen.findByRole("alert");
   expect(screen.getByRole("button", { name: "Actualiser le suivi" }).hasAttribute("disabled")).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "Actualiser le suivi" }));
-  await screen.findByText("Prêt");
+  await waitFor(() => expect(screen.getByLabelText("Suivi de la conversation").textContent).toContain("Prêt à répondre"));
   expect(api.controlConversation).not.toHaveBeenCalled();
 });
 test("interactive answers cross IPC as answers, not as an ordinary prompt or a tool grant", async () => {
