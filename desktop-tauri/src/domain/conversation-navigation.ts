@@ -18,7 +18,7 @@ export function conversationGroups(
   for (const run of conversations) {
     const task = byTask.get(run.taskId);
     const stage = task ? taskStage(task, board) : undefined;
-    const label = !run.taskId ? "Prompts libres" : !task ? "Ticket indisponible" :
+    const label = !run.taskId ? "" : !task ? "Ticket indisponible" :
       grouping === "stage" ? stage ? stageLabels[stage] : "Étape inconnue" :
       task.trackerStatus?.trim() || "Statut distant indisponible";
     const group = groups.get(label);
@@ -26,12 +26,12 @@ export function conversationGroups(
     else groups.set(label, [run]);
   }
   if (grouping === "stage") {
-    const stageOrder = stages.map(stage => stageLabels[stage]);
+    const stageOrder = ["", ...stages.map(stage => stageLabels[stage])];
     return [...groups].sort(([left], [right]) => {
       const leftIndex = stageOrder.indexOf(left);
       const rightIndex = stageOrder.indexOf(right);
       return (leftIndex < 0 ? stageOrder.length : leftIndex) - (rightIndex < 0 ? stageOrder.length : rightIndex);
     }).map(([label, runs]) => ({ label, runs }));
   }
-  return [...groups].map(([label, runs]) => ({ label, runs }));
+  return [...groups].sort(([left], [right]) => (left === "" ? -1 : right === "" ? 1 : 0)).map(([label, runs]) => ({ label, runs }));
 }

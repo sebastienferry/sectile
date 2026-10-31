@@ -12,13 +12,13 @@ test("conversation navigation groups linked tickets by workflow stage without in
     "stage",
   );
   assert.deepEqual(groups.map(group=>[group.label,group.runs.map(item=>item.id)]),[
-    ["À clarifier",["new"]],["Revu",["reviewed"]],["Prompts libres",["free"]],["Étape inconnue",["unknown"]],
+    ["",["free"]],["À clarifier",["new"]],["Revu",["reviewed"]],["Étape inconnue",["unknown"]],
   ]);
 });
 
 test("conversation navigation keeps remote statuses and recent ordering",()=>{
   const runs=[run("first","a"),run("second","b"),run("free","")];
   const tasks=[{id:"a",title:"First",status:"to_clarify",source:"jira",trackerStatus:"Open"},{id:"b",title:"Second",status:"to_close",source:"jira",trackerStatus:"Done"}];
-  assert.deepEqual(conversationGroups(runs,tasks,"tracker").map(group=>group.label),["Open","Done","Prompts libres"]);
+  assert.deepEqual(conversationGroups(runs,tasks,"tracker").map(group=>group.label),["","Open","Done"]);
   assert.deepEqual(conversationGroups(runs,tasks,"recent")[0].runs.map(item=>item.id),["first","second","free"]);
 });
