@@ -35,6 +35,7 @@ import {
   type WorkspaceViewName,
 } from "./lib/workspace-preference";
 import { useConversation } from "./lib/conversation-controller";
+import { renameConversation } from "./lib/conversation";
 import { conversationGroups, type ConversationGrouping } from "./domain/conversation-navigation";
 import { pullRequestLabel, pullRequestStateLabel, taskPullRequests } from "./domain/pull-requests";
 import { CommandPalette } from "./components/CommandPalette";
@@ -111,6 +112,8 @@ function Workspace() {
     catch { return []; }
   });
   const [showArchivedConversations, setShowArchivedConversations] = useState(false);
+  const [renamingRunId, setRenamingRunId] = useState<string | null>(null);
+  const [renamingDraft, setRenamingDraft] = useState("");
   const [conversationActionError, setConversationActionError] = useState("");
   const [stoppingConversationId, setStoppingConversationId] = useState("");
   const [navigationTasks, setNavigationTasks] = useState<{projectId:string;items:Task[]}>();
@@ -498,7 +501,100 @@ function Workspace() {
                             Orchestration
                           </button>
                           {showArchivedConversations&&<div className="sidebar-group-label">Archivées <button type="button" onClick={()=>setShowArchivedConversations(false)}>Retour</button></div>}
-                          {conversationGroups(visibleConversations,projectTasks,conversationGrouping,projectBoard).map(group=><div className="sidebar-conversation-group" key={group.label||"recent"}>{group.label&&<div className="sidebar-group-label">{group.label}<span>{group.runs.length}</span></div>}{group.runs.map(run=>{const task=projectTasks.find(item=>item.id===run.taskId);return <div className="sidebar-conversation-row" key={run.id}><RunNavigation run={run} task={task} selected={current?.runId===run.id} onClick={()=>navigate(project,"prompt",run.id)} /><ConversationPrAction task={task} taskKey={run.taskKey} onError={()=>setConversationActionError("Impossible d’ouvrir la PR/MR.")}/><details className="conversation-action-menu"><summary aria-label={`Actions de la conversation ${run.title||run.taskKey||run.id}`} title="Actions de la conversation">•••</summary><div className="conversation-action-panel">{!showArchivedConversations&&isActive(run)&&<button type="button" disabled={!fresh||!!stoppingConversationId} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");void stopConversation(run);}}>{stoppingConversationId===run.id?"Arrêt…":"Arrêter la conversation"}</button>}<button type="button" disabled={!showArchivedConversations&&isActive(run)} title={!showArchivedConversations&&isActive(run)?"Arrêtez la conversation avant de l’archiver":undefined} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");setArchived(run.id,!showArchivedConversations);}}>{showArchivedConversations?"Restaurer la conversation":"Archiver la conversation"}</button></div></details></div>})}</div>)}
+                          {conversationGroups(visibleConversations,projectTasks,conversationGrouping,projectBoard).map(group=><div className="sidebar-conversation-group" key={group.label||"recent"}>{group.label&&<div className="sidebar-group-label">{group.label}<span>{group.runs.length}</span></div>}{group.runs.map(run=>{
+                            const task=projectTasks.find(item=>item.id===run.taskId);
+                            const isRenaming = renamingRunId === run.id;
+                            const conversationTitle = run.title || run.taskKey || run.prompt?.split("\n")[0] || "Conversation";
+                            return <div className="sidebar-conversation-row" key={run.id}>
+                              {isRenaming ? (
+                                <input
+                                  className="task-rename"
+                                  autoFocus
+                                  value={renamingDraft}
+                                  aria-label="Nom de la conversation"
+                                  onChange={e => setRenamingDraft(e.target.value)}
+                                  onKeyDown={async e => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      const val = renamingDraft.trim();
+                                      setRenamingRunId(null);
+                                      if (val) {
+                                        try {
+                                          await renameConversation(run.id, val);
+                                          void refreshExecutions();
+                                        } catch {
+                                          setConversationActionError("Impossible de renommer la conversation.");
+                                        }
+                                      }
+                                    } else if (e.key === "Escape") {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setRenamingRunId(null);
+                                    }
+                                  }}
+                                  onBlur={async () => {
+                                    const val = renamingDraft.trim();
+                                    setRenamingRunId(null);
+                                    if (val && val !== (run.title || "")) {
+                                      try {
+                                        await renameConversation(run.id, val);
+                                        void refreshExecutions();
+                                      } catch {
+                                        setConversationActionError("Impossible de renommer la conversation.");
+                                      }
+                                    }
+                                  }}
+                                  onClick={e => e.stopPropagation()}
+                                />
+                              ) : (
+                                <RunNavigation run={run} task={task} selected={current?.runId===run.id} onClick={()=>navigate(project,"prompt",run.id)} />
+                              )}
+                              <ConversationPrAction task={task} taskKey={run.taskKey} onError={()=>setConversationActionError("Impossible d’ouvrir la PR/MR.")}/>
+                              {!showArchivedConversations && isActive(run) && (
+                                <button
+                                  type="button"
+                                  className="task-stop-button"
+                                  aria-label="Arrêter la conversation"
+                                  title={stoppingConversationId === run.id ? "Arrêt en cours…" : "Arrêter la conversation"}
+                                  disabled={!fresh || !!stoppingConversationId}
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    void stopConversation(run);
+                                  }}
+                                >
+                                  <Icon name="stop" />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="task-archive"
+                                aria-label={showArchivedConversations ? "Restaurer la conversation" : "Archiver la conversation"}
+                                title={!showArchivedConversations && isActive(run) ? "Arrêtez la conversation avant de l’archiver" : (showArchivedConversations ? "Restaurer la conversation" : "Archiver la conversation")}
+                                disabled={!showArchivedConversations && isActive(run)}
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setArchived(run.id, !showArchivedConversations);
+                                }}
+                              >
+                                <Icon name="archive" />
+                              </button>
+                              {!showArchivedConversations && !isRenaming && (
+                                <button
+                                  type="button"
+                                  className="task-rename-button"
+                                  aria-label="Renommer la conversation"
+                                  title="Renommer la conversation"
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    setRenamingRunId(run.id);
+                                    setRenamingDraft(conversationTitle);
+                                  }}
+                                >
+                                  <Icon name="edit" />
+                                </button>
+                              )}
+                            </div>;
+                          })}</div>)}
                           {conversationActionError&&<p className="sidebar-action-error" role="alert">{conversationActionError}</p>}
                           {conversations.length>visibleConversationCount&&<button className="sidebar-link" onClick={()=>setVisibleConversationCount(value=>value+8)}>Afficher les conversations suivantes · {visibleConversationCount}/{conversations.length}</button>}
                           <button

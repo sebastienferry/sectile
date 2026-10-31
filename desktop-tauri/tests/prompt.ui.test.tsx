@@ -48,13 +48,11 @@ test("the React controller renders Go state, sends only the next message and res
   render(<ProjectPrompt projectId="project-two" runId="history-chat" onCreated={vi.fn()} />);
   await screen.findByText("Repository explanation");
   expect(api.controlConversation).not.toHaveBeenCalled();
+  vi.mocked(api.readConversation).mockResolvedValue({ ...snapshot("history-chat"), readOnly: true });
   fireEvent.change(screen.getByRole("textbox", { name: "Message suivant" }), { target: { value: "Continue" } });
   await waitFor(() => expect(screen.getByRole("button", { name: "Envoyer" }).hasAttribute("disabled")).toBe(false));
   fireEvent.click(screen.getByRole("button", { name: "Envoyer" }));
   await waitFor(() => expect(api.controlConversation).toHaveBeenCalledWith("history-chat", { action: "message", message: "Continue" }));
-  vi.mocked(api.readConversation).mockResolvedValue({ ...snapshot("history-chat"), readOnly: true });
-  await waitFor(() => expect(screen.getByRole("button", { name: "Actualiser le suivi" }).hasAttribute("disabled")).toBe(false));
-  fireEvent.click(screen.getByRole("button", { name: "Actualiser le suivi" }));
   await waitFor(() => expect(screen.getByLabelText("Suivi de la conversation").textContent).toContain("Historique en lecture seule"));
   expect(screen.queryByRole("textbox", { name: "Message suivant" })).toBeNull();
   expect(screen.getByLabelText("Options de l’historique")).toBeTruthy();
@@ -101,7 +99,6 @@ test("a linked conversation shows ticket and execution state above the composer"
  expect(strip.textContent).toContain("Étape : Revu");
  expect(strip.textContent).toContain("PR/MR : PR #42 · ouverte");
  expect(screen.getByRole("button",{name:"PR #42 · ouverte"})).toBeTruthy();
- fireEvent.click(screen.getByLabelText("Actions de la discussion"));
  expect(screen.getByRole("button",{name:"Voir l’exécution"})).toBeTruthy();
  expect(screen.getByRole("button",{name:"Arrêter la discussion"})).toBeTruthy();
  fireEvent.click(screen.getByText("Exécution : Session active"));
@@ -123,7 +120,6 @@ test("a finished discussion archives through its own menu without sending a prov
  const archive=vi.fn();
  render(<ProjectPrompt projectId="p" runId="finished-chat" run={{id:"finished-chat",projectId:"p",taskId:"",skill:"",status:"completed",conversation:true,createdAt:"2026-10-30"}} onArchive={archive} onCreated={vi.fn()}/>);
  await screen.findByText("Repository explanation");
- fireEvent.click(screen.getByLabelText("Actions de la discussion"));
  fireEvent.click(screen.getByRole("button",{name:"Archiver la discussion"}));
  expect(archive).toHaveBeenCalledOnce();
  expect(api.controlConversation).not.toHaveBeenCalled();

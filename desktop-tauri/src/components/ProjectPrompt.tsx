@@ -133,16 +133,13 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
     finally {setStopping(false);}
   }
   return <section className="project-prompt conversation-prompt">
-    <header className="prompt-heading"><Icon name="chat" /><h2 title={snapshot.title || undefined}>{snapshot.title || (snapshot.provider === "codex" ? "Codex" : snapshot.provider === "claude" ? "Claude Code" : "Conversation du projet")}</h2>
+    <header className="prompt-heading"><Icon name="chat" /><h2 title={snapshot.title || undefined} style={{cursor:snapshot.canRename?"pointer":"default"}} onClick={()=>{if(snapshot.canRename){setTitle(snapshot.title||"");setRenaming(true);}}}>{snapshot.title || (snapshot.provider === "codex" ? "Codex" : snapshot.provider === "claude" ? "Claude Code" : "Conversation du projet")}</h2>
       {snapshot.canAdoptConnection && <button disabled={!agentAvailable || acting || !!error} title="Cet historique n’est pas encore lié à la connexion sélectionnée." onClick={() => void control({ action: "adoptConnection" }).catch(() => {})}>Associer à cette connexion</button>}
       {busy && !snapshot.readOnly && <button disabled={!agentAvailable || acting} onClick={() => void control({ action: "interrupt" }).catch(() => {})}>Interrompre</button>}
-      <button className="icon-button" aria-label="Actualiser le suivi" title="Actualiser le suivi" disabled={pending || (!!snapshot.busy && !error)} onClick={() => void controller.refresh()}><Icon name="refresh" /></button>
-      {(snapshot.canRename||onOpenExecution||run&&isActive(run)||onArchive)&&<details className="conversation-header-menu"><summary aria-label="Actions de la discussion" title="Actions de la discussion">•••</summary><div className="conversation-header-panel">
-        {snapshot.canRename&&<button type="button" aria-label="Renommer la conversation" onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");setTitle(snapshot.title||"");setRenaming(true);}}>Renommer</button>}
-        {onOpenExecution&&<button type="button" onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");onOpenExecution();}}>Voir l’exécution</button>}
-        {run&&isActive(run)&&<button type="button" disabled={!agentAvailable||stopping||!!run.cancelRequested} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");void stopConversation();}}>{stopping?"Arrêt…":"Arrêter la discussion"}</button>}
-        {onArchive&&<button type="button" disabled={!!run&&isActive(run)} title={run&&isActive(run)?"Arrêtez la discussion avant de l’archiver":undefined} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");onArchive();}}>Archiver la discussion</button>}
-      </div></details>}
+      {onOpenExecution && <button type="button" className="icon-button" aria-label="Voir l’exécution" title="Voir l’exécution" onClick={onOpenExecution}><Icon name="terminal" /></button>}
+      {snapshot.canRename && <button type="button" className="icon-button" aria-label="Renommer la conversation" title="Renommer la conversation" onClick={()=>{setTitle(snapshot.title||"");setRenaming(true);}}><Icon name="edit" /></button>}
+      {onArchive && <button type="button" className="icon-button" aria-label="Archiver la discussion" title={run && isActive(run) ? "Arrêtez la discussion avant de l’archiver" : "Archiver la discussion"} disabled={!!run && isActive(run)} onClick={onArchive}><Icon name="archive" /></button>}
+      {run && isActive(run) && <button type="button" className="icon-button stop-button" aria-label="Arrêter la discussion" title={stopping ? "Arrêt en cours…" : "Arrêter la discussion"} disabled={!agentAvailable || stopping || !!run.cancelRequested} onClick={() => void stopConversation()}><Icon name="stop" /></button>}
     </header>
     {renaming&&<form className="conversation-rename" onSubmit={async e=>{e.preventDefault();if(savingTitle||!title.trim())return;setSavingTitle(true);setActionError("");try{await renameConversation(id,title.trim());await controller.refresh();onTitleChanged?.();setRenaming(false);}catch(cause){setActionError(String(cause));}finally{setSavingTitle(false);}}}><label>Nom de la conversation<input autoFocus required maxLength={80} value={title} onChange={e=>setTitle(e.target.value)}/></label><button type="button" disabled={savingTitle} onClick={()=>setRenaming(false)}>Annuler</button><button disabled={savingTitle||!title.trim()}>Enregistrer le nom</button></form>}
     {snapshot.persistenceError && <p className="error" role="alert">{snapshot.persistenceError}</p>}
@@ -156,7 +153,7 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
       <button disabled={!agentAvailable || acting || !!error || !!snapshot.readOnly} onClick={() => void control({ action: "approval", id: approval.id, decision: "allow" }).catch(() => {})}>Autoriser une fois</button>
       <button disabled={!agentAvailable || acting || !!error} onClick={() => void control({ action: "approval", id: approval.id, decision: "deny" }).catch(() => {})}>Refuser</button>
     </section>)}
-    {agentAvailable && (error || actionError) && <p role="alert" className="error">{error || actionError} Vérifiez le suivi avant de renvoyer un message.</p>}
+    {agentAvailable && (error || actionError) && <p role="alert" className="error">{error || actionError} Vérifiez le suivi avant de renvoyer un message. <button type="button" aria-label="Actualiser le suivi" onClick={() => void controller.refresh()}>Réessayer</button></p>}
     </div>
     <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} agentAvailable={agentAvailable} onOpenExecution={onOpenExecution} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onOpenPr={url=>void openExternalLink(url).catch(()=>setLinkError("Impossible d’ouvrir la PR/MR."))}/>
     {snapshot.readOnly ? <div className="conversation-readonly-footer" aria-label="Options de l’historique">

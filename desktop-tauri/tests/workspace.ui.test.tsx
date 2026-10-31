@@ -149,19 +149,17 @@ test("conversation actions stop a live session and archive and restore a finishe
  render(<App/>);
  const sidebar=screen.getByRole("complementary");
  await within(sidebar).findByText("Live discussion");
- fireEvent.click(within(sidebar).getByLabelText("Actions de la conversation Live discussion"));
  fireEvent.click(within(sidebar).getByRole("button",{name:"Arrêter la conversation"}));
  await waitFor(()=>expect(api.stopRun).toHaveBeenCalledWith("live-chat"));
- const finishedActions=within(sidebar).getByLabelText("Actions de la conversation Finished discussion").closest("details")!;
- fireEvent.click(within(finishedActions).getByLabelText("Actions de la conversation Finished discussion"));
- fireEvent.click(within(finishedActions).getByRole("button",{name:"Archiver la conversation"}));
+ const finishedRow=within(sidebar).getByText("Finished discussion").closest(".sidebar-conversation-row")!;
+ fireEvent.click(within(finishedRow).getByRole("button",{name:"Archiver la conversation"}));
  expect(within(sidebar).queryByText("Finished discussion")).toBeNull();
  expect(localStorage.getItem("sectile-tauri.archivedConversations")).toBe('["done-chat"]');
  fireEvent.click(within(sidebar).getByLabelText("Actions pour Example"));
  fireEvent.click(within(sidebar).getByRole("button",{name:"Voir les conversations archivées"}));
  expect(within(sidebar).getByText("Finished discussion")).toBeTruthy();
- fireEvent.click(within(sidebar).getByLabelText("Actions de la conversation Finished discussion"));
- fireEvent.click(within(sidebar).getByRole("button",{name:"Restaurer la conversation"}));
+ const archivedRow=within(sidebar).getByText("Finished discussion").closest(".sidebar-conversation-row")!;
+ fireEvent.click(within(archivedRow).getByRole("button",{name:"Restaurer la conversation"}));
  expect(localStorage.getItem("sectile-tauri.archivedConversations")).toBe("[]");
 });
 test("opening a stopped conversation keeps its terminal status in the sidebar", async () => {

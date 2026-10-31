@@ -51,11 +51,10 @@ test("a subsequent Codex message applies the chosen model and execution mode and
  fireEvent.change(screen.getByLabelText("Modèle"),{target:{value:"next-model"}});
  fireEvent.change(screen.getByLabelText("Mode de conversation"),{target:{value:"execute"}});
  fireEvent.change(screen.getByLabelText("Message suivant"),{target:{value:"Implement it"}});
+ vi.mocked(api.readConversation).mockResolvedValue({id:"next-turn-options",provider:"codex",busy:false,readOnly:true});
  fireEvent.click(screen.getByRole("button",{name:"Envoyer"}));
  await waitFor(()=>expect(api.controlConversation).toHaveBeenCalledWith("next-turn-options",{action:"message",message:"Implement it",model:"next-model",mode:"execute"}));
- vi.mocked(api.readConversation).mockResolvedValue({id:"next-turn-options",provider:"codex",busy:false,readOnly:true});
- await waitFor(()=>expect(screen.getByRole("button",{name:"Actualiser le suivi"}).hasAttribute("disabled")).toBe(false));
- fireEvent.click(screen.getByRole("button",{name:"Actualiser le suivi"}));await waitFor(()=>expect(screen.getByLabelText("Suivi de la conversation").textContent).toContain("Historique en lecture seule"));
+ await waitFor(()=>expect(screen.getByLabelText("Suivi de la conversation").textContent).toContain("Historique en lecture seule"));
  expect(screen.queryByRole("group",{name:"Prochain message"})).toBeNull();
  expect(screen.getByLabelText("Options de l’historique")).toBeTruthy();
 });

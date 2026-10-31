@@ -23,8 +23,29 @@ const paths = {
   chevron: "m9 5 7 7-7 7",
   agent: "M5 7h14v13H5z M9 12h.01 M15 12h.01 M9 16h6 M12 3v4",
   branch: "M6 3v12a4 4 0 0 0 4 4h5 M6 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4 M18 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4 M18 8v5a4 4 0 0 1-4 4 M18 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4",
+  edit: "M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z M13.5 6.5l4 4",
+  archive: "M4 8h16v12H4z M3 4h18v4H3z M9 12h6",
+  stop: "",
 };
 export function Icon({ name }: { name: keyof typeof paths }) {
+  if (name === "stop") {
+    return (
+      <svg
+        viewBox="0 0 24 24"
+        width="18"
+        height="18"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="12" r="9" />
+        <path d="m8.2 12.4 2.6 2.6 5-5.4" />
+      </svg>
+    );
+  }
   if (name === "panel") {
     return (
       <svg
