@@ -917,39 +917,41 @@ function ProjectPane({
   }
   return (
     <>
-      <div className="workspace-toolbar">
-        <div>
-          <h1>{project?.name ?? "Projet"}</h1>
-          <div className="workspace-path"><p title={workingDirectory}>{workingDirectory || (selection.runId ? "Dossier de l’exécution en cours de chargement…" : "Espace de travail du projet")}</p>{workingDirectory&&<button type="button" className="copy-path" title="Copier le chemin du dossier de travail" aria-label="Copier le chemin du dossier de travail" onClick={()=>void navigator.clipboard.writeText(workingDirectory).then(()=>setPathCopyState("Copié"),()=>setPathCopyState("Copie impossible"))}>{pathCopyState||"Copier"}</button>}</div>
+      {!(selection.view === "prompt" && selection.runId) && (
+        <div className="workspace-toolbar">
+          <div>
+            <h1>{project?.name ?? "Projet"}</h1>
+            <div className="workspace-path"><p title={workingDirectory}>{workingDirectory || (selection.runId ? "Dossier de l’exécution en cours de chargement…" : "Espace de travail du projet")}</p>{workingDirectory&&<button type="button" className="copy-path" title="Copier le chemin du dossier de travail" aria-label="Copier le chemin du dossier de travail" onClick={()=>void navigator.clipboard.writeText(workingDirectory).then(()=>setPathCopyState("Copié"),()=>setPathCopyState("Copie impossible"))}>{pathCopyState||"Copier"}</button>}</div>
+          </div>
+          <div className="toolbar-actions">
+            {project && selection.view !== "task" && selection.view !== "ticket-editor" && !(selection.view === "executions" && currentRun?.conversation) && (
+              <>
+                {selection.view !== "board" && <button onClick={() => navigate(project, "board")}>
+                  <Icon name="board" />
+                  Tableau
+                </button>}
+                {selection.view !== "prompt" && <button
+                  className={selection.view === "board" ? "primary" : "subtle"}
+                  onClick={() => navigate(project, "prompt")}
+                >
+                  <Icon name="plus" />
+                  Nouveau prompt
+                </button>}
+                {selection.view !== "project-settings" && <button className={selection.view === "board" ? "icon-button" : undefined} title="Configurer le projet" aria-label="Configurer le projet" onClick={() => navigate(project, "project-settings")}><Icon name="settings" />{selection.view !== "board" && "Configurer le projet"}</button>}
+              </>
+            )}
+            {selection.view === "board" && <button
+              className="icon-button"
+              title="Actualiser"
+              aria-label="Actualiser le tableau"
+              disabled={busy}
+              onClick={() => void refresh()}
+            >
+              <Icon name="refresh" />
+            </button>}
+          </div>
         </div>
-        <div className="toolbar-actions">
-          {project && selection.view !== "task" && selection.view !== "ticket-editor" && !(selection.view === "executions" && currentRun?.conversation) && (
-            <>
-              {selection.view !== "board" && !(selection.view === "prompt" && selection.runId) && <button onClick={() => navigate(project, "board")}>
-                <Icon name="board" />
-                Tableau
-              </button>}
-              {selection.view !== "prompt" && <button
-                className={selection.view === "board" ? "primary" : "subtle"}
-                onClick={() => navigate(project, "prompt")}
-              >
-                <Icon name="plus" />
-                Nouveau prompt
-              </button>}
-              {selection.view !== "project-settings" && !(selection.view === "prompt" && selection.runId) && <button className={selection.view === "board" ? "icon-button" : undefined} title="Configurer le projet" aria-label="Configurer le projet" onClick={() => navigate(project, "project-settings")}><Icon name="settings" />{selection.view !== "board" && "Configurer le projet"}</button>}
-            </>
-          )}
-          {selection.view === "board" && <button
-            className="icon-button"
-            title="Actualiser"
-            aria-label="Actualiser le tableau"
-            disabled={busy}
-            onClick={() => void refresh()}
-          >
-            <Icon name="refresh" />
-          </button>}
-        </div>
-      </div>
+      )}
       {selection.view === "board" && error && (
         <p role="alert" className="error">
           {error}

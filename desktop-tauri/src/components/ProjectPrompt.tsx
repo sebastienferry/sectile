@@ -117,6 +117,8 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
   const [savingTitle,setSavingTitle] = useState(false);
   const [stopping,setStopping] = useState(false);
   const [linkError,setLinkError] = useState("");
+  const [pathCopyState,setPathCopyState] = useState("");
+  useEffect(()=>setPathCopyState(""),[directory]);
   const busy = pending || snapshot.busy;
   async function control(input: Exclude<ConversationAction, { action: "message" }>) {
     if (acting) throw new Error("Une action est déjà en cours.");
@@ -133,13 +135,25 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
     finally {setStopping(false);}
   }
   return <section className="project-prompt conversation-prompt">
-    <header className="prompt-heading"><Icon name="chat" /><h2 title={snapshot.title || undefined} style={{cursor:snapshot.canRename?"pointer":"default"}} onClick={()=>{if(snapshot.canRename){setTitle(snapshot.title||"");setRenaming(true);}}}>{snapshot.title || (snapshot.provider === "codex" ? "Codex" : snapshot.provider === "claude" ? "Claude Code" : "Conversation du projet")}</h2>
-      {snapshot.canAdoptConnection && <button disabled={!agentAvailable || acting || !!error} title="Cet historique n’est pas encore lié à la connexion sélectionnée." onClick={() => void control({ action: "adoptConnection" }).catch(() => {})}>Associer à cette connexion</button>}
-      {busy && !snapshot.readOnly && <button disabled={!agentAvailable || acting} onClick={() => void control({ action: "interrupt" }).catch(() => {})}>Interrompre</button>}
-      {onOpenExecution && <button type="button" className="icon-button" aria-label="Voir l’exécution" title="Voir l’exécution" onClick={onOpenExecution}><Icon name="terminal" /></button>}
-      {snapshot.canRename && <button type="button" className="icon-button" aria-label="Renommer la conversation" title="Renommer la conversation" onClick={()=>{setTitle(snapshot.title||"");setRenaming(true);}}><Icon name="edit" /></button>}
-      {onArchive && <button type="button" className="icon-button" aria-label="Archiver la discussion" title={run && isActive(run) ? "Arrêtez la discussion avant de l’archiver" : "Archiver la discussion"} disabled={!!run && isActive(run)} onClick={onArchive}><Icon name="archive" /></button>}
-      {run && isActive(run) && <button type="button" className="icon-button stop-button" aria-label="Arrêter la discussion" title={stopping ? "Arrêt en cours…" : "Arrêter la discussion"} disabled={!agentAvailable || stopping || !!run.cancelRequested} onClick={() => void stopConversation()}><Icon name="stop" /></button>}
+    <header className="workspace-toolbar prompt-heading">
+      <div className="workspace-toolbar-main">
+        <h2 title={snapshot.title || undefined} style={{cursor:snapshot.canRename?"pointer":"default"}} onClick={()=>{if(snapshot.canRename){setTitle(snapshot.title||"");setRenaming(true);}}}>
+          <Icon name="chat" />
+          <span>{snapshot.title || (snapshot.provider === "codex" ? "Codex" : snapshot.provider === "claude" ? "Claude Code" : "Conversation du projet")}</span>
+        </h2>
+        <div className="workspace-path">
+          <p title={directory}>{directory || "Espace de travail de la conversation"}</p>
+          {directory && <button type="button" className="copy-path" title="Copier le chemin du dossier de travail" aria-label="Copier le chemin du dossier de travail" onClick={()=>void navigator.clipboard.writeText(directory).then(()=>setPathCopyState("Copié"),()=>setPathCopyState("Copie impossible"))}>{pathCopyState||"Copier"}</button>}
+        </div>
+      </div>
+      <div className="toolbar-actions">
+        {snapshot.canAdoptConnection && <button disabled={!agentAvailable || acting || !!error} title="Cet historique n’est pas encore lié à la connexion sélectionnée." onClick={() => void control({ action: "adoptConnection" }).catch(() => {})}>Associer à cette connexion</button>}
+        {busy && !snapshot.readOnly && <button disabled={!agentAvailable || acting} onClick={() => void control({ action: "interrupt" }).catch(() => {})}>Interrompre</button>}
+        {onOpenExecution && <button type="button" className="icon-button" aria-label="Voir l’exécution" title="Voir l’exécution" onClick={onOpenExecution}><Icon name="terminal" /></button>}
+        {snapshot.canRename && <button type="button" className="icon-button" aria-label="Renommer la conversation" title="Renommer la conversation" onClick={()=>{setTitle(snapshot.title||"");setRenaming(true);}}><Icon name="edit" /></button>}
+        {onArchive && <button type="button" className="icon-button" aria-label="Archiver la discussion" title={run && isActive(run) ? "Arrêtez la discussion avant de l’archiver" : "Archiver la discussion"} disabled={!!run && isActive(run)} onClick={onArchive}><Icon name="archive" /></button>}
+        {run && isActive(run) && <button type="button" className="icon-button stop-button" aria-label="Arrêter la discussion" title={stopping ? "Arrêt en cours…" : "Arrêter la discussion"} disabled={!agentAvailable || stopping || !!run.cancelRequested} onClick={() => void stopConversation()}><Icon name="stop" /></button>}
+      </div>
     </header>
     {renaming&&<form className="conversation-rename" onSubmit={async e=>{e.preventDefault();if(savingTitle||!title.trim())return;setSavingTitle(true);setActionError("");try{await renameConversation(id,title.trim());await controller.refresh();onTitleChanged?.();setRenaming(false);}catch(cause){setActionError(String(cause));}finally{setSavingTitle(false);}}}><label>Nom de la conversation<input autoFocus required maxLength={80} value={title} onChange={e=>setTitle(e.target.value)}/></label><button type="button" disabled={savingTitle} onClick={()=>setRenaming(false)}>Annuler</button><button disabled={savingTitle||!title.trim()}>Enregistrer le nom</button></form>}
     {snapshot.persistenceError && <p className="error" role="alert">{snapshot.persistenceError}</p>}

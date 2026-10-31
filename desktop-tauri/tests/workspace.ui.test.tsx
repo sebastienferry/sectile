@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
-vi.mock("../src/components/ProjectPrompt", () => ({ default: ({ projectId, onOpenExecution }: {projectId: string; onOpenExecution?: () => void}) => <div>Free prompt for {projectId}{onOpenExecution && <button onClick={onOpenExecution}>Voir cette exécution</button>}</div> }));
+vi.mock("../src/components/ProjectPrompt", () => ({ default: ({ projectId, run, onOpenExecution }: {projectId: string; run?: { title?: string }; onOpenExecution?: () => void}) => <div>{run?.title && <h2>{run.title}</h2>}Free prompt for {projectId}{onOpenExecution && <button onClick={onOpenExecution}>Voir cette exécution</button>}</div> }));
 import App from "../src/App";
 import type { Task } from "../src/domain/board";
 import { conversationFor } from "../src/lib/conversation-controller";
@@ -202,7 +202,7 @@ test("launch restores a saved conversation when the agent still has it", async (
   localStorage.setItem("sectile-tauri.workspace", JSON.stringify({ projectId: "q", view: "prompt", runId: "conversation-7" }));
   render(<App />);
   await screen.findByText("Free prompt for q");
-  expect(screen.getByRole("heading", { name: "Second project" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: /Saved conversation/ })).toBeTruthy();
 });
 test("launch falls back to the project board when the saved conversation is gone", async () => {
   vi.mocked(api.executionSnapshot).mockResolvedValue({
