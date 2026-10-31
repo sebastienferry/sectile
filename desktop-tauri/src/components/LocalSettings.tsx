@@ -32,8 +32,9 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
   const [credentialSite, setCredentialSite] = useState("");
   const [trackerEmail, setTrackerEmail] = useState("");
   const [token, setToken] = useState("");
+  const [connectionsTab, setConnectionsTab] = useState<"trackers" | "pat">("trackers");
   const [sourceProvider, setSourceProvider] = useState("github");
-  const [sourceSite, setSourceSite] = useState("");
+  const [sourceSite, setSourceSite] = useState("https://api.github.com");
   const [trackerName, setTrackerName] = useState("");
   const [scope, setScope] = useState("");
   const [editingTracker, setEditingTracker] = useState<{ id: string; name: string; provider: string; site: string; scope: string } | null>(null);
@@ -259,41 +260,86 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
     </article>}</div>
     {ready && <>
       <div hidden={section !== "connections"}>
-      {fleetMode ? <>
-        <OAuthConnections serverManaged canManageTrackers={setup.profile?.role === "admin"} credentials={setup.credentials?.credentials} onConnected={() => { void refresh(); onChanged(); }} />
-        <article><details><summary>Accès manuel par jeton · option avancée</summary>{personalAccess}</details></article>
-      </> : <>
-        <article><h2>Accès personnel aux trackers</h2><p className="muted">Pour une nouvelle installation Local, enregistrez un jeton personnel du fournisseur. Vos tickets restent gérés par le compagnon sur ce poste.</p>{personalAccess}</article>
-        <details><summary>Connexion OAuth locale existante</summary><OAuthConnections credentials={setup.credentials?.credentials} onConnected={() => { void refresh(); onChanged(); }} /></details>
-      </>}
-      <article ref={trackerManagement}>
-        <h2>Sources de tickets</h2>
-        {setup.mode !== "fleet" || setup.profile?.role === "admin" ? <form onSubmit={e => submit(e, async () => { await api.createLocalTracker({ name: trackerName, provider: sourceProvider, site: trackerApiSite(sourceProvider, sourceSite), scope }); setTrackerName(""); setScope(""); }, "Tracker ajouté.")}>
-          <fieldset disabled={pending}>
-            <label>Fournisseur de la source<select value={sourceProvider} onChange={e => {setSourceProvider(e.target.value);setSourceSite("");}}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
-            <label>Adresse de la source<input type="url" required={sourceProvider==="jira"} placeholder={sourceProvider==="jira"?"https://votre-site.atlassian.net":"URL facultative pour l’instance publique"} value={sourceSite} onChange={e=>setSourceSite(e.target.value)} /></label>
-            <label>Nom du tracker<input required value={trackerName} onChange={e => setTrackerName(e.target.value)} /></label>
-            <label>Dépôt ou clé du projet<input required placeholder={sourceProvider === "jira" ? "PROJET" : "organisation/depot"} value={scope} onChange={e => setScope(e.target.value)} /></label>
-            <button type="submit">Ajouter le tracker</button>
-          </fieldset>
-        </form> : <p className="muted">Les trackers sont partagés dans Fleet. Demandez à un administrateur du serveur d’enregistrer une nouvelle source.</p>}
-        <ul ref={trackerList} className="setup-list tracker-list">{setup.trackers?.map(t => <li key={t.id}>
-          <div className="tracker-list-row"><span><strong>{t.name}</strong><small>{t.provider} · {t.scope}{t.site ? ` · ${t.site}` : ""}</small>{trackerSyncs[t.id]&&<TrackerSyncResult activityId={trackerSyncs[t.id].id} onFinished={()=>{setTrackerSyncs(previous=>({...previous,[t.id]:{...previous[t.id],active:false}}));void refresh();onChanged();}}/>}</span>
-            <div className="tracker-list-actions"><button disabled={pending||trackerSyncs[t.id]?.active} onClick={() => void perform(async()=>{const active=await api.activeTrackerSyncs().catch(()=>[]);const existing=active.find(activity=>activity.trackerId===t.id);const result=existing?{activity:existing}:await api.syncLocalTracker(t.id);if(!result.activity?.id)throw new Error("Le backend n’a pas fourni de suivi pour cette synchronisation.");setTrackerSyncs(previous=>({...previous,[t.id]:{id:result.activity.id,active:true}}));}, "Synchronisation suivie. Son résultat apparaîtra sous le tracker.")}>Synchroniser</button>
-              {(setup.mode !== "fleet" || setup.profile?.role === "admin") && <><button type="button" disabled={pending} onClick={() => {setDeletingTrackerId(null);setEditingTracker(editingTracker?.id === t.id ? null : {...t,site:t.site??""});}}>Modifier</button><button type="button" disabled={pending} onClick={() => {setEditingTracker(null);setDeletingTrackerId(deletingTrackerId === t.id ? null : t.id);}}>Supprimer</button></>}
-            </div></div>
-          {editingTracker?.id === t.id && <form className="tracker-editor" onSubmit={e => submit(e, async () => {await api.updateLocalTracker(t.id,{name:editingTracker.name,provider:editingTracker.provider,site:trackerApiSite(editingTracker.provider,editingTracker.site),scope:editingTracker.scope});setEditingTracker(null);}, "Tracker modifié.")}>
-            <fieldset disabled={pending}><label>Nom du tracker à modifier<input required value={editingTracker.name} onChange={e=>setEditingTracker({...editingTracker,name:e.target.value})}/></label>
-              <label>Fournisseur du tracker à modifier<select value={editingTracker.provider} onChange={e=>setEditingTracker({...editingTracker,provider:e.target.value,site:""})}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
-              <label>Adresse du tracker à modifier<input type="url" required={editingTracker.provider==="jira"} value={editingTracker.site} onChange={e=>setEditingTracker({...editingTracker,site:e.target.value})}/></label>
-              <label>Dépôt ou clé à modifier<input required value={editingTracker.scope} onChange={e=>setEditingTracker({...editingTracker,scope:e.target.value})}/></label>
-              <p className="muted">Si le tracker contient déjà des tickets, seul son nom peut changer.</p>
-              <div className="tracker-list-actions"><button className="primary" type="submit">Enregistrer les modifications</button><button type="button" onClick={()=>setEditingTracker(null)}>Annuler</button></div>
-            </fieldset>
-          </form>}
-          {deletingTrackerId === t.id && <div className="tracker-delete-confirm"><p>Supprimer « {t.name} » ? Seul un tracker sans projet associé et sans ticket peut être supprimé.</p><div className="tracker-list-actions"><button type="button" disabled={pending} onClick={()=>void perform(async()=>{await api.deleteLocalTracker(t.id);setDeletingTrackerId(null);},"Tracker supprimé.")}>Confirmer la suppression</button><button type="button" disabled={pending} onClick={()=>setDeletingTrackerId(null)}>Annuler</button></div></div>}
-        </li>)}</ul>
-      </article></div>
+        <div className="settings-subtabs" role="tablist" aria-label="Sous-sections des trackers et accès">
+          <button
+            id="tab-trackers"
+            type="button"
+            role="tab"
+            aria-selected={connectionsTab === "trackers"}
+            aria-controls="tabpanel-trackers"
+            className={`settings-subtab ${connectionsTab === "trackers" ? "active" : ""}`}
+            onClick={() => setConnectionsTab("trackers")}
+          >
+            Trackers
+          </button>
+          <button
+            id="tab-pat"
+            type="button"
+            role="tab"
+            aria-selected={connectionsTab === "pat"}
+            aria-controls="tabpanel-pat"
+            className={`settings-subtab ${connectionsTab === "pat" ? "active" : ""}`}
+            onClick={() => setConnectionsTab("pat")}
+          >
+            Accès PAT
+          </button>
+        </div>
+        <div role="tabpanel" id="tabpanel-trackers" aria-labelledby="tab-trackers" className={`settings-tabpanel ${connectionsTab === "trackers" ? "active" : "is-hidden"}`}>
+          <article ref={trackerManagement}>
+            <h2>Trackers configurés</h2>
+            {(!setup.trackers || setup.trackers.length === 0) ? (
+              <p className="muted">Aucun tracker configuré pour le moment.</p>
+            ) : (
+              <ul ref={trackerList} className="setup-list tracker-list">{setup.trackers?.map(t => <li key={t.id}>
+                <div className="tracker-list-row"><span><strong>{t.name}</strong><small>{t.provider} · {t.scope}{t.site ? ` · ${t.site}` : ""}</small>{trackerSyncs[t.id]&&<TrackerSyncResult activityId={trackerSyncs[t.id].id} onFinished={()=>{setTrackerSyncs(previous=>({...previous,[t.id]:{...previous[t.id],active:false}}));void refresh();onChanged();}}/>}</span>
+                  <div className="tracker-list-actions"><button disabled={pending||trackerSyncs[t.id]?.active} onClick={() => void perform(async()=>{const active=await api.activeTrackerSyncs().catch(()=>[]);const existing=active.find(activity=>activity.trackerId===t.id);const result=existing?{activity:existing}:await api.syncLocalTracker(t.id);if(!result.activity?.id)throw new Error("Le backend n’a pas fourni de suivi pour cette synchronisation.");setTrackerSyncs(previous=>({...previous,[t.id]:{id:result.activity.id,active:true}}));}, "Synchronisation suivie. Son résultat apparaîtra sous le tracker.")}>Synchroniser</button>
+                    {(setup.mode !== "fleet" || setup.profile?.role === "admin") && <><button type="button" disabled={pending} onClick={() => {setDeletingTrackerId(null);setEditingTracker(editingTracker?.id === t.id ? null : {...t,site:t.site??""});}}>Modifier</button><button type="button" disabled={pending} onClick={() => {setEditingTracker(null);setDeletingTrackerId(deletingTrackerId === t.id ? null : t.id);}}>Supprimer</button></>}
+                  </div></div>
+                {editingTracker?.id === t.id && <form className="tracker-editor" onSubmit={e => submit(e, async () => {await api.updateLocalTracker(t.id,{name:editingTracker.name,provider:editingTracker.provider,site:trackerApiSite(editingTracker.provider,editingTracker.site),scope:editingTracker.scope});setEditingTracker(null);}, "Tracker modifié.")}>
+                  <fieldset disabled={pending}><label>Nom du tracker à modifier<input required value={editingTracker.name} onChange={e=>setEditingTracker({...editingTracker,name:e.target.value})}/></label>
+                    <label>Fournisseur du tracker à modifier<select value={editingTracker.provider} onChange={e=>setEditingTracker({...editingTracker,provider:e.target.value,site:e.target.value==="github"?"https://api.github.com":""})}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
+                    <label>Adresse du tracker à modifier<input type="url" required={editingTracker.provider==="jira"} value={editingTracker.site} onChange={e=>setEditingTracker({...editingTracker,site:e.target.value})}/></label>
+                    <label>Dépôt ou clé à modifier<input required value={editingTracker.scope} onChange={e=>setEditingTracker({...editingTracker,scope:e.target.value})}/></label>
+                    <p className="muted">Si le tracker contient déjà des tickets, seul son nom peut changer.</p>
+                    <div className="tracker-list-actions"><button className="primary" type="submit">Enregistrer les modifications</button><button type="button" onClick={()=>setEditingTracker(null)}>Annuler</button></div>
+                  </fieldset>
+                </form>}
+                {deletingTrackerId === t.id && <div className="tracker-delete-confirm"><p>Supprimer « {t.name} » ? Seul un tracker sans projet associé et sans ticket peut être supprimé.</p><div className="tracker-list-actions"><button type="button" disabled={pending} onClick={()=>void perform(async()=>{await api.deleteLocalTracker(t.id);setDeletingTrackerId(null);},"Tracker supprimé.")}>Confirmer la suppression</button><button type="button" disabled={pending} onClick={()=>setDeletingTrackerId(null)}>Annuler</button></div></div>}
+              </li>)}</ul>
+            )}
+          </article>
+          <article>
+            <h2>Ajouter un tracker</h2>
+            {setup.mode !== "fleet" || setup.profile?.role === "admin" ? <form onSubmit={e => submit(e, async () => {
+              await api.createLocalTracker({ name: trackerName, provider: sourceProvider, site: trackerApiSite(sourceProvider, sourceSite), scope });
+              setTrackerName("");
+              setScope("");
+              if (sourceProvider === "github") setSourceSite("https://api.github.com");
+            }, "Tracker ajouté.")}>
+              <fieldset disabled={pending}>
+                <label>Fournisseur de la source<select value={sourceProvider} onChange={e => {
+                  const next = e.target.value;
+                  setSourceProvider(next);
+                  setSourceSite(next === "github" ? "https://api.github.com" : next === "gitlab" ? "https://gitlab.com" : "");
+                }}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
+                <label>Adresse de la source<input type="url" required={sourceProvider==="jira"} placeholder={sourceProvider==="jira"?"https://votre-site.atlassian.net":"https://api.github.com"} value={sourceSite} onChange={e=>setSourceSite(e.target.value)} /></label>
+                <label>Nom du tracker<input required value={trackerName} onChange={e => setTrackerName(e.target.value)} /></label>
+                <label>Dépôt ou clé du projet<input required placeholder={sourceProvider === "jira" ? "PROJET" : "organisation/depot"} value={scope} onChange={e => setScope(e.target.value)} /></label>
+                <button type="submit">Ajouter le tracker</button>
+              </fieldset>
+            </form> : <p className="muted">Les trackers sont partagés dans Fleet. Demandez à un administrateur du serveur d’enregistrer une nouvelle source.</p>}
+          </article>
+        </div>
+        <div role="tabpanel" id="tabpanel-pat" aria-labelledby="tab-pat" className={`settings-tabpanel ${connectionsTab === "pat" ? "active" : "is-hidden"}`}>
+          {fleetMode ? <>
+            <OAuthConnections serverManaged canManageTrackers={setup.profile?.role === "admin"} credentials={setup.credentials?.credentials} onConnected={() => { void refresh(); onChanged(); }} />
+            <article><details><summary>Accès manuel par jeton · option avancée</summary>{personalAccess}</details></article>
+          </> : <>
+            <article><h2>Accès personnel aux trackers</h2><p className="muted">Pour une nouvelle installation Local, enregistrez un jeton personnel du fournisseur. Vos tickets restent gérés par le compagnon sur ce poste.</p>{personalAccess}</article>
+            <details><summary>Connexion OAuth locale existante</summary><OAuthConnections credentials={setup.credentials?.credentials} onConnected={() => { void refresh(); onChanged(); }} /></details>
+          </>}
+        </div>
+      </div>
       <div hidden={section !== "projects"}>
       {onConfigureProject && !!setup.projects?.length && <article><h2>Vos projets</h2><div className="profile-list">{setup.projects.map(project=><div className="profile-card" key={project.id}><strong>{project.name}</strong><button onClick={()=>onConfigureProject(project.id)}>Configurer {project.name}</button></div>)}</div></article>}
       {onOpenFolder && <article className="folder-setup"><div className="settings-illustration"><Icon name="folder" /></div><h2>Commencer avec un dossier local</h2><p>Ouvrez un dossier et lancez votre premier prompt. Vous pourrez connecter un tracker plus tard.</p><button className="primary" onClick={onOpenFolder}><Icon name="plus" />Choisir un dossier local</button></article>}

@@ -416,3 +416,27 @@ test("reopening Settings during update preparation retains retry and explicit re
  expect(screen.getByRole("button",{name:"Arrêter et quitter pour mettre à jour"})).toBeTruthy();
  expect(api.enableLocalRuntime).not.toHaveBeenCalled();
 });
+
+test("connections section provides subtabs for Trackers and Accès PAT and defaults GitHub source to API URL", async () => {
+ vi.mocked(api.localSetupStatus).mockResolvedValue({ ...ready, mode: "local" });
+ render(<LocalSettings onChanged={vi.fn()} />);
+ fireEvent.click(await screen.findByRole("button", { name: "Comptes et trackers" }));
+
+ const trackersTab = screen.getByRole("tab", { name: "Trackers" });
+ const patTab = screen.getByRole("tab", { name: "Accès PAT" });
+ expect(trackersTab.getAttribute("aria-selected")).toBe("true");
+ expect(patTab.getAttribute("aria-selected")).toBe("false");
+
+ const sourceSiteInput = screen.getByLabelText("Adresse de la source") as HTMLInputElement;
+ expect(sourceSiteInput.value).toBe("https://api.github.com");
+
+ fireEvent.change(screen.getByLabelText("Fournisseur de la source"), { target: { value: "gitlab" } });
+ expect(sourceSiteInput.value).toBe("https://gitlab.com");
+
+ fireEvent.change(screen.getByLabelText("Fournisseur de la source"), { target: { value: "github" } });
+ expect(sourceSiteInput.value).toBe("https://api.github.com");
+
+ fireEvent.click(patTab);
+ expect(trackersTab.getAttribute("aria-selected")).toBe("false");
+ expect(patTab.getAttribute("aria-selected")).toBe("true");
+});

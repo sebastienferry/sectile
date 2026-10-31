@@ -1012,7 +1012,7 @@ body.resizing-sidebar {
   }
 }
 
-.local-settings { max-width: 940px; width: 100%; margin: 0 auto; }
+.local-settings { max-width: none; width: 100%; margin: 0; }
 .local-settings fieldset { border: 0; padding: 0; margin: 16px 0; display: grid; gap: 14px; }
 .local-settings label { display: grid; gap: 6px; }
 .local-settings input, .local-settings select { width: 100%; min-height: 38px; }
@@ -1378,7 +1378,12 @@ a.connection-body:hover {
 .command-palette-group button small { margin-left:16px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; }
 .command-palette-empty { padding:24px 12px; color:var(--muted); text-align:center; font-size:12px; }
 .eyebrow { display:block; font-size:10px; font-weight:600; letter-spacing:1.5px; color:var(--muted); }
-.settings.local-settings { width:100%; max-width:1120px; padding:34px 40px 48px; }
+.settings.local-settings { width:100%; max-width:none; margin:0; padding:34px 40px 48px; box-sizing:border-box; }
+.settings-subtabs { display:flex; gap:8px; margin:0 0 22px; border-bottom:1px solid var(--divider); padding:0; }
+.settings-subtab { background:transparent; border:0; border-bottom:2px solid transparent; border-radius:0; padding:8px 16px 10px; font-size:13px; font-weight:500; color:var(--muted); cursor:pointer; }
+.settings-subtab:hover { color:var(--text); background:transparent; }
+.settings-subtab.active, .settings-subtab[aria-selected="true"] { color:var(--accent-text); border-bottom-color:var(--accent-text); font-weight:600; background:transparent; }
+.settings-tabpanel.is-hidden { display:none; }
 .settings-heading { margin-bottom:30px; }
 .settings-engines .settings-heading { margin-bottom:20px; }
 .settings-heading h1 { font-size:25px; font-weight:600; letter-spacing:-.8px; margin:8px 0 8px; }
