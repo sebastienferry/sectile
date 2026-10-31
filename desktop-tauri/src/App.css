@@ -1487,8 +1487,9 @@ a.connection-body:hover {
 .conversation-prompt .prompt-heading.workspace-toolbar { width:100%; box-sizing:border-box; margin-bottom:0; flex-shrink:0; }
 .conversation-prompt .prompt-heading h2 { flex:none; font-size:15px; font-weight:600; margin:0 0 6px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:flex; align-items:center; gap:8px; }
 .conversation-prompt .prompt-heading h2 svg { width:16px; height:16px; flex-shrink:0; color:var(--muted); }
-.conversation-prompt .transcript-shell { flex:1; min-height:0; overflow-y:auto; }
-.conversation-prompt .prompt-transcript { max-width:1060px; margin:0 auto; padding:16px 32px 0; box-sizing:border-box; }
+.conversation-prompt .transcript-shell { flex:1; min-height:0; width:100%; position:relative; overflow:hidden; }
+.conversation-prompt .prompt-transcript { width:100%; max-width:none; height:100%; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:0; box-sizing:border-box; }
+.conversation-prompt .prompt-transcript-content { max-width:1060px; margin:0 auto; padding:16px 32px 0; box-sizing:border-box; }
 .conversation-prompt .conversation-controls { max-width:1060px; width:100%; margin:0 auto; padding:0 32px; box-sizing:border-box; }
 .conversation-prompt .conversation-rename { max-width:1060px; width:100%; margin:10px auto 0; padding:0 32px; box-sizing:border-box; }
 .prompt-heading .stop-button { color:var(--danger); }

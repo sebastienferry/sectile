@@ -72,7 +72,7 @@ export function ConversationTranscript({ snapshot, followRequest = 0 }: { snapsh
     const element = viewport.current!;
     following.current = element.scrollHeight - element.clientHeight - element.scrollTop < 48;
     setPaused(!following.current);
-  }}><div ref={content}>
+  }}><div ref={content} className="prompt-transcript-content">
     {rows.map(row => "tools" in row ? <Tools key={row.key} tools={row.tools} busy={snapshot.busy} /> : <article className={`prompt-event prompt-${row.event.kind}`} key={row.key}>
       <strong>{row.event.interrupted ? "Assistant · réponse interrompue" : ({ user: "Vous", assistant: "Assistant", error: "Erreur", thinking: "Réflexion", approval: "Autorisation" } as Record<string, string>)[row.event.kind] ?? "Activité"}</strong>
       {row.event.kind === "assistant" ? <Markdown text={row.event.text} /> : <p>{eventText(row.event)}</p>}
