@@ -68,6 +68,7 @@ internal/webui/dist/*
 .claude/skills/
 .gemini/skills/
 .skills/
+.codex/
 .mcp.json
 # The golden plugin's MCP declaration: placeholders only, no address or key.
 !internal/skills/testdata/plugin/.mcp.json

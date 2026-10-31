@@ -2,6 +2,7 @@ mod agent;
 mod local;
 mod workspace;
 mod terminal;
+mod mac;
 
 #[cfg(target_os = "macos")]
 fn install_settings_menu(app: &mut tauri::App) -> tauri::Result<()> {
@@ -27,7 +28,33 @@ pub fn run() {
         .manage(local::LocalRuntime::default())
         .setup(|app| {
             #[cfg(target_os = "macos")]
-            install_settings_menu(app)?;
+            {
+                install_settings_menu(app)?;
+                use tauri::Manager;
+                if let Some(main_window) = app.get_webview_window("main") {
+                    let win = main_window.clone();
+                    mac::window::position_traffic_lights(&win);
+                    let win_init = win.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                        let win_cb = win_init.clone();
+                        let _ = win_init.run_on_main_thread(move || {
+                            mac::window::position_traffic_lights(&win_cb);
+                        });
+                        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                        let win_cb2 = win.clone();
+                        let _ = win.run_on_main_thread(move || {
+                            mac::window::position_traffic_lights(&win_cb2);
+                        });
+                    });
+                    let win_resize = main_window.clone();
+                    main_window.on_window_event(move |event| {
+                        if matches!(event, tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ThemeChanged(_) | tauri::WindowEvent::Focused(true)) {
+                            mac::window::position_traffic_lights(&win_resize);
+                        }
+                    });
+                }
+            }
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let _ = local::resume(&handle).await;

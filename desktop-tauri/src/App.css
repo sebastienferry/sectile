@@ -133,7 +133,7 @@ button svg {
   overflow: hidden;
 }
 .app-header {
-  height: 42px;
+  height: 68px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -144,36 +144,35 @@ button svg {
 .header-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
 }
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
 #app-title,
 .header-brand strong {
-  font-size: 15px;
+  font-size: 22px;
   font-weight: 700;
-  line-height: 1;
   white-space: nowrap;
 }
 #toggle-sidebar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 5px;
+  width: 36px;
+  height: 36px;
+  padding: 8px;
   border: 0;
   background: transparent;
-  border-radius: 6px;
+  border-radius: 7px;
   color: var(--text);
   cursor: pointer;
 }
 #toggle-sidebar svg {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
 }
 #toggle-sidebar:hover {
   background: var(--hover);
@@ -1092,14 +1091,14 @@ button, input, select, textarea { border-radius:8px; }
 h1,h2,h3,p { overflow-wrap:anywhere; }
 .sr-only { position:absolute!important; width:1px!important; height:1px!important; padding:0!important; margin:-1px!important; overflow:hidden!important; clip:rect(0,0,0,0)!important; white-space:nowrap!important; border:0!important; }
 .app-header {
-  height: 42px;
+  height: 68px;
   padding: 0 16px;
   background: var(--bg);
   -webkit-app-region: drag;
   user-select: none;
 }
 .app-header.is-macos {
-  padding-left: 78px;
+  padding-left: 88px;
 }
 .app-header button,
 .app-header a,
@@ -1108,23 +1107,14 @@ h1,h2,h3,p { overflow-wrap:anywhere; }
 .app-header select {
   -webkit-app-region: no-drag;
 }
-.app-header .icon-button {
-  width: 28px;
-  height: 28px;
-  padding: 5px;
-}
-.app-header .icon-button svg {
-  width: 18px;
-  height: 18px;
-}
-.header-brand { gap:10px; }
-.header-brand strong, #app-title { font-size:15px; letter-spacing:-.2px; font-weight:700; line-height:1; white-space:nowrap; }
+.header-brand { gap:14px; }
+.header-brand strong, #app-title { font-size:22px; letter-spacing:-.4px; font-weight:700; white-space:nowrap; }
 .header-brand strong span { color:var(--text); font-weight:700; }
-.brand-mark { width:22px; height:22px; border-radius:6px; background:var(--selected); color:var(--accent-text); }
+.brand-mark { width:25px; height:25px; border-radius:7px; background:var(--selected); color:var(--accent-text); }
 .theme-toggle { border:0; background:transparent; padding:0; }
-.theme-toggle button { width:24px; height:24px; }
-.theme-toggle svg { width:14px; height:14px; }
-.header-actions { gap:8px; }
+.theme-toggle button { width:26px; height:26px; }
+.theme-toggle svg { width:15px; height:15px; }
+.header-actions { gap:12px; }
 
 /* Connection Status */
 .connection-status {
