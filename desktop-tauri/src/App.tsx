@@ -855,6 +855,11 @@ function ProjectPane({
     const timer=setInterval(()=>void read(),15000);
     return()=>{current=false;clearInterval(timer);};
   },[selection.projectId,selection.view,currentRun?.taskId]);
+  useEffect(() => {
+    if (selection.view === "executions" && selection.runId && currentRun?.conversation && project) {
+      navigate(project, "prompt", selection.runId);
+    }
+  }, [selection.view, selection.runId, currentRun?.conversation, project]);
   const remoteColumns = trackerColumns(tasks, query);
   const hasRemoteTasks = trackerColumns(tasks).some(column => column.tasks.length > 0);
   const trackers = context?.board?.trackers ?? [];
@@ -1042,7 +1047,7 @@ function ProjectPane({
         </div>
       ) : selection.view === "prompt" ? (
         selection.runId || project?.path?.trim() ? <Suspense fallback={<p>Ouverture du prompt…</p>}>
-          <ProjectPrompt key={`${selection.projectId}:${selection.runId??"new"}`} agentAvailable={monitor.fresh && !!monitor.snapshot?.status.connected} directory={workingDirectory} folders={currentRun?.folders} run={currentRun} task={tasks.find(task=>task.id===currentRun?.taskId)} board={context?.board} onOpenExecution={currentRun&&project?()=>navigate(project,"executions",currentRun.id):undefined} onOpenQueue={project?()=>navigate(project,"executions"):undefined} onOpenTask={currentRun?.taskId&&project?()=>navigate(project,"task",undefined,currentRun.taskId):undefined} onArchive={currentRun?()=>onArchiveConversation(currentRun.id):undefined} onStopped={()=>void monitor.refresh()} onFoldersChanged={()=>void monitor.refresh()} onTitleChanged={()=>void monitor.refresh()} projectId={selection.projectId} runId={selection.runId} onCreated={id => { if (project) navigate(project, "prompt", id); }} />
+          <ProjectPrompt key={`${selection.projectId}:${selection.runId??"new"}`} agentAvailable={monitor.fresh && !!monitor.snapshot?.status.connected} directory={workingDirectory} folders={currentRun?.folders} run={currentRun} task={tasks.find(task=>task.id===currentRun?.taskId)} board={context?.board} onOpenQueue={project?()=>navigate(project,"executions"):undefined} onOpenTask={currentRun?.taskId&&project?()=>navigate(project,"task",undefined,currentRun.taskId):undefined} onArchive={currentRun?()=>onArchiveConversation(currentRun.id):undefined} onStopped={()=>void monitor.refresh()} onFoldersChanged={()=>void monitor.refresh()} onTitleChanged={()=>void monitor.refresh()} projectId={selection.projectId} runId={selection.runId} onCreated={id => { if (project) navigate(project, "prompt", id); }} />
         </Suspense> : project ? <ProjectFolderSetup project={project} onMapped={path=>onFolderMapped(project.id,path)} /> : <p>Chargement du projet…</p>
       ) : (
         <Supervisor
@@ -1053,8 +1058,14 @@ function ProjectPane({
           view={selection.view as "launch" | "executions" | "orchestration"}
           selectedRun={selectedRun}
           onSelectRun={(id) => {
-            if (project && id) navigate(project, "executions", id);
-            else setSelectedRun(id);
+            if (project && id) {
+              const r = monitor.snapshot?.runs.find(item => item.id === id);
+              if (r?.conversation) {
+                navigate(project, "prompt", id);
+                return;
+              }
+              navigate(project, "executions", id);
+            } else setSelectedRun(id);
           }}
           initialTaskId={selection.taskId}
           active

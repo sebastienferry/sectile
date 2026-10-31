@@ -99,11 +99,8 @@ test("a linked conversation shows ticket and execution state above the composer"
  expect(strip.textContent).toContain("Étape : Revu");
  expect(strip.textContent).toContain("PR/MR : PR #42 · ouverte");
  expect(screen.getByRole("button",{name:"PR #42 · ouverte"})).toBeTruthy();
- expect(screen.getByRole("button",{name:"Voir l’exécution"})).toBeTruthy();
  expect(screen.getByRole("button",{name:"Arrêter la discussion"})).toBeTruthy();
  fireEvent.click(screen.getByText("Exécution : Session active"));
- fireEvent.click(screen.getByRole("button",{name:"Voir cette exécution"}));
- expect(openExecution).toHaveBeenCalledOnce();
  fireEvent.click(screen.getByRole("button",{name:"Voir la file des exécutions"}));
  expect(openQueue).toHaveBeenCalledOnce();
 });

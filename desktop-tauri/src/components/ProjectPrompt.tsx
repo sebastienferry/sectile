@@ -27,10 +27,10 @@ interface ProjectPromptProps {
   agentAvailable?:boolean;
   run?:Run; task?:Task; board?:BoardMapping;
   onCreated:(id:string)=>void; onTitleChanged?:()=>void; onFoldersChanged?:()=>void;
-  onOpenExecution?:()=>void; onOpenQueue?:()=>void; onOpenTask?:()=>void;
+  onOpenQueue?:()=>void; onOpenTask?:()=>void;
   onArchive?:()=>void; onStopped?:()=>void;
 }
-export default function ProjectPrompt({ projectId, runId, agentAvailable=true, onCreated, onTitleChanged, directory, folders, onFoldersChanged, run, task, board, onOpenExecution, onOpenQueue, onOpenTask, onArchive, onStopped }: ProjectPromptProps) {
+export default function ProjectPrompt({ projectId, runId, agentAvailable=true, onCreated, onTitleChanged, directory, folders, onFoldersChanged, run, task, board, onOpenQueue, onOpenTask, onArchive, onStopped }: ProjectPromptProps) {
   const [provider, setProvider] = useState("claude");
   const [options, setOptions] = useState<TurnOptions>({});
   const [draft, setDraft] = useState("");
@@ -55,7 +55,7 @@ export default function ProjectPrompt({ projectId, runId, agentAvailable=true, o
     return()=>{current=false;};
   },[projectId,runId]);
   const selectedProfile=profiles?.profiles.find(profile=>profile.id===profileId);
-  if (runId) return <Conversation id={runId} projectId={projectId} agentAvailable={agentAvailable} directory={directory} folders={folders} run={run} task={task} board={board} onOpenExecution={onOpenExecution} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onArchive={onArchive} onStopped={onStopped} onFoldersChanged={onFoldersChanged} onTitleChanged={onTitleChanged} />;
+  if (runId) return <Conversation id={runId} projectId={projectId} agentAvailable={agentAvailable} directory={directory} folders={folders} run={run} task={task} board={board} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onArchive={onArchive} onStopped={onStopped} onFoldersChanged={onFoldersChanged} onTitleChanged={onTitleChanged} />;
   return <section className="project-prompt prompt-start prompt-new">
     <div className="prompt-intro"><h2>Nouveau prompt</h2></div>
     <form className="composer" onSubmit={async e => {
@@ -97,7 +97,7 @@ export default function ProjectPrompt({ projectId, runId, agentAvailable=true, o
     {error && <p role="alert" className="error">{error}</p>}
   </section>;
 }
-function Conversation({ id, projectId, agentAvailable, directory, folders, run, task, board, onOpenExecution, onOpenQueue, onOpenTask, onArchive, onStopped, onFoldersChanged, onTitleChanged }: { id:string;projectId:string;agentAvailable:boolean;directory?:string;folders?:Run["folders"];run?:Run;task?:Task;board?:BoardMapping;onOpenExecution?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onArchive?:()=>void;onStopped?:()=>void;onFoldersChanged?:()=>void;onTitleChanged?:()=>void }) {
+function Conversation({ id, projectId, agentAvailable, directory, folders, run, task, board, onOpenQueue, onOpenTask, onArchive, onStopped, onFoldersChanged, onTitleChanged }: { id:string;projectId:string;agentAvailable:boolean;directory?:string;folders?:Run["folders"];run?:Run;task?:Task;board?:BoardMapping;onOpenQueue?:()=>void;onOpenTask?:()=>void;onArchive?:()=>void;onStopped?:()=>void;onFoldersChanged?:()=>void;onTitleChanged?:()=>void }) {
   const { controller, snapshot, loaded, pending, error } = useConversation(id);
   const [draft, setDraft] = useState("");
   const [actionError, setActionError] = useState("");
@@ -149,7 +149,6 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
       <div className="toolbar-actions">
         {snapshot.canAdoptConnection && <button disabled={!agentAvailable || acting || !!error} title="Cet historique n’est pas encore lié à la connexion sélectionnée." onClick={() => void control({ action: "adoptConnection" }).catch(() => {})}>Associer à cette connexion</button>}
         {busy && !snapshot.readOnly && <button disabled={!agentAvailable || acting} onClick={() => void control({ action: "interrupt" }).catch(() => {})}>Interrompre</button>}
-        {onOpenExecution && <button type="button" className="icon-button" aria-label="Voir l’exécution" title="Voir l’exécution" onClick={onOpenExecution}><Icon name="terminal" /></button>}
         {snapshot.canRename && <button type="button" className="icon-button" aria-label="Renommer la conversation" title="Renommer la conversation" onClick={()=>{setTitle(snapshot.title||"");setRenaming(true);}}><Icon name="edit" /></button>}
         {onArchive && <button type="button" className="icon-button" aria-label="Archiver la discussion" title={run && isActive(run) ? "Arrêtez la discussion avant de l’archiver" : "Archiver la discussion"} disabled={!!run && isActive(run)} onClick={onArchive}><Icon name="archive" /></button>}
         {run && isActive(run) && <button type="button" className="icon-button stop-button" aria-label="Arrêter la discussion" title={stopping ? "Arrêt en cours…" : "Arrêter la discussion"} disabled={!agentAvailable || stopping || !!run.cancelRequested} onClick={() => void stopConversation()}><Icon name="stop" /></button>}
@@ -169,7 +168,7 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
     </section>)}
     {agentAvailable && (error || actionError) && <p role="alert" className="error">{error || actionError} Vérifiez le suivi avant de renvoyer un message. <button type="button" aria-label="Actualiser le suivi" onClick={() => void controller.refresh()}>Réessayer</button></p>}
     </div>
-    <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} agentAvailable={agentAvailable} onOpenExecution={onOpenExecution} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onOpenPr={url=>void openExternalLink(url).catch(()=>setLinkError("Impossible d’ouvrir la PR/MR."))}/>
+    <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} agentAvailable={agentAvailable} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onOpenPr={url=>void openExternalLink(url).catch(()=>setLinkError("Impossible d’ouvrir la PR/MR."))}/>
     {snapshot.readOnly ? <div className="conversation-readonly-footer" aria-label="Options de l’historique">
       <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly onChanged={onFoldersChanged}/>
       <button type="button" className="composer-action" disabled={!directory} title="Ouvrir le terminal dans le dossier de travail" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Impossible d’ouvrir le terminal dans ce dossier."))}><Icon name="terminal"/>Terminal</button>
@@ -185,7 +184,7 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
     </div>
   </section>;
 }
-function ConversationStatus({snapshot,run,task,board,busy,error,agentAvailable,onOpenExecution,onOpenQueue,onOpenTask,onOpenPr}:{snapshot:ConversationSnapshot;run?:Run;task?:Task;board?:BoardMapping;busy:boolean;error:boolean;agentAvailable:boolean;onOpenExecution?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onOpenPr:(url:string)=>void}) {
+function ConversationStatus({snapshot,run,task,board,busy,error,agentAvailable,onOpenQueue,onOpenTask,onOpenPr}:{snapshot:ConversationSnapshot;run?:Run;task?:Task;board?:BoardMapping;busy:boolean;error:boolean;agentAvailable:boolean;onOpenQueue?:()=>void;onOpenTask?:()=>void;onOpenPr:(url:string)=>void}) {
   const stage=task?taskStage(task,board):undefined;
   const links=taskPullRequests(task);
   const activity=!agentAvailable?"Agent indisponible":error?"Suivi interrompu":snapshot.approvals?.length?"Votre réponse attendue":busy?"Réponse en cours":snapshot.readOnly?"Historique en lecture seule":"Prêt à répondre";
@@ -193,7 +192,6 @@ function ConversationStatus({snapshot,run,task,board,busy,error,agentAvailable,o
   return <div className="conversation-status-strip" aria-label="Suivi de la conversation">
     <span className={`conversation-status-activity ${agentAvailable&&busy?"live":""}`}><span className="conversation-status-dot"/>{activity}</span>
     <details className="conversation-execution-menu"><summary>Exécution : {execution}</summary><div className="conversation-execution-panel">
-      {onOpenExecution&&<button type="button" onClick={onOpenExecution}>Voir cette exécution</button>}
       {onOpenQueue&&<button type="button" onClick={onOpenQueue}>Voir la file des exécutions</button>}
       {onOpenTask&&<button type="button" onClick={onOpenTask}>Ouvrir le workflow du ticket</button>}
     </div></details>
