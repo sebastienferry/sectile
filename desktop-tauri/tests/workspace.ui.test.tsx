@@ -122,7 +122,7 @@ test("project menu opens the execution queue and groups ticket conversations by 
  expect(within(sidebar).queryByText("Clarify this")).toBeNull();
  expect(sidebar.querySelector(".conversation-indicator.session")).not.toBeNull();
  fireEvent.click(within(sidebar).getByLabelText("Actions pour Example"));
- fireEvent.change(within(sidebar).getByRole("combobox",{name:"Grouper les conversations de Example"}),{target:{value:"stage"}});
+ fireEvent.click(within(sidebar).getByRole("menuitemcheckbox",{name:/Grouper par étape/}));
  expect(localStorage.getItem("sectile-tauri.conversationGrouping")).toBe("stage");
  await within(sidebar).findByText("À clarifier");
  expect(within(sidebar).getByText("Revu")).toBeTruthy();
@@ -163,13 +163,13 @@ test("opening a stopped conversation keeps its terminal status in the sidebar", 
  render(<App />);
  const sidebar=screen.getByRole("complementary");
  const conversation=await within(sidebar).findByRole("button",{name:/Stopped discussion/});
- expect(conversation.textContent).toContain("Arrêté");
+ expect(conversation.getAttribute("title")).toContain("Arrêté");
  fireEvent.click(conversation);
  await conversationFor("stopped-chat").refresh();
  await waitFor(()=>expect(invoke).toHaveBeenCalledWith("read_conversation",{runId:"stopped-chat"}));
  expect(conversationFor("stopped-chat").getSnapshot().loaded).toBe(true);
- await waitFor(()=>expect(conversation.textContent).toContain("Arrêté"));
- expect(conversation.textContent).not.toContain("Lecture seule");
+ await waitFor(()=>expect(conversation.getAttribute("title")).toContain("Arrêté"));
+ expect(conversation.getAttribute("title")).not.toContain("Lecture seule");
 });
 test("launch restores the last project board instead of selecting the first project", async () => {
   vi.mocked(api.listProjects).mockResolvedValue([
@@ -626,7 +626,7 @@ test("existing conversations stay readable without a current project folder",asy
  await conversationFor("saved").refresh();
  render(<App />);
  fireEvent.click(await screen.findByRole("button",{name:/Saved conversation/}));
- expect(screen.getByText(/Claude Code · Prête/)).toBeTruthy();
+ expect(screen.getByRole("button",{name:/Saved conversation/}).getAttribute("title")).toContain("Claude Code · Prête");
  await screen.findByText("Free prompt for p");
  expect(screen.queryByRole("button",{name:"Nouveau prompt"})).toBeNull();
  expect(screen.queryByRole("button",{name:"Configurer le projet"})).toBeNull();
@@ -753,4 +753,30 @@ test("project tracker setup opens tracker management directly and returns to the
  fireEvent.click(screen.getByRole("button",{name:"Retourner à l’espace de travail"}));
  expect(await screen.findByRole("region",{name:"Source de tickets du projet"})).toBeTruthy();
  } finally {HTMLElement.prototype.scrollIntoView=originalScrollIntoView;}
+});
+
+test("sidebar runs render single line titles, pulsing indicators, and menu sort options", async () => {
+ vi.mocked(api.executionSnapshot).mockResolvedValue({
+  status: { connected: true, capabilities: [] },
+  runs: [
+   { id: "run-active", projectId: "p", conversation: true, title: "Active task", provider: "codex", status: "running", createdAt: "2026-10-30" },
+  ],
+ });
+ render(<App />);
+ const sidebar = screen.getByRole("complementary");
+ const row = await within(sidebar).findByRole("button", { name: /Active task/ });
+ expect(row.querySelector("small")).toBeNull();
+ expect(row.querySelector(".conversation-indicator.session")).not.toBeNull();
+
+ fireEvent.click(within(sidebar).getByLabelText("Actions pour Example"));
+ const sortCreated = within(sidebar).getByRole("menuitemcheckbox", { name: /Trier par création/ });
+ const sortId = within(sidebar).getByRole("menuitemcheckbox", { name: /Trier par identifiant/ });
+ const groupStage = within(sidebar).getByRole("menuitemcheckbox", { name: /Grouper par étape/ });
+
+ expect(sortCreated.getAttribute("aria-checked")).toBe("false");
+ expect(sortId.getAttribute("aria-checked")).toBe("false");
+ expect(groupStage.getAttribute("aria-checked")).toBe("false");
+
+ fireEvent.click(sortCreated);
+ expect(sortCreated.getAttribute("aria-checked")).toBe("true");
 });

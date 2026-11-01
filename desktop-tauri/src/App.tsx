@@ -102,10 +102,29 @@ function Workspace() {
   currentRef.current = current;
   const workspaceBeforeSettings = useRef<WorkspaceView | null>(null);
   const [filter, setFilter] = useState("");
-  const [conversationGrouping, setConversationGrouping] = useState<ConversationGrouping>(() => {
-    const saved = readPreference("conversationGrouping", "recent");
-    return saved === "stage" || saved === "tracker" ? saved : "recent";
+  const [projectTaskSort, setProjectTaskSort] = useState<Record<string, ConversationGrouping>>(() => {
+    try {
+      const saved = JSON.parse(readPreference("projectTaskSort", "{}"));
+      if (typeof saved === "object" && saved) return saved;
+    } catch {}
+    const legacy = readPreference("conversationGrouping", "recent");
+    return legacy && legacy !== "recent" ? { default: legacy as ConversationGrouping } : {};
   });
+
+  const getProjectSort = (projectId: string): ConversationGrouping => {
+    return projectTaskSort[projectId] || projectTaskSort["default"] || "recent";
+  };
+
+  const toggleProjectSort = (projectId: string, sort: "created" | "id" | "stage") => {
+    setProjectTaskSort(prev => {
+      const current = prev[projectId] || prev["default"] || "recent";
+      const next: ConversationGrouping = current === sort ? "recent" : sort;
+      const updated: Record<string, ConversationGrouping> = { ...prev, [projectId]: next };
+      savePreference("projectTaskSort", JSON.stringify(updated));
+      savePreference("conversationGrouping", next);
+      return updated;
+    });
+  };
   const [visibleConversationCount, setVisibleConversationCount] = useState(8);
   const [archivedConversationIds, setArchivedConversationIds] = useState<string[]>(() => {
     try { const saved = JSON.parse(readPreference("archivedConversations", "[]")); return Array.isArray(saved) ? saved.filter((id): id is string => typeof id === "string") : []; }
@@ -482,11 +501,47 @@ function Workspace() {
                           <summary aria-label={`Actions pour ${project.name}`} title={`Actions pour ${project.name}`}>•••</summary>
                           <div className="project-action-panel">
                             <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"board");}}>Voir les tickets</button>
-                            <button disabled={!fresh||!snapshot?.status.capabilities?.includes("task-page")} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"ticket-editor");}}>Nouveau ticket</button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"board");}}>Ouvrir le tableau</button>
                             <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"executions");}}>File des exécutions</button>
-                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");setShowArchivedConversations(value=>!value);}}>{showArchivedConversations?"Voir les conversations actives":"Voir les conversations archivées"}</button>
+                            <hr />
+                            <button
+                              type="button"
+                              role="menuitemcheckbox"
+                              aria-checked={getProjectSort(project.id) === "created"}
+                              onClick={event => {
+                                event.currentTarget.closest("details")?.removeAttribute("open");
+                                toggleProjectSort(project.id, "created");
+                              }}
+                            >
+                              {getProjectSort(project.id) === "created" ? "✓ " : ""}Trier par création
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitemcheckbox"
+                              aria-checked={getProjectSort(project.id) === "id"}
+                              onClick={event => {
+                                event.currentTarget.closest("details")?.removeAttribute("open");
+                                toggleProjectSort(project.id, "id");
+                              }}
+                            >
+                              {getProjectSort(project.id) === "id" ? "✓ " : ""}Trier par identifiant
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitemcheckbox"
+                              aria-checked={getProjectSort(project.id) === "stage"}
+                              onClick={event => {
+                                event.currentTarget.closest("details")?.removeAttribute("open");
+                                toggleProjectSort(project.id, "stage");
+                              }}
+                            >
+                              {getProjectSort(project.id) === "stage" ? "✓ " : ""}Grouper par étape
+                            </button>
+                            <hr />
+                            <button disabled={!fresh||!snapshot?.status.capabilities?.includes("task-page")} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"ticket-editor");}}>Nouveau ticket</button>
                             <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"prompt");}}>Démarrer un prompt libre</button>
-                            <label>Grouper les conversations<select aria-label={`Grouper les conversations de ${project.name}`} value={conversationGrouping} onChange={event=>{const value=event.target.value as ConversationGrouping;setConversationGrouping(value);savePreference("conversationGrouping",value);}}><option value="recent">Par activité récente</option><option value="stage">Par étape du workflow</option><option value="tracker">Par statut tracker</option></select></label>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");setShowArchivedConversations(value=>!value);}}>{showArchivedConversations?"Voir les conversations actives":"Voir les conversations archivées"}</button>
+                            <hr />
                             <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"project-settings");}}>Réglages du projet</button>
                           </div>
                         </details>
@@ -501,7 +556,7 @@ function Workspace() {
                             Orchestration
                           </button>
                           {showArchivedConversations&&<div className="sidebar-group-label">Archivées <button type="button" onClick={()=>setShowArchivedConversations(false)}>Retour</button></div>}
-                          {conversationGroups(visibleConversations,projectTasks,conversationGrouping,projectBoard).map(group=><div className="sidebar-conversation-group" key={group.label||"recent"}>{group.label&&<div className="sidebar-group-label">{group.label}<span>{group.runs.length}</span></div>}{group.runs.map(run=>{
+                          {conversationGroups(visibleConversations,projectTasks,getProjectSort(project.id),projectBoard).map(group=><div className="sidebar-conversation-group" key={group.label||"recent"}>{group.label&&<div className="sidebar-group-label">{group.label}<span>{group.runs.length}</span></div>}{group.runs.map(run=>{
                             const task=projectTasks.find(item=>item.id===run.taskId);
                             const isRenaming = renamingRunId === run.id;
                             const conversationTitle = run.title || run.taskKey || run.prompt?.split("\n")[0] || "Conversation";
@@ -1087,7 +1142,7 @@ function visibleBoardTasks(tasks:Task[],activeRuns:Map<string,Run>,limit:number)
 
 function RunNavigation({run,task,selected,onClick}:{run:Run;task?:Task;selected:boolean;onClick:()=>void}){
  if(run.conversation)return <ConversationNavigation run={run} task={task} selected={selected} onClick={onClick} />;
- return <button className={`sidebar-run ${selected ? "selected" : ""}`} title={statusLabel(run)} onClick={onClick}><span className={`dot ${isActive(run) ? "live" : ""}`} /><span>{run.taskKey || run.skill || "Exécution"}</span><small>{run.engineName || statusLabel(run)}</small></button>;
+ return <button className={`sidebar-run ${selected ? "selected" : ""}`} title={statusLabel(run)} onClick={onClick}><span className={`dot ${isActive(run) ? "live" : ""}`} /><span>{run.taskKey || run.skill || "Exécution"}</span></button>;
 }
 function ConversationPrAction({task,taskKey,onError}:{task?:Task;taskKey?:string;onError:()=>void}){
  const links=taskPullRequests(task);
@@ -1106,5 +1161,5 @@ function ConversationNavigation({run,task,selected,onClick}:{run:Run;task?:Task;
  },[snapshot.events,snapshot.title,run.prompt,run.title,run.taskId,task?.title]);
  const provider=run.provider==="claude"?"Claude Code":run.provider==="codex"?"Codex":run.engineName||"Assistant";
  const activity=!isActive(run)?statusLabel(run):error?"Suivi interrompu":loaded&&snapshot.id===run.id?snapshot.approvals?.length?"Votre intervention est requise":snapshot.busy?"En cours":snapshot.readOnly?"Lecture seule":"Prête":statusLabel(run);
- return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={`${run.taskKey?`${run.taskKey} · `:""}${provider}${run.model ? ` · ${run.model}` : ""} · ${task?.trackerStatus?`${task.trackerStatus} · `:""}${activity}`}><span className={`conversation-indicator ${snapshot.approvals?.length?"needs-input":loaded&&snapshot.busy?"live":isActive(run)?"session":"idle"}`} />{run.taskKey&&<span className="sidebar-task-key">{run.taskKey}</span>}<span className="conversation-navigation-text"><span>{title}</span><small>{provider}{task?.trackerStatus&&` · ${task.trackerStatus}`} · {activity}</small></span></button>;
+ return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={`${run.taskKey?`${run.taskKey} · `:""}${title} · ${provider}${run.model ? ` · ${run.model}` : ""} · ${task?.trackerStatus?`${task.trackerStatus} · `:""}${activity}`}><span className={`conversation-indicator ${snapshot.approvals?.length?"needs-input":loaded&&snapshot.busy?"live":isActive(run)?"session":"idle"}`} />{run.taskKey&&<span className="sidebar-task-key">{run.taskKey}</span>}<span className="conversation-navigation-text"><span>{title}</span></span></button>;
 }
