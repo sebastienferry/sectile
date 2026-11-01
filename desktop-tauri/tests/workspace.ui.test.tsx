@@ -143,9 +143,12 @@ test("conversation actions stop a live session and archive and restore a finishe
  render(<App/>);
  const sidebar=screen.getByRole("complementary");
  await within(sidebar).findByText("Live discussion");
- fireEvent.click(within(sidebar).getByRole("button",{name:"Arrêter la conversation"}));
+ const liveRow=within(sidebar).getByText("Live discussion").closest(".sidebar-conversation-row")!;
+ expect(within(liveRow).queryByRole("button",{name:"Archiver la conversation"})).toBeNull();
+ fireEvent.click(within(liveRow).getByRole("button",{name:"Arrêter la conversation"}));
  await waitFor(()=>expect(api.stopRun).toHaveBeenCalledWith("live-chat"));
  const finishedRow=within(sidebar).getByText("Finished discussion").closest(".sidebar-conversation-row")!;
+ expect(within(finishedRow).queryByRole("button",{name:"Arrêter la conversation"})).toBeNull();
  fireEvent.click(within(finishedRow).getByRole("button",{name:"Archiver la conversation"}));
  expect(within(sidebar).queryByText("Finished discussion")).toBeNull();
  expect(localStorage.getItem("sectile-tauri.archivedConversations")).toBe('["done-chat"]');

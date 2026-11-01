@@ -605,7 +605,7 @@ function Workspace() {
                                 <RunNavigation run={run} task={task} selected={current?.runId===run.id} onClick={()=>navigate(project,"prompt",run.id)} onOpenTask={run.taskId ? () => navigate(project, "task", undefined, run.taskId) : undefined} />
                               )}
                               <ConversationPrAction task={task} taskKey={run.taskKey} onError={()=>setConversationActionError("Impossible d’ouvrir la PR/MR.")}/>
-                              {!showArchivedConversations && isActive(run) && (
+                              {!showArchivedConversations && isActive(run) ? (
                                 <button
                                   type="button"
                                   className="task-stop-button"
@@ -619,20 +619,20 @@ function Workspace() {
                                 >
                                   <Icon name="stop" />
                                 </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="task-archive"
+                                  aria-label={showArchivedConversations ? "Restaurer la conversation" : "Archiver la conversation"}
+                                  title={showArchivedConversations ? "Restaurer la conversation" : "Archiver la conversation"}
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    setArchived(run.id, !showArchivedConversations);
+                                  }}
+                                >
+                                  <Icon name="archive" />
+                                </button>
                               )}
-                              <button
-                                type="button"
-                                className="task-archive"
-                                aria-label={showArchivedConversations ? "Restaurer la conversation" : "Archiver la conversation"}
-                                title={!showArchivedConversations && isActive(run) ? "Arrêtez la conversation avant de l’archiver" : (showArchivedConversations ? "Restaurer la conversation" : "Archiver la conversation")}
-                                disabled={!showArchivedConversations && isActive(run)}
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  setArchived(run.id, !showArchivedConversations);
-                                }}
-                              >
-                                <Icon name="archive" />
-                              </button>
                               {!showArchivedConversations && !isRenaming && (
                                 <button
                                   type="button"
