@@ -18,6 +18,7 @@ import { ConversationTranscript } from "./ConversationTranscript";
 import { invoke } from "@tauri-apps/api/core";
 import { openExternalLink } from "../lib/workspace";
 import { pullRequestLabel, pullRequestStateLabel, taskPullRequests } from "../domain/pull-requests";
+import { conversationTitle } from "../domain/conversation-navigation";
 
 function sendOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
  if(event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {event.preventDefault();event.currentTarget.form?.requestSubmit();}
@@ -134,12 +135,15 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
     catch {setActionError("Arrêt non confirmé. Actualisez le suivi avant de réessayer.");}
     finally {setStopping(false);}
   }
+  const displayTitle = conversationTitle(snapshot, run, task);
+  const taskKey = run?.taskKey || task?.key;
   return <section className="project-prompt conversation-prompt">
     <header className="workspace-toolbar prompt-heading">
       <div className="workspace-toolbar-main">
-        <h2 title={snapshot.title || undefined} style={{cursor:snapshot.canRename?"pointer":"default"}} onClick={()=>{if(snapshot.canRename){setTitle(snapshot.title||"");setRenaming(true);}}}>
+        <h2 title={displayTitle} style={{cursor:snapshot.canRename?"pointer":"default"}} onClick={()=>{if(snapshot.canRename){setTitle(snapshot.title||displayTitle||"");setRenaming(true);}}}>
           <Icon name="chat" />
-          <span>{snapshot.title || (snapshot.provider === "codex" ? "Codex" : snapshot.provider === "claude" ? "Claude Code" : "Conversation du projet")}</span>
+          {taskKey && <span role={onOpenTask ? "button" : undefined} tabIndex={onOpenTask ? 0 : undefined} className="sidebar-task-key" title={onOpenTask ? `Ouvrir le ticket ${taskKey}` : undefined} aria-label={onOpenTask ? `Ouvrir le ticket ${taskKey}` : undefined} onClick={e=>{if(onOpenTask){e.stopPropagation();onOpenTask();}}} onKeyDown={e=>{if(onOpenTask && (e.key==="Enter"||e.key===" ")){e.preventDefault();e.stopPropagation();onOpenTask();}}}>{taskKey}</span>}
+          <span>{displayTitle}</span>
         </h2>
         <div className="workspace-path">
           <p title={directory}>{directory || "Espace de travail de la conversation"}</p>
@@ -149,7 +153,7 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
       <div className="toolbar-actions">
         {snapshot.canAdoptConnection && <button disabled={!agentAvailable || acting || !!error} title="Cet historique n’est pas encore lié à la connexion sélectionnée." onClick={() => void control({ action: "adoptConnection" }).catch(() => {})}>Associer à cette connexion</button>}
         {busy && !snapshot.readOnly && <button disabled={!agentAvailable || acting} onClick={() => void control({ action: "interrupt" }).catch(() => {})}>Interrompre</button>}
-        {snapshot.canRename && <button type="button" className="icon-button" aria-label="Renommer la conversation" title="Renommer la conversation" onClick={()=>{setTitle(snapshot.title||"");setRenaming(true);}}><Icon name="edit" /></button>}
+        {snapshot.canRename && <button type="button" className="icon-button" aria-label="Renommer la conversation" title="Renommer la conversation" onClick={()=>{setTitle(snapshot.title||displayTitle||"");setRenaming(true);}}><Icon name="edit" /></button>}
         {onArchive && <button type="button" className="icon-button" aria-label="Archiver la discussion" title={run && isActive(run) ? "Arrêtez la discussion avant de l’archiver" : "Archiver la discussion"} disabled={!!run && isActive(run)} onClick={onArchive}><Icon name="archive" /></button>}
         {run && isActive(run) && <button type="button" className="icon-button stop-button" aria-label="Arrêter la discussion" title={stopping ? "Arrêt en cours…" : "Arrêter la discussion"} disabled={!agentAvailable || stopping || !!run.cancelRequested} onClick={() => void stopConversation()}><Icon name="stop" /></button>}
       </div>

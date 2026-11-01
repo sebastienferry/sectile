@@ -54,3 +54,36 @@ export function conversationGroups(
   }
   return [...groups].sort(([left], [right]) => (left === "" ? -1 : right === "" ? 1 : 0)).map(([label, runs]) => ({ label, runs }));
 }
+
+export function conversationTitle(
+  snapshot?: { title?: string; events?: (string | { kind?: string; type?: string; text?: string; message?: string })[] | null },
+  run?: Run,
+  task?: Task,
+): string {
+  if (snapshot?.title?.trim()) return snapshot.title.trim();
+  if (run?.taskId && task?.title?.trim()) return task.title.trim();
+  if (run?.title?.trim()) return run.title.trim();
+  if (snapshot?.events && Array.isArray(snapshot.events)) {
+    for (const item of snapshot.events) {
+      try {
+        const parsed = typeof item === "string" ? JSON.parse(item) : item;
+        const text = parsed?.text || parsed?.message;
+        const kind = parsed?.kind || parsed?.type;
+        if ((kind === "user" || !kind) && typeof text === "string" && text.trim()) {
+          return text.trim().split("\n")[0].slice(0, 100);
+        }
+      } catch {
+        // Ignore parse error
+      }
+    }
+  }
+  if (run?.taskId) {
+    if (run.taskKey?.trim()) return run.taskKey.trim();
+    return "Ticket";
+  }
+  if (run?.prompt?.trim()) {
+    return run.prompt.trim().split("\n")[0].slice(0, 100);
+  }
+  return "Conversation du projet";
+}
+

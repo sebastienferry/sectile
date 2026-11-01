@@ -36,7 +36,7 @@ import {
 } from "./lib/workspace-preference";
 import { useConversation } from "./lib/conversation-controller";
 import { renameConversation } from "./lib/conversation";
-import { conversationGroups, type ConversationGrouping } from "./domain/conversation-navigation";
+import { conversationGroups, conversationTitle, type ConversationGrouping } from "./domain/conversation-navigation";
 import { pullRequestLabel, pullRequestStateLabel, taskPullRequests } from "./domain/pull-requests";
 import { CommandPalette } from "./components/CommandPalette";
 import { shortcutModifier, workspaceShortcut } from "./lib/workspace-shortcuts";
@@ -1157,12 +1157,7 @@ function ConversationPrAction({task,taskKey,onError}:{task?:Task;taskKey?:string
 function ConversationNavigation({run,task,selected,onClick,onOpenTask}:{run:Run;task?:Task;selected:boolean;onClick:()=>void;onOpenTask?:()=>void}){
  // Subscribe to already loaded transcripts; navigation never fetches histories.
  const {snapshot,loaded,error}=useConversation(run.id);
- const title=useMemo(()=>{
-  if(run.taskId&&task?.title)return task.title;
-  if(run.title || snapshot.title)return run.title || snapshot.title;
-  for(const line of snapshot.events ?? []){try{const event=JSON.parse(line);if(event.kind==="user"&&typeof event.text==="string")return event.text.trim().split("\n")[0].slice(0,100);}catch{/* Keep provider metadata as the fallback. */}}
-  return run.prompt?.trim().split("\n")[0] || "Conversation";
- },[snapshot.events,snapshot.title,run.prompt,run.title,run.taskId,task?.title]);
+ const title=useMemo(()=>conversationTitle(snapshot,run,task),[snapshot.events,snapshot.title,run,task]);
  const provider=run.provider==="claude"?"Claude Code":run.provider==="codex"?"Codex":run.engineName||"Assistant";
  const activity=!isActive(run)?statusLabel(run):error?"Suivi interrompu":loaded&&snapshot.id===run.id?snapshot.approvals?.length?"Votre intervention est requise":snapshot.busy?"En cours":snapshot.readOnly?"Lecture seule":"Prête":statusLabel(run);
  return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={`${run.taskKey?`${run.taskKey} · `:""}${title} · ${provider}${run.model ? ` · ${run.model}` : ""} · ${task?.trackerStatus?`${task.trackerStatus} · `:""}${activity}`}>

@@ -91,8 +91,12 @@ test("a linked conversation shows ticket and execution state above the composer"
  vi.mocked(api.readConversation).mockResolvedValue(snapshot("linked-chat"));
  const openExecution=vi.fn();
  const openQueue=vi.fn();
- render(<ProjectPrompt projectId="p" runId="linked-chat" run={{id:"linked-chat",projectId:"p",conversation:true,taskId:"task",taskKey:"APP-42",skill:"clarify",status:"running",createdAt:"2026-10-30"}} task={{id:"task",key:"APP-42",title:"Linked task",source:"jira",trackerStatus:"In Progress",status:"to_close",prUrl:"https://github.com/team/app/pull/42",prLinks:[{url:"https://github.com/team/app/pull/42",state:"open"}]}} onOpenExecution={openExecution} onOpenQueue={openQueue} onCreated={vi.fn()}/>);
+ const openTask=vi.fn();
+ render(<ProjectPrompt projectId="p" runId="linked-chat" run={{id:"linked-chat",projectId:"p",conversation:true,taskId:"task",taskKey:"APP-42",skill:"clarify",status:"running",createdAt:"2026-10-30"}} task={{id:"task",key:"APP-42",title:"Linked task",source:"jira",trackerStatus:"In Progress",status:"to_close",prUrl:"https://github.com/team/app/pull/42",prLinks:[{url:"https://github.com/team/app/pull/42",state:"open"}]}} onOpenExecution={openExecution} onOpenQueue={openQueue} onOpenTask={openTask} onCreated={vi.fn()}/>);
  await screen.findByText("Repository explanation");
+ expect(screen.getByRole("heading",{name:/APP-42.*Linked task/})).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Ouvrir le ticket APP-42"}));
+ expect(openTask).toHaveBeenCalledOnce();
  const strip=screen.getByLabelText("Suivi de la conversation");
  expect(strip.textContent).toContain("Skill : Clarifier");
  expect(strip.textContent).toContain("APP-42 · In Progress");
