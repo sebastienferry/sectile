@@ -45,7 +45,7 @@ test("header displays Sectile Desktop branding and draggable region", async () =
 
 test("header displays local companion status when in local mode", async () => {
   render(<App />);
-  const companionLabel = await screen.findByText("Compagnon local");
+  const companionLabel = await screen.findByText("Local");
   expect(companionLabel).toBeDefined();
   const connectionContainer = document.querySelector("#connection");
   expect(connectionContainer?.getAttribute("data-state")).toBe("on");

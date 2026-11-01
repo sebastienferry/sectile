@@ -280,7 +280,7 @@ function Workspace() {
       : contractError || snapshot?.status.text || "The local agent does not reach the Sectile server.";
   } else {
     connectionText = connected
-      ? "Compagnon local"
+      ? "Local"
       : "Compagnon indisponible";
     connectionTitle = connected
       ? "Compagnon local actif · Prêt pour les exécutions"
