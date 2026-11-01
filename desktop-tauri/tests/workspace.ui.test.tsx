@@ -9,7 +9,7 @@ import App from "../src/App";
 import type { Task } from "../src/domain/board";
 import { conversationFor } from "../src/lib/conversation-controller";
 import * as workspace from "../src/lib/workspace";
-vi.mock("../src/lib/workspace",async original=>({...await original<typeof workspace>(),projectContext:vi.fn(),openExternalLink:vi.fn()}));
+vi.mock("../src/lib/workspace",async original=>({...await original<typeof workspace>(),projectContext:vi.fn(),openExternalLink:vi.fn(),runResult:vi.fn()}));
 import * as api from "../src/lib/agent";
 vi.mock("../src/lib/agent", () => ({
   listProjects: vi.fn(), listTasks: vi.fn(), getTask: vi.fn(), executionSnapshot: vi.fn(),
@@ -21,6 +21,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{}});
   vi.mocked(workspace.openExternalLink).mockResolvedValue(undefined);
+  vi.mocked(workspace.runResult).mockResolvedValue({});
   vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   vi.mocked(api.listProjects).mockResolvedValue([{ id: "p", name: "Example" }]);
   vi.mocked(api.listTasks).mockResolvedValue([]);
@@ -121,6 +122,8 @@ test("project menu opens the execution queue and groups ticket conversations by 
  expect(await within(sidebar).findByText("Reviewed task")).toBeTruthy();
  expect(within(sidebar).queryByText("Clarify this")).toBeNull();
  expect(sidebar.querySelector(".conversation-indicator.session")).not.toBeNull();
+ fireEvent.click(within(sidebar).getByRole("button",{name:"Ouvrir le ticket APP-1"}));
+ expect(await screen.findByRole("heading",{name:"New task"})).toBeTruthy();
  fireEvent.click(within(sidebar).getByLabelText("Actions pour Example"));
  fireEvent.click(within(sidebar).getByRole("menuitemcheckbox",{name:/Grouper par étape/}));
  expect(localStorage.getItem("sectile-tauri.conversationGrouping")).toBe("stage");

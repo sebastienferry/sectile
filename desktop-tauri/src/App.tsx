@@ -602,7 +602,7 @@ function Workspace() {
                                   onClick={e => e.stopPropagation()}
                                 />
                               ) : (
-                                <RunNavigation run={run} task={task} selected={current?.runId===run.id} onClick={()=>navigate(project,"prompt",run.id)} />
+                                <RunNavigation run={run} task={task} selected={current?.runId===run.id} onClick={()=>navigate(project,"prompt",run.id)} onOpenTask={run.taskId ? () => navigate(project, "task", undefined, run.taskId) : undefined} />
                               )}
                               <ConversationPrAction task={task} taskKey={run.taskKey} onError={()=>setConversationActionError("Impossible d’ouvrir la PR/MR.")}/>
                               {!showArchivedConversations && isActive(run) && (
@@ -1140,9 +1140,13 @@ function visibleBoardTasks(tasks:Task[],activeRuns:Map<string,Run>,limit:number)
  return active.concat(others).slice(0,limit);
 }
 
-function RunNavigation({run,task,selected,onClick}:{run:Run;task?:Task;selected:boolean;onClick:()=>void}){
- if(run.conversation)return <ConversationNavigation run={run} task={task} selected={selected} onClick={onClick} />;
- return <button className={`sidebar-run ${selected ? "selected" : ""}`} title={statusLabel(run)} onClick={onClick}><span className={`dot ${isActive(run) ? "live" : ""}`} /><span>{run.taskKey || run.skill || "Exécution"}</span></button>;
+function RunNavigation({run,task,selected,onClick,onOpenTask}:{run:Run;task?:Task;selected:boolean;onClick:()=>void;onOpenTask?:()=>void}){
+ if(run.conversation)return <ConversationNavigation run={run} task={task} selected={selected} onClick={onClick} onOpenTask={onOpenTask} />;
+ return <button className={`sidebar-run ${selected ? "selected" : ""}`} title={statusLabel(run)} onClick={onClick}>
+  <span className={`dot ${isActive(run) ? "live" : ""}`} />
+  {run.taskKey && <span role="button" tabIndex={0} className="sidebar-task-key" title={`Ouvrir le ticket ${run.taskKey}`} aria-label={`Ouvrir le ticket ${run.taskKey}`} onClick={e=>{e.stopPropagation();onOpenTask?.();}} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.stopPropagation();onOpenTask?.();}}}>{run.taskKey}</span>}
+  <span>{run.taskKey || run.skill || "Exécution"}</span>
+ </button>;
 }
 function ConversationPrAction({task,taskKey,onError}:{task?:Task;taskKey?:string;onError:()=>void}){
  const links=taskPullRequests(task);
@@ -1150,7 +1154,7 @@ function ConversationPrAction({task,taskKey,onError}:{task?:Task;taskKey?:string
  const current=links[links.length-1];
  return <button className="conversation-pr-action" type="button" aria-label={`Ouvrir la PR/MR de ${task?.key||taskKey||task?.title||"ce ticket"}`} title={`${links.length>1?`${links.length} PR/MR · `:""}${pullRequestLabel(current)} · ${pullRequestStateLabel(current)}`} onClick={()=>void openExternalLink(current.url).catch(onError)}><Icon name="branch"/>{links.length>1&&<small>{links.length}</small>}</button>;
 }
-function ConversationNavigation({run,task,selected,onClick}:{run:Run;task?:Task;selected:boolean;onClick:()=>void}){
+function ConversationNavigation({run,task,selected,onClick,onOpenTask}:{run:Run;task?:Task;selected:boolean;onClick:()=>void;onOpenTask?:()=>void}){
  // Subscribe to already loaded transcripts; navigation never fetches histories.
  const {snapshot,loaded,error}=useConversation(run.id);
  const title=useMemo(()=>{
@@ -1161,5 +1165,9 @@ function ConversationNavigation({run,task,selected,onClick}:{run:Run;task?:Task;
  },[snapshot.events,snapshot.title,run.prompt,run.title,run.taskId,task?.title]);
  const provider=run.provider==="claude"?"Claude Code":run.provider==="codex"?"Codex":run.engineName||"Assistant";
  const activity=!isActive(run)?statusLabel(run):error?"Suivi interrompu":loaded&&snapshot.id===run.id?snapshot.approvals?.length?"Votre intervention est requise":snapshot.busy?"En cours":snapshot.readOnly?"Lecture seule":"Prête":statusLabel(run);
- return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={`${run.taskKey?`${run.taskKey} · `:""}${title} · ${provider}${run.model ? ` · ${run.model}` : ""} · ${task?.trackerStatus?`${task.trackerStatus} · `:""}${activity}`}><span className={`conversation-indicator ${snapshot.approvals?.length?"needs-input":loaded&&snapshot.busy?"live":isActive(run)?"session":"idle"}`} />{run.taskKey&&<span className="sidebar-task-key">{run.taskKey}</span>}<span className="conversation-navigation-text"><span>{title}</span></span></button>;
+ return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={`${run.taskKey?`${run.taskKey} · `:""}${title} · ${provider}${run.model ? ` · ${run.model}` : ""} · ${task?.trackerStatus?`${task.trackerStatus} · `:""}${activity}`}>
+  <span className={`conversation-indicator ${snapshot.approvals?.length?"needs-input":loaded&&snapshot.busy?"live":isActive(run)?"session":"idle"}`} />
+  {run.taskKey && <span role="button" tabIndex={0} className="sidebar-task-key" title={`Ouvrir le ticket ${run.taskKey}`} aria-label={`Ouvrir le ticket ${run.taskKey}`} onClick={e=>{e.stopPropagation();onOpenTask?.();}} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.stopPropagation();onOpenTask?.();}}}>{run.taskKey}</span>}
+  <span className="conversation-navigation-text"><span>{title}</span></span>
+ </button>;
 }
