@@ -372,6 +372,9 @@ func (d *agentDaemon) initializeCodexConversation(run *controlledRun, state *cod
 	if run.desktop.Model != "" {
 		params["model"] = run.desktop.Model
 	}
+	if run.profile != nil {
+		params["developerInstructions"] = run.profile.DeveloperInstructions
+	}
 	method := "thread/start"
 	if c.session != "" {
 		method = "thread/resume"
@@ -438,7 +441,7 @@ func (d *agentDaemon) startCodexTurn(run *controlledRun, state *codexConversatio
 	if mode == "plan" {
 		collaboration = "plan"
 	}
-	params["collaborationMode"] = map[string]any{"mode": collaboration, "settings": map[string]any{"model": run.desktop.Model, "reasoning_effort": wireEffort, "developer_instructions": nil}}
+	params["collaborationMode"] = map[string]any{"mode": collaboration, "settings": map[string]any{"model": run.desktop.Model, "reasoning_effort": wireEffort, "developer_instructions": profileDeveloperInstructions(run)}}
 	c.busy = true
 	d.queue.mu.Unlock()
 	var result struct {
@@ -1042,4 +1045,11 @@ func (d *agentDaemon) refreshCodexMCP(run *controlledRun, state *codexConversati
 		}
 		conversationWrite(run.trace, "command_output", text, "")
 	}
+}
+
+func profileDeveloperInstructions(run *controlledRun) any {
+	if run.profile != nil {
+		return run.profile.DeveloperInstructions
+	}
+	return nil
 }

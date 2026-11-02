@@ -48,31 +48,31 @@ test('TTY header follows metadata and selection without disturbing the console',
   await expect(page.locator('#dialog-body h2')).toHaveText('Commands')
   await page.keyboard.press('Escape')
   await expect.poll(()=>pending.length).toBeGreaterThan(0)
-  const otherBadge=page.locator('.task-skill-status[data-run-id="other"]')
+  const otherBadge=page.locator('.local-task .run-state[data-skill-run-id="other"]')
   await page.locator('#task-actions-more').focus()
   await expect.poll(()=>attachments).toBe(1)
   const beforeStatus=[attachments,disconnections]
   reported={activity:{id:'other',taskId:'full-task-id',skillId:'specify',status:'completed'},task:{labels:['specified']}}
-  await expect(otherBadge).toHaveText('✓')
-  await expect(otherBadge).toHaveAttribute('title','Skill: Skill completed')
-  await expect(page.locator('.task-skill-status[data-run-id="current"]')).not.toHaveText('✓')
+  await expect(otherBadge).toHaveAttribute('data-kind','done')
+  await expect(otherBadge).toHaveAttribute('title',/^Done · Specification ready\nExecution: Running · Skill record: completed · Task stage: specified$/)
+  await expect(page.locator('.local-task .run-state[data-skill-run-id="current"]')).not.toHaveAttribute('data-kind','done')
   await expect(header()).toHaveText('#82 · implement')
   await expect(page.locator('#task-actions-more')).toBeFocused()
   assert.deepEqual([attachments,disconnections],beforeStatus)
   // An exited process alone never confirms the skill; the server must report the launched skill.
-  const currentBadge=page.locator('.task-skill-status[data-run-id="current"]')
-  await expect(currentBadge).toHaveAttribute('title','Skill: Execution ended · skill completion unconfirmed')
+  const currentBadge=page.locator('.local-task .run-state[data-skill-run-id="current"]')
+  await expect(currentBadge).toHaveAttribute('title',/^Needs verification · The session ended without reporting a result\n/)
   const settled=async()=>{const before=resultRequests;await expect.poll(()=>resultRequests).toBeGreaterThanOrEqual(before+3)}
   // The activity record kind is not the launched skill and must not be accepted as a match.
   reported={activity:{id:'current',taskId:'a',skillId:'remote_run',status:'completed'},task:{labels:['implemented']}}
   await settled()
-  await expect(currentBadge).toHaveAttribute('title','Skill: Execution ended · skill completion unconfirmed')
+  await expect(currentBadge).toHaveAttribute('data-kind','verify')
   reported={activity:{id:'current',taskId:'a',skillId:'implement',status:'completed'},task:{labels:['implemented']}}
-  await expect(currentBadge).toHaveText('✓')
-  await expect(currentBadge).toHaveAttribute('title','Skill: Skill completed')
-  // A withdrawn verdict leaves a still-running execution with nothing to report.
+  await expect(currentBadge).toHaveAttribute('data-kind','done')
+  await expect(currentBadge).toHaveAttribute('title',/^Done · Implemented\n/)
+  // A withdrawn verdict leaves a still-running execution working.
   reported=null
-  await expect(otherBadge).toHaveText('')
+  await expect(otherBadge).toHaveAttribute('data-kind','working')
   await select('full-task-id')
   await expect(header()).toHaveText('full-task-id · specify')
   tasks=[{id:'a',title:'Delayed title',prUrl:'https://github.com/example/repo/pull/82'}]
@@ -143,8 +143,9 @@ test('TTY header follows metadata and selection without disturbing the console',
   await expect(header()).toHaveText('full-task-id · specify')
   const consoleCounts=[attachments,disconnections]
   reported={activity:{id:'other',taskId:'full-task-id',skillId:'specify',status:'completed'},task:{labels:['specified']}}
-  await expect(page.locator('#task-status #skill-result')).toHaveText('✓ Skill completed')
-  await expect(page.locator('#toolbar #run-state')).toHaveText('Running')
+  // One status: the header names it, the status bar spells out what it was drawn from.
+  await expect(page.locator('#toolbar #run-state')).toHaveText('Done · Specification ready')
+  await expect(page.locator('#task-status #skill-result')).toHaveText('Execution: Running · Skill record: completed · Task stage: specified')
   await expect(page.locator('#task-status #run-state, #toolbar #skill-result')).toHaveCount(0)
   await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(800,600))
   await expect.poll(()=>page.evaluate(()=>window.innerWidth)).toBe(800)
@@ -158,16 +159,18 @@ test('TTY header follows metadata and selection without disturbing the console',
   assert.equal(runs[0].status,'running')
   assert.deepEqual([attachments,disconnections],consoleCounts)
   reported.task.labels=['clarified']
-  await expect(page.locator('#skill-result')).toContainText('Awaiting stage validation')
+  await expect(page.locator('#run-state')).toHaveText('Needs verification')
+  await expect(page.locator('#skill-result')).toContainText('Specify reported completion; the task is still at clarified')
   reported.activity.status='failed'
-  await expect(page.locator('#skill-result')).toHaveText('! Skill failed')
-  await expect(page.locator('.task-skill-status')).toHaveText('!')
-  // Without a server verdict a running execution has nothing to add to its run
-  // state, so the badge goes rather than restating it.
+  await expect(page.locator('#run-state')).toHaveText('Could not finish')
+  // This result carries no reason fields, as an older agent's does.
+  await expect(page.locator('#skill-result .status-summary')).toHaveText('reason not available · Open the console')
+  await expect(page.locator('.local-task .run-state')).toHaveAttribute('data-kind','failed')
+  // Without a server verdict a running execution is working on its skill.
   resultUnavailable=true
-  await expect(page.locator('#skill-result')).toBeHidden()
-  await expect(page.locator('.task-skill-status')).toHaveText('')
-  await expect(page.locator('#run-state')).toHaveText('Running')
+  await expect(page.locator('#run-state')).toHaveText('Working · Specify')
+  await expect(page.locator('#skill-result')).toHaveText('Execution: Running · Skill record: none · Task stage: unknown')
+  await expect(page.locator('.local-task .run-state')).toHaveAttribute('data-kind','working')
   runs=[];await page.reload()
   await expect(header()).toHaveText('Select an execution')
   await expect(header()).toHaveAttribute('title','Select an execution')

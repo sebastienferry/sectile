@@ -178,3 +178,59 @@ func TestOrchestratorUnknownProject(t *testing.T) {
 		t.Fatalf("expected ErrOrchestratorProjectNotFound, got %v", err)
 	}
 }
+
+// Only the orchestrator's own work takes a slot: a session started by hand on
+// one ticket neither counts against the cap nor lets the orchestrator start a
+// second agent on that ticket. An orchestrated run on a workstation counts as
+// its queued launch did.
+func TestOnlyOrchestratedRunsTakeASlot(t *testing.T) {
+	ctx := context.Background()
+	d, project := orchestratorTestDB(t)
+	var tasks []*models.Task
+	for _, title := range []string{"Manual work in progress", "Second eligible ticket", "Third eligible ticket"} {
+		task, err := d.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: title,
+			Description: "A description with ample technical details for clarification and spec."})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tasks = append(tasks, task)
+	}
+
+	if _, err := d.StartAgentRun(tasks[0].ID, "adjust", RunLaunch{UserID: "someone", Prompt: "Fix the review comments"}); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := d.ActiveRunsCountForProject(project.ID); err != nil || count != 0 {
+		t.Fatalf("a manual run took a slot: count %d (err: %v)", count, err)
+	}
+
+	res, err := d.EvaluateAndOrchestrateBacklog(ctx, project.ID, Actor{ID: "admin", Name: "Admin"}, models.OrchestrateProjectRequest{})
+	if err != nil {
+		t.Fatalf("orchestrate failed: %v", err)
+	}
+	if res.ActiveRunsBefore != 0 || len(res.Launched) != 2 {
+		t.Fatalf("expected both free tickets launched past the manual run, got before=%d launched=%+v skipped=%+v", res.ActiveRunsBefore, res.Launched, res.Skipped)
+	}
+	for _, launched := range res.Launched {
+		if launched.ID == tasks[0].ID {
+			t.Fatal("the orchestrator started a second agent on a ticket somebody is working on")
+		}
+	}
+	if count, err := d.ActiveRunsCountForProject(project.ID); err != nil || count != 2 {
+		t.Fatalf("expected the two orchestrated launches to hold their slots, got %d (err: %v)", count, err)
+	}
+
+	other, err := d.CreateProject(models.CreateProjectRequest{Name: "Remote", IssueTracker: "local", OrchestratorEnabled: true, OrchestratorMaxConcurrent: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := d.CreateTask(models.CreateTaskRequest{ProjectID: other.ID, Title: "Orchestrated on a workstation", Description: "A description with ample technical details."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.StartAgentRun(task.ID, "clarify", RunLaunch{UserID: "admin", Prompt: orchestratorLaunchPrompt("")}); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := d.ActiveRunsCountForProject(other.ID); err != nil || count != 1 {
+		t.Fatalf("an orchestrated run on a workstation took no slot: count %d (err: %v)", count, err)
+	}
+}

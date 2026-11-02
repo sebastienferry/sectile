@@ -1149,6 +1149,15 @@ func (d *DB) SeedDemoData() error {
 	return nil
 }
 
+// importChunkSize is how many tickets ImportOrUpdateTasks writes before it lets
+// the other users of the lock in. Fifty tickets is a few hundred statements,
+// well under a second on a remote PostgreSQL.
+var importChunkSize = 50
+
+// importChunkPause runs between two chunks, with the lock released. It does
+// nothing outside the tests, which use it to check the lock is free there.
+var importChunkPause = func() {}
+
 // ImportOrUpdateTasks writes what a synchronisation read from one tracker
 // (#741). A ticket is found by its tracker and key, or by its id, then through
 // the alias a merged-away duplicate left; the tracker's board mapping decides
@@ -1160,9 +1169,23 @@ func (d *DB) SeedDemoData() error {
 // An empty trackerID takes each ticket's tracker from its project, the default
 // project when it names none: the path of the callers that import into a
 // project rather than from a tracker.
+//
+// The write lock is released every importChunkSize tickets. A full read of a
+// large tracker is thousands of tickets and several statements each: held for
+// the whole import, the lock stalled every other reader of the process for
+// tens of seconds, long enough for the instance to miss its heartbeat and be
+// taken for dead, and for every agent connection to be dropped for silence.
+// Each ticket is written on its own, and two instances already import side by
+// side without sharing this lock, so a chunk boundary opens no race the
+// import was not already exposed to.
 func (d *DB) ImportOrUpdateTasks(trackerID string, syncedTasks []models.Task) error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			d.mu.Unlock()
+		}
+	}()
 
 	now := time.Now()
 	var importErrs []string
@@ -1176,7 +1199,14 @@ func (d *DB) ImportOrUpdateTasks(trackerID string, syncedTasks []models.Task) er
 		trackers[id] = t
 		return t
 	}
-	for _, t := range syncedTasks {
+	for i, t := range syncedTasks {
+		if i > 0 && i%importChunkSize == 0 {
+			d.mu.Unlock()
+			locked = false
+			importChunkPause()
+			d.mu.Lock()
+			locked = true
+		}
 		labelsJSON, _ := json.Marshal(t.Labels)
 		isPinned := HasPinnedLabel(t.Labels)
 		pinnedVal := 0
@@ -1348,10 +1378,12 @@ func (d *DB) ImportOrUpdateTasks(trackerID string, syncedTasks []models.Task) er
 			} else {
 				_, _ = d.conn.Exec(`DELETE FROM pinned_tasks WHERE task_id = ? OR task_id = ?`, existingID, t.Key)
 			}
-			// Update existing task title/desc/status/labels/source
+			// Update existing task title/desc/status/labels/source. The priority
+			// is only taken from a tracker that carries one: GitHub and GitLab
+			// tickets keep the level set in Sectile (#882).
 			if _, updErr := d.conn.Exec(`
 				UPDATE tasks
-				SET title = ?, description = ?, status = ?, priority = ?, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?, source = ?, external_url = ?,
+				SET title = ?, description = ?, status = ?, priority = CASE WHEN ? THEN ? ELSE priority END, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?, source = ?, external_url = ?,
 				    creator = CASE WHEN ? != '' THEN ? ELSE creator END,
 				    creator_avatar = CASE WHEN ? != '' THEN ? ELSE creator_avatar END,
 				    issue_type = CASE WHEN ? != '' THEN ? ELSE issue_type END,
@@ -1367,7 +1399,7 @@ func (d *DB) ImportOrUpdateTasks(trackerID string, syncedTasks []models.Task) er
 				    status_changed_at = COALESCE(?, status_changed_at),
 				    updated_at = ?
 				WHERE id = ?
-			`, t.Title, t.Description, string(t.Status), string(t.Priority), string(labelsJSON), pinnedVal, t.Assignee, t.AssigneeAvatar, src, t.ExternalURL,
+			`, t.Title, t.Description, string(t.Status), trackerCarriesPriority(src), string(t.Priority), string(labelsJSON), pinnedVal, t.Assignee, t.AssigneeAvatar, src, t.ExternalURL,
 				t.Creator, t.Creator, t.CreatorAvatar, t.CreatorAvatar,
 				t.IssueType, t.IssueType, t.ParentKey, t.ParentKey, t.ParentTitle, t.ParentTitle, t.ParentType, t.ParentType,
 				t.Sprint, t.Sprint, t.Team, t.Team, t.TeamID, t.TeamID, t.TrackerStatus, t.TrackerStatus, t.TrackerCreatedAt, t.TrackerUpdatedAt, t.StatusChangedAt, now, existingID); updErr != nil {
@@ -1386,6 +1418,15 @@ func (d *DB) ImportOrUpdateTasks(trackerID string, syncedTasks []models.Task) er
 			len(importErrs), len(syncedTasks), strings.Join(shown, "; "))
 	}
 	return nil
+}
+
+// trackerCarriesPriority tells whether a ticket of this source has a priority
+// of its own on its tracker. GitHub and GitLab have none: their adapters return
+// medium, which must not overwrite the level set in Sectile (#882). The answer
+// reads the source, never the incoming value, so a Jira ticket moved to Medium
+// in Jira still syncs.
+func trackerCarriesPriority(source string) bool {
+	return source == "jira"
 }
 
 // externalURLResolver computes the tracker links of one read. It loads the settings at most once, and only when a row

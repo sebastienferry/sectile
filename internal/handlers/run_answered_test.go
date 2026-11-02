@@ -74,6 +74,7 @@ func TestAClearIsPushedWithoutThePushedMark(t *testing.T) {
 	if err := database.SetRemoteRunWaiting(run.ID, true); err != nil {
 		t.Fatal(err)
 	}
+	time.Sleep(50 * time.Millisecond)
 	agent := connectAgentAs(t, server, key, "default")
 	awaitAgent(t, h, run.UserID)
 

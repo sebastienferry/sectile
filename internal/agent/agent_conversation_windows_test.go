@@ -32,3 +32,12 @@ func TestAgyConversationChildDoesNotOpenAWindowsConsole(t *testing.T) {
 		t.Fatal("Antigravity conversation child would open a console window")
 	}
 }
+
+func TestProfileProviderProbeDoesNotOpenAWindowsConsole(t *testing.T) {
+	for _, provider := range []string{"claude", "codex"} {
+		cmd := profileCommand(t.Context(), provider, "--help")
+		if cmd.SysProcAttr == nil || cmd.SysProcAttr.CreationFlags&windows.CREATE_NO_WINDOW == 0 {
+			t.Fatal("profile probe would open a console window")
+		}
+	}
+}

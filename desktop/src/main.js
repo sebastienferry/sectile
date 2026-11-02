@@ -1,3 +1,4 @@
+import { agentProfileFields } from './agent-profiles.mjs'
 import { createOrchestration } from './orchestration.mjs'
 import { orchestrationSettings } from './orchestration-settings.mjs'
 import { renderDesktopUpdates } from './desktop-updates.mjs'
@@ -18,8 +19,10 @@ import { initialProject, leaveMessage } from './task-form.mjs'
 import { logText } from './log-text.mjs'
 import { createGitDiff } from './gitDiff.js'
 import { createConversationView } from './conversation.js'
+import { nextStepOffer, blocksLaunch } from './next-step-offer.mjs'
 
-import { skillResult } from './skill-result.mjs'
+import { primaryStatus } from './skill-result.mjs'
+import { statusGlyphId, statusGlyphSvg, statusText } from './status-glyphs.mjs'
 import { orderedQueueRuns } from './queue.mjs'
 import { followedExecution, orderedTaskGroups } from './task-order.mjs'
 import { transitions, announce } from './notifications.mjs'
@@ -105,6 +108,12 @@ let nextStepData=null,nextStepGeneration=0,nextStepUpdated=0,lastDiffChecked=0
 const submittingSteps=new Map()
 const submittedSteps=new Map()
 const nextStepErrors=new Map()
+// The last polled state of the selected conversation, and the launches its
+// next-step offer made, keyed by task key: {predecessorId}, then the runs the
+// task had before the launch, so the predecessor is closed once its successor
+// shows (#875).
+let conversationState=null
+const offerLaunches=new Map()
 // Task keys whose last launch was refused because a run is already active on
 // them. Only that refusal is forceable, so the offer is keyed on the marker the
 // server puts in its body, never on the 409 status alone: a finished task and a
@@ -143,6 +152,18 @@ const projectBoards=new Map()
 const skillResults=new Map(),loadingSkillResults=new Set()
 // When each run's skill result was last read, and in what state the run was.
 const skillResultReads=new Map()
+// The stage a pickup's task was at when Desktop first read its result with the
+// run still going: a pickup's outcome is how far it moved the task (#878). A
+// pickup first seen once ended has none, and its completion reads as Needs
+// verification rather than as a claim nothing supports.
+const launchStages=new Map()
+try{for(const [id,stage] of Object.entries(JSON.parse(localStorage.getItem('launchStages')||'{}')))launchStages.set(id,stage)}catch{}
+function noteLaunchStage(run,result){
+ if(!['pickup','pickup_issues'].includes(run.skill)||launchStages.has(run.id)||!result?.task||skillEnded(result)||['completed','failed','canceled'].includes(run.status))return
+ launchStages.set(run.id,taskStage(result.task))
+ for(const id of launchStages.keys())if(!runs.some(item=>item.id===id))launchStages.delete(id)
+ localStorage.setItem('launchStages',JSON.stringify(Object.fromEntries(launchStages)))
+}
 const pullRequests=new Map()
 let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
@@ -225,7 +246,9 @@ let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,p
 // another folder of a run than its directory (#784), read with the editor
 // setting from its status.
 let folderSelectionAvailable=false,runFoldersAvailable=false,runFoldersTerminalsAvailable=false,conversationControlsAvailable=false,conversationQueueAvailable=false,providerModels={}
-const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable,canControl:()=>conversationControlsAvailable,canQueue:()=>conversationQueueAvailable,models:provider=>providerModels[provider]||[]})
+const conversation=createConversationView({api,container:document.querySelector('#terminal'),onError:error,canAddFolder:()=>runFoldersAvailable,canControl:()=>conversationControlsAvailable,canQueue:()=>conversationQueueAvailable,models:provider=>providerModels[provider]||[],
+ onState:state=>{conversationState=state;renderOffer()},
+ onOffer:offer=>{const run=currentTaskRun();if(run)launchTaskWork('next',false,{predecessor:{id:run.id,skillId:offer.skillId}})}})
 // The conversation view is opt-in from Appearance; the terminal stays the default.
 let consoleView='terminal'
 api.consoleView().then(value=>{consoleView=value;render()}).catch(()=>{})
@@ -391,6 +414,9 @@ function select(run,background=false,options){
  // stays the one its relaunch falls back to.
  if(run.projectId)selectedProject=run.projectId
  selected=run.id
+ // A handover still waiting for its successor is dropped once the user moves
+ // to another task: its predecessor then stays open (#875).
+ for(const [key,launch] of offerLaunches)if(launch.runIds&&key!==taskKey(run))offerLaunches.delete(key)
  changes.select(selected,currentFolder(run)?.path)
  if(options?.console&&!changes.consoleVisible)document.querySelector('#view-console').click()
  conversation.select(run)
@@ -415,13 +441,37 @@ function select(run,background=false,options){
 // The state the user reads, drawn from the shared definition so the row, the
 // execution queue and the banner the desktop raises cannot say three things.
 // The glyph is decorative: the label carries the state for anyone who cannot
-// resolve an amber hand, and the row tooltip repeats it. "Process:" tells it
-// apart from the skill badge beside it, which answers another question.
+// resolve an amber hand, and the row tooltip repeats it. A run with a skill
+// shows its primary status instead (renderRowStatus); this is what a free
+// console and a discussion show.
 function renderRunState(element,run){
  const state=runStateOf(run),label=runStateLabel(state)
+ delete element.dataset.kind
  if(element.dataset.runState!==state){element.dataset.runState=state;element.innerHTML=runStateSvg(state,14)}
  element.title='Process: '+label;element.setAttribute('aria-label',element.title)
  return label
+}
+// The one status of a skill execution (#878), from its latest skill result. The
+// next-step hint is the one the next-step button launches, so it is only known
+// for the task whose workflow was read.
+function runStatus(run){
+ if(!run)return null
+ const step=nextStepData&&!nextStepData.error&&nextStepData.key===taskKey(run)?nextStepData.step:null
+ return primaryStatus(run,skillResults.get(run.id),{nextStep:step?.skillId?step.label:'',launchStage:launchStages.get(run.id)||''})
+}
+// A task row's leading glyph: the primary status of the task's newest skill run
+// (#586), or the run state of its leading run when the task runs no skill.
+// Nothing is rewritten that has not changed, so focus and selection hold.
+function renderRowStatus(element,run,skillRun){
+ element.dataset.runId=run.id;element.dataset.skillRunId=skillRun.id
+ const shown=runStatus(skillRun)
+ if(!shown)return renderRunState(element,run)
+ const glyph=statusGlyphId(shown)
+ if(element.dataset.runState!==glyph){element.dataset.runState=glyph;element.innerHTML=statusGlyphSvg(shown,14)}
+ element.dataset.kind=shown.kind
+ const text=statusText(shown)
+ if(element.title!==text){element.title=text;element.setAttribute('aria-label',text)}
+ return shown.label
 }
 function renderQueue(project,group){
  const runsForProject=runs.filter(run=>run.projectId===project.id)
@@ -468,9 +518,10 @@ async function refreshSkillResult(id=selected){
   // run; a run the latest poll still lists as live is the anomaly worth noting.
   if(result===null&&runs.includes(run)&&!['completed','failed','canceled'].includes(run.status))console.warn('The local agent reports no run '+run.id+' while the desktop still lists it as '+run.status)
   skillResults.set(run.id,result)
+  noteLaunchStage(run,result)
   skillResultReads.set(run.id,skillResultStamp(run,Date.now(),skillResultReads.get(run.id),skillEnded(result)))
  }catch{skillResults.delete(run.id)}
- finally{loadingSkillResults.delete(run.id);renderHeader();renderTaskSkillStatuses()}
+ finally{loadingSkillResults.delete(run.id);renderHeader();renderTaskSkillStatuses();renderOffer()}
 }
 let refreshingVisibleSkillResults=false
 async function refreshVisibleSkillResults(){
@@ -478,7 +529,7 @@ async function refreshVisibleSkillResults(){
  refreshingVisibleSkillResults=true
  // Only the rows whose result can have changed are read again.
  const now=Date.now()
- const ids=[...new Set([selected,...[...document.querySelectorAll('.task-skill-status')].map(item=>item.dataset.runId)].filter(Boolean))]
+ const ids=[...new Set([selected,...[...document.querySelectorAll('#runs .local-task>.run-state')].map(item=>item.dataset.skillRunId)].filter(Boolean))]
   .filter(id=>{const run=runs.find(item=>item.id===id);return run&&skillResultDue(run,skillResultReads.get(id),now)})
  try{
   await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{
@@ -499,9 +550,7 @@ function renderTaskRowStates(){
   const selectedTask=executions.some(item=>item.id===selected)
   row.classList.toggle('selected',selectedTask)
   if(button){button.dataset.runId=run.id;button.dataset.status=run.status;button.onclick=choose;button.classList.toggle('selected',selectedTask)}
-  element.dataset.runId=run.id;element.onclick=choose;renderRunState(element,run)
-  const skill=row.querySelector('.task-skill-status')
-  if(skill)skill.dataset.runId=skillRun.id
+  element.onclick=choose;renderRowStatus(element,run,skillRun)
  }
  renderTaskSkillStatuses()
 }
@@ -514,7 +563,8 @@ function renderTaskMetadata(){
   const executions=runs.filter(item=>taskKey(item)===taskKey(run)&&!hiddenRun(item))
   const title=button.querySelector('strong')
   if(title)title.textContent=displayedName(run)
-  button.title=displayedName(run)+' · '+runLabel(run)+' · '+runStateLabel(runStateOf(run))+' · '+executions.length+' execution(s)'
+  const skillRun=runs.find(item=>item.id===row.querySelector('.run-state')?.dataset.skillRunId)
+  button.title=displayedName(run)+' · '+runLabel(run)+' · '+(runStatus(skillRun)?.label||runStateLabel(runStateOf(run)))+' · '+executions.length+' execution(s)'
   const pencil=row.querySelector('.task-rename-button'),archive=row.querySelector('.task-archive')
   if(pencil){pencil.title='Rename '+displayedName(run);pencil.setAttribute('aria-label',pencil.title)}
   if(archive){archive.title=archiveLabel(taskState(run).name||run.taskKey||run.taskId||runLabel(run),{active:executions.some(activeRun),ticket:archivesWorktree(run)});archive.setAttribute('aria-label',archive.title)}
@@ -536,18 +586,11 @@ function renderTaskMetadata(){
   if(others.length)pr.after(otherPullRequestsBadge(others))
  }
 }
+// Redraws every task row's leading glyph from the latest skill results.
 function renderTaskSkillStatuses(){
- for(const badge of document.querySelectorAll('.task-skill-status')){
-  const run=runs.find(item=>item.id===badge.dataset.runId)
-  const result=skillResult(run,skillResults.get(run?.id))
-  // No skill result is a state of its own: leaving the previous glyph in place
-  // would keep showing a verdict that no longer holds, beside a run state that
-  // has moved on.
-  if(!result){badge.className='status task-skill-status';badge.textContent='';badge.removeAttribute('title');badge.removeAttribute('aria-label');continue}
-  badge.className='status task-skill-status '+result.kind
-  if(badge.textContent!==result.icon)badge.textContent=result.icon
-  badge.title='Skill: '+result.label
-  badge.setAttribute('aria-label',badge.title)
+ for(const element of document.querySelectorAll('#runs .local-task>.run-state')){
+  const run=runs.find(item=>item.id===element.dataset.runId),skillRun=runs.find(item=>item.id===element.dataset.skillRunId)
+  if(run&&skillRun)renderRowStatus(element,run,skillRun)
  }
 }
 // The worktree path is the one piece of the header a user needs elsewhere - in a
@@ -793,20 +836,24 @@ const prMenu=toolbarMenu(prMoreButton,document.querySelector('#selected-pr-menu'
   return item
  })
 })
-// The state beside the task ID is the one the sidebar row and notification
-// already show, drawn from the shared definition with its label spelled out.
+// The status beside the task ID is the one its sidebar row shows, with its
+// label spelled out: the primary status of a skill execution (#878), the run
+// state of a free console or a discussion.
 function renderHeaderState(run){
  const element=document.querySelector('#run-state')
  element.hidden=!run
  if(!run)return
- const state=runStateOf(run),label=runStateLabel(state)
+ const shown=runStatus(run)
+ const state=shown?statusGlyphId(shown):runStateOf(run),label=shown?shown.label:runStateLabel(state)
  if(element.dataset.runState!==state){
   element.dataset.runState=state
-  element.innerHTML=runStateSvg(state,14)+'<span class="run-state-label"></span>'
+  element.innerHTML=(shown?statusGlyphSvg(shown,14):runStateSvg(state,14))+'<span class="run-state-label"></span>'
  }
+ if(shown)element.dataset.kind=shown.kind
+ else delete element.dataset.kind
  const text=element.querySelector('.run-state-label')
  if(text.textContent!==label)text.textContent=label
- element.title='Process: '+label
+ element.title=shown?statusText(shown):'Process: '+label
 }
 function toggleTaskSort(projectID,sort){
  selectedProject=projectID
@@ -903,11 +950,24 @@ function renderHeader(){
  const title=document.querySelector('#title')
  title.textContent=text;title.title=text
  renderHeaderState(run)
- const badge=document.querySelector('#skill-result'),result=skillResult(run,skillResults.get(run?.id))
+ // The status bar spells out the status the header names: its detail and next
+ // step, then the signals it was drawn from and the full recorded reason.
+ const badge=document.querySelector('#skill-result'),shown=runStatus(run)
  const badgeHome=(conversation.active&&document.querySelector('.conversation-status-row'))||document.querySelector('#task-status .execution-status')
  if(badge.parentElement!==badgeHome)badgeHome.append(badge)
- badge.hidden=!result
- if(result){badge.className='skill-result '+result.kind;if(badge.textContent!==result.icon+' '+result.label)badge.textContent=result.icon+' '+result.label;badge.title='Skill: '+result.label;badge.setAttribute('aria-label',badge.title)}
+ badge.hidden=!shown
+ if(shown){
+  if(!badge.querySelector('.status-details'))badge.innerHTML='<span class="status-summary"></span><span class="status-details"></span>'
+  badge.className='skill-result';badge.dataset.kind=shown.kind
+  const summary=[shown.detail,shown.next].filter(Boolean).join(' · ')
+  const details=[shown.diagnostics,shown.reason&&shown.reason!==shown.detail?'Reason: '+shown.reason:''].filter(Boolean).join('\n')
+  const [first,second]=badge.children
+  if(first.textContent!==summary)first.textContent=summary
+  first.hidden=!summary
+  if(second.textContent!==details)second.textContent=details
+  const text=statusText(shown)
+  if(badge.title!==text){badge.title=text;badge.setAttribute('aria-label',text)}
+ }
 }
 function renderOrchestration(){
  const holdNavigation=sidebarBusy()
@@ -952,7 +1012,7 @@ function render(options){
 
  const listed=id=>!hiddenProject(id)&&!sidebarHiddenProjects.has(id)
  const groups=new Map(projects.filter(project=>project.path&&listed(project.id)).map(project=>[project.id,project]))
- for(const run of runs)if(listed(run.projectId)&&!groups.has(run.projectId))groups.set(run.projectId,{id:run.projectId,name:run.projectId})
+ for(const run of runs)if(listed(run.projectId)&&!groups.has(run.projectId))groups.set(run.projectId,projects.find(project=>project.id===run.projectId)||{id:run.projectId,name:run.projectId})
  for(const project of [...groups.values()].sort((a,b)=>a.name.localeCompare(b.name))){
   const group=document.createElement('section');group.className='project-group'
 
@@ -975,7 +1035,10 @@ function render(options){
   const waitingCount=runs.filter(run=>run.projectId===project.id&&run.status==='queued'&&!run.cancelRequested).length
   const {more,menu,openAt}=projectMenu(project,waitingCount)
   projectRow.oncontextmenu=event=>{event.preventDefault();openAt(event.clientX,event.clientY)}
-  projectRow.append(heading,more,menu);group.append(projectRow)
+  const prompt=document.createElement('button');prompt.type='button';prompt.textContent='+'
+  prompt.setAttribute('aria-label','Start project prompt for '+project.name);prompt.title=project.path?'Start a project prompt':'Map a local checkout to start a project prompt';prompt.disabled=!project.path
+  prompt.onclick=event=>{event.stopPropagation();openAgentConsole(project.id)}
+  projectRow.append(heading,prompt,more,menu);group.append(projectRow)
   const children=runs.filter(run=>run.projectId===project.id&&!hiddenRun(run))
   const taskGroups=new Map()
   for(const run of children){const key=taskKey(run);if(!taskGroups.has(key))taskGroups.set(key,[]);taskGroups.get(key).push(run)}
@@ -992,14 +1055,13 @@ function render(options){
     const context=document.createElement('button');context.textContent=taskIdentity(run)||'Task';context.className='task-number';context.title='Open task in Sectile';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in Sectile');context.disabled=macroRun(run);context.onclick=()=>api.openTask(run.taskId).catch(error)
     const stage=taskStages.get(run.taskId)
     if(stage){context.dataset.stage=stage;context.title+=' · Stage: '+stage}
-    // The skill badge speaks for the task's newest skill (#586); the rest of the row for its leading run.
-    const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=skillRun.id
-    const state=document.createElement('span');state.className='run-state';state.dataset.runId=run.id
-    const stateLabel=renderRunState(state,run)
+    // The leading glyph speaks for the task's newest skill (#586); the rest of the row for its leading run.
+    const state=document.createElement('span');state.className='run-state'
+    const stateLabel=renderRowStatus(state,run,skillRun)
     // data-status stays the status the server reported: the UI tests select on it.
     button.dataset.status=run.status;button.dataset.runId=run.id
     // The glyph leads the row, ahead of the key button it cannot nest inside, and still selects the run.
-    button.append(title,status);button.onclick=state.onclick=()=>select(run)
+    button.append(title);button.onclick=state.onclick=()=>select(run)
     // The slot keeps the key column's width even for a free console, which has no key.
     const keySlot=document.createElement('span');keySlot.className='task-key-slot'
     if(!freeConsole(run))keySlot.append(context)
@@ -1157,6 +1219,7 @@ async function refresh(){
   if(followed&&selected)select(followed,true,{deferrable:true})
   else if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current,true,{deferrable:true})
   if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible,true,{deferrable:true})}
+  handOverConversations()
   if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
   if(selected&&!changes.active&&(changed||Date.now()-lastDiffChecked>10000)){lastDiffChecked=Date.now();changes.check()}
   if(changed)loadCustomSkillSignal()
@@ -4429,6 +4492,43 @@ function renderNextStep(){
   markReviewed.hidden=false
   markReviewed.disabled=busy||pending
  }
+ renderOffer()
+}
+// The next step offered at the end of the selected task conversation (#875).
+// A launch it made keeps it drawn as in progress until the successor shows.
+function renderOffer(){
+ const run=currentTaskRun()
+ if(!run?.conversation){conversation.showOffer(null);return}
+ const key=taskKey(run)
+ if(offerLaunches.get(key)?.predecessorId===run.id)return
+ const data=nextStepData?.key===key&&!nextStepData.error?nextStepData:null
+ const result=skillResults.get(run.id)
+ // The skill result may see the stage move before the task read does: the
+ // task is read again rather than left to its slower refresh.
+ if(data&&result?.task&&taskStage(result.task)!==taskStage(data.task)&&Date.now()-nextStepUpdated>3000)refreshNextStep()
+ const offer=nextStepOffer({run,result,conversation:conversationState,task:data?.task,project:data?.project,runs,submitting:submittingSteps.has(key)||submittedSteps.has(key)})
+ conversation.showOffer(offer.skillId?offer:null)
+}
+// Why a launch from the offer was abandoned once the task and runs were read again.
+function offerAbandonedText(reason){
+ if(reason==='active-run')return 'A run is already active on this task.'
+ if(['busy','approval','waiting','read-only','conversation-unknown'].includes(reason))return 'This conversation is no longer idle.'
+ return 'The next step has changed.'
+}
+// A successor launched from an offer has shown: it takes the console, then the
+// predecessor is closed and stays in the sidebar as read-only history. A user
+// who moved to another task meanwhile keeps both runs as they are.
+function handOverConversations(){
+ for(const [key,launch] of offerLaunches){
+  if(!launch.runIds)continue
+  const successor=runs.find(item=>taskKey(item)===key&&!launch.runIds.includes(item.id))
+  if(!successor)continue
+  offerLaunches.delete(key)
+  const current=currentTaskRun()
+  if(!current||taskKey(current)!==key)continue
+  if(current.id!==successor.id)select(successor)
+  api.stop(launch.predecessorId).catch(err=>error(Error('Could not close the previous conversation: '+ipcMessage(err))))
+ }
 }
 new ResizeObserver(resize).observe(document.querySelector('#task-status'))
 new ResizeObserver(resize).observe(document.querySelector('#toolbar'))
@@ -4455,31 +4555,56 @@ async function refreshNextStep(){
   const data=await readNextStep(run)
   if(generation===nextStepGeneration)nextStepData=data
  }catch(err){if(generation===nextStepGeneration)nextStepData={key:taskKey(run),error:'Cannot load next step: '+err.message}}
- if(generation===nextStepGeneration)renderNextStep()
+ // The workflow read is also where a Done status takes its next-step hint from.
+ if(generation===nextStepGeneration){renderNextStep();renderHeader();renderTaskSkillStatuses()}
 }
 document.querySelector('#retry-next-step').onclick=refreshNextStep
 // force re-sends the very same launch with the duplicate check waived. It is
 // the only difference between the two buttons: everything else, from the
 // freshness recheck to the local busy guard, applies identically.
-async function launchTaskWork(kind,force){
+//
+// predecessor, {id,skillId}, is the task conversation whose offer asked for the
+// launch (#875): it alone does not count as an active run, and only while the
+// offer still holds once the task, the runs and the conversation are read again.
+// The successor always opens in the conversation view.
+async function launchTaskWork(kind,force,{predecessor}={}){
  const run=currentTaskRun(),displayed=nextStepData
  if(!run||displayed?.key!==taskKey(run))return
  if(kind==='next'&&!displayed.step?.skillId)return
  if(kind==='pickup'&&(!pickupAvailable(displayed.project)||taskStage(displayed.task)==='finished'))return
+ if(predecessor&&(predecessor.id!==run.id||displayed.step.skillId!==predecessor.skillId))return
  const key=taskKey(run)
- if(submittingSteps.has(key)||submittedSteps.has(key)||runs.some(item=>taskKey(item)===key&&activeRun(item)))return
+ const blocking=predecessor?item=>blocksLaunch(item,predecessor.id):activeRun
+ if(submittingSteps.has(key)||submittedSteps.has(key)||offerLaunches.has(key)||runs.some(item=>taskKey(item)===key&&blocking(item)))return
  const skill=kind==='pickup'?'pickup':displayed.step.skillId
+ let offerError=''
+ if(predecessor){offerLaunches.set(key,{predecessorId:predecessor.id});conversation.offerState({pending:true})}
  nextStepGeneration++;nextStepErrors.delete(key);forceableLaunches.delete(key);submittingSteps.set(key,skill);renderNextStep()
  try{
-  const [fresh,latestRuns]=await Promise.all([readNextStep(run),api.runs()])
+  const [fresh,latestRuns,state,result]=await Promise.all([readNextStep(run),api.runs(),predecessor?api.conversation(predecessor.id):null,predecessor?api.runResult(predecessor.id):null])
   if(taskKey(currentTaskRun()||{})!==key)return
   nextStepData=fresh
-  const abandoned=latestRuns.some(item=>taskKey(item)===key&&activeRun(item))||(kind==='next'?fresh.step.skillId!==displayed.step.skillId:(!pickupAvailable(fresh.project)||taskStage(fresh.task)==='finished'))
-  if(abandoned){await refresh();return}
+  let offer=null
+  if(predecessor){
+   skillResults.set(predecessor.id,result)
+   const latest=latestRuns.find(item=>item.id===predecessor.id)||run
+   const polled={id:state?.id,busy:!!state?.busy,readOnly:!!state?.readOnly,approvals:Array.isArray(state?.approvals)?state.approvals:[]}
+   if(currentTaskRun()?.id===predecessor.id)conversationState=polled
+   offer=nextStepOffer({run:latest,result,conversation:polled,task:fresh.task,project:fresh.project,runs:latestRuns})
+  }
+  const abandoned=latestRuns.some(item=>taskKey(item)===key&&blocking(item))||(kind==='next'?fresh.step.skillId!==displayed.step.skillId:(!pickupAvailable(fresh.project)||taskStage(fresh.task)==='finished'))||(predecessor&&offer.skillId!==displayed.step.skillId)
+  if(abandoned){
+   if(predecessor)offerError=offerAbandonedText(latestRuns.some(item=>taskKey(item)===key&&blocking(item))?'active-run':offer.reason)
+   await refresh();return
+  }
   const launchSkill=kind==='pickup'?'pickup':fresh.step.skillId
   submittingSteps.set(key,launchSkill)
-  await api.launchServerTask(relaunchProject(run,boardProject()),run.taskId,launchSkill,'',launchModeFor(kind,undefined),force,consoleView)
-  submittedSteps.set(key,{skillId:launchSkill,kind,runIds:latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)})
+  await api.launchServerTask(relaunchProject(run,boardProject()),run.taskId,launchSkill,'',launchModeFor(kind,undefined),force,predecessor?'conversation':consoleView)
+  const runIds=latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)
+  submittedSteps.set(key,{skillId:launchSkill,kind,runIds})
+  // The launch is accepted: the predecessor is closed as soon as the
+  // successor's run shows, on this refresh or a later poll.
+  if(predecessor)offerLaunches.set(key,{predecessorId:predecessor.id,runIds})
   await refresh()
   if(taskKey(currentTaskRun()||{})===key){
    const launched=runs.find(item=>taskKey(item)===key&&!latestRuns.some(previous=>previous.id===item.id))
@@ -4489,7 +4614,16 @@ async function launchTaskWork(kind,force){
   const refusal=refusedActiveRun(err.message)
   if(refusal){nextStepErrors.set(key,refusal.error||'A run is already active on this task.');forceableLaunches.set(key,kind)}
   else nextStepErrors.set(key,(kind==='pickup'?'Could not launch full chain: ':'Could not launch next step: ')+launchErrorText(err))
- }finally{submittingSteps.delete(key);renderNextStep()}
+  // Forcing stays a toolbar action: the offer only says why nothing started.
+  if(predecessor)offerError=refusal?'A run is already active on this task.':'Could not launch next step: '+launchErrorText(err)
+ }finally{
+  submittingSteps.delete(key)
+  if(predecessor&&!offerLaunches.get(key)?.runIds){
+   offerLaunches.delete(key)
+   if(currentTaskRun()?.id===predecessor.id)conversation.offerState({error:offerError})
+  }
+  renderNextStep()
+ }
 }
 document.querySelector('#next-step').onclick=()=>launchTaskWork('next',false)
 document.querySelector('#pickup-chain').onclick=()=>launchTaskWork('pickup',false)
@@ -4509,7 +4643,7 @@ async function openProjectTerminal(projectID){
 }
 async function openAgentConsole(projectID,previousProvider){
  showDialog('Project prompt')
- paragraph('Start an interactive agent in this project’s local repository. Enter your instructions directly in its console.')
+ paragraph('Start an interactive agent in '+(projects.find(project=>project.id===projectID)?.name||'this project')+'’s local repository. Enter your request directly in its console.')
  const form=document.createElement('form'),label=document.createElement('label'),provider=document.createElement('select')
  label.textContent='AI engine';provider.setAttribute('aria-label','Console agent')
  for(const [value,text] of [['codex','Codex'],['claude','Claude']]){const option=document.createElement('option');option.value=value;option.textContent=text;provider.append(option)}
@@ -4517,7 +4651,9 @@ async function openAgentConsole(projectID,previousProvider){
  const location=document.createElement('p');location.textContent=projects.find(project=>project.id===projectID)?.path||''
  const launch=document.createElement('button');launch.textContent='Open console'
  const notice=document.createElement('p');notice.setAttribute('role','status')
- form.append(label,location,launch,notice);dialogBody.append(form)
+ let creatingProfile=false,launching=false
+ const profileFields=agentProfileFields({api,projectID,active:()=>form.isConnected&&dialog.open,onCreating:value=>{creatingProfile=value;launch.hidden=value}})
+ form.append(label,profileFields.element,location,launch,notice);dialogBody.append(form)
  let catalogue=false
  launch.disabled=true
  try{
@@ -4540,13 +4676,14 @@ async function openAgentConsole(projectID,previousProvider){
   launch.disabled=!provider.value
  }catch(err){notice.textContent=err.message}
  form.onsubmit=async event=>{
-  event.preventDefault();if(launch.disabled)return
-  launch.disabled=true;notice.textContent='Opening console…'
+  event.preventDefault();if(launch.disabled||creatingProfile||launching)return
+  launching=true;launch.disabled=true;provider.disabled=true;profileFields.disable(true);notice.textContent='Opening console…'
   try{
-   const run=await api.launchConsole(projectID,catalogue?undefined:provider.value,catalogue?provider.value:undefined,consoleView)
+   const run=await api.launchConsole(projectID,catalogue?undefined:provider.value,catalogue?provider.value:undefined,consoleView,profileFields.selected()||undefined)
+   if(!form.isConnected||!dialog.open)return
    collapsedProjects.delete(projectID);queueProjects.delete(projectID)
    if(!runs.some(item=>item.id===run.id))runs.push(run)
    dialog.close();select(run);await refresh()
-  }catch(err){notice.textContent=err.message;launch.disabled=false}
+  }catch(err){if(form.isConnected){notice.textContent=err.message;launch.disabled=false}}finally{launching=false;provider.disabled=false;profileFields.disable(false)}
  }
 }

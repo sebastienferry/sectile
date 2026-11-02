@@ -26,6 +26,9 @@ type fakeJira struct {
 	server   *httptest.Server
 	posts    []map[string]any
 	accounts []string
+	// refuseComments answers a new comment as Jira answers an invalid ADF
+	// document.
+	refuseComments bool
 }
 
 func basic(email, token string) string {
@@ -53,6 +56,14 @@ func newFakeJira(t *testing.T) *fakeJira {
 		case r.Method == http.MethodGet && r.URL.Path == "/rest/api/3/issue/PE-42":
 			fmt.Fprint(w, `{"key":"PE-42","fields":{"summary":"Follow-up","status":{"name":"To Do","statusCategory":{"key":"new"}},"issuetype":{"name":"Task"},"labels":["CustomerCase"]}}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/rest/api/3/issue/PE-42/comment":
+			site.mu.Lock()
+			refuse := site.refuseComments
+			site.mu.Unlock()
+			if refuse {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprint(w, `{"errorMessages":["INVALID_INPUT"],"errors":{"comment":"INVALID_INPUT"}}`)
+				return
+			}
 			w.WriteHeader(http.StatusCreated)
 			fmt.Fprint(w, `{"id":"2"}`)
 		case r.Method == http.MethodGet && r.URL.Path == "/rest/api/3/issue/PE-42/comment":
@@ -274,5 +285,59 @@ func TestACommentFromASkillRunIsThePersons(t *testing.T) {
 		if len(got) == 0 || got[len(got)-1] != basic("ada@example.com", "ada-token") {
 			t.Fatalf("run %q: the comment must carry the person's token: %v", runID, got)
 		}
+	}
+}
+
+// A stage report Jira refuses is applied locally all the same, and the agent
+// that recorded it learns the refusal from the result instead of a plain
+// success (#870).
+func TestTransitionStageReportsWhatReachedTheTracker(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		refuse bool
+		want   string
+	}{
+		{"accepted report", false, "done"},
+		{"refused report", true, "failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			site := newFakeJira(t)
+			database, project := jiraDatabase(t, site)
+			if err := database.EnsureUser(tester.UserID); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.SetUserTrackerCredential(tester.UserID, "jira", site.server.URL, "tester@example.com", "tester-token", ""); err != nil {
+				t.Fatal(err)
+			}
+			created, err := call(t, database, "create_task", map[string]any{"projectId": project.ID, "title": "Follow-up"})
+			if err != nil {
+				t.Fatalf("creation failed: %v", err)
+			}
+			taskID := created["task"].(map[string]any)["id"].(string)
+			site.mu.Lock()
+			site.refuseComments = tc.refuse
+			site.mu.Unlock()
+
+			result, err := call(t, database, "transition_stage", map[string]any{
+				"taskKey": taskID, "stage": "clarified", "note": "**Left under `pe`**",
+			})
+			if err != nil {
+				t.Fatalf("a refused report must not fail the call: %v", err)
+			}
+			if result["trackerSync"] != tc.want {
+				t.Fatalf("trackerSync = %v, want %s: %v", result["trackerSync"], tc.want, result)
+			}
+			trackerError, _ := result["trackerError"].(string)
+			if tc.refuse != strings.Contains(trackerError, "INVALID_INPUT") {
+				t.Fatalf("trackerError = %q", trackerError)
+			}
+			task, err := database.GetTaskByID(taskID)
+			if err != nil || task == nil {
+				t.Fatal(err)
+			}
+			if task.Status != models.StatusClarified {
+				t.Fatalf("the stage must stay applied: %s", task.Status)
+			}
+		})
 	}
 }

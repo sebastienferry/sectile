@@ -82,7 +82,7 @@ test('desktop sidebar rows put the run states and the titles in columns',async()
 
   // The glyph, out of the row button, still selects the run.
   const glyph=row('run-446').locator('.run-state')
-  await expect(glyph).toHaveAttribute('title',/^Process: /)
+  await expect(glyph).toHaveAttribute('title',/^Needs verification · /)
   await glyph.click()
   await expect(row('run-446')).toHaveClass(/selected/)
   await expect(row('run-42')).not.toHaveClass(/selected/)

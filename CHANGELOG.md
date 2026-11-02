@@ -16,25 +16,32 @@ test fixtures or internal plumbing.
 ### Added
 
 - Sectile Desktop presents a dedicated mode selection onboarding screen on first launch to choose between Local Companion and Fleet Agent, and allows switching modes anytime in Settings.
+- Go binary releases now include dependency license notices; Sectile Desktop archives keep the same notices beside the bundled agent.
+- Desktop board metadata now identifies each selected tracker provider so clients can distinguish local workspaces from remote tracker boards.
+- Build an API/MCP-only server binary without web assets or Node.js using `make build-server-headless`.
+- Fleet-connected desktop clients can read provider OAuth readiness and callback status without exposing OAuth client identifiers or secrets.
+- Desktop conversation snapshots expose pending MCP verification so clients can keep its status current while the conversation is idle.
+- Desktop project conversations can use named Claude Code and Codex profiles with project defaults, and keep automatic or manually edited conversation titles across agent restarts.
+- Desktop folder mappings can explicitly accept non-Git directories for project conversations, while Git task workflows retain repository validation.
+- Desktop provider sign-in endpoints detect Claude Code and Codex, check authentication without exposing CLI output, and open official interactive login commands.
+- Desktop companions can connect GitHub.com, GitLab.com and Jira Cloud through browser OAuth with private, expiring handoffs and connection status feedback.
+- Local desktop companions can isolate server data, bind the server to loopback, and disable automatic changes to existing provider MCP registrations. An authenticated discovery endpoint identifies the companion’s own local server.
 
 ### Fixed
 
+- Agents no longer drop and reconnect, or fail to discover their projects ("context deadline exceeded"), while a server synchronises large trackers; server instances sharing one database no longer take each other for dead during those synchronisations, and an agent whose session was lost that way reconnects on its own instead of having its project inventory refused until it restarts.
+- Agent runs caught by a server restart before they reached the workstation no longer stay active forever: a run that was never sent is canceled, one whose sending was interrupted is closed when its workstation reconnects without it, and neither keeps holding a slot of the project's orchestration capacity.
+- The backlog orchestrator's concurrency limit now counts only the runs it started itself: sessions you or your teammates start by hand on a project no longer use up its slots and stop it from launching anything. A ticket somebody is working on is still left alone.
+- When a backlog evaluation finds no free slot, the desktop says the capacity is reached, with the active runs against the limit, instead of reporting "0 launched · 0 skipped".
 - The Tauri desktop header integrates seamlessly into the macOS window title bar and restores the connection indicator, agent actions menu, and settings gear icon.
 - Newly created tracker tickets now show the status confirmed by the tracker immediately, including after reopening the desktop.
 - A project conversation now supplies its selected project to a Sectile MCP context read when the coding agent omits the identifier; explicit project and task targets remain unchanged.
-
 - Idle Claude Code and Codex conversations no longer block a Local update or restart; their sessions remain resumable while active turns, questions and queued messages still prevent shutdown.
-
 - Local desktop updates can stop an idle companion gracefully and verify its data store is released before replacing the application; active executions still prevent shutdown.
-
 - Very recent autonomous runs retain their identity after an agent crash; execution is refused if its configured history store cannot save the initial record.
-
 - Autonomous Claude Code and Codex tools now stop when their Go agent crashes, extending the conversation lifetime guard to background task chains.
-
 - Autonomous Codex workflows now use a writable workspace sandbox with automatic approval review, and stream their tools and progress to the desktop instead of stopping silently in read-only mode.
-
 - Managed native Fleet conversations can use their selected backend through an isolated MCP connection without replacing Electron’s shared provider registration.
-
 - Workflow launch and MCP instructions now distinguish reusing an active run from starting a new invocation after a completed clarification round.
 - Desktop-launched tracker workflows retain their connection identity, allowing users to answer provider questions and approve MCP tools directly in the conversation.
 - Desktop conversations now show Sectile's own start, progress, interruption and restart notices in French across Claude Code, Codex and Antigravity.
@@ -48,9 +55,7 @@ test fixtures or internal plumbing.
 - The standalone desktop companion now gets its fixed local OAuth port and callback URLs from Go, keeping Jira sign-in aligned with the registered callback across restarts.
 - Standalone companions can isolate Claude Code and Codex MCP per launch without replacing another desktop's registration; Codex MCP consent is answered directly in conversations.
 - Claude Code and Codex conversations save messages, tool activity and streamed replies as they arrive; after an agent crash, unfinished replies remain visible as interrupted history.
-
 - Claude Code and Codex conversation tools stop when the local Go agent crashes, including abrupt termination, instead of continuing as orphaned processes.
-
 - Free Claude Code and Codex conversations can resume after an agent restart with their transcript, provider context, model and permission mode preserved.
 
 ### Security
@@ -58,27 +63,24 @@ test fixtures or internal plumbing.
 - Keep each local execution's temporary control token out of the visible console command and provider process environment.
 - Keep the desktop-to-agent gateway credential out of provider CLI and shell child process environments.
 
+## [0.7.6] - 2026-10-28
+
 ### Added
 
-- Go binary releases now include dependency license notices; Sectile Desktop archives keep the same notices beside the bundled agent.
+- Desktop projects have a + shortcut to start a session with reusable agent instructions, selected or created in the repository, for built-in Claude and Codex engines. (#869)
+- The Triage view shows each ticket's priority as a coloured dot after its title, and you can change it right from the row. (#882)
+- Desktop task conversations, with Claude Code, Codex or Antigravity, offer the next workflow step once the current one is done and its stage validated: one click starts it in a fresh conversation in the same worktree and closes the finished one, which stays readable in the execution history. (#875)
 
-- Desktop board metadata now identifies each selected tracker provider so clients can distinguish local workspaces from remote tracker boards.
+### Changed
 
-- Build an API/MCP-only server binary without web assets or Node.js using `make build-server-headless`.
+- Sectile Desktop shows one status per skill execution (Working, Needs your answer, Done, Needs verification, Could not finish, Stopped) in place of the process state and the separate skill badge. Done names what was achieved and the next step, failures and stops show the recorded reason or say none was recorded, and the process and skill details stay in the tooltip and under the execution view. (#878)
 
-- Fleet-connected desktop clients can read provider OAuth readiness and callback status without exposing OAuth client identifiers or secrets.
+### Fixed
 
-- Desktop conversation snapshots expose pending MCP verification so clients can keep its status current while the conversation is idle.
-
-- Desktop project conversations can use named Claude Code and Codex profiles with project defaults, and keep automatic or manually edited conversation titles across agent restarts.
-
-- Desktop folder mappings can explicitly accept non-Git directories for project conversations, while Git task workflows retain repository validation.
-
-- Desktop provider sign-in endpoints detect Claude Code and Codex, check authentication without exposing CLI output, and open official interactive login commands.
-
-- Desktop companions can connect GitHub.com, GitLab.com and Jira Cloud through browser OAuth with private, expiring handoffs and connection status feedback.
-
-- Local desktop companions can isolate server data, bind the server to loopback, and disable automatic changes to existing provider MCP registrations. An authenticated discovery endpoint identifies the companion’s own local server.
+- Jira no longer refuses a comment, a stage report or a description whose Markdown puts inline code inside bold, italic or struck-through text (`HTTP 400 INVALID_INPUT`): that code keeps its code formatting and drops the surrounding emphasis. (#870)
+- An agent recording a workflow stage now learns when the tracker refused its report: `transition_stage` waits briefly for the tracker and says whether the report was published, refused (with the reason, the stage staying applied) or still being sent, and the workflow skills post a refused report again as a comment. (#870)
+- Desktop Orchestration no longer lists ordinary ticket executions as orchestration agents or policy sessions, including executions launched by an orchestrator. (#871)
+- The priority of a GitHub or GitLab ticket set in Sectile no longer resets to medium at each synchronisation; Jira tickets keep taking their priority from Jira. (#882)
 
 ## [0.7.5] - 2026-10-22
 
@@ -968,7 +970,8 @@ release mechanism that will keep the following entries short.
   A run canceled because its client disconnected can still be finished by the
   agent that owns it, so the chain carries on. (#315)
 
-[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.7.5...HEAD
+[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.7.6...HEAD
+[0.7.6]: https://github.com/sebastienferry/sectile/compare/v0.7.5...v0.7.6
 [0.7.5]: https://github.com/sebastienferry/sectile/compare/v0.7.1...v0.7.5
 [0.7.1]: https://github.com/sebastienferry/sectile/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/sebastienferry/sectile/compare/v0.6.0...v0.7.0

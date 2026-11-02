@@ -83,6 +83,7 @@ func stoppedNote(skill string, terminalClosed bool) string {
 }
 
 type controlledRun struct {
+	profile  *profileSnapshot
 	sequence uint64
 	limit    int
 	root     string

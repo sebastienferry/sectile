@@ -3,10 +3,10 @@ const assert=require('node:assert/strict')
 const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
-// A console left open after its skill completed must not keep its ✓ once
+// A console left open after its skill completed must not keep its Done once
 // another skill runs on the task (#586): neither a skill started inside it
 // (path A) nor a new execution launched beside it (path B).
-test('the skill badge drops a completed verdict once another skill runs',async()=>{
+test('the status drops a completed verdict once another skill runs',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-skill-status-reset-'))
  const run=(id,taskId,skill,status,hour)=>({id,taskId,taskKey:'#'+taskId,projectId:'project',skill,status,sessionId:id,directory:'/tmp/example/worktree',createdAt:`2026-10-06T${hour}:00:00Z`})
  // Path B on #1: the clarify console stays open while specify is queued.
@@ -35,31 +35,37 @@ test('the skill badge drops a completed verdict once another skill runs',async()
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
-  const header=page.locator('#skill-result')
-  // Path B: the row is still led by the running console, but its skill badge
+  const header=page.locator('#run-state'),details=page.locator('#skill-result .status-details')
+  // Path B: the row is still led by the running console, but its status
   // speaks for the queued execution, which has no verdict yet.
+  const pathB=page.locator('.local-task .run-state[data-run-id="old"]')
   await expect(page.locator('.local-task .run[data-run-id="old"]')).toHaveCount(1)
-  await expect(page.locator('.task-skill-status[data-run-id="new"]')).toHaveCount(1)
-  await expect(page.locator('.task-skill-status[data-run-id="old"]')).toHaveCount(0)
-  await expect(page.locator('.task-skill-status[data-run-id="new"]')).toHaveText('')
+  await expect(pathB).toHaveAttribute('data-skill-run-id','new')
+  await expect(pathB).toHaveAttribute('data-kind','working')
+  await expect(pathB).toHaveAttribute('title',/^Working · Specify · Queued\n/)
   // The old console, selected, keeps its own verdict.
   await page.locator('.local-task .run[data-run-id="old"]').click()
-  await expect(header).toHaveText('✓ Skill completed')
+  await expect(header).toHaveText('Done · Clarified')
   // Path A: the console's own skill completed...
-  const same=page.locator('.task-skill-status[data-run-id="same"]')
+  const same=page.locator('.local-task .run-state[data-skill-run-id="same"]')
   await page.locator('.local-task .run[data-run-id="same"]').click()
-  await expect(same).toHaveText('✓')
-  await expect(header).toHaveText('✓ Skill completed')
-  // ...then a skill started inside it clears the verdict, past the settling
-  // window, within a couple of polls.
+  await expect(same).toHaveAttribute('data-kind','done')
+  await expect(header).toHaveText('Done · Clarified')
+  // ...then a skill started inside it takes the status over, past the settling
+  // window, within a couple of polls; the ended skill stays in the diagnostics.
   await page.evaluate(()=>{const real=Date.now;Date.now=()=>real()+31000})
   successor={id:'next',taskId:'2',skillId:'specify-issue',status:'running'}
-  await expect(same).toHaveText('',{timeout:5000})
-  await expect(header).toBeHidden()
+  await expect(same).toHaveAttribute('data-kind','working',{timeout:5000})
+  await expect(header).toHaveText('Working · Specify')
+  await expect(details).toHaveText('Execution: Running · Skill record: clarify completed; now specify-issue running · Task stage: clarified')
   successor={...successor,waitingSince:'2026-10-06T10:00:00Z'}
-  await expect(same).toHaveText('?',{timeout:5000})
+  await expect(same).toHaveAttribute('data-kind','waiting',{timeout:5000})
+  await expect(header).toHaveText('Needs your answer')
   successor={id:'next',taskId:'2',skillId:'specify-issue',status:'completed'}
-  await expect(header).toHaveText('◷ Awaiting stage validation',{timeout:5000})
+  await expect(header).toHaveText('Needs verification',{timeout:5000})
+  await expect(page.locator('#skill-result .status-summary')).toHaveText('Specify reported completion; the task is still at clarified')
+  // A status change rewrites the status in place: the row stays selected.
+  await expect(page.locator('.local-task .run[data-run-id="same"]')).toHaveClass(/selected/)
  }finally{
   if(app)await app.close()
   await new Promise(resolve=>server.close(resolve))

@@ -34,16 +34,16 @@ test('the discussion header carries identity and execution state',async()=>{
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
   await app.evaluate(({clipboard})=>clipboard.writeText('untouched'))
 
-  // The title retains identity; its adjacent state uses the shared vocabulary.
+  // The title retains identity; its adjacent status names what the skill is doing.
   await expect(page.locator('#title')).toHaveText('#82 · Rework the discussion header · implement')
-  await expect(page.locator('#run-state')).toHaveText('Running')
-  await expect(page.locator('#run-state')).toHaveAttribute('title','Process: Running')
-  assert.equal(await page.locator('#run-state svg').count(),1,'The state keeps the shared glyph beside its label')
-  await expect(page.locator('#toolbar #run-state')).toHaveText('Running')
+  await expect(page.locator('#run-state')).toHaveText('Working · Implement')
+  await expect(page.locator('#run-state')).toHaveAttribute('title','Working · Implement\nExecution: Running · Skill record: none · Task stage: unknown')
+  assert.equal(await page.locator('#run-state svg').count(),1,'The status keeps its glyph beside its label')
+  await expect(page.locator('#toolbar #run-state')).toHaveText('Working · Implement')
   await expect(page.locator('#task-status #run-state')).toHaveCount(0)
   const row=page.locator('.local-task').first()
   assert.ok(await row.evaluate(el=>el.querySelector('.run-state').compareDocumentPosition(el.querySelector('strong'))&Node.DOCUMENT_POSITION_FOLLOWING),'The row state precedes the title')
-  await expect(row.locator('.run-state')).toHaveAttribute('title',/^Process: /)
+  await expect(row.locator('.run-state')).toHaveAttribute('title',/^Working · Implement\n/)
 
   // The worktree is a control: it says what it holds and what a click does.
   const worktreeButton=page.getByRole('button',{name:worktree,exact:true})
@@ -80,7 +80,8 @@ test('the discussion header carries identity and execution state',async()=>{
   // Read without polling: the path and its confirmation are written together,
   // so the new path being on screen already settles the confirmation.
   assert.equal(await page.locator('#worktree-copied').textContent(),'','Another selection does not inherit the confirmation')
-  await expect(page.locator('#run-state')).toHaveText('Finished')
+  // An exit with no skill record confirms nothing.
+  await expect(page.locator('#run-state')).toHaveText('Needs verification')
   await page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #82 in Sectile',exact:true})}).locator('.run').click()
   await expect(worktreeButton).toBeVisible()
 

@@ -31,7 +31,7 @@ test('sidebar holds its order while the pointer or focus stays on the task list'
   const lead=page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #7 in Sectile',exact:true})}).locator('.run')
   await lead.hover()
   const before=await lead.boundingBox()
-  await expect(page.locator('#orchestration [data-run-id]')).toHaveCount(2)
+  await expect(page.locator('#orchestration [data-run-id]')).toHaveCount(0)
   // The leading execution finishes: it would drop below the queued task, but
   // the pointer is on the row so the sequence must not change.
   runs=runs.map(item=>item.id==='lead'?{...item,status:'completed'}:item)
@@ -45,7 +45,7 @@ test('sidebar holds its order while the pointer or focus stays on the task list'
   await expect(page.locator('#execution-history option')).toHaveCount(2)
   assert.deepEqual(await order(),['#7','#8'])
   assert.equal((await lead.boundingBox()).y,before.y,'Orchestration changes must not move the hovered task')
-  await expect(page.locator('#orchestration [data-run-id]')).toHaveCount(2)
+  await expect(page.locator('#orchestration [data-run-id]')).toHaveCount(0)
 
   // Keyboard focus alone keeps holding the order once the pointer has left.
   await lead.focus()
@@ -55,7 +55,7 @@ test('sidebar holds its order while the pointer or focus stays on the task list'
   await page.locator('#task-actions-more').focus()
   await page.waitForFunction(()=>document.querySelector('.task-number')?.textContent==='#8')
   assert.deepEqual(await order(),['#8','#7'])
-  await expect(page.locator('#orchestration [data-run-id]')).toHaveCount(1)
+  await expect(page.locator('#orchestration [data-run-id]')).toHaveCount(0)
   assert.equal(await page.locator('.run.selected').count(),1)
   await page.screenshot({path:path.join(root,'task-hold.png')})
   console.log('Task-hold screenshot: '+path.join(root,'task-hold.png'))

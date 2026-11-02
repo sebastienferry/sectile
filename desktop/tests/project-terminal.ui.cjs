@@ -59,9 +59,9 @@ test('a project menu opens a native terminal on the project',async()=>{
 
   // A project with no local folder shows the item disabled, as Project prompt.
   await page.keyboard.press('Escape')
-  await openMenu('remote')
-  await expect(item('remote')).toBeDisabled()
-  await expect(menu('remote').getByRole('menuitem',{name:'Project prompt',exact:true})).toBeDisabled()
+  await openMenu('Remote')
+  await expect(item('Remote')).toBeDisabled()
+  await expect(menu('Remote').getByRole('menuitem',{name:'Project prompt',exact:true})).toBeDisabled()
   await page.keyboard.press('Escape')
 
   // An agent that cannot open it gets no item at all.

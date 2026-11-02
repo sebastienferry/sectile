@@ -16,11 +16,12 @@ function implementedStep(task,project){
 }
 
 // A launched skill reads as the workflow names it; any other id, such as a
-// pickup or a discussion, is shown with its first letter capitalized.
+// pickup or a discussion, is shown with its first letter capitalized and its
+// underscores read as spaces (`pickup_issues` reads `Pickup issues`).
 const skillLabels={clarify:'Clarify',specify:'Specify',implement:'Implement',adjust:'Adjust',handoff:'Handoff',create_pr:'Create PR'}
 export function skillLabel(skillId){
  const id=String(skillId||'').trim()
- return skillLabels[id]||(id?id[0].toUpperCase()+id.slice(1):'')
+ return skillLabels[id]||(id?id[0].toUpperCase()+id.slice(1).replace(/_/g,' '):'')
 }
 
 // The stage of a task: a finished status, then an explicit workflow label, then

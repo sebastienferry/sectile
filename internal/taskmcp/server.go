@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"tasks/internal/agentconfig"
@@ -103,6 +104,10 @@ type reportWaitingInput struct {
 // reportWaitingTool is the one call that must not end a wait: reporting the same
 // wait twice, or clearing it, is not a sign that the session moved on.
 const reportWaitingTool = "report_waiting"
+
+// stageSyncWait bounds how long transition_stage waits for the tracker job it
+// queued before answering "queued".
+const stageSyncWait = 15 * time.Second
 
 // resumesWaits says whether a message proves its session is no longer blocked on
 // the user. Only a tool call does: a keepalive ping arrives every minute from
@@ -445,7 +450,10 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			}
 			return nil, result, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "transition_stage", Description: "Record a verified standalone workflow stage, optionally attach the task pull request or merge request URL using prUrl, and queue tracker synchronization. Managed runs must use their result contract.", InputSchema: map[string]any{
+	mcp.AddTool(s, &mcp.Tool{Name: "transition_stage", Description: "Record a verified standalone workflow stage, optionally attach the task pull request or merge request URL using prUrl, and synchronize the tracker. Managed runs must use their result contract. " +
+		"The stage is applied first; trackerSync then tells what reached the tracker: done (status, labels and the note posted), " +
+		"failed (trackerError says why; the stage stays applied, do not repeat the transition, post the note with add_comment instead) " +
+		"or queued (still running, check the task's activity later).", InputSchema: map[string]any{
 		"type": "object", "additionalProperties": false, "required": []string{"taskKey", "stage", "note"},
 		"properties": map[string]any{
 			"taskKey": map[string]any{"type": "string", "minLength": 1},
@@ -480,7 +488,22 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		if err != nil {
 			return nil, nil, err
 		}
-		return nil, map[string]any{"task": task, "activity": activity, "trackerSync": "queued"}, nil
+		// The stage is committed. Its report reaches the tracker through a
+		// queued job, whose refusal the caller must learn rather than read a
+		// success: the job is awaited for a while and its outcome returned,
+		// without ever undoing the stage (#870).
+		result := map[string]any{"task": task, "activity": activity, "trackerSync": "queued"}
+		if settled, err := database.AwaitTrackerOp(ctx, activity.ID, stageSyncWait); err == nil && settled != nil {
+			result["activity"] = settled
+			switch models.ActivityStatus(settled.Status) {
+			case models.ActivityStatusCompleted:
+				result["trackerSync"] = "done"
+			case models.ActivityStatusFailed, models.ActivityStatusCanceled:
+				result["trackerSync"] = "failed"
+				result["trackerError"] = settled.Error
+			}
+		}
+		return nil, result, nil
 	})
 	mcp.AddTool(s, &mcp.Tool{Name: "add_comment", Description: "Post a comment to the task's discussion on its tracker or local board."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in commentInput) (*mcp.CallToolResult, any, error) {

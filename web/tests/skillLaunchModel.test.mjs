@@ -6,7 +6,8 @@ import { readFile } from 'node:fs/promises'
 // handlers that no exported function reaches, so these files are the only
 // record of the wiring. Asserting on the source is weaker than a behavioural
 // test and is what stops an unrelated refactor from dropping a field.
-const read = name => readFile(new URL(`../src/${name}`, import.meta.url), 'utf8')
+// A Windows checkout may have CRLF sources: the patterns below are written against LF.
+const read = name => readFile(new URL(`../src/${name}`, import.meta.url), 'utf8').then(text => text.replace(/\r\n/g, '\n'))
 const models = await read('lib/aiModels.ts')
 const context = await read('context/AppContext.tsx')
 const card = await read('components/TaskCard.tsx')

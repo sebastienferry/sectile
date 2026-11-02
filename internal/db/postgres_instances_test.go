@@ -54,3 +54,37 @@ func TestPostgresStartLeavesALiveInstanceAlone(t *testing.T) {
 		}
 	}
 }
+
+// An instance sharing the database says it is alive even while a long import
+// holds the store lock. Waiting behind that lock let the heartbeat fall past
+// the bound, and the other instances reclaimed the work of an instance that
+// was still serving it.
+func TestPostgresHeartbeatDoesNotWaitForTheStoreLock(t *testing.T) {
+	d := openPostgres(t)
+	t.Cleanup(func() { _, _ = d.conn.Exec(`DELETE FROM server_instances`) })
+	if err := d.registerInstance(time.Now().UTC().Add(-time.Minute)); err != nil {
+		t.Fatalf("registering the instance: %v", err)
+	}
+
+	d.mu.Lock()
+	beat := make(chan struct{})
+	go func() {
+		d.heartbeatInstance(time.Now().UTC())
+		close(beat)
+	}()
+	select {
+	case <-beat:
+	case <-time.After(5 * time.Second):
+		d.mu.Unlock()
+		t.Fatal("the heartbeat waited for the store lock")
+	}
+	d.mu.Unlock()
+
+	var lastSeen time.Time
+	if err := d.conn.QueryRow(`SELECT last_seen FROM server_instances WHERE id = ?`, d.InstanceID()).Scan(&lastSeen); err != nil {
+		t.Fatalf("reading the instance row: %v", err)
+	}
+	if time.Since(lastSeen) > 30*time.Second {
+		t.Errorf("last_seen = %v, want the heartbeat's time", lastSeen)
+	}
+}

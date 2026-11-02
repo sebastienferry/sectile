@@ -73,8 +73,9 @@ try {
   await page.getByPlaceholder(placeholder).click()
   await page.locator('[data-portaled-panel]').getByRole('button',{name:new RegExp('^'+label)}).click()
  }
- // No native <select> is a filter any more (FR2).
- const nativeSelects=()=>page.locator('select').count()
+ // No native <select> is a filter any more (FR2). The triage's per-row priority
+ // editor (#882) is a select inside a table cell, not a filter.
+ const nativeSelects=()=>page.locator('select:not(td select)').count()
 
  // ---------- Triage ----------
  await page.goto(base+'?view=triage')

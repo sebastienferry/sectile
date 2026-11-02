@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"slices"
+	"sync"
 	"time"
 
 	"tasks/internal/agentprotocol"
@@ -32,21 +33,33 @@ func (info *AgentConnInfo) describeInventory(ac *AgentConn) {
 	}
 }
 
+// acceptInventory records what a connection says it can serve. The directory
+// write happens outside the dispatcher lock: a slow database used to hold that
+// lock, and with it every routing decision for every agent of the instance.
+// The session is checked again before the snapshot is published, so one that
+// was replaced meanwhile keeps nothing.
 func (d *AgentDispatcher) acceptInventory(ac *AgentConn, p agentprotocol.ProjectInventory) error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.live[ac.ConnectionID] != ac {
+	live := d.live[ac.ConnectionID] == ac
+	cluster := d.cluster
+	d.mu.Unlock()
+	if !live {
 		return errors.New("inactive agent session")
 	}
 	now := time.Now().UTC()
-	if d.cluster != nil {
-		if directory, ok := d.cluster.directory.(WorkstationDirectory); ok {
+	if cluster != nil {
+		if directory, ok := cluster.directory.(WorkstationDirectory); ok {
 			if err := directory.WorkstationInventory(ac.ConnectionID, p.ProjectIDs, now); err != nil {
 				return err
 			}
 		} else {
 			return errors.New("workstation directory unavailable")
 		}
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.live[ac.ConnectionID] != ac {
+		return errors.New("inactive agent session")
 	}
 	ac.inventory = p
 	ac.inventoryUpdatedAt = now
@@ -126,9 +139,22 @@ func (h *Handler) receiveProjectInventory(ac *AgentConn, msg AgentMessage, size 
 		err = h.agentDispatcher.acceptInventory(ac, p)
 	}
 	if err != nil {
+		if errors.Is(err, db.ErrWorkstationSessionGone) {
+			closeGoneSession(ac)
+			return
+		}
 		log.Printf("[AgentConnect] Inventaire de projets refusé : %v", err)
 		_ = ac.Send(AgentMessage{MsgID: msg.MsgID, Type: "error", Payload: []byte(`{"message":"Inventaire de projets refusé"}`)})
 	}
+}
+
+// closeGoneSession hangs up on a connection whose session another instance
+// forgot. Refusing its writes one by one left the agent connected, serving
+// nothing and told nothing, for as long as it stayed up; once hung up, it
+// reconnects and registers a session the directory knows.
+func closeGoneSession(ac *AgentConn) {
+	log.Printf("[AgentConnect] Session de device=%s oubliée par une autre instance : déconnexion pour réenregistrement", ac.DeviceID)
+	ac.Close(agentCloseSessionGone, "workstation session forgotten by another server instance")
 }
 
 func (c *agentCluster) locations() []db.AgentLocation {
@@ -154,8 +180,75 @@ func (d *AgentDispatcher) sessionPing(ac *AgentConn) {
 		return
 	}
 	if directory, ok := d.cluster.directory.(WorkstationDirectory); ok {
-		if err := directory.WorkstationPing(ac.ConnectionID, ac.LastSeen()); err != nil {
+		err := directory.WorkstationPing(ac.ConnectionID, ac.LastSeen())
+		if errors.Is(err, db.ErrWorkstationSessionGone) {
+			closeGoneSession(ac)
+		} else if err != nil {
 			log.Printf("[AgentDispatcher] Actualisation de la présence locale impossible : %v", err)
+		}
+	}
+}
+
+// agentPresence carries the presence writes of one agent connection, its
+// heartbeats and its project inventories, off the connection's read loop.
+// Written from the loop, a database that took longer than the read deadline
+// to answer stopped the loop from reading, and the agent was dropped for a
+// silence it never kept. Only the latest of each is kept while one is being
+// written: an older heartbeat or inventory has nothing left to say.
+type agentPresence struct {
+	mu        sync.Mutex
+	ping      bool
+	inventory *pendingInventory
+	wake      chan struct{}
+}
+
+type pendingInventory struct {
+	msg  AgentMessage
+	size int
+}
+
+func newAgentPresence() *agentPresence {
+	return &agentPresence{wake: make(chan struct{}, 1)}
+}
+
+func (p *agentPresence) notePing() {
+	p.mu.Lock()
+	p.ping = true
+	p.mu.Unlock()
+	p.signal()
+}
+
+func (p *agentPresence) noteInventory(msg AgentMessage, size int) {
+	p.mu.Lock()
+	p.inventory = &pendingInventory{msg: msg, size: size}
+	p.mu.Unlock()
+	p.signal()
+}
+
+func (p *agentPresence) signal() {
+	select {
+	case p.wake <- struct{}{}:
+	default:
+	}
+}
+
+// runAgentPresence writes what the read loop noted until stop is closed.
+func (h *Handler) runAgentPresence(ac *AgentConn, p *agentPresence, stop <-chan struct{}) {
+	for {
+		select {
+		case <-stop:
+			return
+		case <-p.wake:
+		}
+		p.mu.Lock()
+		ping, inventory := p.ping, p.inventory
+		p.ping, p.inventory = false, nil
+		p.mu.Unlock()
+		if ping {
+			h.agentDispatcher.sessionPing(ac)
+		}
+		if inventory != nil {
+			h.receiveProjectInventory(ac, inventory.msg, inventory.size)
 		}
 	}
 }

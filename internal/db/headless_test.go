@@ -242,6 +242,13 @@ func TestServerRestartPreservesRemoteExecutionOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Supervised means sent: a run still admitted never reached the agent.
+	if err := d.ClaimRunDispatch(agent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.CompleteRunDispatch(agent.ID); err != nil {
+		t.Fatal(err)
+	}
 	reported, err := d.StartRemoteRun(task.ID, "specify", "")
 	if err != nil {
 		t.Fatal(err)

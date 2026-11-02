@@ -48,7 +48,7 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   await app.evaluate(({shell})=>{globalThis.opened=[];shell.openExternal=async url=>{globalThis.opened.push(url)}})
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
-  // The row's only control is its menu opener; the tasks list is one of its items.
+  // The row offers a project prompt shortcut and a menu containing the tasks list.
   const actions=name=>page.getByRole('button',{name:'Actions for Project '+name,exact:true})
   const open=name=>({click:async()=>{await actions(name).click();await page.getByRole('menuitem',{name:'Open tasks',exact:true}).click()}})
   const pane=page.locator('#tickets-pane'),rows=page.locator('.ticket-row'),query=page.getByRole('textbox',{name:'Search server tasks'})
@@ -74,6 +74,8 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   await expect(actions('A')).toHaveCSS('opacity','1')
   await heading.click()
   await heading.focus();await page.keyboard.press('Tab')
+  await expect(page.getByRole('button',{name:'Start project prompt for Project A',exact:true})).toBeFocused()
+  await page.keyboard.press('Tab')
   await expect(actions('A')).toBeFocused();await expect(actions('A')).toHaveCSS('opacity','1')
   // Enter opens the menu on its first item, Open tasks; Enter again runs it.
   await page.keyboard.press('Enter');await expect(page.getByRole('menuitem',{name:'Open tasks',exact:true})).toBeFocused()

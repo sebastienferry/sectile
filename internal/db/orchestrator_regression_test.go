@@ -184,9 +184,9 @@ func checkConcurrentOrchestratorCapacity(t *testing.T, a, b *DB) {
 	for i := 0; i < 12; i++ {
 		orchestratorTask(t, a, project.ID)
 	}
-	// A manual session also consumes capacity; exactly one new task may enter.
+	// An orchestrated run already holds a slot; exactly one new task may enter.
 	existing := orchestratorTask(t, a, project.ID)
-	if _, err := a.StartAgentRun(existing.ID, "clarify", RunLaunch{ProjectID: project.ID}); err != nil {
+	if _, err := a.StartAgentRun(existing.ID, "clarify", RunLaunch{ProjectID: project.ID, Prompt: orchestratorLaunchPrompt("")}); err != nil {
 		t.Fatal(err)
 	}
 	results := make(chan *models.OrchestrationResult, 16)
@@ -229,7 +229,7 @@ func TestPostgresOrchestratorConcurrentInstancesRespectCapacity(t *testing.T) {
 func TestAgentProjectDiscoveryReportsOrchestrationCapacity(t *testing.T) {
 	d, project := orchestratorTestDB(t)
 	task := orchestratorTask(t, d, project.ID)
-	if _, err := d.StartAgentRun(task.ID, "clarify", RunLaunch{ProjectID: project.ID}); err != nil {
+	if _, err := d.StartAgentRun(task.ID, "clarify", RunLaunch{ProjectID: project.ID, Prompt: orchestratorLaunchPrompt("")}); err != nil {
 		t.Fatal(err)
 	}
 	discovered, err := d.AgentProjects()

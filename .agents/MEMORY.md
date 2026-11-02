@@ -389,16 +389,20 @@
 ### PTY supervisor foreground race (2026-10-29)
 - A fast Codex task launch failure left `agent-exec` alive with a stopped `stty` child. The shell could change the PTY foreground group between a group check and spawning `stty -g`, so checking the group before that external command did not solve it. `StartControlled` now captures and restores terminal settings in process with `term.GetState` and `term.Restore`, and skips the snapshot when it is already outside the foreground group. The isolated read-only Codex failure then left no `agent-exec` process; a workspace-write rerun showed skill tool activity and Electron Stop recorded a canceled run with no supervisor left behind.
 
-
 ### Local update preparation and startup cancellation (2026-10-30)
 
 - Quitting Tauri intentionally leaves the companion alive; a bundle replacement can reconnect to old Go code. Use the explicit idle-only preparation role and verify both transport closure and store ownership release. Never infer SQL drain from HTTP 204 or port closure alone.
 - The real companion integration test requested shutdown between agent connection and work activation. Its expected cancellation originally surfaced as `context canceled`. `RunEmbedded` now reports explicit shutdown to its composition owner; startup recognizes requested stop/restart while preserving genuine drain/close errors.
 - Tauri keeps an automatic-start fence after uncertain preparation failures. A Settings remount must still expose retry and explicit restart, without status polling clearing the fence or restarting the companion.
 
-
 ### Idle conversations and native update admission (2026-10-30)
 
 - Native testing found `/desktop/shutdown` rejected ready Claude/Codex conversations because their provider sessions keep `run.exited` open. Admit only durable idle free conversations under the queue lock, then use existing daemon cleanup/resume journaling; explicit Stop would make them terminal. Preserve refusal for active turns, queued messages, approvals, tracker context, metadata probes and failed journals. Real native replacement must verify both context and no tool replay, not just a 204 response.
-
 - Codex keeps `c.input` attached to its app-server between turns. An idle live Codex RPC connection is not pending user input; the native post-resume shutdown check exposed this distinction. Busy/queued/approval guards still apply.
+
+### 20. The Store Lock Starved the Heartbeat and Every Agent Connection (2026-10-29, #886, ADR 0062)
+- Symptom on a two-replica PostgreSQL deployment: every agent dropped about 45 s after connecting (`Read loop ended … after 45s of silence: i/o timeout`), the agent logged `Découverte des projets impossible : … context deadline exceeded`, instances logged `L'instance … a été tenue pour disparue`, and the readiness probe failed once. Pods were idle on CPU and memory. Each stall followed an autosync batch of 10–11 tracker synchronisations.
+- Cause: `ImportOrUpdateTasks` held `d.mu` for a whole full read, and the instance heartbeat, agent API reads and the WebSocket read loop's presence writes all waited behind it. Do not reintroduce a lock held for a loop over tickets, a network call under `d.mu`, or a database write in a read loop or under the dispatcher mutex.
+- An unauthenticated `curl` to an agent route answers fast even during a stall: an empty bearer is refused before any database read. Measure with a real key, or watch `kubectl get events` for readiness failures and the server log for the three lines above.
+- `/api/ready` pings PostgreSQL without `d.mu`, so it stays green while the mutex is the bottleneck. A failed probe points at the database or the connection pool instead.
+- The server exposes no `pprof`, and `SIGQUIT` for a goroutine dump restarts the pod. Diagnose with logs and timing correlation first.
