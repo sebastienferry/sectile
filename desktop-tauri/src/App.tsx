@@ -1142,7 +1142,7 @@ function ProjectPane({
                   </div>
                   <div className="board-filter-popover-body">
                     <div className="board-filter-row">
-                      <span className="board-filter-icon priority" title="Priorité"><Icon name="flame" /></span>
+                      <span className="board-filter-icon filter-priority" title="Priorité"><Icon name="flame" /></span>
                       <select
                         aria-label="Filtrer par priorité"
                         className={priorityFilter ? "active" : ""}
@@ -1157,7 +1157,7 @@ function ProjectPane({
                       </select>
                     </div>
                     <div className="board-filter-row">
-                      <span className="board-filter-icon status" title="Statut"><Icon name="layers" /></span>
+                      <span className="board-filter-icon filter-status" title="Statut"><Icon name="layers" /></span>
                       <select
                         aria-label="Filtrer par statut"
                         className={statusFilter ? "active" : ""}
@@ -1171,7 +1171,7 @@ function ProjectPane({
                       </select>
                     </div>
                     <div className="board-filter-row">
-                      <span className="board-filter-icon assignee" title="Assigné"><Icon name="user" /></span>
+                      <span className="board-filter-icon filter-assignee" title="Assigné"><Icon name="user" /></span>
                       <select
                         aria-label="Filtrer par assigné"
                         className={assigneeFilter ? "active" : ""}
@@ -1186,7 +1186,7 @@ function ProjectPane({
                       </select>
                     </div>
                     <div className="board-filter-row">
-                      <span className="board-filter-icon parent" title="Parent"><Icon name="target" /></span>
+                      <span className="board-filter-icon filter-parent" title="Parent"><Icon name="target" /></span>
                       <select
                         aria-label="Filtrer par parent"
                         className={parentFilter ? "active" : ""}
