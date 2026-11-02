@@ -515,14 +515,30 @@ body.resizing-sidebar {
 }
 .board-toolbar .search { flex: 1 1 180px; min-width: 150px; }
 .board-toolbar .search input { width: 100%; min-width: 0; }
-.board-filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.board-filter select { max-width: 145px; padding: 6px 8px; font-size: 11px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; transition: border-color .15s ease, color .15s ease; }
-.board-filter select:hover { border-color: var(--accent); }
-.board-filter select.active { border-color: var(--accent); color: var(--accent-text); font-weight: 500; }
-.board-clear-filters { padding: 5px 8px; font-size: 11px; border: 1px dashed var(--border); border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; transition: color .15s ease, border-color .15s ease; }
-.board-clear-filters:hover { color: var(--accent-text); border-color: var(--accent); }
+.board-filter-dropdown { position: relative; display: inline-flex; align-items: center; }
+.board-filter-toggle { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--muted); cursor: pointer; transition: color .15s ease, border-color .15s ease, background-color .15s ease; }
+.board-filter-toggle:hover { color: var(--text); border-color: var(--accent); }
+.board-filter-toggle.active { color: var(--accent-text); border-color: var(--accent); background: var(--selected); }
+.board-filter-toggle svg { width: 14px; height: 14px; }
+.filter-count-badge { position: absolute; top: -4px; right: -4px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; line-height: 1; }
+.board-filter-popover { position: absolute; top: calc(100% + 6px); left: 0; z-index: 50; width: 260px; padding: 10px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0, 0, 0, .2); display: flex; flex-direction: column; gap: 8px; }
+.board-filter-popover-header { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 4px; border-bottom: 1px solid var(--divider); }
+.filter-title { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.filter-reset-button { border: 0; background: transparent; color: var(--muted); font-size: 10px; font-weight: 600; cursor: pointer; padding: 2px 4px; }
+.filter-reset-button:hover { color: var(--accent-text); text-decoration: underline; }
+.board-filter-popover-body { display: flex; flex-direction: column; gap: 8px; }
+.board-filter-row { display: flex; align-items: center; gap: 8px; }
+.board-filter-icon { flex: 0 0 20px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.board-filter-icon svg { width: 14px; height: 14px; }
+.board-filter-icon.priority { color: #f87171; }
+.board-filter-icon.status { color: #60a5fa; }
+.board-filter-icon.assignee { color: #34d399; }
+.board-filter-icon.parent { color: #fbbf24; }
+.board-filter-row select { flex: 1; min-width: 0; padding: 5px 8px; font-size: 11px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); cursor: pointer; }
+.board-filter-row select.active { border-color: var(--accent); color: var(--accent-text); font-weight: 500; }
 .board-toolbar .badge { margin:0; white-space:nowrap; }
-.board-new-ticket { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+.board-new-ticket { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; padding:0; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text); cursor:pointer; transition:color .15s ease, border-color .15s ease, background-color .15s ease; }
+.board-new-ticket:hover:not(:disabled) { border-color:var(--accent); color:var(--accent-text); }
 .board-new-ticket svg { width:14px; height:14px; }
 .board-grouping { flex-shrink: 0; }
 .board-grouping select { max-width: 180px; }

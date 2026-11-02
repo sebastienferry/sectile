@@ -860,6 +860,20 @@ function ProjectPane({
   const [statusFilter,setStatusFilter]=useState("");
   const [assigneeFilter,setAssigneeFilter]=useState("");
   const [parentFilter,setParentFilter]=useState("");
+  const [filterMenuOpen,setFilterMenuOpen]=useState(false);
+  const filterMenuRef=useRef<HTMLDivElement>(null);
+  useEffect(()=>{
+    if(!filterMenuOpen)return;
+    const onPointerDown=(event:MouseEvent)=>{
+      if(filterMenuRef.current&&!filterMenuRef.current.contains(event.target as Node)){
+        setFilterMenuOpen(false);
+      }
+    };
+    const onKeyDown=(event:KeyboardEvent)=>{if(event.key==="Escape")setFilterMenuOpen(false);};
+    window.addEventListener("pointerdown",onPointerDown);
+    window.addEventListener("keydown",onKeyDown);
+    return ()=>{window.removeEventListener("pointerdown",onPointerDown);window.removeEventListener("keydown",onKeyDown);};
+  },[filterMenuOpen]);
   const [selectedTaskIds,setSelectedTaskIds]=useState<string[]>([]);
   const [batchConfirm,setBatchConfirm]=useState(false);
   const [launching,setLaunching]=useState(false);
@@ -992,6 +1006,7 @@ function ProjectPane({
     };
   }, [allRemoteTasks]);
   const hasActiveFilters = Boolean(priorityFilter || statusFilter || assigneeFilter || parentFilter);
+  const activeFilterCount = [priorityFilter, statusFilter, assigneeFilter, parentFilter].filter(Boolean).length;
   const resetFilters = () => {
     setPriorityFilter("");
     setStatusFilter("");
@@ -1099,84 +1114,102 @@ function ProjectPane({
                 onChange={(e) => setQueryState({projectId:selection.projectId,value:e.target.value})}
               />
             </label>
-            <div className="board-filters" role="group" aria-label="Filtres de tickets">
-              <label className="board-filter">
-                <span className="sr-only">Priorité</span>
-                <select
-                  aria-label="Filtrer par priorité"
-                  className={priorityFilter ? "active" : ""}
-                  value={priorityFilter}
-                  onChange={e => setPriorityFilter(e.target.value)}
-                >
-                  <option value="">Priorité : toutes</option>
-                  <option value="urgent">Urgent</option>
-                  <option value="high">Haute</option>
-                  <option value="medium">Moyenne</option>
-                  <option value="low">Basse</option>
-                </select>
-              </label>
-              <label className="board-filter">
-                <span className="sr-only">Statut</span>
-                <select
-                  aria-label="Filtrer par statut"
-                  className={statusFilter ? "active" : ""}
-                  value={statusFilter}
-                  onChange={e => setStatusFilter(e.target.value)}
-                >
-                  <option value="">Statut : tous</option>
-                  {availableStatuses.map(s => (
-                    <option key={s.value} value={s.value}>{s.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="board-filter">
-                <span className="sr-only">Assigné</span>
-                <select
-                  aria-label="Filtrer par assigné"
-                  className={assigneeFilter ? "active" : ""}
-                  value={assigneeFilter}
-                  onChange={e => setAssigneeFilter(e.target.value)}
-                >
-                  <option value="">Assigné : tous</option>
-                  {availableAssignees.hasUnassigned && <option value="__unassigned__">Non assigné</option>}
-                  {availableAssignees.people.map(person => (
-                    <option key={person} value={person}>{person}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="board-filter">
-                <span className="sr-only">Parent</span>
-                <select
-                  aria-label="Filtrer par parent"
-                  className={parentFilter ? "active" : ""}
-                  value={parentFilter}
-                  onChange={e => setParentFilter(e.target.value)}
-                >
-                  <option value="">Parent : tous</option>
-                  {availableParents.hasNone && <option value="__none__">Sans parent</option>}
-                  {availableParents.parents.map(p => (
-                    <option key={p.key} value={p.key}>
-                      {p.key}{p.title ? ` · ${p.title}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {hasActiveFilters && (
-                <button
-                  type="button"
-                  className="board-clear-filters"
-                  aria-label="Effacer les filtres"
-                  title="Réinitialiser tous les filtres"
-                  onClick={resetFilters}
-                >
-                  Effacer les filtres
-                </button>
+            <div className="board-filter-dropdown" ref={filterMenuRef}>
+              <button
+                type="button"
+                className={`board-filter-toggle ${hasActiveFilters ? "active" : ""}`}
+                aria-label="Filtres de tickets"
+                title={hasActiveFilters ? `${activeFilterCount} filtre${activeFilterCount > 1 ? "s" : ""} actif${activeFilterCount > 1 ? "s" : ""}` : "Filtrer les tickets"}
+                aria-expanded={filterMenuOpen}
+                onClick={() => setFilterMenuOpen(open => !open)}
+              >
+                <Icon name="sliders" />
+                {activeFilterCount > 0 && <span className="filter-count-badge">{activeFilterCount}</span>}
+              </button>
+              {filterMenuOpen && (
+                <div className="board-filter-popover" role="dialog" aria-label="Filtres de tickets">
+                  <div className="board-filter-popover-header">
+                    <span className="filter-title">Filtres</span>
+                    {hasActiveFilters && (
+                      <button
+                        type="button"
+                        className="filter-reset-button"
+                        onClick={() => { resetFilters(); setFilterMenuOpen(false); }}
+                      >
+                        Réinitialiser
+                      </button>
+                    )}
+                  </div>
+                  <div className="board-filter-popover-body">
+                    <div className="board-filter-row">
+                      <span className="board-filter-icon priority" title="Priorité"><Icon name="flame" /></span>
+                      <select
+                        aria-label="Filtrer par priorité"
+                        className={priorityFilter ? "active" : ""}
+                        value={priorityFilter}
+                        onChange={e => setPriorityFilter(e.target.value)}
+                      >
+                        <option value="">Priorité : toutes</option>
+                        <option value="urgent">Urgent</option>
+                        <option value="high">Haute</option>
+                        <option value="medium">Moyenne</option>
+                        <option value="low">Basse</option>
+                      </select>
+                    </div>
+                    <div className="board-filter-row">
+                      <span className="board-filter-icon status" title="Statut"><Icon name="layers" /></span>
+                      <select
+                        aria-label="Filtrer par statut"
+                        className={statusFilter ? "active" : ""}
+                        value={statusFilter}
+                        onChange={e => setStatusFilter(e.target.value)}
+                      >
+                        <option value="">Statut : tous</option>
+                        {availableStatuses.map(s => (
+                          <option key={s.value} value={s.value}>{s.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="board-filter-row">
+                      <span className="board-filter-icon assignee" title="Assigné"><Icon name="user" /></span>
+                      <select
+                        aria-label="Filtrer par assigné"
+                        className={assigneeFilter ? "active" : ""}
+                        value={assigneeFilter}
+                        onChange={e => setAssigneeFilter(e.target.value)}
+                      >
+                        <option value="">Assigné : tous</option>
+                        {availableAssignees.hasUnassigned && <option value="__unassigned__">Non assigné</option>}
+                        {availableAssignees.people.map(person => (
+                          <option key={person} value={person}>{person}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="board-filter-row">
+                      <span className="board-filter-icon parent" title="Parent"><Icon name="target" /></span>
+                      <select
+                        aria-label="Filtrer par parent"
+                        className={parentFilter ? "active" : ""}
+                        value={parentFilter}
+                        onChange={e => setParentFilter(e.target.value)}
+                      >
+                        <option value="">Parent : tous</option>
+                        {availableParents.hasNone && <option value="__none__">Sans parent</option>}
+                        {availableParents.parents.map(p => (
+                          <option key={p.key} value={p.key}>
+                            {p.key}{p.title ? ` · ${p.title}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
             <label className="board-grouping"><span className="sr-only">Regrouper</span><select aria-label="Regrouper les tickets" value={grouping} onChange={e=>{const value=e.target.value==="tracker"?"tracker":"stage";setGrouping(value);savePreference("boardGrouping",value);}}><option value="stage">Par étape du workflow</option><option value="tracker">Par statut tracker</option></select></label>
             {ticketView==="board"&&<button type="button" className="board-density" aria-label="Cartes compactes" title="Basculer la densité des cartes" aria-pressed={compactCards} onClick={()=>setCompactCards(value=>{const next=!value;savePreference("boardCards",next?"compact":"full");return next;})}>{compactCards?"Compact":"Détaillé"}</button>}
             <span className="badge" title="Statuts du tracker · lecture seule">{count} ticket{count>1?"s":""}</span><span className="sr-only">Statuts du tracker · lecture seule</span>
-            <button type="button" className="board-new-ticket" disabled={!monitor.fresh||!monitor.snapshot?.status.capabilities?.includes("task-page")} onClick={()=>{if(project)navigate(project,"ticket-editor");}}><Icon name="plus"/> Nouveau ticket</button>
+            <button type="button" className="board-new-ticket" aria-label="Nouveau ticket" title="Nouveau ticket" disabled={!monitor.fresh||!monitor.snapshot?.status.capabilities?.includes("task-page")} onClick={()=>{if(project)navigate(project,"ticket-editor");}}><Icon name="plus"/></button>
             {selectedTasks.length>0&&<div className="board-batch-controls"><span className="board-selection-count">{selectedTasks.length} sélectionné{selectedTasks.length>1?"s":""}</span><button type="button" onClick={()=>{setSelectedTaskIds([]);setBatchConfirm(false);}}>Effacer la sélection</button><button type="button" disabled={selectedTasks.length<2||launching||selectedTasks.some(task=>taskStage(task,context?.board)==="finished")||!context?.skills.some(skill=>skill.id==="pickup_issues")} onClick={()=>setBatchConfirm(true)}>Préparer un lot</button></div>}
           </div>}
           {launchError&&<p className="error" role="alert">{launchError}</p>}

@@ -436,6 +436,11 @@ test("the board toolbar filters tasks by priority, status, assignee, and parent"
  expect(screen.getByText("Second issue")).toBeTruthy();
  expect(screen.getByText("Third issue")).toBeTruthy();
 
+ // Open filter dropdown
+ const filterToggle=screen.getByRole("button",{name:"Filtres de tickets"});
+ fireEvent.click(filterToggle);
+ expect(screen.getByRole("dialog",{name:"Filtres de tickets"})).toBeTruthy();
+
  // Filter by priority: urgent
  const prioritySelect=screen.getByRole("combobox",{name:"Filtrer par priorité"});
  fireEvent.change(prioritySelect,{target:{value:"urgent"}});
@@ -443,12 +448,14 @@ test("the board toolbar filters tasks by priority, status, assignee, and parent"
  expect(screen.queryByText("Second issue")).toBeNull();
  expect(screen.queryByText("Third issue")).toBeNull();
 
- // Clear filters button appears and resets
- const clearBtn=screen.getByRole("button",{name:"Effacer les filtres"});
- fireEvent.click(clearBtn);
+ // Reset button in popover header
+ const resetBtn=screen.getByRole("button",{name:"Réinitialiser"});
+ fireEvent.click(resetBtn);
  expect(screen.getByText("Second issue")).toBeTruthy();
  expect(screen.getByText("Third issue")).toBeTruthy();
- expect(screen.queryByRole("button",{name:"Effacer les filtres"})).toBeNull();
+
+ // Re-open filter dropdown
+ fireEvent.click(filterToggle);
 
  // Filter by status: to do
  const statusSelect=screen.getByRole("combobox",{name:"Filtrer par statut"});
@@ -469,9 +476,12 @@ test("the board toolbar filters tasks by priority, status, assignee, and parent"
  expect(screen.queryByText("Second issue")).toBeNull();
  expect(screen.getByText("Third issue")).toBeTruthy();
 
- // Reset via clear button
- fireEvent.click(screen.getByRole("button",{name:"Effacer les filtres"}));
+ // Reset via button
+ fireEvent.click(screen.getByRole("button",{name:"Réinitialiser"}));
  expect(screen.getByText("First issue")).toBeTruthy();
+
+ // Re-open filter dropdown
+ fireEvent.click(filterToggle);
 
  // Filter by parent: EPIC-1
  const parentSelect=screen.getByRole("combobox",{name:"Filtrer par parent"});
