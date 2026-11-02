@@ -544,6 +544,12 @@ body.resizing-sidebar {
 .ticket-list { flex:1; min-height:0; overflow:auto; margin:0 22px 22px; border-top:1px solid var(--divider); }
 .ticket-list table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:12px; }
 .ticket-list th { position:sticky; top:0; z-index:1; background:var(--bg); color:var(--muted); text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.08em; padding:12px 8px; }
+.ticket-list .sort-header { color:inherit; background:none; border:none; padding:0; font:inherit; letter-spacing:inherit; text-transform:inherit; display:inline-flex; align-items:center; gap:4px; cursor:pointer; }
+.ticket-list .sort-header:hover { color:var(--text); }
+.ticket-list .sort-header:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.ticket-list th[aria-sort="ascending"] .sort-header,
+.ticket-list th[aria-sort="descending"] .sort-header { color:var(--accent-text); }
+.ticket-list .sort-arrow { font-size:9px; min-width:1ch; }
 .ticket-list th:nth-child(1) { width:34px; }.ticket-list th:nth-child(2) { width:80px; }.ticket-list th:nth-child(3) { width:auto; }.ticket-list th:nth-child(4) { width:100px; }.ticket-list th:nth-child(5) { width:90px; }.ticket-list th:nth-child(6) { width:65px; }.ticket-list th:nth-child(7) { width:35px; }.ticket-list th:nth-child(8) { width:170px; text-align:right; padding-right:12px; }
 .ticket-list td { padding:10px 8px; border-top:1px solid var(--divider); color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ticket-list td:nth-child(3) { color:var(--text); }

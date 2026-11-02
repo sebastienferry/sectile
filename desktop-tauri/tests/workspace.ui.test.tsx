@@ -379,6 +379,51 @@ test("the ticket list displays shortened engine monogram, proposes the next logi
  fireEvent.click(runButton);
  await waitFor(()=>expect(api.launchTask).toHaveBeenCalledWith("p",{taskId:"t1",skillId:"clarify",prompt:"",mode:""}));
 });
+test("clicking table headers orders tasks by that column",async()=>{
+ vi.mocked(api.listTasks).mockResolvedValue([
+  {id:"t1",key:"APP-1",title:"Zebra task",source:"jira",trackerStatus:"To Do",status:"to_clarify",priority:"low"},
+  {id:"t2",key:"APP-2",title:"Alpha task",source:"jira",trackerStatus:"To Do",status:"specified",priority:"urgent"},
+  {id:"t3",key:"APP-10",title:"Middle task",source:"jira",trackerStatus:"To Do",status:"implemented",priority:"medium"}
+ ]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
+ render(<App/>);
+ await screen.findByText("Alpha task");
+ fireEvent.click(screen.getByRole("button",{name:"Liste"}));
+ const list=screen.getByRole("region",{name:"Liste des tickets"});
+ // Defaults to priority descending: APP-2 (urgent), APP-10 (medium), APP-1 (low)
+ const priorityHeader=within(list).getByRole("button",{name:/Priorité/});
+ expect(priorityHeader.closest("th")?.getAttribute("aria-sort")).toBe("descending");
+ let rows=within(list).getAllByRole("row").slice(1);
+ expect(rows[0].textContent).toContain("APP-2");
+ expect(rows[1].textContent).toContain("APP-10");
+ expect(rows[2].textContent).toContain("APP-1");
+
+ // Click priority flips to ascending
+ fireEvent.click(priorityHeader);
+ expect(priorityHeader.closest("th")?.getAttribute("aria-sort")).toBe("ascending");
+ rows=within(list).getAllByRole("row").slice(1);
+ expect(rows[0].textContent).toContain("APP-1");
+ expect(rows[1].textContent).toContain("APP-10");
+ expect(rows[2].textContent).toContain("APP-2");
+
+ // Click title sorts alphabetically ascending: Alpha task (APP-2), Middle task (APP-10), Zebra task (APP-1)
+ const titleHeader=within(list).getByRole("button",{name:/Titre/});
+ fireEvent.click(titleHeader);
+ expect(titleHeader.closest("th")?.getAttribute("aria-sort")).toBe("ascending");
+ rows=within(list).getAllByRole("row").slice(1);
+ expect(rows[0].textContent).toContain("Alpha task");
+ expect(rows[1].textContent).toContain("Middle task");
+ expect(rows[2].textContent).toContain("Zebra task");
+
+ // Click key sorts naturally: APP-1, APP-2, APP-10
+ const keyHeader=within(list).getByRole("button",{name:/Clé/});
+ fireEvent.click(keyHeader);
+ expect(keyHeader.closest("th")?.getAttribute("aria-sort")).toBe("ascending");
+ rows=within(list).getAllByRole("row").slice(1);
+ expect(rows[0].textContent).toContain("APP-1");
+ expect(rows[1].textContent).toContain("APP-2");
+ expect(rows[2].textContent).toContain("APP-10");
+});
 test("the board uses Sectile epic colors only when the project enables them",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue([{id:"t1",key:"APP-1",title:"Epic child",source:"jira",trackerStatus:"To Do",status:"to_clarify",parentKey:"PE-1078"}]);
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{epicColors:true,trackers:[{trackerId:"jira-1",provider:"jira"}]}});

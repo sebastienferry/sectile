@@ -18,6 +18,7 @@ import { OrchestrationSettings } from "./components/OrchestrationSettings";
 
 import { openExternalLink, projectContext, providerReadiness, type ProjectContext } from "./lib/workspace";
 import { engineMark, nextSkill, skillLabels, stages, stageLabels, taskStage } from "./domain/workflow";
+import { DEFAULT_SORT, nextSort, orderedTasks, type SortState } from "./domain/task-list-order";
 import { launchInput } from "./domain/execution";
 import { AttachedFolderSettings } from "./components/FolderContext";
 import { ProjectProfiles } from "./components/ProjectProfiles";
@@ -853,6 +854,7 @@ function ProjectPane({
   const [grouping,setGrouping] = useState<"stage"|"tracker">(()=>readPreference("boardGrouping","stage")==="tracker"?"tracker":"stage");
   const [compactCards,setCompactCards] = useState(()=>readPreference("boardCards","compact")!=="full");
   const [ticketView,setTicketView]=useState<"board"|"list">(()=>readPreference("ticketView","board")==="list"?"list":"board");
+  const [tableSort,setTableSort]=useState<SortState>(DEFAULT_SORT);
   const [selectedTaskIds,setSelectedTaskIds]=useState<string[]>([]);
   const [batchConfirm,setBatchConfirm]=useState(false);
   const [launching,setLaunching]=useState(false);
@@ -929,6 +931,7 @@ function ProjectPane({
     !hasRemoteTasks,
   );
   const visibleTasks = remoteColumns.flatMap(column=>column.tasks);
+  const sortedTasks = useMemo(() => orderedTasks(visibleTasks, tableSort, context?.board), [visibleTasks, tableSort, context?.board]);
   const allRemoteTasks=trackerColumns(tasks).flatMap(column=>column.tasks);
   const columns = grouping === "stage" ? [...stages.map(stage=>({name:stageLabels[stage],tasks:visibleTasks.filter(task=>taskStage(task,context?.board)===stage),stage})),...(visibleTasks.some(task=>!taskStage(task,context?.board))?[{name:"Étape inconnue",tasks:visibleTasks.filter(task=>!taskStage(task,context?.board)),stage:undefined}]:[])] : remoteColumns.map(column=>({...column,stage:undefined}));
   const count = columns.reduce((n, c) => n + c.tasks.length, 0);
@@ -1046,7 +1049,7 @@ function ProjectPane({
           )}
           {boardContextPending && !busy && <p className="hint" role="status">Chargement de la configuration du projet…</p>}
           {currentContextError && <div className="error" role="alert">Configuration du tableau indisponible : {currentContextError} <button onClick={()=>setContextRefresh(value=>value+1)}>Réessayer</button></div>}
-          {ticketView==="list"&&!localOnlyProject?<div className="ticket-list" role="region" aria-label="Liste des tickets" tabIndex={0}><table><thead><tr><th aria-label="Sélection"/><th>Clé</th><th>Titre</th><th>Statut</th><th>Priorité</th><th>Moteur</th><th>PR</th><th>Actions</th></tr></thead><tbody>{visibleTasks.slice(0,visibleListCount).map(task=>{
+          {ticketView==="list"&&!localOnlyProject?<div className="ticket-list" role="region" aria-label="Liste des tickets" tabIndex={0}><table><thead><tr><th aria-label="Sélection"/>{([["key","Clé"],["title","Titre"],["stage","Statut"],["priority","Priorité"]] as const).map(([field,label])=>{const active=tableSort.field===field;return <th key={field} scope="col" aria-sort={active?(tableSort.ascending?"ascending":"descending"):"none"}><button type="button" className="sort-header" onClick={()=>setTableSort(current=>nextSort(current,field))}>{label}{active&&<span className="sort-arrow" aria-hidden="true">{tableSort.ascending?"▲":"▼"}</span>}</button></th>;})}<th>Moteur</th><th>PR</th><th>Actions</th></tr></thead><tbody>{sortedTasks.slice(0,visibleListCount).map(task=>{
             const next=context?nextSkill(task,context):undefined;
             const taskRun=activeTaskRuns.get(task.id);
             const active=taskRun&&isActive(taskRun);
@@ -1078,7 +1081,7 @@ function ProjectPane({
                 </div>
               </td>
             </tr>;
-          })}</tbody></table>{visibleTasks.length>visibleListCount&&<button type="button" className="board-show-more" onClick={()=>setVisibleListCount(value=>value+80)}>Afficher les 80 suivants · {visibleListCount} sur {visibleTasks.length}</button>}</div>:<div className="board" role="region" aria-label="Colonnes de tickets, défilement horizontal" tabIndex={0}>
+          })}</tbody></table>{sortedTasks.length>visibleListCount&&<button type="button" className="board-show-more" onClick={()=>setVisibleListCount(value=>value+80)}>Afficher les 80 suivants · {visibleListCount} sur {sortedTasks.length}</button>}</div>:<div className="board" role="region" aria-label="Colonnes de tickets, défilement horizontal" tabIndex={0}>
             {columns.map((column) => (
               <section className="column" data-stage={column.stage} key={column.name}>
                 <h2>
