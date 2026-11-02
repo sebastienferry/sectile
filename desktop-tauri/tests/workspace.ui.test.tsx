@@ -342,15 +342,19 @@ test("workflow columns open by default and the tracker grouping choice persists"
  await screen.findByText("Remote issue");
  expect(document.querySelector('.column[data-stage="new"]')).not.toBeNull();
  expect(document.querySelector('.column[data-stage="clarified"]')).not.toBeNull();
- const grouping=screen.getByRole("combobox",{name:"Regrouper les tickets"}) as HTMLSelectElement;
- expect(grouping.value).toBe("stage");
- fireEvent.change(grouping,{target:{value:"tracker"}});
+ const stageButton=screen.getByRole("button",{name:"Par étape du workflow"});
+ const trackerButton=screen.getByRole("button",{name:"Par statut tracker"});
+ expect(stageButton.getAttribute("aria-pressed")).toBe("true");
+ expect(trackerButton.getAttribute("aria-pressed")).toBe("false");
+ fireEvent.click(trackerButton);
+ expect(stageButton.getAttribute("aria-pressed")).toBe("false");
+ expect(trackerButton.getAttribute("aria-pressed")).toBe("true");
  expect(localStorage.getItem("sectile-tauri.boardGrouping")).toBe("tracker");
  expect(document.querySelector('.column[data-stage]')).toBeNull();
  view.unmount();
  render(<App/>);
  await screen.findByText("Remote issue");
- expect((screen.getByRole("combobox",{name:"Regrouper les tickets"}) as HTMLSelectElement).value).toBe("tracker");
+ expect(screen.getByRole("button",{name:"Par statut tracker"}).getAttribute("aria-pressed")).toBe("true");
 });
 test("the backlog list keeps epic context and selection while switching views",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue([{id:"t1",key:"APP-1",title:"First issue",source:"jira",trackerStatus:"To Do",status:"to_clarify",parentKey:"EPIC-1",priority:"high"},{id:"t2",key:"APP-2",title:"Second issue",source:"jira",trackerStatus:"To Do",status:"to_clarify",parentKey:"EPIC-1",priority:"medium"}]);

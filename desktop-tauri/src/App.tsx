@@ -1206,7 +1206,48 @@ function ProjectPane({
                 </div>
               )}
             </div>
-            <label className="board-grouping"><span className="sr-only">Regrouper</span><select aria-label="Regrouper les tickets" value={grouping} onChange={e=>{const value=e.target.value==="tracker"?"tracker":"stage";setGrouping(value);savePreference("boardGrouping",value);}}><option value="stage">Par étape du workflow</option><option value="tracker">Par statut tracker</option></select></label>
+            <div className="board-grouping-switch" role="group" aria-label="Regroupement des tickets">
+              <button
+                type="button"
+                className="grouping-toggle"
+                aria-pressed={grouping === "stage"}
+                title="Par étape du workflow"
+                aria-label="Par étape du workflow"
+                onClick={() => {
+                  setGrouping("stage");
+                  savePreference("boardGrouping", "stage");
+                }}
+              >
+                <Icon name="sparkles" />
+              </button>
+              <button
+                type="button"
+                className="grouping-toggle"
+                aria-pressed={grouping === "tracker"}
+                title="Par statut tracker"
+                aria-label="Par statut tracker"
+                onClick={() => {
+                  setGrouping("tracker");
+                  savePreference("boardGrouping", "tracker");
+                }}
+              >
+                <Icon name="kanban" />
+              </button>
+              <select
+                aria-label="Regrouper les tickets"
+                className="sr-only"
+                tabIndex={-1}
+                value={grouping}
+                onChange={e => {
+                  const value = e.target.value === "tracker" ? "tracker" : "stage";
+                  setGrouping(value);
+                  savePreference("boardGrouping", value);
+                }}
+              >
+                <option value="stage">Par étape du workflow</option>
+                <option value="tracker">Par statut tracker</option>
+              </select>
+            </div>
             {ticketView==="board"&&<button type="button" className="board-density" aria-label="Cartes compactes" title="Basculer la densité des cartes" aria-pressed={compactCards} onClick={()=>setCompactCards(value=>{const next=!value;savePreference("boardCards",next?"compact":"full");return next;})}>{compactCards?"Compact":"Détaillé"}</button>}
             <span className="badge" title="Statuts du tracker · lecture seule">{count} ticket{count>1?"s":""}</span><span className="sr-only">Statuts du tracker · lecture seule</span>
             <button type="button" className="board-new-ticket" aria-label="Nouveau ticket" title="Nouveau ticket" disabled={!monitor.fresh||!monitor.snapshot?.status.capabilities?.includes("task-page")} onClick={()=>{if(project)navigate(project,"ticket-editor");}}><Icon name="plus"/></button>
