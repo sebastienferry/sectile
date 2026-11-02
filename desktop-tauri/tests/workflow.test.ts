@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {chainProgress,nextSkill,skillResultLabel,taskStage} from "../src/domain/workflow.ts";
+import {chainProgress,engineMark,nextSkill,skillResultLabel,taskStage} from "../src/domain/workflow.ts";
 const task={id:"t",title:"Ticket",status:"to_clarify",labels:[]};
 const project={configured:true,skills:["clarify","specify","implement","adjust","handoff","pickup"].map(id=>({id})),policy:{prCreationStage:"implemented"},board:{trackerColumns:[{name:"Review",statuses:["Code review"]}],stageColumns:{implemented:["Review"]},trackers:[{trackerId:"other",trackerColumns:[{name:"Doing",statuses:["WIP"]}],stageColumns:{specified:["Doing"]}}]}};
 test("chain progress respects the configured stop stage and authoritative workflow mapping",()=>{
@@ -37,4 +37,14 @@ test("process exit never substitutes for server-confirmed skill completion or st
  assert.match(skillResultLabel(run,{activity:{id:"different",taskId:"t",skillId:"implement",status:"completed"}}),/non confirmé/);
  assert.match(skillResultLabel(run,{activity:{id:"r",taskId:"t",skillId:"implement",status:"completed"},task:{status:"to_implement"}}),/validation/);
  assert.match(skillResultLabel(run,{activity:{id:"r",taskId:"t",skillId:"implement",status:"completed"},task:{status:"to_test"}}),/résultat confirmé/);
+});
+test("engineMark shortens providers into compact monograms",()=>{
+ assert.equal(engineMark("codex"),"Cx");
+ assert.equal(engineMark("claude"),"Cl");
+ assert.equal(engineMark("agy"),"Ag");
+ assert.equal(engineMark("antigravity"),"Ag");
+ assert.equal(engineMark("custom"),"{}");
+ assert.equal(engineMark("openai"),"Op");
+ assert.equal(engineMark(""),"—");
+ assert.equal(engineMark(undefined),"—");
 });

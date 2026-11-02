@@ -45,3 +45,16 @@ export function skillResultLabel(run:{id:string;taskId:string;skill:string;statu
  }
  return run.status==="completed"?"Processus terminé · résultat de skill non confirmé":"Résultat de skill en attente";
 }
+
+const ENGINE_MARKS: Record<string, string> = {
+  claude: "Cl",
+  codex: "Cx",
+  agy: "Ag",
+  antigravity: "Ag",
+  custom: "{}",
+};
+
+export function engineMark(provider?: string): string {
+  const id = String(provider || "").trim().toLowerCase();
+  return ENGINE_MARKS[id] || (id ? id.slice(0, 2).replace(/^./, c => c.toUpperCase()) : "—");
+}

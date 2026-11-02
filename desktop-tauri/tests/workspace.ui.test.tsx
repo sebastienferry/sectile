@@ -9,7 +9,7 @@ import App from "../src/App";
 import type { Task } from "../src/domain/board";
 import { conversationFor } from "../src/lib/conversation-controller";
 import * as workspace from "../src/lib/workspace";
-vi.mock("../src/lib/workspace",async original=>({...await original<typeof workspace>(),projectContext:vi.fn(),openExternalLink:vi.fn(),runResult:vi.fn()}));
+vi.mock("../src/lib/workspace",async original=>({...await original<typeof workspace>(),projectContext:vi.fn(),openExternalLink:vi.fn(),runResult:vi.fn(),providerReadiness:vi.fn()}));
 import * as api from "../src/lib/agent";
 vi.mock("../src/lib/agent", () => ({
   listProjects: vi.fn(), listTasks: vi.fn(), getTask: vi.fn(), executionSnapshot: vi.fn(),
@@ -22,6 +22,7 @@ beforeEach(() => {
   vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{}});
   vi.mocked(workspace.openExternalLink).mockResolvedValue(undefined);
   vi.mocked(workspace.runResult).mockResolvedValue({});
+  vi.mocked(workspace.providerReadiness).mockResolvedValue({installed:true,steps:{}} as any);
   vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   vi.mocked(api.listProjects).mockResolvedValue([{ id: "p", name: "Example" }]);
   vi.mocked(api.listTasks).mockResolvedValue([]);
@@ -364,6 +365,19 @@ test("the backlog list keeps epic context and selection while switching views",a
  fireEvent.click(within(screen.getByRole("group",{name:"Vue des tickets"})).getByRole("button",{name:"Tableau"}));
  expect((screen.getByRole("checkbox",{name:"Sélectionner APP-1"}) as HTMLInputElement).checked).toBe(true);
  expect(localStorage.getItem("sectile-tauri.ticketView")).toBe("board");
+});
+test("the ticket list displays shortened engine monogram, proposes the next logical action, and aligns actions",async()=>{
+ vi.mocked(api.listTasks).mockResolvedValue([{id:"t1",key:"APP-1",title:"First issue",source:"jira",trackerStatus:"To Do",status:"to_clarify"}]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",aiProvider:"codex",skills:[{id:"clarify"}],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
+ render(<App/>);
+ await screen.findByText("First issue");
+ fireEvent.click(screen.getByRole("button",{name:"Liste"}));
+ const list=screen.getByRole("region",{name:"Liste des tickets"});
+ expect(within(list).getByText("Cx")).toBeTruthy();
+ const runButton=within(list).getByRole("button",{name:"Lancer Clarifier pour APP-1"});
+ expect(runButton.textContent).toBe("Clarifier");
+ fireEvent.click(runButton);
+ await waitFor(()=>expect(api.launchTask).toHaveBeenCalledWith("p",{taskId:"t1",skillId:"clarify",prompt:"",mode:""}));
 });
 test("the board uses Sectile epic colors only when the project enables them",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue([{id:"t1",key:"APP-1",title:"Epic child",source:"jira",trackerStatus:"To Do",status:"to_clarify",parentKey:"PE-1078"}]);

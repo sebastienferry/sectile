@@ -17,7 +17,7 @@ import { WorkflowSettings } from "./components/WorkflowSettings";
 import { OrchestrationSettings } from "./components/OrchestrationSettings";
 
 import { openExternalLink, projectContext, providerReadiness, type ProjectContext } from "./lib/workspace";
-import { nextSkill, skillLabels, stages, stageLabels, taskStage } from "./domain/workflow";
+import { engineMark, nextSkill, skillLabels, stages, stageLabels, taskStage } from "./domain/workflow";
 import { launchInput } from "./domain/execution";
 import { AttachedFolderSettings } from "./components/FolderContext";
 import { ProjectProfiles } from "./components/ProjectProfiles";
@@ -1046,7 +1046,39 @@ function ProjectPane({
           )}
           {boardContextPending && !busy && <p className="hint" role="status">Chargement de la configuration du projet…</p>}
           {currentContextError && <div className="error" role="alert">Configuration du tableau indisponible : {currentContextError} <button onClick={()=>setContextRefresh(value=>value+1)}>Réessayer</button></div>}
-          {ticketView==="list"&&!localOnlyProject?<div className="ticket-list" role="region" aria-label="Liste des tickets" tabIndex={0}><table><thead><tr><th aria-label="Sélection"/><th>Clé</th><th>Titre</th><th>Statut</th><th>Priorité</th><th>Moteur</th><th>PR</th><th>Actions</th></tr></thead><tbody>{visibleTasks.slice(0,visibleListCount).map(task=><tr key={task.id}><td><input type="checkbox" aria-label={`Sélectionner ${task.key||task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={()=>toggleTask(task.id)}/></td><td>{task.key||task.id}</td><td><button type="button" className="task-open" onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button>{task.parentKey&&<small className="epic-chip" style={epicStyle(task)} title={task.parentTitle}>{task.parentKey}</small>}</td><td>{task.trackerStatus||"—"}</td><td><span className={`priority priority-${task.priority||"none"}`}>{task.priority||"—"}</span></td><td>{context?.aiProvider==="claude"?"Claude":context?.aiProvider==="codex"?"Codex":"—"}</td><td>{task.prUrl&&/^https?:\/\//.test(task.prUrl)?<button type="button" className="task-pr-link" aria-label={`Ouvrir la PR de ${task.key||task.title}`} onClick={()=>void openExternalLink(task.prUrl!).catch(()=>setLaunchError("Impossible d’ouvrir la PR."))}>●</button>:"—"}</td><td>{taskMenu(task)}</td></tr>)}</tbody></table>{visibleTasks.length>visibleListCount&&<button type="button" className="board-show-more" onClick={()=>setVisibleListCount(value=>value+80)}>Afficher les 80 suivants · {visibleListCount} sur {visibleTasks.length}</button>}</div>:<div className="board" role="region" aria-label="Colonnes de tickets, défilement horizontal" tabIndex={0}>
+          {ticketView==="list"&&!localOnlyProject?<div className="ticket-list" role="region" aria-label="Liste des tickets" tabIndex={0}><table><thead><tr><th aria-label="Sélection"/><th>Clé</th><th>Titre</th><th>Statut</th><th>Priorité</th><th>Moteur</th><th>PR</th><th>Actions</th></tr></thead><tbody>{visibleTasks.slice(0,visibleListCount).map(task=>{
+            const next=context?nextSkill(task,context):undefined;
+            const taskRun=activeTaskRuns.get(task.id);
+            const active=taskRun&&isActive(taskRun);
+            const isFinished=taskStage(task,context?.board)==="finished";
+            const runDisabled=launching||!monitor.fresh||isFinished||!!active||!next?.skillId||!context?.configured;
+            const actionLabel=active?"En cours":isFinished?"Terminé":next?.skillId?next.label:"Lancer";
+            const runTitle=active?"Une exécution est en cours sur ce ticket":isFinished?"Ce ticket est terminé":!context?.configured?"Configurez le dépôt local du projet pour lancer une skill":next?.skillId?`Lancer : ${next.label}`:(next?.reason||"Aucune action disponible");
+            return <tr key={task.id}>
+              <td><input type="checkbox" aria-label={`Sélectionner ${task.key||task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={()=>toggleTask(task.id)}/></td>
+              <td>{task.key||task.id}</td>
+              <td><button type="button" className="task-open" onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button>{task.parentKey&&<small className="epic-chip" style={epicStyle(task)} title={task.parentTitle}>{task.parentKey}</small>}</td>
+              <td>{task.trackerStatus||"—"}</td>
+              <td><span className={`priority priority-${task.priority||"none"}`}>{task.priority||"—"}</span></td>
+              <td>{context?.aiProvider?<span className="engine-mark" title={context.aiProvider==="codex"?"Codex":context.aiProvider==="claude"?"Claude Code":context.aiProvider}>{engineMark(context.aiProvider)}</span>:"—"}</td>
+              <td>{task.prUrl&&/^https?:\/\//.test(task.prUrl)?<button type="button" className="task-pr-link" aria-label={`Ouvrir la PR de ${task.key||task.title}`} onClick={()=>void openExternalLink(task.prUrl!).catch(()=>setLaunchError("Impossible d’ouvrir la PR."))}>●</button>:"—"}</td>
+              <td className="ticket-actions-cell">
+                <div className="ticket-actions">
+                  <button
+                    type="button"
+                    className="ticket-run"
+                    disabled={runDisabled}
+                    title={runTitle}
+                    aria-label={`Lancer ${next?.label||"l’action"} pour ${task.key||task.title}`}
+                    onClick={()=>{if(next?.skillId)void startSkill(task,next.skillId);}}
+                  >
+                    {actionLabel}
+                  </button>
+                  {taskMenu(task)}
+                </div>
+              </td>
+            </tr>;
+          })}</tbody></table>{visibleTasks.length>visibleListCount&&<button type="button" className="board-show-more" onClick={()=>setVisibleListCount(value=>value+80)}>Afficher les 80 suivants · {visibleListCount} sur {visibleTasks.length}</button>}</div>:<div className="board" role="region" aria-label="Colonnes de tickets, défilement horizontal" tabIndex={0}>
             {columns.map((column) => (
               <section className="column" data-stage={column.stage} key={column.name}>
                 <h2>
