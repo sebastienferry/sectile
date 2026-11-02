@@ -975,6 +975,20 @@ function ProjectPane({
     }
     return Array.from(values.entries()).map(([value, label]) => ({ value, label }));
   }, [allRemoteTasks, context?.board]);
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const s of availableStatuses) {
+      counts[s.value] = allRemoteTasks.filter(t => {
+        const stage = taskStage(t, context?.board);
+        return (
+          (t.trackerStatus ?? "").toLowerCase() === s.value ||
+          (stage ?? "").toLowerCase() === s.value ||
+          (t.status ?? "").toLowerCase() === s.value
+        );
+      }).length;
+    }
+    return counts;
+  }, [availableStatuses, allRemoteTasks, context?.board]);
   const availableAssignees = useMemo(() => {
     const assignees = new Set<string>();
     let hasUnassigned = false;
@@ -1123,7 +1137,7 @@ function ProjectPane({
                 aria-expanded={filterMenuOpen}
                 onClick={() => setFilterMenuOpen(open => !open)}
               >
-                <Icon name="sliders" />
+                <span>Filtres</span>
                 {activeFilterCount > 0 && <span className="filter-count-badge">{activeFilterCount}</span>}
               </button>
               {filterMenuOpen && (
@@ -1142,59 +1156,15 @@ function ProjectPane({
                   </div>
                   <div className="board-filter-popover-body">
                     <div className="board-filter-row">
-                      <span className="board-filter-icon filter-priority" title="Priorité"><Icon name="flame" /></span>
-                      <select
-                        aria-label="Filtrer par priorité"
-                        className={priorityFilter ? "active" : ""}
-                        value={priorityFilter}
-                        onChange={e => setPriorityFilter(e.target.value)}
-                      >
-                        <option value="">Priorité : toutes</option>
-                        <option value="urgent">Urgent</option>
-                        <option value="high">Haute</option>
-                        <option value="medium">Moyenne</option>
-                        <option value="low">Basse</option>
-                      </select>
-                    </div>
-                    <div className="board-filter-row">
-                      <span className="board-filter-icon filter-status" title="Statut"><Icon name="layers" /></span>
-                      <select
-                        aria-label="Filtrer par statut"
-                        className={statusFilter ? "active" : ""}
-                        value={statusFilter}
-                        onChange={e => setStatusFilter(e.target.value)}
-                      >
-                        <option value="">Statut : tous</option>
-                        {availableStatuses.map(s => (
-                          <option key={s.value} value={s.value}>{s.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="board-filter-row">
-                      <span className="board-filter-icon filter-assignee" title="Assigné"><Icon name="user" /></span>
-                      <select
-                        aria-label="Filtrer par assigné"
-                        className={assigneeFilter ? "active" : ""}
-                        value={assigneeFilter}
-                        onChange={e => setAssigneeFilter(e.target.value)}
-                      >
-                        <option value="">Assigné : tous</option>
-                        {availableAssignees.hasUnassigned && <option value="__unassigned__">Non assigné</option>}
-                        {availableAssignees.people.map(person => (
-                          <option key={person} value={person}>{person}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="board-filter-row">
-                      <span className="board-filter-icon filter-parent" title="Parent"><Icon name="target" /></span>
+                      <span className="board-filter-label">Macro</span>
                       <select
                         aria-label="Filtrer par parent"
                         className={parentFilter ? "active" : ""}
                         value={parentFilter}
                         onChange={e => setParentFilter(e.target.value)}
                       >
-                        <option value="">Parent : tous</option>
-                        {availableParents.hasNone && <option value="__none__">Sans parent</option>}
+                        <option value="">Toutes macros…</option>
+                        {availableParents.hasNone && <option value="__none__">Sans macro</option>}
                         {availableParents.parents.map(p => (
                           <option key={p.key} value={p.key}>
                             {p.key}{p.title ? ` · ${p.title}` : ""}
@@ -1202,6 +1172,85 @@ function ProjectPane({
                         ))}
                       </select>
                     </div>
+                    <div className="board-filter-row">
+                      <span className="board-filter-label">Personne</span>
+                      <select
+                        aria-label="Filtrer par assigné"
+                        className={assigneeFilter ? "active" : ""}
+                        value={assigneeFilter}
+                        onChange={e => setAssigneeFilter(e.target.value)}
+                      >
+                        <option value="">Toutes personnes</option>
+                        {availableAssignees.hasUnassigned && <option value="__unassigned__">Non assigné</option>}
+                        {availableAssignees.people.map(person => (
+                          <option key={person} value={person}>{person}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="board-filter-row">
+                      <span className="board-filter-label">Priorité</span>
+                      <select
+                        aria-label="Filtrer par priorité"
+                        className={priorityFilter ? "active" : ""}
+                        value={priorityFilter}
+                        onChange={e => setPriorityFilter(e.target.value)}
+                      >
+                        <option value="">Toutes priorités</option>
+                        <option value="urgent">Urgent</option>
+                        <option value="high">Haute</option>
+                        <option value="medium">Moyenne</option>
+                        <option value="low">Basse</option>
+                      </select>
+                    </div>
+                    {availableStatuses.length > 0 && (
+                      <div className="board-filter-section-divider">
+                        <div className="board-filter-section-header">
+                          <span className="board-filter-section-title">Statut</span>
+                          {statusFilter && (
+                            <button
+                              type="button"
+                              className="filter-reset-button"
+                              onClick={() => setStatusFilter("")}
+                            >
+                              Tous
+                            </button>
+                          )}
+                        </div>
+                        <select
+                          aria-label="Filtrer par statut"
+                          className="sr-only"
+                          value={statusFilter}
+                          onChange={e => setStatusFilter(e.target.value)}
+                        >
+                          <option value="">Tous les statuts</option>
+                          {availableStatuses.map(s => (
+                            <option key={s.value} value={s.value}>{s.label}</option>
+                          ))}
+                        </select>
+                        <div className="board-filter-status-list" role="menu" aria-label="Statut">
+                          {availableStatuses.map(s => {
+                            const isActive = statusFilter === s.value;
+                            const count = statusCounts[s.value] ?? 0;
+                            return (
+                              <button
+                                key={s.value}
+                                type="button"
+                                role="menuitemcheckbox"
+                                aria-checked={isActive}
+                                className={`board-filter-status-item ${isActive ? "active" : ""}`}
+                                onClick={() => setStatusFilter(isActive ? "" : s.value)}
+                              >
+                                <span className={`board-filter-checkbox ${isActive ? "checked" : ""}`}>
+                                  {isActive && <Icon name="check" />}
+                                </span>
+                                <span className="board-filter-status-name">{s.label}</span>
+                                <span className="board-filter-status-count">{count}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
