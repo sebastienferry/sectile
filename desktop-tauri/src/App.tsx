@@ -19,6 +19,7 @@ import { OrchestrationSettings } from "./components/OrchestrationSettings";
 import { openExternalLink, projectContext, providerReadiness, type ProjectContext } from "./lib/workspace";
 import { engineMark, nextSkill, skillLabels, stages, stageLabels, taskStage } from "./domain/workflow";
 import { DEFAULT_SORT, nextSort, orderedTasks, type SortState } from "./domain/task-list-order";
+import { taskFilterPredicate } from "./domain/task-filters";
 import { launchInput } from "./domain/execution";
 import { AttachedFolderSettings } from "./components/FolderContext";
 import { ProjectProfiles } from "./components/ProjectProfiles";
@@ -855,15 +856,19 @@ function ProjectPane({
   const [compactCards,setCompactCards] = useState(()=>readPreference("boardCards","compact")!=="full");
   const [ticketView,setTicketView]=useState<"board"|"list">(()=>readPreference("ticketView","board")==="list"?"list":"board");
   const [tableSort,setTableSort]=useState<SortState>(DEFAULT_SORT);
+  const [priorityFilter,setPriorityFilter]=useState("");
+  const [statusFilter,setStatusFilter]=useState("");
+  const [assigneeFilter,setAssigneeFilter]=useState("");
+  const [parentFilter,setParentFilter]=useState("");
   const [selectedTaskIds,setSelectedTaskIds]=useState<string[]>([]);
   const [batchConfirm,setBatchConfirm]=useState(false);
   const [launching,setLaunching]=useState(false);
   const [launchError,setLaunchError]=useState("");
   const [visibleByColumn,setVisibleByColumn] = useState<Record<string,number>>({});
   const [visibleListCount,setVisibleListCount]=useState(80);
-  useEffect(()=>setVisibleByColumn({}),[selection.projectId,query,grouping]);
-  useEffect(()=>setVisibleListCount(80),[selection.projectId,query]);
-  useEffect(()=>{setSelectedTaskIds([]);setBatchConfirm(false);setLaunchError("");},[selection.projectId]);
+  useEffect(()=>setVisibleByColumn({}),[selection.projectId,query,grouping,priorityFilter,statusFilter,assigneeFilter,parentFilter]);
+  useEffect(()=>setVisibleListCount(80),[selection.projectId,query,priorityFilter,statusFilter,assigneeFilter,parentFilter]);
+  useEffect(()=>{setSelectedTaskIds([]);setBatchConfirm(false);setLaunchError("");setPriorityFilter("");setStatusFilter("");setAssigneeFilter("");setParentFilter("");},[selection.projectId]);
   const [contextState,setContextState] = useState<{projectId:string;value:ProjectContext}>();
   const [contextError,setContextError] = useState<{projectId:string;message:string}>();
   const [contextRefresh,setContextRefresh] = useState(0);
@@ -917,8 +922,19 @@ function ProjectPane({
       navigate(project, "prompt", selection.runId);
     }
   }, [selection.view, selection.runId, currentRun?.conversation, project]);
-  const remoteColumns = trackerColumns(tasks, query);
-  const hasRemoteTasks = trackerColumns(tasks).some(column => column.tasks.length > 0);
+  const allRemoteTasks = useMemo(() => trackerColumns(tasks).flatMap(column => column.tasks), [tasks]);
+  const taskFilter = useMemo(
+    () => taskFilterPredicate({
+      query,
+      priority: priorityFilter,
+      status: statusFilter,
+      assignee: assigneeFilter,
+      parent: parentFilter,
+    }, context?.board),
+    [query, priorityFilter, statusFilter, assigneeFilter, parentFilter, context?.board]
+  );
+  const remoteColumns = trackerColumns(tasks, taskFilter);
+  const hasRemoteTasks = allRemoteTasks.length > 0;
   const trackers = context?.board?.trackers ?? [];
   const hasNoExternalTrackers = Boolean(context?.board && (
     trackers.length === 0 ||
@@ -932,7 +948,56 @@ function ProjectPane({
   );
   const visibleTasks = remoteColumns.flatMap(column=>column.tasks);
   const sortedTasks = useMemo(() => orderedTasks(visibleTasks, tableSort, context?.board), [visibleTasks, tableSort, context?.board]);
-  const allRemoteTasks=trackerColumns(tasks).flatMap(column=>column.tasks);
+  const availableStatuses = useMemo(() => {
+    const values = new Map<string, string>();
+    for (const t of allRemoteTasks) {
+      if (t.trackerStatus?.trim()) {
+        values.set(t.trackerStatus.trim().toLowerCase(), t.trackerStatus.trim());
+      }
+      const stage = taskStage(t, context?.board);
+      if (stage) {
+        values.set(stage.toLowerCase(), stageLabels[stage] || stage);
+      }
+    }
+    return Array.from(values.entries()).map(([value, label]) => ({ value, label }));
+  }, [allRemoteTasks, context?.board]);
+  const availableAssignees = useMemo(() => {
+    const assignees = new Set<string>();
+    let hasUnassigned = false;
+    for (const t of allRemoteTasks) {
+      if (t.assignee?.trim()) {
+        assignees.add(t.assignee.trim());
+      } else {
+        hasUnassigned = true;
+      }
+    }
+    return {
+      people: Array.from(assignees).sort((a, b) => a.localeCompare(b)),
+      hasUnassigned,
+    };
+  }, [allRemoteTasks]);
+  const availableParents = useMemo(() => {
+    const parents = new Map<string, string>();
+    let hasNone = false;
+    for (const t of allRemoteTasks) {
+      if (t.parentKey?.trim()) {
+        parents.set(t.parentKey.trim(), t.parentTitle?.trim() || "");
+      } else {
+        hasNone = true;
+      }
+    }
+    return {
+      parents: Array.from(parents.entries()).map(([key, title]) => ({ key, title })),
+      hasNone,
+    };
+  }, [allRemoteTasks]);
+  const hasActiveFilters = Boolean(priorityFilter || statusFilter || assigneeFilter || parentFilter);
+  const resetFilters = () => {
+    setPriorityFilter("");
+    setStatusFilter("");
+    setAssigneeFilter("");
+    setParentFilter("");
+  };
   const columns = grouping === "stage" ? [...stages.map(stage=>({name:stageLabels[stage],tasks:visibleTasks.filter(task=>taskStage(task,context?.board)===stage),stage})),...(visibleTasks.some(task=>!taskStage(task,context?.board))?[{name:"Étape inconnue",tasks:visibleTasks.filter(task=>!taskStage(task,context?.board)),stage:undefined}]:[])] : remoteColumns.map(column=>({...column,stage:undefined}));
   const count = columns.reduce((n, c) => n + c.tasks.length, 0);
   const selectedTasks=selectedTaskIds.map(id=>allRemoteTasks.find(task=>task.id===id)).filter((task):task is Task=>Boolean(task));
@@ -1034,6 +1099,80 @@ function ProjectPane({
                 onChange={(e) => setQueryState({projectId:selection.projectId,value:e.target.value})}
               />
             </label>
+            <div className="board-filters" role="group" aria-label="Filtres de tickets">
+              <label className="board-filter">
+                <span className="sr-only">Priorité</span>
+                <select
+                  aria-label="Filtrer par priorité"
+                  className={priorityFilter ? "active" : ""}
+                  value={priorityFilter}
+                  onChange={e => setPriorityFilter(e.target.value)}
+                >
+                  <option value="">Priorité : toutes</option>
+                  <option value="urgent">Urgent</option>
+                  <option value="high">Haute</option>
+                  <option value="medium">Moyenne</option>
+                  <option value="low">Basse</option>
+                </select>
+              </label>
+              <label className="board-filter">
+                <span className="sr-only">Statut</span>
+                <select
+                  aria-label="Filtrer par statut"
+                  className={statusFilter ? "active" : ""}
+                  value={statusFilter}
+                  onChange={e => setStatusFilter(e.target.value)}
+                >
+                  <option value="">Statut : tous</option>
+                  {availableStatuses.map(s => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="board-filter">
+                <span className="sr-only">Assigné</span>
+                <select
+                  aria-label="Filtrer par assigné"
+                  className={assigneeFilter ? "active" : ""}
+                  value={assigneeFilter}
+                  onChange={e => setAssigneeFilter(e.target.value)}
+                >
+                  <option value="">Assigné : tous</option>
+                  {availableAssignees.hasUnassigned && <option value="__unassigned__">Non assigné</option>}
+                  {availableAssignees.people.map(person => (
+                    <option key={person} value={person}>{person}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="board-filter">
+                <span className="sr-only">Parent</span>
+                <select
+                  aria-label="Filtrer par parent"
+                  className={parentFilter ? "active" : ""}
+                  value={parentFilter}
+                  onChange={e => setParentFilter(e.target.value)}
+                >
+                  <option value="">Parent : tous</option>
+                  {availableParents.hasNone && <option value="__none__">Sans parent</option>}
+                  {availableParents.parents.map(p => (
+                    <option key={p.key} value={p.key}>
+                      {p.key}{p.title ? ` · ${p.title}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  className="board-clear-filters"
+                  aria-label="Effacer les filtres"
+                  title="Réinitialiser tous les filtres"
+                  onClick={resetFilters}
+                >
+                  Effacer les filtres
+                </button>
+              )}
+            </div>
             <label className="board-grouping"><span className="sr-only">Regrouper</span><select aria-label="Regrouper les tickets" value={grouping} onChange={e=>{const value=e.target.value==="tracker"?"tracker":"stage";setGrouping(value);savePreference("boardGrouping",value);}}><option value="stage">Par étape du workflow</option><option value="tracker">Par statut tracker</option></select></label>
             {ticketView==="board"&&<button type="button" className="board-density" aria-label="Cartes compactes" title="Basculer la densité des cartes" aria-pressed={compactCards} onClick={()=>setCompactCards(value=>{const next=!value;savePreference("boardCards",next?"compact":"full");return next;})}>{compactCards?"Compact":"Détaillé"}</button>}
             <span className="badge" title="Statuts du tracker · lecture seule">{count} ticket{count>1?"s":""}</span><span className="sr-only">Statuts du tracker · lecture seule</span>

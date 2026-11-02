@@ -515,6 +515,12 @@ body.resizing-sidebar {
 }
 .board-toolbar .search { flex: 1 1 180px; min-width: 150px; }
 .board-toolbar .search input { width: 100%; min-width: 0; }
+.board-filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.board-filter select { max-width: 145px; padding: 6px 8px; font-size: 11px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; transition: border-color .15s ease, color .15s ease; }
+.board-filter select:hover { border-color: var(--accent); }
+.board-filter select.active { border-color: var(--accent); color: var(--accent-text); font-weight: 500; }
+.board-clear-filters { padding: 5px 8px; font-size: 11px; border: 1px dashed var(--border); border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; transition: color .15s ease, border-color .15s ease; }
+.board-clear-filters:hover { color: var(--accent-text); border-color: var(--accent); }
 .board-toolbar .badge { margin:0; white-space:nowrap; }
 .board-new-ticket { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
 .board-new-ticket svg { width:14px; height:14px; }

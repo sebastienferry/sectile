@@ -424,6 +424,68 @@ test("clicking table headers orders tasks by that column",async()=>{
  expect(rows[1].textContent).toContain("APP-2");
  expect(rows[2].textContent).toContain("APP-10");
 });
+test("the board toolbar filters tasks by priority, status, assignee, and parent",async()=>{
+ vi.mocked(api.listTasks).mockResolvedValue([
+  {id:"t1",key:"APP-1",title:"First issue",source:"jira",trackerStatus:"In Progress",status:"to_implement",priority:"urgent",assignee:"Alice",parentKey:"EPIC-1",parentTitle:"Epic One"},
+  {id:"t2",key:"APP-2",title:"Second issue",source:"jira",trackerStatus:"To Do",status:"to_specify",priority:"high",assignee:"Bob",parentKey:"EPIC-1",parentTitle:"Epic One"},
+  {id:"t3",key:"APP-3",title:"Third issue",source:"jira",trackerStatus:"To Do",status:"to_clarify",priority:"low",assignee:undefined,parentKey:undefined}
+ ]);
+ vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
+ render(<App/>);
+ await screen.findByText("First issue");
+ expect(screen.getByText("Second issue")).toBeTruthy();
+ expect(screen.getByText("Third issue")).toBeTruthy();
+
+ // Filter by priority: urgent
+ const prioritySelect=screen.getByRole("combobox",{name:"Filtrer par priorité"});
+ fireEvent.change(prioritySelect,{target:{value:"urgent"}});
+ expect(screen.getByText("First issue")).toBeTruthy();
+ expect(screen.queryByText("Second issue")).toBeNull();
+ expect(screen.queryByText("Third issue")).toBeNull();
+
+ // Clear filters button appears and resets
+ const clearBtn=screen.getByRole("button",{name:"Effacer les filtres"});
+ fireEvent.click(clearBtn);
+ expect(screen.getByText("Second issue")).toBeTruthy();
+ expect(screen.getByText("Third issue")).toBeTruthy();
+ expect(screen.queryByRole("button",{name:"Effacer les filtres"})).toBeNull();
+
+ // Filter by status: to do
+ const statusSelect=screen.getByRole("combobox",{name:"Filtrer par statut"});
+ fireEvent.change(statusSelect,{target:{value:"to do"}});
+ expect(screen.queryByText("First issue")).toBeNull();
+ expect(screen.getByText("Second issue")).toBeTruthy();
+ expect(screen.getByText("Third issue")).toBeTruthy();
+
+ // Filter by assignee: Bob
+ const assigneeSelect=screen.getByRole("combobox",{name:"Filtrer par assigné"});
+ fireEvent.change(assigneeSelect,{target:{value:"Bob"}});
+ expect(screen.queryByText("First issue")).toBeNull();
+ expect(screen.getByText("Second issue")).toBeTruthy();
+ expect(screen.queryByText("Third issue")).toBeNull();
+
+ // Filter by unassigned
+ fireEvent.change(assigneeSelect,{target:{value:"__unassigned__"}});
+ expect(screen.queryByText("Second issue")).toBeNull();
+ expect(screen.getByText("Third issue")).toBeTruthy();
+
+ // Reset via clear button
+ fireEvent.click(screen.getByRole("button",{name:"Effacer les filtres"}));
+ expect(screen.getByText("First issue")).toBeTruthy();
+
+ // Filter by parent: EPIC-1
+ const parentSelect=screen.getByRole("combobox",{name:"Filtrer par parent"});
+ fireEvent.change(parentSelect,{target:{value:"EPIC-1"}});
+ expect(screen.getByText("First issue")).toBeTruthy();
+ expect(screen.getByText("Second issue")).toBeTruthy();
+ expect(screen.queryByText("Third issue")).toBeNull();
+
+ // Filter by unparented (__none__)
+ fireEvent.change(parentSelect,{target:{value:"__none__"}});
+ expect(screen.queryByText("First issue")).toBeNull();
+ expect(screen.queryByText("Second issue")).toBeNull();
+ expect(screen.getByText("Third issue")).toBeTruthy();
+});
 test("the board uses Sectile epic colors only when the project enables them",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue([{id:"t1",key:"APP-1",title:"Epic child",source:"jira",trackerStatus:"To Do",status:"to_clarify",parentKey:"PE-1078"}]);
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{epicColors:true,trackers:[{trackerId:"jira-1",provider:"jira"}]}});

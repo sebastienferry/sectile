@@ -33,14 +33,22 @@ export interface Column {
   tasks: Task[];
 }
 
-export function trackerColumns(tasks: Task[], query = ""): Column[] {
+export function trackerColumns(
+  tasks: Task[],
+  filter: string | ((task: Task) => boolean) = "",
+): Column[] {
   const groups = new Map<string, Task[]>();
-  const search = query.trim().toLocaleLowerCase();
+  const predicate =
+    typeof filter === "function"
+      ? filter
+      : (task: Task) => {
+          const search = filter.trim().toLocaleLowerCase();
+          return `${task.key ?? ""} ${task.title}`.toLocaleLowerCase().includes(search);
+        };
   for (const task of tasks) {
     // Only known remote sources belong on this board; unknown sources fail closed.
     if (!["github", "gitlab", "jira"].includes(task.source ?? "")) continue;
-    if (!`${task.key ?? ""} ${task.title}`.toLocaleLowerCase().includes(search))
-      continue;
+    if (!predicate(task)) continue;
     const name = task.trackerStatus?.trim() || "Statut distant indisponible";
     const group = groups.get(name);
     if (group) group.push(task);
