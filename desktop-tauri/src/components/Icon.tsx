@@ -32,19 +32,50 @@ const paths = {
   edit: "M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z M13.5 6.5l4 4",
   archive: "M4 8h16v12H4z M3 4h18v4H3z M9 12h6",
   stop: "",
+  pr: "",
 };
-export function Icon({ name }: { name: keyof typeof paths }) {
+export function Icon({
+  name,
+  size = 18,
+  className,
+}: {
+  name: keyof typeof paths;
+  size?: number;
+  className?: string;
+}) {
+  if (name === "pr") {
+    return (
+      <svg
+        viewBox="0 0 24 24"
+        width={size}
+        height={size}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+        aria-hidden="true"
+      >
+        <circle cx="18" cy="18" r="3" />
+        <circle cx="6" cy="6" r="3" />
+        <path d="M13 6h3a2 2 0 0 1 2 2v7" />
+        <line x1="6" x2="6" y1="9" y2="21" />
+      </svg>
+    );
+  }
   if (name === "stop") {
     return (
       <svg
         viewBox="0 0 24 24"
-        width="18"
-        height="18"
+        width={size}
+        height={size}
         fill="none"
         stroke="currentColor"
         strokeWidth="1.6"
         strokeLinecap="round"
         strokeLinejoin="round"
+        className={className}
         aria-hidden="true"
       >
         <circle cx="12" cy="12" r="9" />
@@ -56,13 +87,14 @@ export function Icon({ name }: { name: keyof typeof paths }) {
     return (
       <svg
         viewBox="0 0 24 24"
-        width="20"
-        height="20"
+        width={size || 20}
+        height={size || 20}
         fill="none"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
+        className={className}
         aria-hidden="true"
       >
         <rect width="18" height="18" x="3" y="3" rx="2" />
@@ -72,7 +104,14 @@ export function Icon({ name }: { name: keyof typeof paths }) {
   }
   if (name === "more") {
     return (
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        width={size}
+        height={size}
+        fill="currentColor"
+        className={className}
+        aria-hidden="true"
+      >
         <circle cx="12" cy="5" r="1.7" />
         <circle cx="12" cy="12" r="1.7" />
         <circle cx="12" cy="19" r="1.7" />
@@ -82,13 +121,14 @@ export function Icon({ name }: { name: keyof typeof paths }) {
   return (
     <svg
       viewBox="0 0 24 24"
-      width="18"
-      height="18"
+      width={size}
+      height={size}
       fill="none"
       stroke="currentColor"
       strokeWidth="1.6"
       strokeLinecap="round"
       strokeLinejoin="round"
+      className={className}
       aria-hidden="true"
     >
       <path d={paths[name]} />

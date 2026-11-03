@@ -1321,12 +1321,28 @@ function ProjectPane({
             const runTitle=active?"Une exécution est en cours sur ce ticket":isFinished?"Ce ticket est terminé":!context?.configured?"Configurez le dépôt local du projet pour lancer une skill":next?.skillId?`Lancer : ${next.label}`:(next?.reason||"Aucune action disponible");
             return <tr key={task.id}>
               <td><input type="checkbox" aria-label={`Sélectionner ${task.key||task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={()=>toggleTask(task.id)}/></td>
-              <td>{task.key||task.id}</td>
+              <td><button type="button" className="task-key-link" title={`Ouvrir le ticket ${task.key||task.id}`} aria-label={`Ouvrir le ticket ${task.key||task.id}`} onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.key||task.id}</button></td>
               <td><button type="button" className="task-open" onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button>{task.parentKey&&<small className="epic-chip" style={epicStyle(task)} title={task.parentTitle}>{task.parentKey}</small>}</td>
               <td>{task.trackerStatus||"—"}</td>
               <td><span className={`priority priority-${task.priority||"none"}`}>{task.priority||"—"}</span></td>
               <td>{context?.aiProvider?<span className="engine-mark" title={context.aiProvider==="codex"?"Codex":context.aiProvider==="claude"?"Claude Code":context.aiProvider}>{engineMark(context.aiProvider)}</span>:"—"}</td>
-              <td>{task.prUrl&&/^https?:\/\//.test(task.prUrl)?<button type="button" className="task-pr-link" aria-label={`Ouvrir la PR de ${task.key||task.title}`} onClick={()=>void openExternalLink(task.prUrl!).catch(()=>setLaunchError("Impossible d’ouvrir la PR."))}>●</button>:"—"}</td>
+              <td className="ticket-pr-cell">{(()=>{
+                const prLinks = taskPullRequests(task);
+                const primaryPr = prLinks[0] || (task.prUrl && /^https?:\/\//.test(task.prUrl) ? { url: task.prUrl } : undefined);
+                if (!primaryPr) return "—";
+                return (
+                  <button
+                    type="button"
+                    className="task-pr-link"
+                    title={`Ouvrir ${pullRequestLabel(primaryPr)} · ${pullRequestStateLabel(primaryPr)}`}
+                    aria-label={`Ouvrir la PR de ${task.key||task.title}`}
+                    onClick={()=>void openExternalLink(primaryPr.url).catch(()=>setLaunchError("Impossible d’ouvrir la PR."))}
+                  >
+                    <Icon name="pr" size={14}/>
+                    {prLinks.length > 1 && <small className="pr-count">{prLinks.length}</small>}
+                  </button>
+                );
+              })()}</td>
               <td className="ticket-actions-cell">
                 <div className="ticket-actions">
                   <button
