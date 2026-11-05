@@ -323,6 +323,18 @@ func readContractFragment(name string) string {
 	return string(data)
 }
 
+// readFlavorContractFragment is readContractFragment for a skill of the given
+// flavour: the Lite plugin reads its own contract under contracts/lite when
+// there is one, and the shared contract otherwise.
+func readFlavorContractFragment(lite bool, name string) string {
+	if lite {
+		if data, err := embeddedSkillsFS.ReadFile(path.Join("fragments", "contracts", "lite", name+".md")); err == nil {
+			return string(data)
+		}
+	}
+	return readContractFragment(name)
+}
+
 func executeContractTemplate(tmplStr string, data any) string {
 	t, err := template.New("contract").Parse(tmplStr)
 	if err != nil {
@@ -387,8 +399,8 @@ const directTaskAccessFallback = "http://localhost:8090"
 const genericTaskAccessFallback = "the Sectile server URL the plugin was installed with (its server_url setting)"
 
 // renderTaskAccessContract keeps task access consistent across skills and commands.
-func renderTaskAccessContract(fallback string) string {
-	res := executeContractTemplate(readContractFragment("task-access"), map[string]any{
+func renderTaskAccessContract(fallback string, lite bool) string {
+	res := executeContractTemplate(readFlavorContractFragment(lite, "task-access"), map[string]any{
 		"Fallback": fallback,
 	})
 	return strings.TrimRight(res, "\n") + "\n\n"
@@ -396,15 +408,16 @@ func renderTaskAccessContract(fallback string) string {
 
 // renderSessionTitleContract names the agent session after the work item it runs
 // on, so a board of parallel sessions stays readable.
-func renderSessionTitleContract(s StageSkill) string {
+func renderSessionTitleContract(s StageSkill, lite bool) string {
 	item := "ticket"
 	if s.Scope == "macro" {
 		item = "macro"
 	}
-	tmpl := readContractFragment("session-title")
+	tmpl := readFlavorContractFragment(lite, "session-title")
 	res := executeContractTemplate(tmpl, map[string]any{
 		"Item": item,
 		"ID":   s.ID,
+		"Lite": lite,
 	})
 	return strings.TrimRight(res, "\n") + "\n\n"
 }
@@ -416,21 +429,21 @@ var specWorkspaceSkills = map[string]bool{"clarify": true, "specify": true, "imp
 // renderSpecWorkspaceContract tells an issue skill where the task's
 // clarification report and specification are written and how they are
 // published.
-func renderSpecWorkspaceContract(s StageSkill) string {
+func renderSpecWorkspaceContract(s StageSkill, lite bool) string {
 	if !specWorkspaceSkills[s.ID] {
 		return ""
 	}
-	return strings.TrimRight(readContractFragment("spec-workspace"), "\n") + "\n\n"
+	return strings.TrimRight(readFlavorContractFragment(lite, "spec-workspace"), "\n") + "\n\n"
 }
 
 // renderTicketTransitionContract generates the autonomous ticket transition instructions
 // for the skill based on its from/to stages in the sequence:
 // new -> clarified -> specified -> implemented -> reviewed -> finished
-func renderTicketTransitionContract(s StageSkill) string {
+func renderTicketTransitionContract(s StageSkill, lite bool) string {
 	if s.Scope == "macro" {
 		return ""
 	}
-	tmpl := readContractFragment("transition")
+	tmpl := readFlavorContractFragment(lite, "transition")
 	res := executeContractTemplate(tmpl, map[string]any{
 		"FromStage": s.FromStage,
 		"ToStage":   s.ToStage,
@@ -482,7 +495,7 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 	if s.ID == "pickup" || s.ID == "pickup_issues" {
 		steps = renderPickupSteps(specFramework, s.ID == "pickup_issues")
 	}
-	return assembleSkill(s, name, readFirst, steps, directTaskAccessFallback)
+	return assembleSkill(s, name, readFirst, steps, directTaskAccessFallback, false)
 }
 
 // RenderGenericSkillContent builds the SKILL.md of one skill for every project
@@ -492,7 +505,15 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 // project's value from get_project_context at run time. The pull-request
 // policy is generic for the same reason.
 func RenderGenericSkillContent(s StageSkill) string {
-	return renderGenericSkill(s, genericTaskAccessFallback)
+	return renderGenericSkill(s, genericTaskAccessFallback, false)
+}
+
+// RenderLiteSkillContent builds the SKILL.md of one skill for the Sectile Lite
+// plugin, which runs without a Sectile server: the same body as the generic
+// skill, under the Lite contracts, which keep the ticket and its stage on Jira
+// and say what replaces each Sectile tool the body names.
+func RenderLiteSkillContent(s StageSkill) string {
+	return renderGenericSkill(s, "", true)
 }
 
 // RenderDirectSkillContent builds the SKILL.md the direct setup installs in a
@@ -500,7 +521,7 @@ func RenderGenericSkillContent(s StageSkill) string {
 // workstation, so the content is the generic one, as in the plugin, with the
 // HTTP fallback of a skill that runs beside a local agent.
 func RenderDirectSkillContent(s StageSkill) string {
-	return renderGenericSkill(s, directTaskAccessFallback)
+	return renderGenericSkill(s, directTaskAccessFallback, false)
 }
 
 // RenderDirectSkillCommand is RenderDirectSkillContent as a slash command, for
@@ -509,7 +530,7 @@ func RenderDirectSkillCommand(s StageSkill) string {
 	return skillCommand(s, RenderDirectSkillContent(s))
 }
 
-func renderGenericSkill(s StageSkill, taskAccessFallback string) string {
+func renderGenericSkill(s StageSkill, taskAccessFallback string, lite bool) string {
 	name := s.Title
 	if name == "" {
 		name = s.Name
@@ -519,14 +540,78 @@ func renderGenericSkill(s StageSkill, taskAccessFallback string) string {
 	if s.ID == "pickup" || s.ID == "pickup_issues" {
 		steps = renderGenericPickupSteps(s.ID == "pickup_issues")
 	}
-	content := assembleSkill(s, name, readFirst, steps, taskAccessFallback)
+	content := assembleSkill(s, name, readFirst, steps, taskAccessFallback, lite)
 	if HasPullRequestPolicy(s.ID) {
 		content += GenericPullRequestPolicy()
 	}
 	return content
 }
 
-func assembleSkill(s StageSkill, name, readFirst, steps, taskAccessFallback string) string {
+// LiteDispatchSkill is the Sectile Lite dispatcher: it runs in one session,
+// beside the board, and opens a dedicated session per ticket handed to it. It
+// has no stage and no Sectile counterpart, so it is not in StageSkills.
+var LiteDispatchSkill = StageSkill{
+	ID:              "dispatch",
+	Name:            "Dispatch",
+	DirName:         "dispatch",
+	Command:         "/dispatch",
+	Title:           "Dispatch Tickets",
+	FrontmatterDesc: "Open one dedicated Claude Code session per ticket handed over by the Sectile board or named as arguments, each in its own worktree, and relay what they reach.",
+	GuardTitle:      "Do not",
+}
+
+// LiteBoardSkill publishes the user's own Sectile Board, the page the Lite
+// plugin ships beside it. Like the dispatcher, it has no stage.
+var LiteBoardSkill = StageSkill{
+	ID:              "board",
+	Name:            "Board",
+	DirName:         "board",
+	Command:         "/board",
+	Title:           "Sectile Board",
+	FrontmatterDesc: "Publish or update your own Sectile Board, a live page of your Jira tickets in the Sectile stages, read through your Atlassian connector.",
+	GuardTitle:      "Do not",
+}
+
+// RenderLiteDispatchSkillContent builds the SKILL.md of the dispatcher. It
+// reads tickets through the Lite task access contract and records nothing on
+// them, so it carries neither the session title nor the transition contract:
+// the ticket sessions it starts own both.
+func RenderLiteDispatchSkillContent() string {
+	return renderLiteOnlySkill(LiteDispatchSkill, true)
+}
+
+// RenderLiteBoardSkillContent builds the SKILL.md of the board skill, which
+// touches no ticket.
+func RenderLiteBoardSkillContent() string {
+	return renderLiteOnlySkill(LiteBoardSkill, false)
+}
+
+// RenderLiteBoardPage is the board page the Lite plugin ships beside its
+// skill, stamped with the plugin version. Its __BOARD_CONFIG__ placeholder is
+// left for the skill, which knows the user's connector, site and query.
+func RenderLiteBoardPage(version string) []byte {
+	page, _ := embeddedSkillsFS.ReadFile(path.Join("fragments", LiteBoardSkill.ID, "board.html"))
+	return bytes.ReplaceAll(page, []byte("__PLUGIN_VERSION__"), []byte(version))
+}
+
+// renderLiteOnlySkill assembles a Lite skill that has no stage: its own
+// sections, under the Lite task access contract when it reads tickets.
+func renderLiteOnlySkill(s StageSkill, ticketAccess bool) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "---\nname: %s\ndescription: %s\n---\n", s.DirName, YAMLString(s.FrontmatterDesc))
+	fmt.Fprintf(&b, "# %s\n\n", s.Title)
+	if ticketAccess {
+		b.WriteString(renderTaskAccessContract("", true))
+	}
+	for _, section := range []struct{ title, name string }{
+		{"Goal", "goal"}, {"Read first", "read-first"}, {"Steps", "steps"}, {s.GuardTitle, "guard"}, {"Report", "report"},
+	} {
+		fmt.Fprintf(&b, "## %s\n%s\n\n", section.title, strings.TrimRight(readSkillFragment(s.ID, section.name, ""), "\n"))
+	}
+	return strings.TrimRight(b.String(), "\n") + "\n"
+}
+
+func assembleSkill(s StageSkill, name, readFirst, steps, taskAccessFallback string, lite bool) string {
 	goal := readSkillFragment(s.ID, "goal", "")
 	guard := readSkillFragment(s.ID, "guard", "")
 	report := readSkillFragment(s.ID, "report", "")
@@ -543,9 +628,9 @@ func assembleSkill(s StageSkill, name, readFirst, steps, taskAccessFallback stri
 		b.WriteString("Interactive: the user answers in the terminal.")
 	}
 	b.WriteString("\n\n")
-	b.WriteString(renderTaskAccessContract(taskAccessFallback))
-	b.WriteString(renderSessionTitleContract(s))
-	b.WriteString(renderSpecWorkspaceContract(s))
+	b.WriteString(renderTaskAccessContract(taskAccessFallback, lite))
+	b.WriteString(renderSessionTitleContract(s, lite))
+	b.WriteString(renderSpecWorkspaceContract(s, lite))
 	fmt.Fprintf(&b, "## Goal\n%s\n\n", goal)
 	if readFirst != "" {
 		fmt.Fprintf(&b, "## Read first\n%s\n\n", readFirst)
@@ -560,7 +645,7 @@ func assembleSkill(s StageSkill, name, readFirst, steps, taskAccessFallback stri
 		}
 		fmt.Fprintf(&b, "## %s\n%s\n\n", guardTitle, guard)
 	}
-	if contract := renderTicketTransitionContract(s); contract != "" {
+	if contract := renderTicketTransitionContract(s, lite); contract != "" {
 		fmt.Fprintf(&b, "## Report\n%s\n\n", report)
 		b.WriteString(contract)
 	} else if contract := renderMacroRunContract(s); contract != "" {

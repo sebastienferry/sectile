@@ -1,0 +1,9 @@
+{
+  "author": {
+    "name": "Sectile"
+  },
+  "description": "Sectile workflow skills on Jira tickets, without a Sectile server: each stage is a sectile:\u003cstage\u003e label.",
+  "name": "sectile-lite",
+  "skills": "./skills/",
+  "version": "0.0.0-test"
+}

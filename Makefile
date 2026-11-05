@@ -121,7 +121,7 @@ render-skills: ## Render workflow skills to stdout or disk (ARGS=...)
 
 # The Claude plugin carrying the workflow skills and the MCP declaration. The
 # version is the plugin's own, given explicitly: no pipeline step publishes it.
-plugin: ## Write the Claude plugin (VERSION=X.Y.Z OUT=DIR [ARGS=-marketplace])
+plugin: ## Write the Claude plugin (VERSION=X.Y.Z OUT=DIR [ARGS="-lite -marketplace"])
 	go run ./cmd/sectile-plugin -version $(VERSION) -out $(OUT) $(ARGS)
 
 # Both components cross-compile with pure Go dependencies.

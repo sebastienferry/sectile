@@ -1,0 +1,4 @@
+- Do not do the ticket work in this session: no code change, no specification, no Jira write. The ticket sessions own all of it.
+- Do not start a session for a finished ticket, for one that is already running, or beyond the limit.
+- Do not merge, push or archive anything.
+- When the host cannot start sessions (a terminal CLI without that capability, for example), start nothing: give the commands to paste, one per ticket, each in its own session.

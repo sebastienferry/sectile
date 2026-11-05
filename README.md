@@ -2,7 +2,7 @@
 
 Sectile is a local-first workflow manager for software teams. It unifies issue
 trackers, specification-driven development (SDD), coding agents, pull requests,
-and isolated Git worktrees into a single board—while keeping repository checkouts
+and isolated Git worktrees into a single board, while keeping repository checkouts
 and coding CLIs on your own workstations.
 
 It consists of three complementary components:
@@ -169,7 +169,7 @@ task or batch from the web UI, you can let Sectile route automatically (keeping
 workstation affinity) or target a specific eligible workstation.
 
 Keep tracker read credentials on the server and personal write credentials
-sealed in your user profile—never in the agent configuration.
+sealed in your user profile, never in the agent configuration.
 
 ### Install Sectile in your coding CLI (Skills & MCP)
 
@@ -185,6 +185,19 @@ to install the skills and register the MCP server:
   workstation API key and stores the key in its secure credential store. Skills
   are invoked as `/sectile:clarify-issue`, `/sectile:specify-issue`, etc. See
   [ADR 0039](docs/adrs/0039-sectile-is-installed-as-a-claude-plugin.md).
+- **Claude Code plugin without a server (`sectile-lite`)**: for a team that
+  keeps its tickets on Jira and runs the workflow from Claude alone. Build with
+  `make plugin VERSION=0.1.0 OUT=/tmp/sectile-lite ARGS="-lite -marketplace"`,
+  then `claude plugin marketplace add /tmp/sectile-lite` and
+  `claude plugin install sectile-lite@sectile-lite`. It asks for nothing: the
+  ticket skills (`/sectile-lite:clarify-issue PE-123`, ...) reach Jira through
+  your Atlassian connector and record each stage as a `sectile:<stage>` label.
+  `/sectile-lite:dispatch PE-123 PE-124`, or the board's buttons sent to a
+  session running it, opens one Claude Code session per ticket, each in its
+  own worktree. `/sectile-lite:board [JQL]` publishes your own Sectile Board
+  as a claude.ai artifact, and updates it in place when run again after a
+  plugin update. Macro skills are not included. See
+  [ADR 0064](docs/adrs/0064-sectile-lite-runs-the-skills-on-jira-without-a-server.md).
 - **Direct CLI setup (Claude, Codex, Antigravity)**: run
   `./bin/agent init --provider claude` (or `codex`, `agy`), or click
   **Initialize** in Sectile Desktop's **Deployment** settings. This installs the
@@ -211,7 +224,7 @@ default).
 | `make test` | Run `gofmt` check, Go tests, web unit tests, TypeScript check, and `oxlint`. |
 | `make release` | Cross-compile server and agent binaries into `dist/`. |
 | `make image` | Build the server container image (`sectile-server:local`). |
-| `make plugin VERSION=X.Y.Z OUT=DIR` | Generate the Sectile Claude plugin (`ARGS=-marketplace` wraps it in a marketplace). |
+| `make plugin VERSION=X.Y.Z OUT=DIR` | Generate the Sectile Claude plugin (`ARGS=-marketplace` wraps it in a marketplace, `ARGS=-lite` writes Sectile Lite). |
 | `make reset-db` | Delete local SQLite database files (`tasks.db`, `-wal`, `-shm`). |
 | `make help` | List all supported Make targets. |
 

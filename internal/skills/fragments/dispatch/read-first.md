@@ -1,0 +1,3 @@
+- The hand-off: Jira keys given as arguments, each optionally followed by a skill (`PE-123`, `PE-123 specify-issue`, `PE-123 auto`), or what the Sectile board sent (`ticket`, `url`, `skill`, `command`, and whether the launch is autonomous).
+- For a key that comes without a command, the ticket's `sectile:` stage label.
+- The sessions this session already started, from the host's list of linked sessions.
