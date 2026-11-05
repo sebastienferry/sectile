@@ -1,0 +1,2 @@
+## Specifications workspace
+The task's clarification report (`docs/clarifications/<n>.md`) and specification (`specs/<KEY>-<slug>/` or `openspec/changes/<KEY>-<slug>/`) are its issue artefacts. Without a Sectile server there is no separate specifications repository: they live in the task worktree, on the task branch, and are committed with the stage's message like the code. The dropped artefacts check (`git check-ignore -q`) runs there too.

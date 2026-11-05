@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- Sectile Lite, a Claude plugin for teams without a Sectile server: the same ticket skills run on Jira tickets from Claude, through your own Atlassian connector, and record each stage as a `sectile:<stage>` label on the ticket. Write it with `make plugin ARGS=-lite`.
+
 ### Fixed
 
 - Agents no longer drop and reconnect, or fail to discover their projects ("context deadline exceeded"), while a server synchronises large trackers; server instances sharing one database no longer take each other for dead during those synchronisations, and an agent whose session was lost that way reconnects on its own instead of having its project inventory refused until it restarts.

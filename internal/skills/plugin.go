@@ -127,6 +127,82 @@ func RenderMarketplace(version string) (map[string][]byte, error) {
 	return files, nil
 }
 
+// LitePluginName is the name of the Sectile Lite plugin: its skills are
+// invoked as /sectile-lite:<dir>.
+const LitePluginName = "sectile-lite"
+
+// LiteMarketplacePluginDir is where RenderLiteMarketplace puts the plugin,
+// relative to the marketplace root.
+const LiteMarketplacePluginDir = "plugins/" + LitePluginName
+
+// LiteStageSkills are the skills the Lite plugin ships: every ticket skill.
+// Macros are a Sectile object with no Jira equivalent, so their skills stay in
+// the full plugin.
+func LiteStageSkills() []StageSkill {
+	out := make([]StageSkill, 0, len(StageSkills))
+	for _, s := range StageSkills {
+		if s.Scope != "macro" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// RenderLitePlugin returns the Sectile Lite plugin: the workflow skills for a
+// team that keeps its tickets on Jira and runs them from Claude, without a
+// Sectile server. It declares no MCP server and asks nothing at install time:
+// the skills reach Jira through the Atlassian connector of whoever runs them,
+// and record each stage as a sectile:<stage> label that the Sectile board
+// artifact reads.
+func RenderLitePlugin(version string) (map[string][]byte, error) {
+	if err := validatePluginVersion(version); err != nil {
+		return nil, err
+	}
+	manifest := map[string]any{
+		"name":        LitePluginName,
+		"version":     version,
+		"description": "Sectile workflow skills on Jira tickets, without a Sectile server: each stage is a sectile:<stage> label.",
+		"author":      map[string]any{"name": "Sectile"},
+		"skills":      "./skills/",
+	}
+	files := map[string][]byte{}
+	var err error
+	if files[".claude-plugin/plugin.json"], err = marshalPluginJSON(manifest); err != nil {
+		return nil, err
+	}
+	for _, s := range LiteStageSkills() {
+		files["skills/"+s.DirName+"/SKILL.md"] = []byte(RenderLiteSkillContent(s))
+	}
+	return files, nil
+}
+
+// RenderLiteMarketplace is RenderMarketplace for the Lite plugin.
+func RenderLiteMarketplace(version string) (map[string][]byte, error) {
+	plugin, err := RenderLitePlugin(version)
+	if err != nil {
+		return nil, err
+	}
+	marketplace := map[string]any{
+		"name":        LitePluginName,
+		"owner":       map[string]any{"name": "Sectile"},
+		"description": "The Sectile Lite plugin for Claude Code.",
+		"plugins": []any{map[string]any{
+			"name":        LitePluginName,
+			"source":      "./" + LiteMarketplacePluginDir,
+			"description": "Sectile workflow skills on Jira tickets, without a Sectile server.",
+			"version":     version,
+		}},
+	}
+	files := map[string][]byte{}
+	if files[".claude-plugin/marketplace.json"], err = marshalPluginJSON(marketplace); err != nil {
+		return nil, err
+	}
+	for name, content := range plugin {
+		files[LiteMarketplacePluginDir+"/"+name] = content
+	}
+	return files, nil
+}
+
 // marshalPluginJSON is indented and newline-terminated; encoding/json sorts
 // map keys, which keeps the output byte-identical between runs.
 func marshalPluginJSON(value any) ([]byte, error) {

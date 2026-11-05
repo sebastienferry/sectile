@@ -2,10 +2,12 @@
 // workflow skills and MCP server declaration, rendered from the built-in
 // catalogue.
 //
-//	go run ./cmd/sectile-plugin -version 1.4.0 -out DIR [-marketplace] [-force]
+//	go run ./cmd/sectile-plugin -version 1.4.0 -out DIR [-lite] [-marketplace] [-force]
 //
 // With -marketplace, DIR becomes a one-plugin marketplace that
 // `claude plugin marketplace add DIR` accepts, the plugin under plugins/sectile.
+// With -lite, the plugin is Sectile Lite (plugins/sectile-lite): the same
+// ticket skills on Jira, for a team without a Sectile server.
 package main
 
 import (
@@ -31,6 +33,7 @@ func run(args []string) error {
 	version := flags.String("version", "", "plugin version, SemVer without a leading v")
 	out := flags.String("out", "", "directory to write the plugin into")
 	marketplace := flags.Bool("marketplace", false, "wrap the plugin in a one-plugin marketplace")
+	lite := flags.Bool("lite", false, "write the Sectile Lite plugin, which runs on Jira without a Sectile server")
 	force := flags.Bool("force", false, "write into a directory that is not empty")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -40,7 +43,12 @@ func run(args []string) error {
 	}
 
 	render := skills.RenderPlugin
-	if *marketplace {
+	switch {
+	case *lite && *marketplace:
+		render = skills.RenderLiteMarketplace
+	case *lite:
+		render = skills.RenderLitePlugin
+	case *marketplace:
 		render = skills.RenderMarketplace
 	}
 	files, err := render(*version)
