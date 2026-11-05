@@ -111,3 +111,36 @@ func skillBody(content string) string {
 	}
 	return content[start:end]
 }
+
+// The dispatcher opens a session per ticket and does none of the work itself:
+// it never records a stage, so it carries no transition contract.
+func TestLitePluginShipsTheDispatcher(t *testing.T) {
+	files, err := skills.RenderLitePlugin(pluginTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, ok := files["skills/dispatch/SKILL.md"]
+	if !ok {
+		t.Fatal("the Lite plugin lacks the dispatcher")
+	}
+	text := string(content)
+	for _, required := range []string{
+		"---\nname: dispatch\n",
+		"## Ticket access",
+		"Start one session per ticket",
+		"/sectile-lite:<skill> <KEY>",
+		"Do not do the ticket work in this session",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("the dispatcher lacks %q", required)
+		}
+	}
+	for _, banned := range []string{"## Execution and ticket state", "## Session title"} {
+		if strings.Contains(text, banned) {
+			t.Errorf("the dispatcher carries %q", banned)
+		}
+	}
+	if _, ok := skills.StageSkillByID("dispatch"); ok {
+		t.Error("the dispatcher leaked into the shared catalogue")
+	}
+}

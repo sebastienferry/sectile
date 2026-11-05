@@ -1,0 +1,3 @@
+- One line per ticket: started (with a link to its session), queued, skipped (and why), or finished.
+- The number of ticket sessions running against the limit.
+- End every reply addressed to a person with the `### 📋 Status Update` block (Done, Remaining (Agent), Pending (User)), written in the language of the conversation.

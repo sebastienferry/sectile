@@ -51,6 +51,14 @@ ticket's stage is a `sectile:<stage>` label.**
   write uses that person's own access (ADR 0059 by other means).
 - Macro skills stay in the full plugin: a macro is a Sectile object with no
   Jira equivalent.
+- **A dispatcher replaces the launch.** Without a server, nothing starts a
+  session for a ticket. The Lite-only `dispatch` skill runs in one session,
+  beside the board: given ticket keys, or what the board sends to that
+  session, it opens one dedicated session per ticket with the host's session
+  start capability, each in its own worktree and starting with the ticket's
+  command, at most three at a time, and only relays what they reach. It is not
+  in the shared catalogue, which describes the stages Sectile itself runs. A
+  host that cannot start sessions gets the commands to paste instead.
 - The full plugin's output is unchanged, byte for byte; its golden files
   guard it. A test checks that each Lite skill has the same body as the
   generic one.
@@ -62,9 +70,10 @@ ticket's stage is a `sectile:<stage>` label.**
 - The board that goes with Lite is an artifact that reads the labels, not the
   Sectile web board. It shows what Jira holds and nothing more: no run in
   progress, no waiting state, no orchestration capacity.
-- Without a server there is no orchestrator, no concurrency limit and no
-  result validation: a stage is what the skill wrote on the ticket. A team that
-  needs those keeps the full Sectile.
+- Without a server there is no backlog orchestrator, no project-wide
+  concurrency limit and no result validation: the dispatcher's limit holds for
+  the sessions one dispatcher started, not for a team, and a stage is what the
+  skill wrote on the ticket. A team that needs those keeps the full Sectile.
 - The skills now depend on an Atlassian connector being available to the
   session. When it is not, they keep the work and report the pending write
   instead of reaching Jira another way.

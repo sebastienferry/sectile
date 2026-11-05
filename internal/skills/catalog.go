@@ -547,6 +547,37 @@ func renderGenericSkill(s StageSkill, taskAccessFallback string, lite bool) stri
 	return content
 }
 
+// LiteDispatchSkill is the Sectile Lite dispatcher: it runs in one session,
+// beside the board, and opens a dedicated session per ticket handed to it. It
+// has no stage and no Sectile counterpart, so it is not in StageSkills.
+var LiteDispatchSkill = StageSkill{
+	ID:              "dispatch",
+	Name:            "Dispatch",
+	DirName:         "dispatch",
+	Command:         "/dispatch",
+	Title:           "Dispatch Tickets",
+	FrontmatterDesc: "Open one dedicated Claude Code session per ticket handed over by the Sectile board or named as arguments, each in its own worktree, and relay what they reach.",
+	GuardTitle:      "Do not",
+}
+
+// RenderLiteDispatchSkillContent builds the SKILL.md of the dispatcher. It
+// reads tickets through the Lite task access contract and records nothing on
+// them, so it carries neither the session title nor the transition contract:
+// the ticket sessions it starts own both.
+func RenderLiteDispatchSkillContent() string {
+	s := LiteDispatchSkill
+	var b strings.Builder
+	fmt.Fprintf(&b, "---\nname: %s\ndescription: %s\n---\n", s.DirName, YAMLString(s.FrontmatterDesc))
+	fmt.Fprintf(&b, "# %s\n\n", s.Title)
+	b.WriteString(renderTaskAccessContract("", true))
+	for _, section := range []struct{ title, name string }{
+		{"Goal", "goal"}, {"Read first", "read-first"}, {"Steps", "steps"}, {s.GuardTitle, "guard"}, {"Report", "report"},
+	} {
+		fmt.Fprintf(&b, "## %s\n%s\n\n", section.title, strings.TrimRight(readSkillFragment(s.ID, section.name, ""), "\n"))
+	}
+	return strings.TrimRight(b.String(), "\n") + "\n"
+}
+
 func assembleSkill(s StageSkill, name, readFirst, steps, taskAccessFallback string, lite bool) string {
 	goal := readSkillFragment(s.ID, "goal", "")
 	guard := readSkillFragment(s.ID, "guard", "")

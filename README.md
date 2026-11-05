@@ -192,7 +192,9 @@ to install the skills and register the MCP server:
   `claude plugin install sectile-lite@sectile-lite`. It asks for nothing: the
   ticket skills (`/sectile-lite:clarify-issue PE-123`, ...) reach Jira through
   your Atlassian connector and record each stage as a `sectile:<stage>` label.
-  Macro skills are not included. See
+  `/sectile-lite:dispatch PE-123 PE-124`, or the board's buttons sent to a
+  session running it, opens one Claude Code session per ticket, each in its
+  own worktree. Macro skills are not included. See
   [ADR 0064](docs/adrs/0064-sectile-lite-runs-the-skills-on-jira-without-a-server.md).
 - **Direct CLI setup (Claude, Codex, Antigravity)**: run
   `./bin/agent init --provider claude` (or `codex`, `agy`), or click

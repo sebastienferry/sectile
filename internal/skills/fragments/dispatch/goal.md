@@ -1,0 +1,1 @@
+Open one dedicated Claude Code session per ticket handed over, from the Sectile board or as arguments, each in its own worktree and starting with the ticket's Sectile Lite command. The dispatcher only starts, tracks and relays these sessions: it does none of the ticket work itself.
