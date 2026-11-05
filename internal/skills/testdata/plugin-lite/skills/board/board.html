@@ -1,0 +1,661 @@
+<title>Sectile Board</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a mosaic of six stage columns, each topped by its own tile colour; cards are plain stone tiles. */
+:root {
+  --bg: #f3f4f2;
+  --surface: #ffffff;
+  --fg: #1d2420;
+  --muted: #5d6862;
+  --line: #d8ddd9;
+  --accent: #1f6f63;
+  --accent-fg: #ffffff;
+  --warn: #9a5b00;
+  --warn-bg: #fff3df;
+  --crit: #a3302a;
+  --crit-bg: #fde9e7;
+  --t-new: #8a949b;
+  --t-clarified: #c08a2c;
+  --t-specified: #3c7aa8;
+  --t-implemented: #7b5aa6;
+  --t-reviewed: #2f8a6d;
+  --t-finished: #5c6b63;
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141816; --surface: #1d2320; --fg: #e6ebe8; --muted: #9aa69f; --line: #2e3632;
+    --accent: #5fbfae; --accent-fg: #0d1a17; --warn: #f0b765; --warn-bg: #3a2c14; --crit: #f08a82; --crit-bg: #3d1d1a;
+    --t-new: #79838a; --t-clarified: #d9a650; --t-specified: #6aa5d2; --t-implemented: #a68ad0; --t-reviewed: #58b896; --t-finished: #84958b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141816; --surface: #1d2320; --fg: #e6ebe8; --muted: #9aa69f; --line: #2e3632;
+  --accent: #5fbfae; --accent-fg: #0d1a17; --warn: #f0b765; --warn-bg: #3a2c14; --crit: #f08a82; --crit-bg: #3d1d1a;
+  --t-new: #79838a; --t-clarified: #d9a650; --t-specified: #6aa5d2; --t-implemented: #a68ad0; --t-reviewed: #58b896; --t-finished: #84958b;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px 24px; box-sizing: border-box;
+}
+*, *::before, *::after { box-sizing: inherit; }
+header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-bottom: 14px; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand svg { flex: none; }
+.brand h1 { font-family: var(--font-display); font-weight: 600; font-size: 20px; margin: 0; letter-spacing: .01em; }
+.brand small { display: block; color: var(--muted); font-size: 12px; }
+.presence { display: flex; align-items: center; gap: 6px; margin-left: auto; min-height: 28px; }
+.presence .who { display: flex; }
+.avatar {
+  width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center;
+  font-size: 11px; font-weight: 600; color: var(--accent-fg); background: var(--accent);
+  border: 2px solid var(--bg); margin-left: -6px;
+}
+.presence .who .avatar:first-child { margin-left: 0; }
+.presence .label { color: var(--muted); font-size: 12px; }
+
+form.query { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+form.query label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+#jql {
+  flex: 1 1 420px; min-width: 0; font-family: var(--font-mono); font-size: 13px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg);
+}
+#filter { flex: 0 1 220px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); font: inherit; }
+button {
+  font: inherit; font-weight: 500; padding: 8px 14px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg);
+}
+button.ghost { background: transparent; color: var(--accent); }
+button.small { padding: 2px 10px; font-size: 12px; }
+button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.statusbar { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; color: var(--muted); font-size: 12px; margin-bottom: 14px; font-variant-numeric: tabular-nums; }
+.statusbar a { color: var(--accent); }
+.notice { border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.notice.warn { background: var(--warn-bg); color: var(--warn); }
+.notice.crit { background: var(--crit-bg); color: var(--crit); }
+.notice p { margin: 0; flex: 1 1 280px; }
+
+.board { display: grid; grid-template-columns: repeat(6, minmax(240px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 8px; align-items: start; }
+.col { min-width: 0; background: color-mix(in srgb, var(--surface) 55%, var(--bg)); border-radius: 8px; border: 1px solid var(--line); }
+.col > h2 {
+  margin: 0; display: flex; align-items: baseline; gap: 8px; padding: 10px 12px 8px;
+  font-family: var(--font-display); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+  border-top: 4px solid var(--tile); border-radius: 8px 8px 0 0;
+}
+.col > h2 .n { margin-left: auto; color: var(--muted); font-family: var(--font-mono); font-weight: 400; font-variant-numeric: tabular-nums; }
+.col > h2 .skill { display: block; }
+.col .hint { padding: 0 12px 8px; color: var(--muted); font-size: 11.5px; font-family: var(--font-mono); }
+.cards { display: flex; flex-direction: column; gap: 8px; padding: 0 8px 10px; }
+.empty { color: var(--muted); font-size: 12.5px; padding: 6px 4px 4px; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.card .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.card a.key { font-family: var(--font-mono); font-size: 12px; color: var(--accent); text-decoration: none; font-weight: 500; }
+.card a.key:hover { text-decoration: underline; }
+.card .type { color: var(--muted); font-size: 11.5px; }
+.card .prio { margin-left: auto; font-size: 11px; color: var(--muted); }
+.card .prio.high { color: var(--crit); font-weight: 600; }
+.card .title { margin: 0; font-size: 13.5px; overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.chip.blocked { border-color: var(--crit); color: var(--crit); }
+.chip.inferred { border-style: dashed; }
+.card .foot { display: flex; align-items: center; gap: 8px; }
+.card .assignee { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.card .assignee .avatar { width: 20px; height: 20px; font-size: 9.5px; margin: 0 4px 0 0; border: 0; vertical-align: middle; }
+.card .actions { margin-left: auto; display: flex; gap: 2px; flex: none; }
+.card button.icon {
+  padding: 4px; line-height: 0; border-radius: 6px; background: transparent; color: var(--muted); border: 1px solid transparent;
+}
+.card button.icon:hover:not(:disabled) { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+.card button.icon.done { color: var(--accent); }
+.card button.icon:disabled { opacity: .4; cursor: default; }
+.card.watched { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+
+.skeleton { height: 64px; border-radius: 6px; background: linear-gradient(90deg, var(--line), color-mix(in srgb, var(--line) 40%, var(--surface)), var(--line)); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; opacity: .6; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+
+footer { margin-top: 16px; color: var(--muted); font-size: 12px; max-width: 75ch; }
+footer code { font-family: var(--font-mono); font-size: 11.5px; }
+
+@media (max-width: 760px) {
+  .board { grid-template-columns: 1fr; overflow-x: visible; }
+  .presence { margin-left: 0; }
+}
+</style>
+
+<header class="top">
+  <div class="brand">
+    <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true">
+      <rect x="1" y="1" width="13" height="13" rx="2" fill="var(--t-clarified)"/>
+      <rect x="16" y="1" width="13" height="8" rx="2" fill="var(--t-specified)"/>
+      <rect x="16" y="11" width="13" height="18" rx="2" fill="var(--t-implemented)"/>
+      <rect x="1" y="16" width="13" height="13" rx="2" fill="var(--t-reviewed)"/>
+    </svg>
+    <div>
+      <h1>Sectile Board</h1>
+      <small>Jira est la source de vérité · Claude fait le travail</small>
+    </div>
+  </div>
+  <div class="presence" id="presence" hidden>
+    <div class="who" id="who"></div>
+    <span class="label" id="whoLabel"></span>
+  </div>
+</header>
+
+<form class="query" id="queryForm">
+  <label for="jql">Requête JQL</label>
+  <input id="jql" name="jql" spellcheck="false" autocomplete="off">
+  <label for="filter">Filtrer les cartes</label>
+  <input id="filter" name="filter" placeholder="Filtrer (clé, titre, personne)" autocomplete="off">
+  <button type="submit">Appliquer</button>
+</form>
+
+<div class="statusbar" id="statusbar">Connexion à Jira…</div>
+<div id="notice"></div>
+<main class="board" id="board"></main>
+
+<footer>
+  Sectile Lite 0.0.0-test.
+  L'étape vient d'un label <code>sectile:clarified</code>, <code>sectile:specified</code>, <code>sectile:implemented</code>, <code>sectile:reviewed</code> ou <code>sectile:finished</code>.
+  Sans label, elle est déduite du statut Jira (bordure pointillée). Comme sur Sectile, chaque carte copie le prompt de l'étape, avance d'un pas (›) ou avance en autonomie jusqu'à la revue (»). Les deux derniers envoient le ticket, après votre confirmation, à la session Claude Code ouverte à côté du board : lancez-y <code>/sectile-lite:dispatch</code>, et elle ouvre une session par ticket, chacune dans son worktree, trois à la fois au plus. Sans session pour le recevoir, la commande est copiée. Les commandes viennent du plugin Claude <code>sectile-lite</code>, qui pose le label d'étape sur Jira.
+</footer>
+
+<script>
+(() => {
+  // /sectile-lite:board replaces __BOARD_CONFIG__ with a JSON object when it publishes this page.
+  const CONFIG = __BOARD_CONFIG__;
+  const SERVER = CONFIG.connector;
+  const TOOL = "searchJiraIssuesUsingJql";
+  const CLOUD = CONFIG.site;
+  // The Sectile Lite plugin: its skills keep the stage as a sectile:<stage> label, which this board reads.
+  const PLUGIN = "sectile-lite";
+  const DEFAULT_JQL = CONFIG.jql;
+  const FIELDS = ["summary", "status", "assignee", "labels", "issuetype", "priority", "updated"];
+  // Same next steps, labels and tooltips as the Sectile card (web/src/locales/shell.ts, nextStep).
+  const STAGES = [
+    { id: "new", name: "Nouveau", skill: "clarify-issue",
+      step: "Avancer d'un pas : Clarifier les exigences (clarify-issue)",
+      auto: "Avancer en autonomie : Clarifier ➔ Spécifier ➔ Coder ➔ Adjust" },
+    { id: "clarified", name: "Clarifié", skill: "specify-issue",
+      step: "Avancer d'un pas : Spécifier la solution technique (specify-issue)",
+      auto: "Avancer en autonomie : Spécifier ➔ Coder ➔ Adjust" },
+    { id: "specified", name: "Spécifié", skill: "implement-issue",
+      step: "Avancer d'un pas : Implémenter le code et tests (implement-issue)",
+      auto: "Avancer en autonomie : Coder ➔ Adjust" },
+    { id: "implemented", name: "Implémenté", skill: "adjust-issue",
+      step: "Ajuster la pull request existante (adjust-issue)",
+      auto: "Ajuster la PR existante et s'arrêter pour la revue humaine" },
+    { id: "reviewed", name: "Revu", skill: "handoff-issue",
+      step: "Avancer d'un pas : Fusionner la PR et finaliser le ticket (#finished)",
+      auto: null },
+    { id: "finished", name: "Terminé", skill: null, step: null, auto: null },
+  ];
+  const ICONS = {
+    copy: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    step: '<path d="m9 18 6-6-6-6"/>',
+    auto: '<path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/>',
+  };
+  function icon(name) {
+    const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    for (const [k, v] of Object.entries({ width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor",
+      "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) s.setAttribute(k, v);
+    s.innerHTML = ICONS[name];
+    return s;
+  }
+  const STAGE_IDS = new Set(STAGES.map(s => s.id));
+
+  const $ = id => document.getElementById(id);
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  };
+
+  let jql = store.get("sectile.jql") || DEFAULT_JQL;
+  let filter = "";
+  let issues = null;      // last good list
+  let fetchedAt = null;
+  let mcp = null;
+  let unwatch = null;
+  let room = null;
+  let peers = [];
+  let me = null;
+
+  $("jql").value = jql;
+
+  function el(tag, attrs, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k === "class") n.className = v;
+      else if (k === "text") n.textContent = v;
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v);
+    }
+    for (const kid of kids.flat()) if (kid != null) n.append(kid);
+    return n;
+  }
+
+  function initials(name) {
+    return (name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
+  }
+
+  function stageOf(issue) {
+    const labels = issue.fields?.labels || [];
+    for (const l of labels) {
+      const m = /^sectile:(\w+)$/i.exec(l);
+      if (m && STAGE_IDS.has(m[1].toLowerCase())) return { id: m[1].toLowerCase(), inferred: false };
+    }
+    const st = issue.fields?.status;
+    const cat = st?.statusCategory?.key;
+    if (cat === "done") return { id: "finished", inferred: true };
+    if (/review|revue|validation|qa/i.test(st?.name || "")) return { id: "reviewed", inferred: true };
+    if (cat === "indeterminate") return { id: "implemented", inferred: true };
+    return { id: "new", inferred: true };
+  }
+
+  function extractIssues(payload) {
+    const p = typeof payload === "string" ? JSON.parse(payload) : payload;
+    const list = p?.issues?.nodes || p?.data?.issues?.nodes || (Array.isArray(p?.issues) ? p.issues : null);
+    if (!Array.isArray(list)) throw Object.assign(new Error("Réponse Jira inattendue"), { code: "shape" });
+    const info = p?.issues?.pageInfo || p?.data?.issues?.pageInfo || {};
+    return { list, more: !!info.hasNextPage, cursor: info.endCursor || null };
+  }
+
+  function renderSkeleton() {
+    const board = $("board");
+    board.replaceChildren(...STAGES.map(s =>
+      el("section", { class: "col", style: `--tile: var(--t-${s.id})` },
+        el("h2", {}, s.name),
+        el("div", { class: "cards" }, el("div", { class: "skeleton" }), el("div", { class: "skeleton" })))));
+  }
+
+  function matches(issue) {
+    if (!filter) return true;
+    const f = filter.toLowerCase();
+    return [issue.key, issue.fields?.summary, issue.fields?.assignee?.displayName]
+      .some(v => (v || "").toLowerCase().includes(f));
+  }
+
+  // Flashes a check on an icon button, then puts its icon back.
+  function flash(btn, iconName) {
+    btn.replaceChildren(icon("check"));
+    btn.classList.add("done");
+    setTimeout(() => { btn.replaceChildren(icon(iconName)); btn.classList.remove("done"); }, 1600);
+  }
+
+  async function copyCommand(btn, text, iconName) {
+    try {
+      await navigator.clipboard.writeText(text);
+      flash(btn, iconName);
+    } catch {
+      showNotice("warn", `Copie impossible depuis ce navigateur. Commande : ${text}`);
+    }
+  }
+
+  function watchedKeys() {
+    const map = new Map();
+    for (const p of peers) {
+      const focus = p.presence?.focus;
+      if (p.isMe || p.kind !== "viewer" || typeof focus !== "string") continue;
+      map.set(focus, (map.get(focus) || 0) + 1);
+    }
+    return map;
+  }
+
+  // Hands the ticket to the viewer's own Claude. Must run synchronously inside the click.
+  // `launch` is {skill, cmd, autonomous, iconName}. Without a Claude to send to, the command is copied instead.
+  function sendToClaude(btn, issue, launch) {
+    if (!room || !canSend) { copyCommand(btn, launch.cmd, launch.iconName); return; }
+    const mode = canSend === "available" ? undefined : { deliver: "send" };
+    const data = {
+      label: `${issue.key} · ${launch.autonomous ? "autonomie" : launch.skill}`,
+      ticket: issue.key,
+      title: (issue.fields?.summary || "").slice(0, 300),
+      url: issue.webUrl || `https://${CLOUD}/browse/${issue.key}`,
+      skill: `${PLUGIN}:${launch.skill}`,
+      command: launch.cmd,
+      autonomous: !!launch.autonomous,
+      instructions: `Hand this ticket to /${PLUGIN}:dispatch: it opens a dedicated Claude Code session, in its own worktree, that starts with the command above. Do not run the command in this conversation.`,
+    };
+    const p = mode ? room.sendToClaudeSession(data, { ...mode, attachPresence: false }) : room.sendToClaudeSession(data, { attachPresence: false });
+    p.then(() => flash(btn, launch.iconName)).catch(err => {
+      if (err?.code === "claude_unavailable") { refreshCanSend(); copyCommand(btn, launch.cmd, launch.iconName); }
+      else if (err?.code === "rate_limited") showNotice("warn", "Trop d'envois rapprochés. Réessayez dans un instant.");
+      else showNotice("warn", `L'envoi à Claude a échoué. Collez la commande dans une session Claude Code : ${launch.cmd}`);
+    });
+  }
+
+  let canSend = null;
+  async function refreshCanSend() {
+    const before = canSend;
+    try {
+      const v = room ? await room.canSendToClaudeSession() : null;
+      canSend = ["available", "available_if_summoned", "available_if_opened"].includes(v) ? v : null;
+    } catch { canSend = null; }
+    if (canSend !== before && issues) render();
+  }
+
+  function card(issue, stage) {
+    const f = issue.fields || {};
+    const def = STAGES.find(s => s.id === stage.id);
+    const cmd = def.skill ? `/${PLUGIN}:${def.skill} ${issue.key}` : null;
+    const prio = f.priority?.name || "";
+    const blocked = /block/i.test(f.status?.name || "");
+    const url = issue.webUrl || `https://${CLOUD}/browse/${issue.key}`;
+    const node = el("article", {
+      class: "card", tabindex: "0", "data-key": issue.key,
+      onfocusin: () => focusOn(issue.key), onmouseenter: () => focusOn(issue.key),
+    },
+      el("div", { class: "row" },
+        el("a", { class: "key", href: url, target: "_blank", rel: "noopener", text: issue.key }),
+        el("span", { class: "type", text: f.issuetype?.name || "" }),
+        prio ? el("span", { class: "prio" + (/critical|blocker|highest|major/i.test(prio) ? " high" : ""), text: prio }) : null),
+      el("p", { class: "title", text: f.summary || "(sans titre)" }),
+      el("div", { class: "chips" },
+        el("span", { class: "chip" + (blocked ? " blocked" : "") + (stage.inferred ? " inferred" : ""),
+          title: stage.inferred ? "Étape déduite du statut Jira" : "Étape fixée par un label sectile:", text: f.status?.name || "" }),
+        (f.labels || []).filter(l => !/^sectile:/i.test(l)).slice(0, 3).map(l => el("span", { class: "chip", text: l }))),
+      el("div", { class: "foot" },
+        el("span", { class: "assignee" },
+          f.assignee ? [el("span", { class: "avatar", "aria-hidden": "true", text: initials(f.assignee.displayName) }), f.assignee.displayName] : "Non assigné"),
+        cmd ? el("div", { class: "actions" },
+          el("button", { type: "button", class: "icon", title: `Copier le prompt de l'étape : ${cmd}`, "aria-label": `Copier ${cmd}`,
+            onclick: e => copyCommand(e.currentTarget, cmd, "copy") }, icon("copy")),
+          el("button", { type: "button", class: "icon", title: def.step + (canSend ? "" : " (copie la commande)"), "aria-label": def.step,
+            onclick: e => sendToClaude(e.currentTarget, issue, { skill: def.skill, cmd, iconName: "step" }) }, icon("step")),
+          el("button", { type: "button", class: "icon", title: (def.auto || "PR prête : la fusion finale reste manuelle (#finished)") + (def.auto && !canSend ? " (copie la commande)" : ""),
+            "aria-label": def.auto || "Fusion manuelle", disabled: !def.auto,
+            onclick: e => sendToClaude(e.currentTarget, issue, { skill: "pickup-issue", cmd: `/${PLUGIN}:pickup-issue ${issue.key}`, autonomous: true, iconName: "auto" }) }, icon("auto")))
+          : null));
+    return node;
+  }
+
+  function render() {
+    if (!issues) return;
+    const groups = Object.fromEntries(STAGES.map(s => [s.id, []]));
+    for (const issue of issues.list) {
+      if (!matches(issue)) continue;
+      const st = stageOf(issue);
+      groups[st.id].push([issue, st]);
+    }
+    const watched = watchedKeys();
+    $("board").replaceChildren(...STAGES.map(s =>
+      el("section", { class: "col", style: `--tile: var(--t-${s.id})`, "aria-label": s.name },
+        el("h2", {}, s.name, el("span", { class: "n", text: String(groups[s.id].length) })),
+        el("div", { class: "hint", text: s.skill ? `suivant : ${s.skill}` : "clôturé" }),
+        el("div", { class: "cards" },
+          groups[s.id].length
+            ? groups[s.id].map(([i, st]) => {
+                const c = card(i, st);
+                if (watched.has(i.key)) { c.classList.add("watched"); c.title = "Quelqu'un regarde ce ticket"; }
+                return c;
+              })
+            : el("div", { class: "empty", text: "Aucun ticket" })))));
+    renderStatus();
+  }
+
+  function renderStatus() {
+    const bar = $("statusbar");
+    if (!issues) return;
+    const when = fetchedAt ? new Date(fetchedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "-";
+    const jiraUrl = `https://${CLOUD}/issues/?jql=${encodeURIComponent(jql)}`;
+    const n = issues.list.length;
+    const count = total != null && total > n ? `${n} tickets sur ${total}` : `${n} ticket${n > 1 ? "s" : ""}`;
+    const canMore = issues.more && n < MAX_TICKETS;
+    bar.replaceChildren(
+      el("span", { text: count }),
+      loadingMore ? el("span", { text: "chargement de la suite…" }) : null,
+      canMore && !loadingMore ? el("button", { type: "button", class: "ghost small", onclick: () => loadMore(wantedPages + 1), text: `Charger ${PAGE_SIZE} de plus` }) : null,
+      canMore && !loadingMore ? el("button", { type: "button", class: "ghost small", onclick: () => loadMore(MAX_PAGES),
+        text: total != null && total <= MAX_TICKETS ? "Tout charger" : `Charger jusqu'à ${MAX_TICKETS}` }) : null,
+      el("span", { text: `mis à jour à ${when}, rafraîchi chaque minute` }),
+      el("a", { href: jiraUrl, target: "_blank", rel: "noopener", text: "Ouvrir dans Jira" }));
+  }
+
+  function showNotice(kind, text, action) {
+    $("notice").replaceChildren(text ? el("div", { class: `notice ${kind}`, role: "status" },
+      el("p", { text }), action ? el("button", { type: "button", class: "ghost", onclick: action.run, text: action.label }) : null) : "");
+  }
+
+  function handleError(err) {
+    const code = err?.code || "upstream_error";
+    switch (code) {
+      case "needs_reauth":
+        issues = null; renderSkeleton();
+        showNotice("crit", `La connexion à ${SERVER} a expiré. Reconnectez-la dans claude.ai, Réglages, Connecteurs, puis rechargez la page.`);
+        break;
+      case "server_not_connected":
+      case "selection_required":
+        issues = null; renderSkeleton();
+        showNotice("crit", `Ce board lit Jira via le connecteur « ${SERVER} ». Ajoutez-le dans claude.ai, Réglages, Connecteurs.`);
+        break;
+      case "not_in_manifest":
+      case "blocked_by_policy":
+        issues = null; renderSkeleton();
+        showNotice("crit", "L'accès à Jira n'est pas autorisé pour cette page. Ouvrez le menu Permissions de l'artefact pour l'activer.");
+        break;
+      case "approval_required":
+        showNotice("warn", "Ce board a besoin de votre accord pour lire Jira avec votre compte.", { label: "Autoriser et charger", run: loadOnce });
+        break;
+      case "tool_error":
+        showNotice("crit", `Jira a refusé la requête : ${err.message || "erreur inconnue"}. Vérifiez la JQL.`);
+        break;
+      case "shape":
+        showNotice("crit", "Jira a répondu dans un format que ce board ne sait pas lire.");
+        break;
+      case "server_unavailable":
+      case "rate_limited":
+        showNotice("warn", issues ? "Jira ne répond pas pour l'instant. Les données affichées sont les dernières reçues." : "Jira ne répond pas pour l'instant. Nouvel essai à la prochaine actualisation.");
+        break;
+      default:
+        showNotice("warn", `Lecture de Jira impossible (${code}). Les données affichées sont les dernières reçues.`, { label: "Réessayer", run: loadOnce });
+    }
+  }
+
+  // The first page is watched and refreshed every minute; the pages after it are
+  // fetched by following its cursor, as many as the viewer asked for.
+  const PAGE_SIZE = 100;
+  const MAX_PAGES = 10;
+  const MAX_TICKETS = PAGE_SIZE * MAX_PAGES;
+  let wantedPages = 1;
+  let firstPage = null;
+  let extraPages = [];
+  let loadingMore = false;
+  let generation = 0;
+  let total = null;
+
+  function payloadOf(result) {
+    return result.payload ?? result.content?.[0]?.text;
+  }
+
+  function combine() {
+    const seen = new Set();
+    const list = [];
+    for (const page of [firstPage, ...extraPages]) {
+      for (const i of page.list) if (!seen.has(i.key)) { seen.add(i.key); list.push(i); }
+    }
+    const last = extraPages.length ? extraPages[extraPages.length - 1] : firstPage;
+    issues = { list, more: last.more, cursor: last.cursor };
+    render();
+  }
+
+  // Refetches the pages after the first one, up to wantedPages, from a fresh cursor.
+  async function fetchExtraPages() {
+    const gen = ++generation;
+    if (!firstPage || wantedPages <= 1 || !firstPage.more) { extraPages = []; combine(); return; }
+    loadingMore = true;
+    renderStatus();
+    const pages = [];
+    let cursor = firstPage.cursor;
+    try {
+      while (cursor && pages.length < wantedPages - 1) {
+        const r = await mcp.callTool(SERVER, TOOL, { ...input(), nextPageToken: cursor }, { cache: { staleTime: 30000, gcTime: 600000 } });
+        if (gen !== generation) return;
+        const page = extractIssues(payloadOf(r));
+        pages.push(page);
+        cursor = page.more ? page.cursor : null;
+      }
+    } catch (e) {
+      if (gen === generation) handleError(e);
+    } finally {
+      if (gen === generation) {
+        loadingMore = false;
+        if (pages.length || !extraPages.length) extraPages = pages;
+        combine();
+      }
+    }
+  }
+
+  function loadMore(pages) {
+    wantedPages = Math.min(MAX_PAGES, pages);
+    fetchExtraPages();
+  }
+
+  async function loadTotal() {
+    if (!mcp) return;
+    const forJql = jql;
+    try {
+      const r = await mcp.callTool(SERVER, TOOL, { cloudId: CLOUD, jql: forJql, searchResultMode: "count" }, { cache: { staleTime: 300000, gcTime: 600000 } });
+      const p = payloadOf(r);
+      const obj = typeof p === "string" ? JSON.parse(p) : p;
+      const n = obj?.issues?.totalCount ?? obj?.data?.issues?.totalCount;
+      if (forJql === jql && typeof n === "number") { total = n; renderStatus(); }
+    } catch { /* the total is a convenience: the board works without it */ }
+  }
+
+  function accept(result) {
+    try {
+      firstPage = extractIssues(payloadOf(result));
+      fetchedAt = result.cache?.storedAt || Date.now();
+      showNotice();
+      if (wantedPages > 1) { combine(); fetchExtraPages(); } else { extraPages = []; combine(); }
+    } catch (e) { handleError(e); }
+  }
+
+  function input() {
+    return { cloudId: CLOUD, jql, maxResults: PAGE_SIZE, fields: FIELDS };
+  }
+
+  async function loadOnce() {
+    if (!mcp) return;
+    try { accept(await mcp.callTool(SERVER, TOOL, input(), { cache: { staleTime: 30000, gcTime: 600000, refresh: true } })); }
+    catch (e) { handleError(e); }
+  }
+
+  function watch() {
+    if (!mcp) return;
+    if (unwatch) unwatch();
+    unwatch = mcp.watchTool(SERVER, TOOL, input(), ev => {
+      if (ev.type === "data") accept(ev.result);
+      else handleError(ev.error);
+    }, { cache: { staleTime: 30000, gcTime: 600000 }, refetchInterval: 60000 });
+  }
+
+  $("queryForm").addEventListener("submit", e => {
+    e.preventDefault();
+    filter = $("filter").value.trim();
+    const next = $("jql").value.trim() || DEFAULT_JQL;
+    if (next !== jql) {
+      jql = next;
+      store.set("sectile.jql", jql);
+      issues = null;
+      firstPage = null;
+      extraPages = [];
+      wantedPages = 1;
+      total = null;
+      generation++;
+      loadingMore = false;
+      renderSkeleton();
+      $("statusbar").textContent = "Chargement de la requête…";
+      watch();
+      loadTotal();
+    } else {
+      render();
+    }
+  });
+  $("filter").addEventListener("input", e => { filter = e.target.value.trim(); render(); });
+
+  // Presence: who has the board open, and which ticket they are looking at.
+  let lastFocus = null;
+  function focusOn(key) {
+    if (!room || key === lastFocus) return;
+    lastFocus = key;
+    room.presence({ focus: key }).catch(() => {});
+  }
+
+  function personId(p) {
+    if (p.by) return p.by;
+    const v = p.presence?.uid;
+    return typeof v === "string" ? v : null;
+  }
+
+  async function renderPeers(user) {
+    // One avatar per person, not per open tab.
+    const people = new Map();
+    for (const p of peers) {
+      if (p.kind !== "viewer") continue;
+      const key = personId(p) || p.peer;
+      if (!people.has(key)) people.set(key, { id: personId(p), isMe: p.isMe });
+    }
+    const list = [...people.values()];
+    if (!list.length) { $("presence").hidden = true; return; }
+    let profiles = {};
+    const ids = list.map(p => p.id).filter(Boolean);
+    try { profiles = user && ids.length ? await user.profiles(ids) : {}; } catch {}
+    $("who").replaceChildren(...list.slice(0, 6).map(p => {
+      const name = (p.id && profiles[p.id]?.name) || (p.isMe ? "Vous" : "Quelqu'un");
+      return el("span", { class: "avatar", title: p.isMe ? `${name} (vous)` : name, text: initials(name) });
+    }));
+    const others = list.filter(p => !p.isMe).length;
+    $("whoLabel").textContent = others ? `${list.length} sur le board` : "Vous seul sur le board";
+    $("presence").hidden = false;
+  }
+
+  async function boot() {
+    renderSkeleton();
+    const claude = window.claude;
+    if (!claude?.use) {
+      $("statusbar").textContent = "";
+      showNotice("crit", "Ce board s'ouvre dans claude.ai : il lit Jira avec le connecteur Atlassian de la personne qui le consulte.");
+      return;
+    }
+    claude.use("mcp").then(ns => {
+      mcp = ns;
+      if (!mcp) {
+        $("statusbar").textContent = "";
+        showNotice("crit", "Les connecteurs ne sont pas disponibles dans cette vue. Ouvrez le board dans claude.ai, connecté à votre compte.");
+        return;
+      }
+      watch();
+      loadTotal();
+    });
+
+    const [roomNs, user] = await Promise.all([claude.use("room"), claude.use("user")]);
+    room = roomNs;
+    if (!room) return;
+    try { me = user ? await user.id() : null; } catch {}
+    room.presence({ uid: me }).catch(() => {});
+    room.onPeers(change => {
+      peers = change?.peers || [];
+      renderPeers(user);
+      if (issues) render();
+    });
+    refreshCanSend();
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshCanSend(); });
+  }
+
+  boot();
+})();
+</script>

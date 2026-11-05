@@ -144,3 +144,35 @@ func TestLitePluginShipsTheDispatcher(t *testing.T) {
 		t.Error("the dispatcher leaked into the shared catalogue")
 	}
 }
+
+// The board ships beside its skill, stamped with the plugin version so that the
+// page and the skills it launches come from the same release, and with nothing
+// of one Jira site in it: the skill fills the configuration in at publish time.
+func TestLitePluginShipsTheBoard(t *testing.T) {
+	files, err := skills.RenderLitePlugin(pluginTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill, ok := files["skills/board/SKILL.md"]
+	if !ok {
+		t.Fatal("the Lite plugin lacks the board skill")
+	}
+	for _, required := range []string{"---\nname: board\n", "`__BOARD_CONFIG__`", "searchJiraIssuesUsingJql", "titled `Sectile Board`"} {
+		if !strings.Contains(string(skill), required) {
+			t.Errorf("the board skill lacks %q", required)
+		}
+	}
+	page := string(files["skills/board/board.html"])
+	if !strings.Contains(page, "Sectile Lite "+pluginTestVersion+".") || strings.Contains(page, "__PLUGIN_VERSION__") {
+		t.Error("the board page is not stamped with the plugin version")
+	}
+	if strings.Count(page, "__BOARD_CONFIG__") != 2 {
+		t.Error("the board page lost its configuration placeholder")
+	}
+	if strings.Contains(strings.ToLower(page), "atlassian.net\"") {
+		t.Error("the board page names a Jira site")
+	}
+	if !strings.Contains(page, `const PLUGIN = "`+skills.LitePluginName+`"`) {
+		t.Error("the board page launches another plugin's skills")
+	}
+}

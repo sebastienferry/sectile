@@ -560,16 +560,49 @@ var LiteDispatchSkill = StageSkill{
 	GuardTitle:      "Do not",
 }
 
+// LiteBoardSkill publishes the user's own Sectile Board, the page the Lite
+// plugin ships beside it. Like the dispatcher, it has no stage.
+var LiteBoardSkill = StageSkill{
+	ID:              "board",
+	Name:            "Board",
+	DirName:         "board",
+	Command:         "/board",
+	Title:           "Sectile Board",
+	FrontmatterDesc: "Publish or update your own Sectile Board, a live page of your Jira tickets in the Sectile stages, read through your Atlassian connector.",
+	GuardTitle:      "Do not",
+}
+
 // RenderLiteDispatchSkillContent builds the SKILL.md of the dispatcher. It
 // reads tickets through the Lite task access contract and records nothing on
 // them, so it carries neither the session title nor the transition contract:
 // the ticket sessions it starts own both.
 func RenderLiteDispatchSkillContent() string {
-	s := LiteDispatchSkill
+	return renderLiteOnlySkill(LiteDispatchSkill, true)
+}
+
+// RenderLiteBoardSkillContent builds the SKILL.md of the board skill, which
+// touches no ticket.
+func RenderLiteBoardSkillContent() string {
+	return renderLiteOnlySkill(LiteBoardSkill, false)
+}
+
+// RenderLiteBoardPage is the board page the Lite plugin ships beside its
+// skill, stamped with the plugin version. Its __BOARD_CONFIG__ placeholder is
+// left for the skill, which knows the user's connector, site and query.
+func RenderLiteBoardPage(version string) []byte {
+	page, _ := embeddedSkillsFS.ReadFile(path.Join("fragments", LiteBoardSkill.ID, "board.html"))
+	return bytes.ReplaceAll(page, []byte("__PLUGIN_VERSION__"), []byte(version))
+}
+
+// renderLiteOnlySkill assembles a Lite skill that has no stage: its own
+// sections, under the Lite task access contract when it reads tickets.
+func renderLiteOnlySkill(s StageSkill, ticketAccess bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\nname: %s\ndescription: %s\n---\n", s.DirName, YAMLString(s.FrontmatterDesc))
 	fmt.Fprintf(&b, "# %s\n\n", s.Title)
-	b.WriteString(renderTaskAccessContract("", true))
+	if ticketAccess {
+		b.WriteString(renderTaskAccessContract("", true))
+	}
 	for _, section := range []struct{ title, name string }{
 		{"Goal", "goal"}, {"Read first", "read-first"}, {"Steps", "steps"}, {s.GuardTitle, "guard"}, {"Report", "report"},
 	} {

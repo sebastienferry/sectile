@@ -70,6 +70,12 @@ ticket's stage is a `sectile:<stage>` label.**
 - The board that goes with Lite is an artifact that reads the labels, not the
   Sectile web board. It shows what Jira holds and nothing more: no run in
   progress, no waiting state, no orchestration capacity.
+- **The board ships in the plugin.** It keeps no state, so a shared copy
+  would add little beyond presence, and it would depend on one owner and drift
+  from the skills installed on each workstation. The plugin carries the page
+  (`fragments/board/board.html`, stamped with the plugin version) beside a
+  `board` skill that fills in the user's connector, Jira site and opening query
+  and publishes the user's own copy, updating it in place on the next run.
 - Without a server there is no backlog orchestrator, no project-wide
   concurrency limit and no result validation: the dispatcher's limit holds for
   the sessions one dispatcher started, not for a team, and a stage is what the

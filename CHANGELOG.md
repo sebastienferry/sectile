@@ -15,7 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
-- Sectile Lite, a Claude plugin for teams without a Sectile server: the same ticket skills run on Jira tickets from Claude, through your own Atlassian connector, and record each stage as a `sectile:<stage>` label on the ticket. Its `/sectile-lite:dispatch` skill opens a dedicated Claude Code session, in its own worktree, for each ticket you hand it, three at a time. Write it with `make plugin ARGS=-lite`.
+- Sectile Lite, a Claude plugin for teams without a Sectile server: the same ticket skills run on Jira tickets from Claude, through your own Atlassian connector, and record each stage as a `sectile:<stage>` label on the ticket. Its `/sectile-lite:dispatch` skill opens a dedicated Claude Code session, in its own worktree, for each ticket you hand it, three at a time, and `/sectile-lite:board` publishes your own Sectile Board, a live page of your Jira tickets in the Sectile stages whose buttons start the next step. Write it with `make plugin ARGS=-lite`.
 
 ### Fixed
 

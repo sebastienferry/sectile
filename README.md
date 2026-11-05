@@ -194,7 +194,9 @@ to install the skills and register the MCP server:
   your Atlassian connector and record each stage as a `sectile:<stage>` label.
   `/sectile-lite:dispatch PE-123 PE-124`, or the board's buttons sent to a
   session running it, opens one Claude Code session per ticket, each in its
-  own worktree. Macro skills are not included. See
+  own worktree. `/sectile-lite:board [JQL]` publishes your own Sectile Board
+  as a claude.ai artifact, and updates it in place when run again after a
+  plugin update. Macro skills are not included. See
   [ADR 0064](docs/adrs/0064-sectile-lite-runs-the-skills-on-jira-without-a-server.md).
 - **Direct CLI setup (Claude, Codex, Antigravity)**: run
   `./bin/agent init --provider claude` (or `codex`, `agy`), or click
