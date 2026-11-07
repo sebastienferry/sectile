@@ -55,13 +55,54 @@ export function conversationGroups(
   return [...groups].sort(([left], [right]) => (left === "" ? -1 : right === "" ? 1 : 0)).map(([label, runs]) => ({ label, runs }));
 }
 
+const taskSkillNames: Record<string, string> = {
+  clarify: "Clarify",
+  specify: "Specify",
+  implement: "Implement",
+  adjust: "Adjust",
+  handoff: "Handoff",
+  pickup: "Pickup",
+  discuss: "Discuss",
+  create_pr: "Create PR",
+};
+
+export function taskSkillName(skill?: string): string {
+  const id = String(skill || "").trim().replace(/^[^:]*:/, "").replace(/-issue$/, "");
+  if (!id) return "";
+  return taskSkillNames[id] || id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+function appendTaskSkill(title: string, skill?: string): string {
+  const base = title.trim();
+  const suffix = taskSkillName(skill);
+  if (!base) return suffix;
+  if (!suffix) return base;
+  if (base.toLowerCase().endsWith(` - ${suffix.toLowerCase()}`)) return base;
+  return `${base} - ${suffix}`;
+}
+
+function isSlashCommandTitle(title?: string): boolean {
+  const trimmed = String(title || "").trim();
+  return trimmed.startsWith("/") || trimmed.startsWith("$");
+}
+
 export function conversationTitle(
   snapshot?: { title?: string; events?: (string | { kind?: string; type?: string; text?: string; message?: string })[] | null },
   run?: Run,
   task?: Task,
 ): string {
+  if (run?.taskId) {
+    if (task?.title?.trim()) return appendTaskSkill(task.title.trim(), run.skill);
+    if (snapshot?.title?.trim() && !isSlashCommandTitle(snapshot.title)) {
+      return appendTaskSkill(snapshot.title.trim(), run.skill);
+    }
+    if (run.title?.trim() && !isSlashCommandTitle(run.title)) {
+      return appendTaskSkill(run.title.trim(), run.skill);
+    }
+    if (run.taskKey?.trim()) return appendTaskSkill(run.taskKey.trim(), run.skill);
+    return appendTaskSkill("Ticket", run.skill);
+  }
   if (snapshot?.title?.trim()) return snapshot.title.trim();
-  if (run?.taskId && task?.title?.trim()) return task.title.trim();
   if (run?.title?.trim()) return run.title.trim();
   if (snapshot?.events && Array.isArray(snapshot.events)) {
     for (const item of snapshot.events) {
@@ -76,10 +117,6 @@ export function conversationTitle(
         // Ignore parse error
       }
     }
-  }
-  if (run?.taskId) {
-    if (run.taskKey?.trim()) return run.taskKey.trim();
-    return "Ticket";
   }
   if (run?.prompt?.trim()) {
     return run.prompt.trim().split("\n")[0].slice(0, 100);

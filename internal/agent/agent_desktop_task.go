@@ -41,6 +41,7 @@ func (d *agentDaemon) desktopTaskDetail(w http.ResponseWriter, r *http.Request) 
 			Assignee          *string                   `json:"assignee"`
 			AssigneeAccountID *string                   `json:"assigneeAccountId"`
 			AssigneeAvatar    *string                   `json:"assigneeAvatar"`
+			Sprint            *string                   `json:"sprint"`
 			PrLinks           *[]models.TaskPullRequest `json:"prLinks"`
 		}
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 128<<10)).Decode(&input) != nil {
@@ -63,7 +64,7 @@ func (d *agentDaemon) desktopTaskDetail(w http.ResponseWriter, r *http.Request) 
 				}
 			}
 		}
-		update = models.UpdateTaskRequest{IssueType: input.IssueType, Priority: input.Priority, Title: input.Title, Description: input.Description, Assignee: input.Assignee, AssigneeAccountID: input.AssigneeAccountID, AssigneeAvatar: input.AssigneeAvatar, PrLinks: input.PrLinks}
+		update = models.UpdateTaskRequest{IssueType: input.IssueType, Priority: input.Priority, Title: input.Title, Description: input.Description, Assignee: input.Assignee, AssigneeAccountID: input.AssigneeAccountID, AssigneeAvatar: input.AssigneeAvatar, Sprint: input.Sprint, PrLinks: input.PrLinks}
 	}
 	if !d.desktopTaskOfProject(w, r, projectID, taskID) {
 		return

@@ -1,6 +1,6 @@
 import { RunReview } from "./RunReview";
 import { useExecutionMonitor } from "./ExecutionMonitor";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { Task } from "../domain/board";
 import type { Orchestration, OrchestrationReport } from "../domain/execution";
 import type { Run } from "../domain/execution";
@@ -19,6 +19,7 @@ import {
   runOrchestration,
   stopRun,
 } from "../lib/agent";
+import { Icon } from "./Icon";
 const RunConsole = lazy(() =>
   import("./RunConsole").then((module) => ({ default: module.RunConsole })),
 );
@@ -32,9 +33,9 @@ function runTitle(run: Run, tasks: Task[]): string {
   return run.taskKey || task?.title || run.taskId || "Console libre";
 }
 
-function runSummary(run: Run): string {
+function runSummary(run: Run, archived = false): string {
   const provider = run.provider === "claude" ? "Claude Code" : run.provider === "codex" ? "Codex" : run.engineName || "Assistant";
-  return [run.conversation ? provider : run.skill || run.engineName, run.conversation ? run.skill : "", statusLabel(run)].filter(Boolean).join(" · ");
+  return [run.conversation ? provider : run.skill || run.engineName, run.conversation ? run.skill : "", statusLabel(run), archived ? "Archivée" : ""].filter(Boolean).join(" · ");
 }
 
 export function Supervisor({
@@ -47,6 +48,7 @@ export function Supervisor({
   onOpenConversation,
   initialTaskId = "",
   active = true,
+  archivedConversationIds = [],
 }: {
   projectId: string;
   tasks: Task[];
@@ -57,6 +59,7 @@ export function Supervisor({
   onOpenConversation?: (id: string) => void;
   initialTaskId?: string;
   active?: boolean;
+  archivedConversationIds?: string[];
 }) {
   const [actionError, setActionError] = useState("");
   const [notice, setNotice] = useState("");
@@ -128,6 +131,44 @@ export function Supervisor({
     return()=>{current=false;clearInterval(timer);};
   },[projectId,view,supportsOrchestration]);
   const runs = projectRuns(snapshot?.runs ?? [], projectId);
+  const [executionQuery, setExecutionQuery] = useState("");
+  const [archiveFilter, setArchiveFilter] = useState<"all" | "active" | "archived">("all");
+  useEffect(() => {
+    setExecutionQuery("");
+    setArchiveFilter("all");
+  }, [projectId]);
+  const archivedSet = useMemo(() => new Set(archivedConversationIds), [archivedConversationIds]);
+  const sortedRuns = useMemo(
+    () =>
+      [...runs].sort(
+        (a, b) =>
+          b.createdAt.localeCompare(a.createdAt) ||
+          a.id.localeCompare(b.id),
+      ),
+    [runs],
+  );
+  const filteredRuns = useMemo(() => {
+    const words = executionQuery.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    return sortedRuns.filter(item => {
+      const isArchived = archivedSet.has(item.id);
+      if (archiveFilter === "active" && isArchived) return false;
+      if (archiveFilter === "archived" && !isArchived) return false;
+      if (!words.length) return true;
+      const haystack = [
+        runTitle(item, tasks),
+        runSummary(item, isArchived),
+        item.taskKey,
+        item.skill,
+        item.branch,
+        item.provider,
+        item.engineName,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLocaleLowerCase();
+      return words.every(word => haystack.includes(word));
+    });
+  }, [archiveFilter, archivedSet, executionQuery, sortedRuns, tasks]);
   const activeExecutionCount = runs.filter(run => isActive(run) && (!run.conversation || !!run.taskId)).length;
   const openFreeConversationCount = runs.filter(run => isActive(run) && run.conversation && !run.taskId).length;
   const connected =
@@ -409,8 +450,37 @@ export function Supervisor({
       </details>
       <div hidden={view !== "executions"} className="execution-workspace">
         {!run && <h3>Exécutions de ce poste · {activeExecutionCount} exécution{activeExecutionCount > 1 ? "s" : ""} active{activeExecutionCount > 1 ? "s" : ""}{openFreeConversationCount > 0 && ` · ${openFreeConversationCount} session${openFreeConversationCount > 1 ? "s" : ""} ouverte${openFreeConversationCount > 1 ? "s" : ""}`}</h3>}
+        {!run && runs.length > 0 && (
+          <div className="execution-toolbar">
+            <label className="search execution-search">
+              <Icon name="search" />
+              <input
+                aria-label="Filtrer les exécutions"
+                placeholder="Filtrer par titre, ticket, skill ou branche…"
+                value={executionQuery}
+                onChange={event => setExecutionQuery(event.target.value)}
+              />
+            </label>
+            <div className="execution-archive-switch" role="group" aria-label="Filtrer par statut d’archivage">
+              {([
+                ["all", "Toutes"],
+                ["active", "Non archivées"],
+                ["archived", "Archivées"],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={archiveFilter === value}
+                  onClick={() => setArchiveFilter(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="execution-list" hidden={!!run}>
-          {runs.map((item) => (
+          {filteredRuns.map((item) => (
             <article
               className={
                 selectedRun === item.id ? "execution selected" : "execution"
@@ -423,7 +493,7 @@ export function Supervisor({
                 onClick={() => item.conversation && onOpenConversation ? onOpenConversation(item.id) : onSelectRun(item.id)}
               >
                 <strong>{runTitle(item, tasks)}</strong>
-                <span>{runSummary(item)}</span>
+                <span>{runSummary(item, archivedSet.has(item.id))}</span>
                 <small>
                   {new Date(item.createdAt).toLocaleString("fr-FR")}
                   {item.engineName ? ` · ${item.engineName}` : ""}
@@ -446,6 +516,9 @@ export function Supervisor({
         </div>
         {fresh && !runs.length && (
           <p className="muted">Aucune exécution locale pour ce projet.</p>
+        )}
+        {fresh && runs.length > 0 && !filteredRuns.length && !run && (
+          <p className="muted">Aucune exécution ne correspond aux filtres sélectionnés.</p>
         )}
         {run && (
           <section className="run-detail">

@@ -62,7 +62,10 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
 });
-function mount(view: "launch" | "executions" | "orchestration" = "launch") {
+function mount(
+  view: "launch" | "executions" | "orchestration" = "launch",
+  archivedConversationIds: string[] = [],
+) {
   return render(
     <ExecutionProvider>
       <Supervisor
@@ -70,6 +73,7 @@ function mount(view: "launch" | "executions" | "orchestration" = "launch") {
         tasks={[task]}
         onChanged={vi.fn()}
         view={view}
+        archivedConversationIds={archivedConversationIds}
       />
     </ExecutionProvider>,
   );
@@ -136,6 +140,32 @@ test("the execution queue names free and ticket conversations by their work", as
   expect(free.textContent).toContain("Codex · Session active");
   expect(screen.getByTitle("APP-2 · Fix search").textContent).toContain("Claude Code · clarify · Session active");
   expect(screen.queryByText("Console libre")).toBeNull();
+});
+test("the execution queue sorts by descending date and filters by text and archived state", async () => {
+  vi.mocked(api.executionSnapshot).mockResolvedValue({
+    status: { connected: true, capabilities: [] },
+    runs: [
+      { ...run, id: "older-active", taskId: "", taskKey: "", conversation: true, title: "Older active chat", status: "running", createdAt: "2026-10-25T10:00:00Z" },
+      { ...run, id: "newer-archived", taskId: "", taskKey: "", conversation: true, title: "Newer archived chat", status: "completed", createdAt: "2026-10-30T10:00:00Z" },
+    ],
+  });
+  mount("executions", ["newer-archived"]);
+  await screen.findByTitle("Newer archived chat");
+  const items = Array.from(document.querySelectorAll(".execution-list .run-select strong")).map(node => node.textContent);
+  expect(items).toEqual(["Newer archived chat", "Older active chat"]);
+
+  fireEvent.click(screen.getByRole("button", { name: "Archivées" }));
+  expect(screen.getByTitle("Newer archived chat")).toBeTruthy();
+  expect(screen.queryByTitle("Older active chat")).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "Non archivées" }));
+  expect(screen.queryByTitle("Newer archived chat")).toBeNull();
+  expect(screen.getByTitle("Older active chat")).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "Toutes" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Filtrer les exécutions" }), { target: { value: "Newer" } });
+  expect(screen.getByTitle("Newer archived chat")).toBeTruthy();
+  expect(screen.queryByTitle("Older active chat")).toBeNull();
 });
 test("orchestration submits only the selected saved agent and reports skips", async () => {
   vi.mocked(api.runOrchestration).mockResolvedValue({

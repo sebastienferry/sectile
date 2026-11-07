@@ -8,6 +8,8 @@ export interface TaskFilters {
   status?: string;
   assignee?: string;
   parent?: string;
+  sprint?: string;
+  issueType?: string;
 }
 
 export function matchesTaskFilters(
@@ -51,6 +53,26 @@ export function matchesTaskFilters(
       if (task.parentKey?.trim()) return false;
     } else {
       if ((task.parentKey ?? "").trim().toLowerCase() !== filters.parent.trim().toLowerCase()) {
+        return false;
+      }
+    }
+  }
+  if (filters.sprint?.trim()) {
+    const target = filters.sprint.trim().toLowerCase();
+    if (target === "__none__" || target === "sans sprint") {
+      if (task.sprint?.trim()) return false;
+    } else {
+      if (!(task.sprint ?? "").trim().toLowerCase().includes(target)) {
+        return false;
+      }
+    }
+  }
+  if (filters.issueType?.trim()) {
+    const target = filters.issueType.trim().toLowerCase();
+    if (target === "__none__" || target === "sans type") {
+      if (task.issueType?.trim()) return false;
+    } else {
+      if ((task.issueType ?? "").trim().toLowerCase() !== target) {
         return false;
       }
     }

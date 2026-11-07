@@ -15,6 +15,7 @@ const tasks: Task[] = [
     assignee: "Alice",
     parentKey: "AUTH-1",
     parentTitle: "Authentication",
+    issueType: "Bug",
   },
   {
     id: "2",
@@ -27,6 +28,7 @@ const tasks: Task[] = [
     assignee: "Bob",
     parentKey: "AUTH-1",
     parentTitle: "Authentication",
+    issueType: "Story",
   },
   {
     id: "3",
@@ -38,6 +40,7 @@ const tasks: Task[] = [
     priority: "low",
     assignee: undefined,
     parentKey: undefined,
+    issueType: undefined,
   },
 ];
 
@@ -74,6 +77,14 @@ test("matchesTaskFilters filters by parent (including unparented)", () => {
   assert.equal(matchesTaskFilters(tasks[2], { parent: "AUTH-1" }), false);
   assert.equal(matchesTaskFilters(tasks[2], { parent: "__none__" }), true);
   assert.equal(matchesTaskFilters(tasks[0], { parent: "__none__" }), false);
+});
+
+test("matchesTaskFilters filters by issueType (including untyped)", () => {
+  assert.equal(matchesTaskFilters(tasks[0], { issueType: "Bug" }), true);
+  assert.equal(matchesTaskFilters(tasks[0], { issueType: "bug" }), true);
+  assert.equal(matchesTaskFilters(tasks[1], { issueType: "Bug" }), false);
+  assert.equal(matchesTaskFilters(tasks[2], { issueType: "__none__" }), true);
+  assert.equal(matchesTaskFilters(tasks[0], { issueType: "__none__" }), false);
 });
 
 test("matchesTaskFilters combines multiple filters with AND semantics", () => {

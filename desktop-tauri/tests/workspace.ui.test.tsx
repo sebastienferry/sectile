@@ -119,8 +119,8 @@ test("project menu opens the execution queue and groups ticket conversations by 
  render(<App/>);
  const sidebar=screen.getByRole("complementary");
  await within(sidebar).findByText("APP-1");
- expect(await within(sidebar).findByText("New task")).toBeTruthy();
- expect(await within(sidebar).findByText("Reviewed task")).toBeTruthy();
+ expect(await within(sidebar).findByText("New task - Clarify")).toBeTruthy();
+ expect(await within(sidebar).findByText("Reviewed task - Adjust")).toBeTruthy();
  expect(within(sidebar).queryByText("Clarify this")).toBeNull();
  expect(sidebar.querySelector(".conversation-indicator.session")).not.toBeNull();
  fireEvent.click(within(sidebar).getByRole("button",{name:"Ouvrir le ticket APP-1"}));
@@ -428,11 +428,11 @@ test("clicking table headers orders tasks by that column",async()=>{
  expect(rows[1].textContent).toContain("APP-2");
  expect(rows[2].textContent).toContain("APP-10");
 });
-test("the board toolbar filters tasks by priority, status, assignee, and parent",async()=>{
+test("the board toolbar filters tasks by priority, status, assignee, parent, sprint, and issue type",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue([
-  {id:"t1",key:"APP-1",title:"First issue",source:"jira",trackerStatus:"In Progress",status:"to_implement",priority:"urgent",assignee:"Alice",parentKey:"EPIC-1",parentTitle:"Epic One"},
-  {id:"t2",key:"APP-2",title:"Second issue",source:"jira",trackerStatus:"To Do",status:"to_specify",priority:"high",assignee:"Bob",parentKey:"EPIC-1",parentTitle:"Epic One"},
-  {id:"t3",key:"APP-3",title:"Third issue",source:"jira",trackerStatus:"To Do",status:"to_clarify",priority:"low",assignee:undefined,parentKey:undefined}
+  {id:"t1",key:"APP-1",title:"First issue",source:"jira",trackerStatus:"In Progress",status:"to_implement",priority:"urgent",assignee:"Alice",parentKey:"EPIC-1",parentTitle:"Epic One",sprint:"Sprint 42",issueType:"Bug"},
+  {id:"t2",key:"APP-2",title:"Second issue",source:"jira",trackerStatus:"To Do",status:"to_specify",priority:"high",assignee:"Bob",parentKey:"EPIC-1",parentTitle:"Epic One",sprint:"Sprint 43",issueType:"Story"},
+  {id:"t3",key:"APP-3",title:"Third issue",source:"jira",trackerStatus:"To Do",status:"to_clarify",priority:"low",assignee:undefined,parentKey:undefined,sprint:undefined,issueType:undefined}
  ]);
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
  render(<App/>);
@@ -499,6 +499,57 @@ test("the board toolbar filters tasks by priority, status, assignee, and parent"
  expect(screen.queryByText("First issue")).toBeNull();
  expect(screen.queryByText("Second issue")).toBeNull();
  expect(screen.getByText("Third issue")).toBeTruthy();
+
+ // Reset and filter by sprint (free input and Sans sprint)
+ fireEvent.click(screen.getByRole("button",{name:"Réinitialiser"}));
+ fireEvent.click(filterToggle);
+ const sprintInput=screen.getByLabelText("Filtrer par sprint");
+ fireEvent.change(sprintInput,{target:{value:"Sprint 42"}});
+ expect(screen.getByText("First issue")).toBeTruthy();
+ expect(screen.queryByText("Second issue")).toBeNull();
+ expect(screen.queryByText("Third issue")).toBeNull();
+
+ // Filter by no sprint ("Sans sprint")
+ fireEvent.change(sprintInput,{target:{value:"Sans sprint"}});
+ expect(screen.queryByText("First issue")).toBeNull();
+ expect(screen.queryByText("Second issue")).toBeNull();
+ expect(screen.getByText("Third issue")).toBeTruthy();
+
+ // Reset and filter by issueType (Bug and Sans type)
+ fireEvent.click(screen.getByRole("button",{name:"Réinitialiser"}));
+ fireEvent.click(filterToggle);
+ const typeSelect=screen.getByRole("combobox",{name:"Filtrer par type"});
+ fireEvent.change(typeSelect,{target:{value:"Bug"}});
+ expect(screen.getByText("First issue")).toBeTruthy();
+ expect(screen.queryByText("Second issue")).toBeNull();
+ expect(screen.queryByText("Third issue")).toBeNull();
+
+ fireEvent.change(typeSelect,{target:{value:"__none__"}});
+ expect(screen.queryByText("First issue")).toBeNull();
+ expect(screen.queryByText("Second issue")).toBeNull();
+ expect(screen.getByText("Third issue")).toBeTruthy();
+ fireEvent.change(typeSelect,{target:{value:""}});
+
+ // Filters are preserved when opening a task and returning to the board
+ const sprintInputAgain=screen.getByLabelText("Filtrer par sprint");
+ fireEvent.change(sprintInputAgain,{target:{value:"Sprint 42"}});
+ fireEvent.click(screen.getByRole("button",{name:"First issue"}));
+ await screen.findByRole("button",{name:"← Tickets du projet"});
+ fireEvent.click(screen.getByRole("button",{name:"← Tickets du projet"}));
+ expect(await screen.findByText("First issue")).toBeTruthy();
+ expect(screen.queryByText("Second issue")).toBeNull();
+
+ // Switching to Liste view hides the workflow/tracker grouping toggle and shows Type, Sprint & Assigné columns
+ expect(screen.getByRole("group",{name:"Regroupement des tickets"})).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Liste"}));
+ expect(screen.queryByRole("group",{name:"Regroupement des tickets"})).toBeNull();
+ const list=screen.getByRole("region",{name:"Liste des tickets"});
+ expect(within(list).getByRole("button",{name:/Type/})).toBeTruthy();
+ expect(within(list).getByRole("button",{name:/Sprint/})).toBeTruthy();
+ expect(within(list).getByRole("button",{name:/Assigné/})).toBeTruthy();
+ expect(within(list).getByText("Bug")).toBeTruthy();
+ expect(within(list).getByText("Alice")).toBeTruthy();
+ expect(within(list).getByText("Sprint 42")).toBeTruthy();
 });
 test("the board uses Sectile epic colors only when the project enables them",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue([{id:"t1",key:"APP-1",title:"Epic child",source:"jira",trackerStatus:"To Do",status:"to_clarify",parentKey:"PE-1078"}]);
@@ -920,4 +971,78 @@ test("sidebar runs render single line titles, pulsing indicators, and menu sort 
 
  fireEvent.click(sortCreated);
  expect(sortCreated.getAttribute("aria-checked")).toBe("true");
+});
+
+test("sidebar only shows Orchestration under a project when enabled in project settings", async () => {
+ vi.mocked(api.listProjects).mockResolvedValue([
+  { id: "p", name: "Example", path: "/work/example", orchestratorEnabled: false },
+  { id: "p2", name: "Orchestrated", path: "/work/orch", orchestratorEnabled: true },
+ ]);
+ render(<App />);
+ const sidebar = await screen.findByRole("complementary");
+ await within(sidebar).findByRole("button", { name: "Example" });
+ expect(within(sidebar).queryByRole("button", { name: "Orchestration" })).toBeNull();
+
+ fireEvent.click(within(sidebar).getByRole("button", { name: "Orchestrated" }));
+ expect(await within(sidebar).findByRole("button", { name: "Orchestration" })).toBeTruthy();
+});
+
+test("project context menu confirms and deletes a project", async () => {
+ let deleted = false;
+ vi.mocked(api.listProjects).mockImplementation(async () =>
+  deleted
+   ? [{ id: "p2", name: "Remaining", path: "/work/rem" }]
+   : [
+      { id: "p", name: "Example", path: "/work/example" },
+      { id: "p2", name: "Remaining", path: "/work/rem" },
+     ],
+ );
+ vi.mocked(invoke).mockImplementation(async (command) => {
+  if (command === "conversation_profiles") return { profiles: [], defaultId: "", inherited: true };
+  if (command === "delete_local_project") {
+   deleted = true;
+   return null;
+  }
+  return null;
+ });
+ render(<App />);
+ const sidebar = await screen.findByRole("complementary");
+ const actionToggle = await within(sidebar).findByLabelText("Actions pour Example");
+ fireEvent.click(actionToggle);
+ fireEvent.click(within(actionToggle.closest("details")!).getByRole("button", { name: "Supprimer le projet" }));
+
+ const dialog = await screen.findByRole("alertdialog", { name: "Supprimer Example" });
+ fireEvent.click(within(dialog).getByRole("button", { name: "Confirmer la suppression" }));
+
+ await waitFor(() => expect(invoke).toHaveBeenCalledWith("delete_local_project", { projectId: "p" }));
+ await waitFor(() => expect(within(sidebar).queryByRole("button", { name: "Example" })).toBeNull());
+ expect(within(sidebar).getByRole("button", { name: "Remaining" })).toBeTruthy();
+});
+
+test("project context menu renames the display name without changing the directory", async () => {
+ let currentName = "Example";
+ vi.mocked(api.listProjects).mockImplementation(async () => [
+  { id: "p", name: currentName, path: "/work/example" },
+ ]);
+ vi.mocked(invoke).mockImplementation(async (command, args: any) => {
+  if (command === "rename_project") {
+   currentName = args.name;
+   return undefined;
+  }
+  return null;
+ });
+ render(<App />);
+ const sidebar = await screen.findByRole("complementary");
+ const actionToggle = await within(sidebar).findByLabelText("Actions pour Example");
+ fireEvent.click(actionToggle);
+ fireEvent.click(within(actionToggle.closest("details")!).getByRole("button", { name: "Renommer le projet" }));
+
+ const input = await within(sidebar).findByRole("textbox", { name: "Nom du projet" });
+ expect((input as HTMLInputElement).value).toBe("Example");
+ fireEvent.change(input, { target: { value: "Mon Projet Renommé" } });
+ fireEvent.keyDown(input, { key: "Enter" });
+
+ await waitFor(() => expect(invoke).toHaveBeenCalledWith("rename_project", { projectId: "p", name: "Mon Projet Renommé" }));
+ expect(await within(sidebar).findByRole("button", { name: "Mon Projet Renommé" })).toBeTruthy();
+ expect(screen.getByText("/work/example")).toBeTruthy();
 });

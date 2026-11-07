@@ -158,13 +158,17 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		run.desktop.EngineID, run.desktop.EngineName = engine.ID, engine.Name
 		run.desktop.ConnectionID = connectionID
 		if input.EngineID != "" && engine.ConversationMode != "" {
-			run.conversation.mode = "plan"
-			if engine.ConversationMode == "execute" {
+			switch engine.ConversationMode {
+			case "plan":
+				run.conversation.mode = "plan"
+			case "execute":
 				if provider == "codex" {
 					run.conversation.mode = "workspace-write"
 				} else {
 					run.conversation.mode = "default"
 				}
+			default:
+				run.conversation.mode = providerConversationMode(provider, engine.ConversationMode)
 			}
 		}
 		run.desktop.Folders = runFolders(root, folders)

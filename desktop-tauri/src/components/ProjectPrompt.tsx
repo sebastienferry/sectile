@@ -56,6 +56,38 @@ export default function ProjectPrompt({ projectId, runId, agentAvailable=true, o
     return()=>{current=false;};
   },[projectId,runId]);
   const selectedProfile=profiles?.profiles.find(profile=>profile.id===profileId);
+  const formatProfileLabel = (profile: { provider: string; name: string }) => {
+    const providerLabel = profile.provider === "codex" ? "Codex" : "Claude Code";
+    const name = profile.name.trim();
+    if (!name || name.toLowerCase() === providerLabel.toLowerCase() || name.toLowerCase() === profile.provider.toLowerCase()) {
+      return providerLabel;
+    }
+    return `${providerLabel} · ${name}`;
+  };
+  const engineChoices = [
+    ...(profiles?.profiles.map(profile => ({
+      key: `profile:${profile.id}`,
+      label: formatProfileLabel(profile),
+      provider: (profile.provider === "codex" ? "codex" : "claude") as "claude" | "codex",
+    })) ?? []),
+    { key: "engine:claude", label: "Claude Code", provider: "claude" as const },
+    { key: "engine:codex", label: "Codex", provider: "codex" as const },
+  ];
+  function selectEngine(val: string) {
+    customized.current = true;
+    if (val.startsWith("profile:")) {
+      const profile = profiles?.profiles.find(item => item.id === val.slice(8));
+      if (profile) {
+        setProfileId(profile.id);
+        setProvider(profile.provider);
+        setOptions({ model: profile.model || undefined, mode: profile.mode || undefined });
+      }
+    } else {
+      setProfileId("");
+      setProvider(val.slice(7));
+      setOptions({});
+    }
+  }
   if (runId) return <Conversation id={runId} projectId={projectId} agentAvailable={agentAvailable} directory={directory} folders={folders} run={run} task={task} board={board} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onArchive={onArchive} onStopped={onStopped} onFoldersChanged={onFoldersChanged} onTitleChanged={onTitleChanged} />;
   return <section className="project-prompt prompt-start prompt-new">
     <div className="prompt-intro"><h2>Nouveau prompt</h2></div>
@@ -69,24 +101,33 @@ export default function ProjectPrompt({ projectId, runId, agentAvailable=true, o
       } catch (cause) { setError(String(cause)); }
       finally { setBusy(false); }
     }}>
-      <textarea autoFocus aria-label="Prompt libre" value={draft} disabled={busy} maxLength={32000} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} placeholder="Demandez quelque chose à propos de ce projet…" rows={4} />
-      <div className="composer-footer"><div className="composer-options">
-      <label className="provider-select"><span className="sr-only">Profil ou moteur</span><select aria-label="Profil ou moteur" title={selectedProfile?`${selectedProfile.provider==="codex"?"Codex":"Claude Code"} · ${selectedProfile.name}`:"Choisir un profil ou un moteur"} value={profileId?`profile:${profileId}`:`engine:${provider}`} disabled={busy} onChange={e => {
-        customized.current=true;
-        if(e.target.value.startsWith("profile:")) {
-          const profile=profiles?.profiles.find(item=>item.id===e.target.value.slice(8));
-          if(profile){setProfileId(profile.id);setProvider(profile.provider);setOptions({model:profile.model||undefined,mode:profile.mode||undefined});}
-        } else {
-          setProfileId("");setProvider(e.target.value.slice(7));setOptions({});
-        }
-      }}>
-        {profiles?.profiles.length?<optgroup label="Profils du projet">{profiles.profiles.map(profile=><option key={profile.id} value={`profile:${profile.id}`}>{profile.provider==="codex"?"Codex":"Claude Code"} · {profile.name}</option>)}</optgroup>:null}
-        <optgroup label="Sans profil"><option value="engine:claude">Claude Code</option><option value="engine:codex">Codex</option></optgroup>
-      </select></label>
-      <TurnSettings compact provider={provider} defaultModel={selectedProfile?.model} value={options} onChange={value=>{customized.current=true;setOptions(value);}} disabled={busy} />
-      <PromptFolders compact projectId={projectId} directory={directory} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
-      <button type="button" className="composer-action" disabled={!directory} title="Ouvrir le terminal dans le dossier de travail" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setError("Impossible d’ouvrir le terminal dans ce dossier."))}><Icon name="terminal"/>Terminal</button>
-      </div><button className="send-button" aria-label="Envoyer" title="Envoyer · Entrée" disabled={!agentAvailable || busy || attaching || !draft.trim()}><Icon name="send" /></button></div>
+      <div className="composer-nav-row">
+        <div className="composer-nav-actions">
+          <PromptFolders compact projectId={projectId} directory={directory} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
+          <button type="button" className="composer-nav-btn" aria-label="Terminal" disabled={!directory} title="Ouvrir le terminal dans le dossier de travail" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setError("Impossible d’ouvrir le terminal dans ce dossier."))}><Icon name="terminal"/><span className="sr-only">Terminal</span></button>
+        </div>
+      </div>
+      <div className="composer-box">
+        <textarea autoFocus aria-label="Prompt libre" value={draft} disabled={busy} maxLength={32000} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} placeholder="Demandez quelque chose à propos de ce projet…" rows={2} />
+        <div className="composer-footer"><div className="composer-options">
+          <label className="sr-only"><span className="sr-only">Profil ou moteur</span><select tabIndex={-1} aria-label="Profil ou moteur" title={selectedProfile?`${selectedProfile.provider==="codex"?"Codex":"Claude Code"} · ${selectedProfile.name}`:"Choisir un profil ou un moteur"} value={profileId?`profile:${profileId}`:`engine:${provider}`} disabled={busy} onChange={e => selectEngine(e.target.value)}>
+            {profiles?.profiles.length?<optgroup label="Profils du projet">{profiles.profiles.map(profile=><option key={profile.id} value={`profile:${profile.id}`}>{profile.provider==="codex"?"Codex":"Claude Code"} · {profile.name}</option>)}</optgroup>:null}
+            <optgroup label="Sans profil"><option value="engine:claude">Claude Code</option><option value="engine:codex">Codex</option></optgroup>
+          </select></label>
+          <TurnSettings
+            compact
+            showProviderMark
+            provider={provider}
+            defaultModel={selectedProfile?.model}
+            value={options}
+            onChange={value => { customized.current = true; setOptions(value); }}
+            disabled={busy}
+            engineChoices={engineChoices}
+            selectedEngineKey={profileId ? `profile:${profileId}` : `engine:${provider}`}
+            onSelectEngine={selectEngine}
+          />
+        </div><button className="send-button" aria-label="Envoyer" title="Envoyer · Entrée" disabled={!agentAvailable || busy || attaching || !draft.trim()}><Icon name="send" /></button></div>
+      </div>
     </form>
     {!agentAvailable&&<p role="status" className="composer-feedback">Agent indisponible. Le message pourra être envoyé après la reconnexion.</p>}
     <div className="prompt-suggestions" aria-label="Idées de prompts">{[
@@ -152,7 +193,6 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
       </div>
       <div className="toolbar-actions">
         {snapshot.canAdoptConnection && <button disabled={!agentAvailable || acting || !!error} title="Cet historique n’est pas encore lié à la connexion sélectionnée." onClick={() => void control({ action: "adoptConnection" }).catch(() => {})}>Associer à cette connexion</button>}
-        {busy && !snapshot.readOnly && <button disabled={!agentAvailable || acting} onClick={() => void control({ action: "interrupt" }).catch(() => {})}>Interrompre</button>}
         {snapshot.canRename && <button type="button" className="icon-button" aria-label="Renommer la conversation" title="Renommer la conversation" onClick={()=>{setTitle(snapshot.title||displayTitle||"");setRenaming(true);}}><Icon name="edit" /></button>}
         {run && isActive(run) ? (
           <button type="button" className="icon-button stop-button" aria-label="Arrêter la discussion" title={stopping ? "Arrêt en cours…" : "Arrêter la discussion"} disabled={!agentAvailable || stopping || !!run.cancelRequested} onClick={() => void stopConversation()}><Icon name="stop" /></button>
@@ -164,28 +204,111 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
     {renaming&&<form className="conversation-rename" onSubmit={async e=>{e.preventDefault();if(savingTitle||!title.trim())return;setSavingTitle(true);setActionError("");try{await renameConversation(id,title.trim());await controller.refresh();onTitleChanged?.();setRenaming(false);}catch(cause){setActionError(String(cause));}finally{setSavingTitle(false);}}}><label>Nom de la conversation<input autoFocus required maxLength={80} value={title} onChange={e=>setTitle(e.target.value)}/></label><button type="button" disabled={savingTitle} onClick={()=>setRenaming(false)}>Annuler</button><button disabled={savingTitle||!title.trim()}>Enregistrer le nom</button></form>}
     {snapshot.persistenceError && <p className="error" role="alert">{snapshot.persistenceError}</p>}
     {linkError&&<p role="alert" className="error">{linkError}</p>}
-    <ConversationTranscript snapshot={snapshot} followRequest={followRequest} />
+    <ConversationTranscript
+      snapshot={snapshot}
+      followRequest={followRequest}
+      onInterrupt={busy && !snapshot.readOnly && agentAvailable && !acting ? () => void control({ action: "interrupt" }).catch(() => {}) : undefined}
+    />
     <div className="conversation-controls">
     <div className="conversation-interactions">
-    {snapshot.approvals?.map(approval => approval.tool === "AskUserQuestion" ? <QuestionForm key={approval.id + JSON.stringify(approval.input)} approval={approval} disabled={!agentAvailable || acting || !!error || !!snapshot.readOnly} onAnswer={answers => control({ action: "answer", id: approval.id, answers })} onSkip={() => control({ action: "approval", id: approval.id, decision: "deny" })} /> : <section className="prompt-approval" key={approval.id}>
-      <strong>Autorisation requise · {approval.tool}</strong><p>{approval.description || approval.reason}</p>
-      <pre>{JSON.stringify(approval.input, null, 2)}</pre>
-      <button disabled={!agentAvailable || acting || !!error || !!snapshot.readOnly} onClick={() => void control({ action: "approval", id: approval.id, decision: "allow" }).catch(() => {})}>Autoriser une fois</button>
-      <button disabled={!agentAvailable || acting || !!error} onClick={() => void control({ action: "approval", id: approval.id, decision: "deny" }).catch(() => {})}>Refuser</button>
-    </section>)}
+    {snapshot.approvals?.map(approval => {
+      if (approval.tool === "AskUserQuestion") {
+        return <QuestionForm key={approval.id + JSON.stringify(approval.input)} approval={approval} disabled={!agentAvailable || acting || !!error || !!snapshot.readOnly} onAnswer={answers => control({ action: "answer", id: approval.id, answers })} onSkip={() => control({ action: "approval", id: approval.id, decision: "deny" })} />;
+      }
+      const hasSuggestions = Array.isArray(approval.suggestions) && approval.suggestions.length > 0;
+      const choices: { decision: "allow" | "always" | "deny"; label: string }[] = Array.isArray(approval.choices) && approval.choices.length > 0
+        ? approval.choices.map(choice => ({
+            decision: choice.decision,
+            label: choice.decision === "allow"
+              ? "Autoriser une fois"
+              : choice.decision === "always"
+              ? "Toujours autoriser"
+              : choice.decision === "deny"
+              ? "Refuser"
+              : choice.label,
+          }))
+        : [
+            { decision: "allow", label: "Autoriser une fois" },
+            ...(hasSuggestions ? [{ decision: "always" as const, label: "Toujours autoriser" }] : []),
+            { decision: "deny", label: "Refuser" },
+          ];
+      return <section className="prompt-approval" key={approval.id}>
+        <strong>Autorisation requise · {approval.tool}</strong><p>{approval.description || approval.reason}</p>
+        <pre>{JSON.stringify(approval.input, null, 2)}</pre>
+        {hasSuggestions && (
+          <details className="prompt-approval-suggestions">
+            <summary>Toujours autoriser : règle proposée pour ce projet</summary>
+            <pre>{JSON.stringify(approval.suggestions?.map(update => ({
+              ...update,
+              destination: (update?.type === "addRules" && update?.behavior === "allow") || update?.type === "addDirectories"
+                ? "project (this workstation)"
+                : "session",
+            })), null, 2)}</pre>
+          </details>
+        )}
+        <div className="prompt-approval-actions">
+          {choices.map(choice => (
+            <button
+              key={choice.decision}
+              disabled={!agentAvailable || acting || !!error || (choice.decision !== "deny" && !!snapshot.readOnly)}
+              onClick={() => void control({ action: "approval", id: approval.id, decision: choice.decision }).catch(() => {})}
+            >
+              {choice.label}
+            </button>
+          ))}
+        </div>
+      </section>;
+    })}
     {agentAvailable && (error || actionError) && <p role="alert" className="error">{error || actionError} Vérifiez le suivi avant de renvoyer un message. <button type="button" aria-label="Actualiser le suivi" onClick={() => void controller.refresh()}>Réessayer</button></p>}
     </div>
-    <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} agentAvailable={agentAvailable} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onOpenPr={url=>void openExternalLink(url).catch(()=>setLinkError("Impossible d’ouvrir la PR/MR."))}/>
-    {snapshot.readOnly ? <div className="conversation-readonly-footer" aria-label="Options de l’historique">
-      <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly onChanged={onFoldersChanged}/>
-      <button type="button" className="composer-action" disabled={!directory} title="Ouvrir le terminal dans le dossier de travail" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Impossible d’ouvrir le terminal dans ce dossier."))}><Icon name="terminal"/>Terminal</button>
-    </div> : <form className="composer" onSubmit={e => { e.preventDefault(); if (agentAvailable && loaded && !busy && !attaching && !snapshot.readOnly && !error && draft.trim()) { void controller.send(draft, false, options); setDraft(""); setFollowRequest(value => value + 1); } }}>
-      <textarea aria-label="Message suivant" rows={3} maxLength={32000} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} disabled={!!snapshot.readOnly} placeholder="Posez une question ou décrivez une modification…" />
-      <div className="composer-footer"><TurnSettings compact provider={snapshot.provider} snapshot={snapshot} value={options} onChange={setOptions} disabled={!loaded || busy || !!snapshot.readOnly || !!error || acting} />
-      <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly={!loaded||snapshot.readOnly} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
-      <button type="button" className="composer-action" disabled={!directory} title="Ouvrir le terminal dans le dossier de travail" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Impossible d’ouvrir le terminal dans ce dossier."))}><Icon name="terminal"/>Terminal</button>
-      <button type="button" className={`composer-action mcp-action mcp-${snapshot.sectileMcp?.status??"unknown"}`} disabled={!agentAvailable||!loaded||acting||snapshot.checkingMcp||snapshot.readOnly} aria-label="Vérifier le MCP de cette conversation" title={`${snapshot.sectileMcp?.source==="transport"?"Transport MCP du compagnon":"MCP du moteur"} · ${snapshot.checkingMcp?"Vérification en cours…":({connected:"Connecté",missing:"Non enregistré",failed:"Échec de connexion","needs-auth":"Connexion requise",pending:"Connexion en cours",unknown:"État non vérifié"} as Record<string,string>)[snapshot.sectileMcp?.status??"unknown"]||"État non vérifié"}`} onClick={()=>void control({action:"checkMcp"}).then(()=>{const current=controller.getSnapshot().snapshot;setMcpFeedback(current.provider==="codex"&&!current.checkingMcp&&current.sectileMcp?.status==="unknown"?"Codex vérifiera le MCP au prochain message, après la reconnexion de sa session.":"");}).catch(()=>{})}><span className="mcp-dot"/>MCP</button>
-      <button className="send-button" aria-label="Envoyer" title="Envoyer · Entrée" disabled={!agentAvailable || !loaded || busy || attaching || !!snapshot.readOnly || !!error || !draft.trim()}><Icon name="send" /></button></div>
+    {snapshot.readOnly ? <>
+      <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} agentAvailable={agentAvailable} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onOpenPr={url=>void openExternalLink(url).catch(()=>setLinkError("Impossible d’ouvrir la PR/MR."))}/>
+      <div className="conversation-readonly-footer" aria-label="Options de l’historique">
+        <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly onChanged={onFoldersChanged}/>
+        <button type="button" className="composer-action" disabled={!directory} title="Ouvrir le terminal dans le dossier de travail" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Impossible d’ouvrir le terminal dans ce dossier."))}><Icon name="terminal"/>Terminal</button>
+      </div>
+    </> : <form className="composer" onSubmit={e => { e.preventDefault(); if (agentAvailable && loaded && !busy && !attaching && !snapshot.readOnly && !error && draft.trim()) { void controller.send(draft, false, options); setDraft(""); setFollowRequest(value => value + 1); } }}>
+      <div className="composer-nav-row">
+        <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} agentAvailable={agentAvailable} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onOpenPr={url=>void openExternalLink(url).catch(()=>setLinkError("Impossible d’ouvrir la PR/MR."))}/>
+        <div className="composer-nav-actions">
+          <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly={!loaded||snapshot.readOnly} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
+          <button type="button" className="composer-nav-btn" aria-label="Terminal" disabled={!directory} title="Ouvrir le terminal dans le dossier de travail" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Impossible d’ouvrir le terminal dans ce dossier."))}><Icon name="terminal"/><span className="sr-only">Terminal</span></button>
+          <button type="button" className={`composer-nav-btn mcp-action mcp-${snapshot.sectileMcp?.status??"unknown"}`} disabled={!agentAvailable||!loaded||acting||snapshot.checkingMcp||snapshot.readOnly} aria-label="Vérifier le MCP de cette conversation" title={`${snapshot.sectileMcp?.source==="transport"?"Transport MCP du compagnon":"MCP du moteur"} · ${snapshot.checkingMcp?"Vérification en cours…":({connected:"Connecté",missing:"Non enregistré",failed:"Échec de connexion","needs-auth":"Connexion requise",pending:"Connexion en cours",unknown:"État non vérifié"} as Record<string,string>)[snapshot.sectileMcp?.status??"unknown"]||"État non vérifié"}`} onClick={()=>void control({action:"checkMcp"}).then(()=>{const current=controller.getSnapshot().snapshot;setMcpFeedback(current.provider==="codex"&&!current.checkingMcp&&current.sectileMcp?.status==="unknown"?"Codex vérifiera le MCP au prochain message, après la reconnexion de sa session.":"");}).catch(()=>{})}><span className="mcp-dot"/>MCP</button>
+        </div>
+      </div>
+      <div className="composer-box">
+        <textarea
+          aria-label="Message suivant"
+          rows={2}
+          maxLength={32000}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === "Escape" && busy && !snapshot.readOnly && agentAvailable && !acting) {
+              e.preventDefault();
+              void control({ action: "interrupt" }).catch(() => {});
+              return;
+            }
+            sendOnEnter(e);
+          }}
+          disabled={!!snapshot.readOnly}
+          placeholder="Posez une question ou décrivez une modification…"
+        />
+        <div className="composer-footer"><TurnSettings compact showProviderMark provider={snapshot.provider} snapshot={snapshot} value={options} onChange={setOptions} disabled={!loaded || busy || !!snapshot.readOnly || !!error || acting} />
+        {busy && !snapshot.readOnly && (
+          <button
+            type="button"
+            className="send-button interrupt-button"
+            aria-label="Interrompre"
+            title="Annuler l’exécution en cours · Échap"
+            disabled={!agentAvailable || acting}
+            onClick={() => void control({ action: "interrupt" }).catch(() => {})}
+          >
+            <Icon name="stopSquare" />
+          </button>
+        )}
+        <button className={`send-button ${busy && !snapshot.readOnly ? "sr-only" : ""}`} aria-label="Envoyer" title="Envoyer · Entrée" disabled={!agentAvailable || !loaded || busy || attaching || !!snapshot.readOnly || !!error || !draft.trim()}><Icon name="send" /></button></div>
+      </div>
       {mcpFeedback&&snapshot.sectileMcp?.status==="unknown"&&<p className="composer-feedback" role="status">{mcpFeedback}</p>}
     </form>}
     </div>

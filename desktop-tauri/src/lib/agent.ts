@@ -9,7 +9,8 @@ function requireDesktop() {
 }
 export async function listProjects(): Promise<Project[]> {
   requireDesktop();
-  return (await invoke<Project[] | null>("list_projects")) ?? [];
+  const items = (await invoke<Project[] | null>("list_projects")) ?? [];
+  return items.filter(project => !project.disconnected);
 }
 export async function listTasks(projectId: string): Promise<Task[]> {
   requireDesktop();
@@ -21,7 +22,7 @@ export async function getTask(projectId:string,taskId:string):Promise<Task> {
 }
 export interface TaskTracker {id:string;name?:string;provider:string;scope?:string}
 export interface TaskTrackers {defaultTrackerId?:string;trackers:TaskTracker[]}
-export interface TaskFields {title:string;description:string;priority:string;issueType:string}
+export interface TaskFields {title:string;description:string;priority:string;issueType:string;sprint?:string;assignee?:string}
 export type TaskUpdateFields = Partial<TaskFields> & {prLinks?: import("../domain/board").TaskPullRequest[]};
 export async function taskTrackers(projectId:string):Promise<TaskTrackers> {
   requireDesktop();
@@ -63,6 +64,12 @@ export async function launchTask(
 ): Promise<unknown> {
   requireDesktop();
   return invoke("launch_task", { projectId, input });
+}
+export async function detachRunTerminal(
+  runId: string,
+): Promise<{ success?: boolean; detached?: boolean; terminal?: string }> {
+  requireDesktop();
+  return invoke("detach_run_terminal", { runId });
 }
 export async function stopRun(runId: string): Promise<void> {
   requireDesktop();

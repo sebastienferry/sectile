@@ -24,36 +24,82 @@ const conversationQueueCapability = "conversation-queue"
 // older than this belongs to a launch the server refused or never sent.
 const conversationDiscussionTTL = 2 * time.Minute
 
+// taskLaunchPreference carries the per-launch view and engine options Desktop
+// selected when dispatching a task skill.
+type taskLaunchPreference struct {
+	at               time.Time
+	view             string
+	provider         string
+	engineID         string
+	model            string
+	conversationMode string
+}
+
 // pendingDiscussionViews remembers which task launches Desktop explicitly asked
-// to open in the conversation view. The request goes through the server, which
+// to open in the conversation or terminal view, along with any one-off engine
+// or permission mode overrides. The request goes through the server, which
 // knows nothing of the view, so the agent keeps the preference until the
 // dispatch of that task's launch arrives and consumes it. A mark wins; a
 // dispatch without one, such as a launch from the web app, follows the
 // workstation console view (#711).
 type pendingDiscussionViews struct {
-	mu sync.Mutex
-	at map[string]time.Time
+	mu       sync.Mutex
+	at       map[string]time.Time
+	launches map[string]taskLaunchPreference
 }
 
 func (p *pendingDiscussionViews) mark(taskID string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.at == nil {
-		p.at = map[string]time.Time{}
-	}
-	p.at[taskID] = time.Now()
+	p.markLaunch(taskID, taskLaunchPreference{view: agentconfig.ConsoleViewConversation})
 }
 
-// take consumes the preference recorded for any of ids, reporting whether a
-// fresh one was found. Expired entries are dropped on the way.
-func (p *pendingDiscussionViews) take(ids ...string) bool {
+func (p *pendingDiscussionViews) markLaunch(taskID string, pref taskLaunchPreference) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	now := time.Now()
+	pref.at = now
+	if p.launches == nil {
+		p.launches = map[string]taskLaunchPreference{}
+	}
+	p.launches[taskID] = pref
+	if pref.view == agentconfig.ConsoleViewConversation {
+		if p.at == nil {
+			p.at = map[string]time.Time{}
+		}
+		p.at[taskID] = now
+	} else if p.at != nil {
+		delete(p.at, taskID)
+	}
+}
+
+// takeLaunch consumes the launch preference recorded for any of ids, reporting
+// whether a fresh one was found. Expired entries are dropped on the way.
+func (p *pendingDiscussionViews) takeLaunch(ids ...string) (taskLaunchPreference, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var chosen taskLaunchPreference
 	found := false
 	for _, id := range ids {
-		if at, ok := p.at[id]; ok && id != "" {
+		if id == "" {
+			continue
+		}
+		if pref, ok := p.launches[id]; ok {
+			delete(p.launches, id)
 			delete(p.at, id)
-			found = found || time.Since(at) < conversationDiscussionTTL
+			if time.Since(pref.at) < conversationDiscussionTTL && !found {
+				chosen = pref
+				found = true
+			}
+		} else if at, ok := p.at[id]; ok {
+			delete(p.at, id)
+			if time.Since(at) < conversationDiscussionTTL && !found {
+				chosen = taskLaunchPreference{at: at, view: agentconfig.ConsoleViewConversation}
+				found = true
+			}
+		}
+	}
+	for id, pref := range p.launches {
+		if time.Since(pref.at) >= conversationDiscussionTTL {
+			delete(p.launches, id)
 		}
 	}
 	for id, at := range p.at {
@@ -61,7 +107,14 @@ func (p *pendingDiscussionViews) take(ids ...string) bool {
 			delete(p.at, id)
 		}
 	}
-	return found
+	return chosen, found
+}
+
+// take consumes the preference recorded for any of ids, reporting whether a
+// fresh conversation view preference was found. Expired entries are dropped on the way.
+func (p *pendingDiscussionViews) take(ids ...string) bool {
+	pref, ok := p.takeLaunch(ids...)
+	return ok && pref.view == agentconfig.ConsoleViewConversation
 }
 
 // conversationDiscussionEngine reports whether a project's discussion can run

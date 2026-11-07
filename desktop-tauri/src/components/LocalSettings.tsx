@@ -5,17 +5,21 @@ import { Icon } from "./Icon";
 import { ProjectTrackerSetup } from "./ProjectTrackerSetup";
 import * as api from "../lib/local";
 import { trackerApiSite } from "../tracker-site";
+import { useAppearance, useFontSize, type Appearance, type FontSize } from "../lib/appearance";
 
-type SettingsSection = "engines" | "profile" | "connections" | "projects" | "services";
+type SettingsSection = "engines" | "profile" | "connections" | "projects" | "services" | "appearance";
 const sections = [
  {id:"engines", label:"Moteurs IA", icon:"agent", description:"Connectez Claude Code ou Codex pour travailler dans vos projets."},
  {id:"profile", label:"Profil", icon:"user", description:"Votre identité pour les actions effectuées depuis ce poste."},
  {id:"connections", label:"Comptes et trackers", icon:"link", description:"Connectez vos comptes et choisissez les sources de vos tickets."},
  {id:"projects", label:"Projets", icon:"folder", description:"Partez d’un dossier local ou associez un projet à un tracker."},
+ {id:"appearance", label:"Apparence", icon:"sun", description:"Thème de couleurs et taille de police de l’application."},
  {id:"services", label:"Services locaux", icon:"monitor", description:"État de votre installation et outils de diagnostic."},
 ] as const;
 export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, initialSection, hasActiveExecutions }: { onChanged: () => void; onOpenFolder?: () => void; onConfigureProject?: (id:string) => void; initialSection?: SettingsSection; hasActiveExecutions?: boolean }) {
  const [section, setSection] = useState<SettingsSection>(initialSection??"engines");
+ const [appearance, setAppearance] = useAppearance();
+ const [fontSize, setFontSize] = useFontSize();
  const navigated = useRef(!!initialSection);
  const trackerManagement = useRef<HTMLElement>(null);
  const trackerList = useRef<HTMLUListElement>(null);
@@ -38,6 +42,9 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
   const [trackerName, setTrackerName] = useState("");
   const [scope, setScope] = useState("");
   const [editingTracker, setEditingTracker] = useState<{ id: string; name: string; provider: string; site: string; scope: string } | null>(null);
+  const [editingIssueTypes, setEditingIssueTypes] = useState<string[]>([]);
+  const [availableIssueTypes, setAvailableIssueTypes] = useState<string[]>([]);
+  const [loadingIssueTypes, setLoadingIssueTypes] = useState(false);
   const [deletingTrackerId, setDeletingTrackerId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState("");
   const [trackerId, setTrackerId] = useState("");
@@ -65,6 +72,31 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
       (setup.trackers?.length ? trackerList.current : trackerManagement.current)?.scrollIntoView?.({block:"start"});
     }
   }, [initialSection, section, setup?.ready, setup?.trackers?.length]);
+  useEffect(() => {
+    if (!editingTracker || editingTracker.provider !== "jira" || typeof api.trackerIssueTypes !== "function") {
+      setEditingIssueTypes([]);
+      setAvailableIssueTypes([]);
+      setLoadingIssueTypes(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingIssueTypes(true);
+    api.trackerIssueTypes(editingTracker.id)
+      .then(result => {
+        if (cancelled) return;
+        setEditingIssueTypes(Array.isArray(result?.selected) ? result.selected : []);
+        setAvailableIssueTypes(Array.isArray(result?.available) ? result.available : []);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setEditingIssueTypes([]);
+        setAvailableIssueTypes([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingIssueTypes(false);
+      });
+    return () => { cancelled = true; };
+  }, [editingTracker?.id, editingTracker?.provider]);
   async function perform(
     action: () => Promise<unknown>,
     message: string,
@@ -184,6 +216,29 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
     <div className="settings-content">
     {section !== "engines" && <header className="settings-section-heading"><h2>{activeSection ? sectionLabel(activeSection) : ""}</h2><p>{section === "services" && fleetMode ? "État de la connexion et de l’agent Fleet associé à ce poste." : activeSection?.description}</p></header>}
     <div hidden={section !== "engines"}>{setup?.agentReady ? <ProviderSettings key={`${setup.mode}:${setup.fleetServer??""}`} projects={setup.projects??[]} /> : <article><p>Connectez un agent Local ou Fleet pour vérifier vos moteurs IA.</p><button onClick={()=>setSection("services")}>Configurer la connexion</button></article>}</div>
+    <div hidden={section !== "appearance"}>
+      <article>
+        <h2>Thème et typographie</h2>
+        <fieldset>
+          <label>Thème de couleurs
+            <select aria-label="Thème de couleurs" value={appearance} onChange={e => setAppearance(e.target.value as Appearance)}>
+              <option value="system">Automatique (Système)</option>
+              <option value="dark">Sombre</option>
+              <option value="light">Clair</option>
+            </select>
+          </label>
+          <label>Taille de police
+            <select aria-label="Taille de police" value={fontSize} onChange={e => setFontSize(e.target.value as FontSize)}>
+              <option value="compact">Compacte (13 px)</option>
+              <option value="default">Normale (14 px)</option>
+              <option value="large">Grande (15 px)</option>
+              <option value="xlarge">Très grande (16 px)</option>
+            </select>
+          </label>
+          <p className="muted">L’interface utilise une échelle unifiée à trois niveaux (secondaire, courant et titre) qui s’adapte immédiatement à votre réglage.</p>
+        </fieldset>
+      </article>
+    </div>
     <div hidden={section !== "services"}><article>
       <h2>{fleetMode ? "Agent Fleet" : "Services locaux"}</h2>
       <div className="mode-badge">
@@ -295,12 +350,50 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
                   <div className="tracker-list-actions"><button disabled={pending||trackerSyncs[t.id]?.active} onClick={() => void perform(async()=>{const active=await api.activeTrackerSyncs().catch(()=>[]);const existing=active.find(activity=>activity.trackerId===t.id);const result=existing?{activity:existing}:await api.syncLocalTracker(t.id);if(!result.activity?.id)throw new Error("Le backend n’a pas fourni de suivi pour cette synchronisation.");setTrackerSyncs(previous=>({...previous,[t.id]:{id:result.activity.id,active:true}}));}, "Synchronisation suivie. Son résultat apparaîtra sous le tracker.")}>Synchroniser</button>
                     {(setup.mode !== "fleet" || setup.profile?.role === "admin") && <><button type="button" disabled={pending} onClick={() => {setDeletingTrackerId(null);setEditingTracker(editingTracker?.id === t.id ? null : {...t,site:t.site??""});}}>Modifier</button><button type="button" disabled={pending} onClick={() => {setEditingTracker(null);setDeletingTrackerId(deletingTrackerId === t.id ? null : t.id);}}>Supprimer</button></>}
                   </div></div>
-                {editingTracker?.id === t.id && <form className="tracker-editor" onSubmit={e => submit(e, async () => {await api.updateLocalTracker(t.id,{name:editingTracker.name,provider:editingTracker.provider,site:trackerApiSite(editingTracker.provider,editingTracker.site),scope:editingTracker.scope});setEditingTracker(null);}, "Tracker modifié.")}>
+                {editingTracker?.id === t.id && <form className="tracker-editor" onSubmit={e => submit(e, async () => {const payload = editingTracker.provider === "jira" && availableIssueTypes.length > 0 ? {name:editingTracker.name,provider:editingTracker.provider,site:trackerApiSite(editingTracker.provider,editingTracker.site),scope:editingTracker.scope,issueTypes:editingIssueTypes} : {name:editingTracker.name,provider:editingTracker.provider,site:trackerApiSite(editingTracker.provider,editingTracker.site),scope:editingTracker.scope};await api.updateLocalTracker(t.id,payload);setEditingTracker(null);}, "Tracker modifié.")}>
                   <fieldset disabled={pending}><label>Nom du tracker à modifier<input required value={editingTracker.name} onChange={e=>setEditingTracker({...editingTracker,name:e.target.value})}/></label>
                     <label>Fournisseur du tracker à modifier<select value={editingTracker.provider} onChange={e=>setEditingTracker({...editingTracker,provider:e.target.value,site:e.target.value==="github"?"https://api.github.com":""})}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
                     <label>Adresse du tracker à modifier<input type="url" required={editingTracker.provider==="jira"} value={editingTracker.site} onChange={e=>setEditingTracker({...editingTracker,site:e.target.value})}/></label>
                     <label>Dépôt ou clé à modifier<input required value={editingTracker.scope} onChange={e=>setEditingTracker({...editingTracker,scope:e.target.value})}/></label>
-                    <p className="muted">Si le tracker contient déjà des tickets, seul son nom peut changer.</p>
+                    {editingTracker.provider === "jira" && (
+                      <div className="tracker-issue-types-field">
+                        <span>Types de tickets importés</span>
+                        {loadingIssueTypes ? (
+                          <p className="muted">Lecture des types du projet…</p>
+                        ) : availableIssueTypes.length === 0 ? (
+                          <p className="muted">Types indisponibles : le tracker n’a pas répondu.</p>
+                        ) : (
+                          <div className="issue-type-pills" role="group" aria-label="Types de tickets importés">
+                            {availableIssueTypes.map(type => {
+                              const isDefault = type === "Task" || type === "Story";
+                              const isActive = editingIssueTypes.length === 0 ? isDefault : editingIssueTypes.includes(type);
+                              return (
+                                <button
+                                  key={type}
+                                  type="button"
+                                  aria-pressed={isActive}
+                                  className={`issue-type-pill ${isActive ? "active" : ""}`}
+                                  onClick={() => {
+                                    const selected = editingIssueTypes.length === 0
+                                      ? availableIssueTypes.filter(item => item === "Task" || item === "Story")
+                                      : editingIssueTypes;
+                                    setEditingIssueTypes(
+                                      selected.includes(type)
+                                        ? selected.filter(item => item !== type)
+                                        : [...selected, type],
+                                    );
+                                  }}
+                                >
+                                  {type}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <small className="muted">Rien de sélectionné vaut Task et Story. Cochez Bug (ou vos types personnalisés) puis lancez une synchronisation pour les importer.</small>
+                      </div>
+                    )}
+                    <p className="muted">Si le tracker contient déjà des tickets, seul son nom (et ses types importés) peut changer.</p>
                     <div className="tracker-list-actions"><button className="primary" type="submit">Enregistrer les modifications</button><button type="button" onClick={()=>setEditingTracker(null)}>Annuler</button></div>
                   </fieldset>
                 </form>}

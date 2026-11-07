@@ -478,6 +478,15 @@ fn binary(app: &tauri::AppHandle, service: &str) -> Result<PathBuf, String> {
         "sectile-{service}{}",
         if cfg!(windows) { ".exe" } else { "" }
     );
+    #[cfg(debug_assertions)]
+    {
+        let development = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("binaries")
+            .join(&name);
+        if development.is_file() {
+            return Ok(development);
+        }
+    }
     let packaged = app
         .path()
         .resource_dir()
@@ -486,15 +495,6 @@ fn binary(app: &tauri::AppHandle, service: &str) -> Result<PathBuf, String> {
         .join(&name);
     if packaged.is_file() {
         return Ok(packaged);
-    }
-    #[cfg(debug_assertions)]
-    {
-        let development = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("binaries")
-            .join(name);
-        if development.is_file() {
-            return Ok(development);
-        }
     }
     if cfg!(debug_assertions) {
         Err(format!(
@@ -1479,12 +1479,14 @@ pub async fn save_local_credential(
     Ok(())
 }
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TrackerInput {
     name: String,
     provider: String,
     site: String,
     scope: String,
+    #[serde(default)]
+    issue_types: Option<Vec<String>>,
 }
 fn edited_tracker(mut current: Value, input: TrackerInput) -> Result<Value, String> {
     let fields = current
@@ -1494,7 +1496,31 @@ fn edited_tracker(mut current: Value, input: TrackerInput) -> Result<Value, Stri
     fields.insert("provider".into(), json!(input.provider));
     fields.insert("site".into(), json!(input.site));
     fields.insert("scope".into(), json!(input.scope));
+    if let Some(issue_types) = input.issue_types {
+        fields.insert("issueTypes".into(), json!(issue_types));
+    }
     Ok(current)
+}
+#[tauri::command]
+pub async fn tracker_issue_types(
+    app: tauri::AppHandle,
+    tracker_id: String,
+) -> Result<Value, String> {
+    if uuid::Uuid::parse_str(&tracker_id).is_err() {
+        return Err("Identifiant de tracker invalide".into());
+    }
+    let state = app.state::<LocalRuntime>();
+    let _lock = state.0.lock().await;
+    let root = root(&app)?;
+    let route = format!("/api/admin/trackers/{tracker_id}");
+    let tracker = selected_request(&root, Method::GET, &route, None).await?;
+    let available = selected_request(&root, Method::GET, &format!("{route}/issue-types"), None)
+        .await
+        .unwrap_or_else(|_| json!([]));
+    Ok(json!({
+        "selected": tracker.get("issueTypes").cloned().unwrap_or_else(|| json!([])),
+        "available": available,
+    }))
 }
 #[tauri::command]
 pub async fn create_local_tracker(
@@ -1571,6 +1597,78 @@ pub async fn create_local_project(
     let _lock = state.0.lock().await;
     let root = root(&app)?;
     selected_request(&root,Method::POST,"/api/projects",Some(json!({"name":name,"trackers":[{"trackerId":tracker_id}],"defaultTrackerId":tracker_id}))).await
+}
+
+#[tauri::command]
+pub async fn delete_local_project(
+    app: tauri::AppHandle,
+    project_id: String,
+) -> Result<Value, String> {
+    if project_id.trim().is_empty() || project_id.len() > 1024 {
+        return Err("Identifiant de projet invalide".into());
+    }
+    let runs = crate::agent::request_agent(
+        app.clone(),
+        Method::GET,
+        "/desktop/runs",
+        &[],
+        None,
+    )
+    .await
+    .unwrap_or_else(|_| json!([]));
+    if let Some(items) = runs.as_array() {
+        let mut conversations_to_stop = Vec::new();
+        for run in items {
+            if run["projectId"].as_str() != Some(project_id.as_str()) {
+                continue;
+            }
+            let active = matches!(
+                run["status"].as_str(),
+                Some("running" | "queued" | "preparing")
+            );
+            if !active {
+                continue;
+            }
+            if run["conversation"].as_bool() == Some(true) {
+                if let Some(id) = run["id"].as_str() {
+                    conversations_to_stop.push(id.to_owned());
+                }
+            } else {
+                return Err(
+                    "Arrêtez les exécutions en cours dans ce projet avant de le supprimer.".into(),
+                );
+            }
+        }
+        for run_id in conversations_to_stop {
+            let _ = crate::agent::request_agent(
+                app.clone(),
+                Method::POST,
+                "/desktop/runs/stop",
+                &[],
+                Some(json!({"id": run_id})),
+            )
+            .await;
+        }
+    }
+    crate::agent::request_agent(
+        app.clone(),
+        Method::DELETE,
+        "/desktop/projects",
+        &[("id", &project_id)],
+        None,
+    )
+    .await?;
+    let state = app.state::<LocalRuntime>();
+    let _lock = state.0.lock().await;
+    if let Ok(root) = root(&app) {
+        let route = format!("/api/projects/{project_id}");
+        if let Err(error) = selected_request(&root, Method::DELETE, &route, None).await {
+            if !error.contains("projet par défaut") && !error.contains("non trouvé") {
+                // Keep the local agent disconnection even if Fleet/default project deletion is skipped.
+            }
+        }
+    }
+    Ok(json!({"status": "deleted", "id": project_id}))
 }
 
 fn project_tracker_attachment(project: &Value, tracker_id: &str) -> Result<Option<Value>, String> {
@@ -2549,6 +2647,7 @@ mod tracker_edit_tests {
         let updated = edited_tracker(previous, TrackerInput {
             name: "New".into(), provider: "gitlab".into(),
             site: "https://gitlab.com/api/v4".into(), scope: "team/old".into(),
+            issue_types: None,
         }).unwrap();
         assert_eq!(updated["name"], "New");
         assert_eq!(updated["boardId"], "board-9");

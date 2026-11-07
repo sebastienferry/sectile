@@ -3,7 +3,7 @@ import {getOrchestration} from "../lib/agent";
 import {saveOrchestration,type OrchestrationSettings as Settings} from "../lib/workspace";
 import type {Orchestration} from "../domain/execution";
 
-export function OrchestrationSettings({projectId,onSupervise}:{projectId:string;onSupervise:()=>void}){
+export function OrchestrationSettings({projectId,onSupervise,onChanged}:{projectId:string;onSupervise:()=>void;onChanged?:()=>void}){
  const [view,setView]=useState<Orchestration>();const [draft,setDraft]=useState<Settings>();
  const [dirty,setDirty]=useState(false),[pending,setPending]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const mounted=useRef(false),acting=useRef(false);
@@ -14,7 +14,7 @@ export function OrchestrationSettings({projectId,onSupervise}:{projectId:string;
  const valid=!!draft&&draft.orchestratorMaxConcurrent>=1&&draft.orchestratorMaxConcurrent<=10&&(!draft.orchestratorEnabled||draft.agents.length>0)&&draft.agents.every(a=>!!a.name.trim()&&!!a.file.trim())&&new Set(names).size===names.length;
  return <details className="orchestrator-settings"><summary>Agents d’orchestration<small>Agents Markdown, activation et capacité partagée</small></summary><p>Des agents nommés évaluent le backlog à la demande, à partir de fichiers Markdown locaux. Ils partagent la capacité du projet.</p>
  {error&&<p className="error" role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
- {draft&&<form onSubmit={async e=>{e.preventDefault();if(acting.current||!valid||!dirty)return;acting.current=true;setPending(true);setError("");try{await saveOrchestration(projectId,{...draft,agents:draft.agents.map(a=>({...a,name:a.name.trim(),file:a.file.trim()}))});await refresh();if(mounted.current)setNotice("Configuration enregistrée. Aucun agent n’a été lancé.");}catch{if(mounted.current)setError("Enregistrement non confirmé. Vérifiez les fichiers Markdown et les services, puis rechargez avant de réessayer.");}finally{acting.current=false;if(mounted.current)setPending(false);}}}>
+ {draft&&<form onSubmit={async e=>{e.preventDefault();if(acting.current||!valid||!dirty)return;acting.current=true;setPending(true);setError("");try{await saveOrchestration(projectId,{...draft,agents:draft.agents.map(a=>({...a,name:a.name.trim(),file:a.file.trim()}))});await refresh();onChanged?.();if(mounted.current)setNotice("Configuration enregistrée. Aucun agent n’a été lancé.");}catch{if(mounted.current)setError("Enregistrement non confirmé. Vérifiez les fichiers Markdown et les services, puis rechargez avant de réessayer.");}finally{acting.current=false;if(mounted.current)setPending(false);}}}>
  <label className="profile-checkbox"><input type="checkbox" checked={draft.orchestratorEnabled} disabled={pending} onChange={e=>update({orchestratorEnabled:e.target.checked})}/> Autoriser les lancements d’orchestration</label>
  <label>Exécutions simultanées<input type="number" min={1} max={10} required value={draft.orchestratorMaxConcurrent} disabled={pending} onChange={e=>update({orchestratorMaxConcurrent:Number(e.target.value)})}/></label>
  <p className="muted">Désactiver empêche les prochains lancements ; cela n’arrête pas les tâches déjà en cours.</p>

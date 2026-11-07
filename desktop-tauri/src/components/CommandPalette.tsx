@@ -3,7 +3,7 @@ import type { Project } from "../domain/board";
 import { statusLabel, type Run } from "../domain/execution";
 import { Icon } from "./Icon";
 
-type PaletteView = "prompt" | "board" | "executions" | "orchestration" | "project-settings";
+type PaletteView = "prompt" | "board" | "executions" | "orchestration" | "project-settings" | "ticket-editor" | "launch";
 type Entry = {
   group: "action" | "project" | "execution";
   label: string;
@@ -63,18 +63,29 @@ export function CommandPalette({
 
   const entries = useMemo<Entry[]>(() => {
     const selected = projects.find(project => project.id === selectedProjectId);
-    const result: Entry[] = [
+    const targetProject = selected ?? projects[0];
+    const result: Entry[] = [];
+    if (targetProject) {
+      result.push(
+        { group: "action", label: "Nouveau ticket", detail: `Créer un ticket (+ lancement) · ${targetProject.name}`, run: () => onNavigate(targetProject, "ticket-editor") },
+        { group: "action", label: "Lancer une tâche", detail: `Démarrer une skill sur un ticket · ${targetProject.name}`, run: () => onNavigate(targetProject, "launch") },
+        { group: "action", label: "Nouveau prompt", detail: `${shortcutModifier}N · ${targetProject.name}`, run: () => onNavigate(targetProject, "prompt") },
+        { group: "action", label: "Tableau du projet", detail: `Voir les tickets par étape · ${targetProject.name}`, run: () => onNavigate(targetProject, "board") },
+        { group: "action", label: "File des exécutions", detail: `Toutes les exécutions · ${targetProject.name}`, run: () => onNavigate(targetProject, "executions") },
+      );
+      if (targetProject.orchestratorEnabled) {
+        result.push({ group: "action", label: "Ouvrir l’orchestration", detail: targetProject.name, run: () => onNavigate(targetProject, "orchestration") });
+      }
+    }
+    result.push(
       { group: "action", label: "Ouvrir un dossier", detail: "Créer ou retrouver un projet local", run: onOpenFolder },
       { group: "action", label: "Paramètres", detail: `${shortcutModifier}, · Configuration du poste`, run: onOpenSettings },
-    ];
+    );
     if (sidebarActionLabel) result.push({ group: "action", label: sidebarActionLabel, detail: `${shortcutModifier}B`, run: onToggleSidebar });
-    if (selected) {
-      result.push({ group: "action", label: "Nouveau prompt", detail: `${shortcutModifier}N · ${selected.name}`, run: () => onNavigate(selected, "prompt") });
-      result.push({ group: "action", label: "Ouvrir l’orchestration", detail: selected.name, run: () => onNavigate(selected, "orchestration") });
-    }
     for (const project of projects) {
       result.push({ group: "project", label: project.name, detail: "Ouvrir le tableau", run: () => onNavigate(project, "board") });
-      if (project.id !== selectedProjectId) {
+      if (project.id !== targetProject?.id) {
+        result.push({ group: "project", label: `${project.name} · Nouveau ticket`, detail: "Créer un ticket dans ce projet", run: () => onNavigate(project, "ticket-editor") });
         result.push({ group: "project", label: `${project.name} · Nouveau prompt`, detail: "Démarrer une conversation", run: () => onNavigate(project, "prompt") });
       }
     }

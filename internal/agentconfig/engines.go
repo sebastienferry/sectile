@@ -194,6 +194,15 @@ func (s *Settings) pruneEngines() {
 	}
 }
 
+// ValidConversationMode reports whether mode is an allowed profile conversation mode.
+func ValidConversationMode(mode string) bool {
+	switch mode {
+	case "", "plan", "execute", "default", "acceptEdits", "auto", "read-only", "workspace-write":
+		return true
+	default:
+		return false
+	}
+}
 // ValidateEngines checks a catalogue before it is written. Every message names
 // the engine it is about.
 func ValidateEngines(e Engines) error {
@@ -225,7 +234,7 @@ func ValidateEngines(e Engines) error {
 		if strings.TrimSpace(engine.Provider) == "" {
 			return fmt.Errorf("%s: a provider is required", label)
 		}
-		if engine.ConversationMode != "" && engine.ConversationMode != "plan" && engine.ConversationMode != "execute" {
+		if !ValidConversationMode(engine.ConversationMode) {
 			return fmt.Errorf("%s: unknown conversation mode", label)
 		}
 		if err := ValidateExecution(engine.execution()); err != nil {

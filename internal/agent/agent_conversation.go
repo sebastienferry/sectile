@@ -467,7 +467,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	if run.desktop.Provider == "codex" || run.desktop.Provider == "agy" {
 		run.conversation.effort = input.Effort
 	}
-	if run.desktop.Title == "" {
+	if run.desktop.Title == "" && run.desktop.TaskID == "" {
 		run.desktop.Title = automaticConversationTitle(input.Message)
 	}
 	d.updateConversationJournalLocked(run)

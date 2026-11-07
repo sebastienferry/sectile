@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { watchRun } from "../lib/agent";
+import { detachRunTerminal, watchRun } from "../lib/agent";
 import "@xterm/xterm/css/xterm.css";
 
-export function RunConsole({ runId }: { runId: string }) {
+export function RunConsole({ runId, sessionId }: { runId: string; sessionId?: string }) {
   const root = useRef<HTMLDivElement>(null);
   const [retry, setRetry] = useState(0);
   const [status, setStatus] = useState("");
+  const [detaching, setDetaching] = useState(false);
   useEffect(() => {
     let disposed = false;
     let stop: (() => Promise<void>) | undefined;
@@ -17,7 +18,7 @@ export function RunConsole({ runId }: { runId: string }) {
     const terminal = new Terminal({
       disableStdin: true,
       scrollback: 2000,
-      fontSize: 12,
+      fontSize: 13,
       theme: theme(),
     });
     const appearance = new MutationObserver(() => {
@@ -61,9 +62,25 @@ export function RunConsole({ runId }: { runId: string }) {
     <section className="console-panel">
       <div className="console-toolbar">
         <span role="status">{status}</span>
-        <button onClick={() => setRetry((v) => v + 1)}>
-          Reconnecter le flux
-        </button>
+        <div className="toolbar-actions">
+          {sessionId && (
+            <button
+              type="button"
+              disabled={detaching}
+              onClick={() => {
+                setDetaching(true);
+                void detachRunTerminal(runId)
+                  .catch(() => setStatus("Impossible d’ouvrir le terminal externe."))
+                  .finally(() => setDetaching(false));
+              }}
+            >
+              Ouvrir dans le terminal
+            </button>
+          )}
+          <button onClick={() => setRetry((v) => v + 1)}>
+            Reconnecter le flux
+          </button>
+        </div>
       </div>
       <div className="terminal" ref={root} />
       <p className="muted">

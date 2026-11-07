@@ -34,8 +34,10 @@ test("editing a ticket reloads server state and sends only changed fields", asyn
   await screen.findByDisplayValue("Original");
   expect((screen.getByRole("button",{name:"Enregistrer"}) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.change(screen.getByLabelText("Titre"),{target:{value:"Changed"}});
+  fireEvent.change(screen.getByLabelText("Sprint"),{target:{value:"Sprint 42"}});
+  fireEvent.change(screen.getByLabelText("Assigné"),{target:{value:"Alice"}});
   fireEvent.click(screen.getByRole("button",{name:"Enregistrer"}));
-  await waitFor(()=>expect(api.updateTask).toHaveBeenCalledExactlyOnceWith("p","t",{title:"Changed"}));
+  await waitFor(()=>expect(api.updateTask).toHaveBeenCalledExactlyOnceWith("p","t",{title:"Changed",sprint:"Sprint 42",assignee:"Alice"}));
   await waitFor(()=>expect(api.getTask).toHaveBeenCalledTimes(2));
   expect(saved).toHaveBeenCalledWith(expect.objectContaining({id:"t"}));
 });

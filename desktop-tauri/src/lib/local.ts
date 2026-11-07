@@ -25,9 +25,11 @@ export const pairFleetAgent = (serverUrl: string, pairingCode: string) => invoke
 export const saveLocalProfile = (email: string, displayName: string) => invoke<void>("save_local_profile", { email, displayName });
 export const saveLocalCredential = (input: { tracker: string; siteUrl: string; email: string; token: string }) => invoke<void>("save_local_credential", { input });
 export const createLocalTracker = (input: { name: string; provider: string; site: string; scope: string }) => invoke("create_local_tracker", { input });
-export const updateLocalTracker = (trackerId: string, input: { name: string; provider: string; site: string; scope: string }) => invoke("update_local_tracker", { trackerId, input });
+export const updateLocalTracker = (trackerId: string, input: { name: string; provider: string; site: string; scope: string; issueTypes?: string[] }) => invoke("update_local_tracker", { trackerId, input });
+export const trackerIssueTypes = (trackerId: string) => invoke<{ selected: string[]; available: string[] }>("tracker_issue_types", { trackerId });
 export const deleteLocalTracker = (trackerId: string) => invoke("delete_local_tracker", { trackerId });
 export const createLocalProject = (name: string, trackerId: string) => invoke("create_local_project", { name, trackerId });
+export const deleteLocalProject = (projectId: string) => invoke("delete_local_project", { projectId });
 export const attachProjectTracker = (projectId: string, trackerId: string) => invoke("attach_project_tracker", { projectId, trackerId });
 export const chooseProjectFolder = (projectId: string) => invoke<string | null>("choose_project_folder", { projectId });
 export interface TrackerSyncActivity { id: string; trackerId?: string; status: string; summary?: string; error?: string }

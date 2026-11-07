@@ -33,8 +33,18 @@ fn project_view(source: &Value) -> Value {
             result[field] = value.clone();
         }
     }
+    if result["aiProvider"]
+        .as_str()
+        .is_some_and(|provider| !["claude", "codex"].contains(&provider))
+    {
+        result["aiProvider"] = json!("claude");
+        result["aiModel"] = json!("");
+    }
     if let Some(value) = source.pointer("/server/issueTracker") {
         result["issueTracker"] = value.clone();
+    }
+    if let Some(value) = source.pointer("/server/orchestratorEnabled") {
+        result["orchestratorEnabled"] = value.clone();
     }
     result["skills"] = Value::Array(
         source["skills"]
@@ -311,6 +321,36 @@ pub async fn save_workflow_policy(
     .map(|_| ())
 }
 
+fn project_rename_body(project_id: &str, name: &str) -> Result<Value, String> {
+    let trimmed_id = project_id.trim();
+    let trimmed_name = name.trim();
+    if trimmed_id.is_empty() || trimmed_id.len() > 1024 {
+        return Err("Identifiant de projet invalide".into());
+    }
+    if trimmed_name.is_empty() || trimmed_name.chars().count() > 80 {
+        return Err("Nom du projet invalide".into());
+    }
+    Ok(json!({"name": trimmed_name}))
+}
+
+#[tauri::command]
+pub async fn rename_project(
+    app: tauri::AppHandle,
+    project_id: String,
+    name: String,
+) -> Result<(), String> {
+    let body = project_rename_body(&project_id, &name)?;
+    request_agent(
+        app,
+        Method::PUT,
+        "/desktop/project",
+        &[("id", project_id.trim())],
+        Some(body),
+    )
+    .await
+    .map(|_| ())
+}
+
 #[tauri::command]
 pub async fn run_diff(
     app: tauri::AppHandle,
@@ -529,5 +569,16 @@ mod permission_tests {
         let (route, body) = permission_request(valid);
         assert_eq!(route, "/desktop/conversation-mode");
         assert_eq!(body, json!({"mode":"acceptEdits"}));
+    }
+
+    #[test]
+    fn project_rename_validates_and_trims_display_name() {
+        assert!(project_rename_body("", "Mon projet").is_err());
+        assert!(project_rename_body("proj-1", "   ").is_err());
+        assert!(project_rename_body("proj-1", &"a".repeat(81)).is_err());
+        assert_eq!(
+            project_rename_body("proj-1", "  Sectile Desktop  ").unwrap(),
+            json!({"name": "Sectile Desktop"})
+        );
     }
 }

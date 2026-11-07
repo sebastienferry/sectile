@@ -2,6 +2,8 @@ export interface Project {
   id: string;
   name: string;
   path?: string;
+  disconnected?: boolean;
+  orchestratorEnabled?: boolean;
 }
 export interface TaskPullRequest {
   url: string;
@@ -21,6 +23,7 @@ export interface Task {
   priority?: string;
   parentKey?: string;
   parentTitle?: string;
+  sprint?: string;
   labels?: string[];
   prUrl?: string;
   prLinks?: TaskPullRequest[];

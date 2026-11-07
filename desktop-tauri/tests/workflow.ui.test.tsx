@@ -146,3 +146,26 @@ test("a transport failure remains visible when workflow metadata refreshes",{tim
  expect(screen.getByRole("alert").textContent).toContain("Lancement non confirmé");
  expect(next.hasAttribute("disabled")).toBe(true);expect(api.launchTask).toHaveBeenCalledTimes(1);
 });
+
+test("workflow launch allows choosing terminal or conversation view and propagates turn settings",async()=>{
+ window.localStorage.removeItem("sectile:taskLaunchView");
+ show();
+ const next=await screen.findByRole("button",{name:"Étape suivante : Implémenter"});
+ await waitFor(()=>expect(next.hasAttribute("disabled")).toBe(false));
+ const terminalBtn=screen.getByRole("button",{name:"Terminal"});
+ fireEvent.click(terminalBtn);
+ expect(terminalBtn.getAttribute("aria-pressed")).toBe("true");
+ fireEvent.click(document.querySelector(".composer-chip-mode")!);
+ fireEvent.click(screen.getByRole("menuitemradio",{name:"Auto (YOLO)"}));
+ fireEvent.click(next);
+ await waitFor(()=>expect(api.launchTask).toHaveBeenCalledWith("project",{
+  taskId:"task",
+  skillId:"implement",
+  prompt:"",
+  mode:"",
+  view:"terminal",
+  provider:"claude",
+  conversationMode:"auto",
+ }));
+ window.localStorage.removeItem("sectile:taskLaunchView");
+});

@@ -1176,6 +1176,40 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	payload.ProjectID = config.ProjectID
+	launchPref, hasLaunchPref := d.conversationViews.takeLaunch(taskRef, task.ID)
+	if hasLaunchPref {
+		if launchPref.engineID != "" {
+			if settings, settingsErr := d.readSettings(); settingsErr == nil {
+				if engine, ok := settings.Engine(launchPref.engineID); ok {
+					settings.SetProjectEngine(config.ProjectID, engine.ID)
+					config = agentconfig.Resolve(config, settings)
+					if launchPref.conversationMode == "" && engine.ConversationMode != "" {
+						launchPref.conversationMode = engine.ConversationMode
+					}
+				}
+			}
+		} else if launchPref.provider == "claude" || launchPref.provider == "codex" || launchPref.provider == "agy" {
+			if config.AIProvider != launchPref.provider || liveProvider(config) != launchPref.provider {
+				config.AIProvider = launchPref.provider
+				config.AICommandTemplate = agentconfig.EffectiveCommandTemplate(launchPref.provider, "")
+				config.AICommandTemplateAutonomous = agentconfig.EffectiveCommandTemplate(launchPref.provider, "")
+				config.AIModel = ""
+				config.AISkillModels = nil
+				config.EngineID, config.EngineName = "", ""
+			}
+		}
+		if launchPref.model != "" {
+			payload.Model = launchPref.model
+			config.AIModel = launchPref.model
+		}
+	}
+	if launchPref.conversationMode == "" && config.EngineID != "" {
+		if settings, settingsErr := d.readSettings(); settingsErr == nil {
+			if engine, ok := settings.Engine(config.EngineID); ok && engine.ConversationMode != "" {
+				launchPref.conversationMode = engine.ConversationMode
+			}
+		}
+	}
 	// The issue skills write their clarification report and specification in
 	// the project's Issue specifications folder, prepared beside the code
 	// worktree when it is a folder of its own (#736).
@@ -1347,8 +1381,12 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	// message at once, in the workstation default permission mode. The run
 	// holds its slot until it is stopped. The mark is taken first, so that it
 	// is consumed whatever the workstation view says.
-	marked := d.conversationViews.take(taskRef, task.ID)
-	if opensConversation(autonomous, models.NormalizeSkillID(payload.Action), marked, d.workstationConsoleView(), config) {
+	marked := hasLaunchPref && launchPref.view == agentconfig.ConsoleViewConversation
+	effectiveView := d.workstationConsoleView()
+	if hasLaunchPref && (launchPref.view == agentconfig.ConsoleViewConversation || launchPref.view == agentconfig.ConsoleViewTerminal) {
+		effectiveView = launchPref.view
+	}
+	if effectiveView != agentconfig.ConsoleViewTerminal && opensConversation(autonomous, models.NormalizeSkillID(payload.Action), marked, effectiveView, config) {
 		model, first, origin := conversationModel(config), "", "Elle s’exécute dans le worktree de cette tâche. Arrêtez-la pour terminer la discussion."
 		var extraDirs []string
 		if payload.SkillID != "discuss" {
@@ -1368,7 +1406,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			}
 			origin = "Elle exécute le skill " + payload.SkillID + " dans le worktree de cette tâche. Arrêtez-la lorsque le skill est terminé."
 		}
-		d.startLaunchConversation(run, desktopRun{ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, Directory: workDir, Folders: runFolders(workDir, folders), Branch: branch}, model, conversationOrigin(config, origin), first, envVars, extraDirs, liveProvider(config))
+		d.startLaunchConversationWithMode(run, desktopRun{ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, Title: taskConversationTitle(task.Title, payload.SkillID), ProjectID: config.ProjectID, Skill: payload.SkillID, Directory: workDir, Folders: runFolders(workDir, folders), Branch: branch, EngineID: config.EngineID, EngineName: config.EngineName}, model, launchPref.conversationMode, conversationOrigin(config, origin), first, envVars, extraDirs, liveProvider(config))
 		launched = true
 		d.recordCustomSkillUse(config, choice, payload.RunID)
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", "Execution opened as a conversation")
@@ -1399,7 +1437,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			return
 		}
 		d.queue.read(payload.RunID, func(run *controlledRun) {
-			run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, SessionID: sessionID, Directory: workDir, Folders: runFolders(workDir, folders), Branch: branch, Status: "running", Provider: runProvider, Model: runModel}
+			run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, Title: taskConversationTitle(task.Title, payload.SkillID), ProjectID: config.ProjectID, Skill: payload.SkillID, SessionID: sessionID, Directory: workDir, Folders: runFolders(workDir, folders), Branch: branch, Status: "running", Provider: runProvider, Model: runModel}
 			run.interactiveProvider = discussionProvider(config, payload.SkillID)
 		})
 	}
@@ -1408,6 +1446,16 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
+	}
+	if hasLaunchPref && launchPref.view == agentconfig.ConsoleViewTerminal {
+		termChoice := d.resolveTerminalForProject(ctx, config.ProjectID, "")
+		if err := d.launchExternalTerminal(termChoice, sessionID); err != nil {
+			log.Printf("[Agent] Could not launch external terminal %q for session %s: %v", termChoice, sessionID, err)
+		} else if payload.RunID != "" {
+			d.queue.read(payload.RunID, func(run *controlledRun) {
+				run.desktop.ExternalTerminal = termChoice
+			})
+		}
 	}
 	launched = true
 	d.recordCustomSkillUse(config, choice, payload.RunID)
@@ -1419,8 +1467,12 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 // conversation: entry describes the run, keeping the creation time and the
 // prompt it was queued with. A skill's command, first, is sent at once as the
 // first message; a discussion ("" first) waits for the owner's. Either way the
-// first turn runs in the workstation default permission mode.
+// first turn runs in the workstation default permission mode unless overridden.
 func (d *agentDaemon) startLaunchConversation(run *controlledRun, entry desktopRun, model, origin, first string, env map[string]string, extraDirs []string, provider ...string) {
+	d.startLaunchConversationWithMode(run, entry, model, "", origin, first, env, extraDirs, provider...)
+}
+
+func (d *agentDaemon) startLaunchConversationWithMode(run *controlledRun, entry desktopRun, model, requestedMode, origin, first string, env map[string]string, extraDirs []string, provider ...string) {
 	mode := d.workstationConversationMode()
 	if len(provider) > 0 && provider[0] == "agy" {
 		mode = d.workstationAgyConversationMode()
@@ -1430,6 +1482,20 @@ func (d *agentDaemon) startLaunchConversation(run *controlledRun, entry desktopR
 	entry.ConnectionID = d.takeDesktopLaunchConnectionLocked(entry)
 	run.desktop = entry
 	startConversationLocked(run, model, mode, origin, provider...)
+	if requestedMode != "" {
+		switch requestedMode {
+		case "plan":
+			run.conversation.mode = "plan"
+		case "execute":
+			if run.desktop.Provider == "codex" {
+				run.conversation.mode = "workspace-write"
+			} else {
+				run.conversation.mode = "default"
+			}
+		default:
+			run.conversation.mode = providerConversationMode(run.desktop.Provider, requestedMode)
+		}
+	}
 	run.conversation.env, run.conversation.extraDirs = env, extraDirs
 	if first != "" {
 		run.conversation.busy = true

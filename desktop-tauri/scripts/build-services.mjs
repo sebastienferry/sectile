@@ -141,6 +141,11 @@ try {
       renameSync(join(staging, name), current);
       installed.push(current);
     }
+    const debugBinaries = join(root, 'src-tauri/target/debug/binaries');
+    for (const { name } of artifacts) {
+      const targetCopy = join(debugBinaries, name);
+      rmSync(targetCopy, { force: true });
+    }
   } catch (error) {
     for (const path of installed) rmSync(path, { force: true });
     for (const { current, backup } of backedUp.reverse()) renameSync(backup, current);

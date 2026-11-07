@@ -8,8 +8,14 @@ const approvalLabels: Record<string, string> = {
   always: "Autorisation mémorisée.",
   answer: "Réponse envoyée.",
 };
+function isTurnReadyNotice(event: ConversationEvent): boolean {
+  return (
+    event.kind === "notice" &&
+    (event.text === "Prêt pour votre prochain message" || event.text === "Ready for your next message")
+  );
+}
 function eventText(event: ConversationEvent): string {
-  if (event.kind === "notice" && event.text === "Prêt pour votre prochain message") return "Réponse terminée";
+  if (isTurnReadyNotice(event)) return "Réponse terminée";
   if (event.kind === "approval") return approvalLabels[event.text] ?? event.text;
   return event.text;
 }
@@ -35,10 +41,11 @@ export function transcriptRows(events: ConversationEvent[]): Row[] {
   }
   return rows;
 }
-function Tools({ tools, busy }: { tools: ToolEntry[]; busy: boolean }) {
+function Tools({ tools, busy, onInterrupt }: { tools: ToolEntry[]; busy: boolean; onInterrupt?: () => void }) {
   const complete = tools.filter(tool => tool.result).length;
   const errors = tools.filter(tool => tool.result?.error).length;
-  return <details className="tool-group"><summary>{tools.length === 1 ? `Outil · ${tools[0].call?.tool || tools[0].call?.text || "Résultat"}` : `${tools.length} appels d’outils`}<span>{errors ? `${errors} en erreur` : complete === tools.length ? "Terminé" : busy ? "En cours…" : "Résultat non reçu"}</span></summary>
+  const running = busy && complete < tools.length;
+  return <details className="tool-group"><summary>{tools.length === 1 ? `Outil · ${tools[0].call?.tool || tools[0].call?.text || "Résultat"}` : `${tools.length} appels d’outils`}<span className="tool-group-status">{errors ? `${errors} en erreur` : complete === tools.length ? "Terminé" : busy ? "En cours…" : "Résultat non reçu"}{running && onInterrupt && <button type="button" className="tool-cancel-button" aria-label="Annuler la commande en cours" onClick={e => { e.preventDefault(); e.stopPropagation(); onInterrupt(); }}>Annuler</button>}</span></summary>
     {tools.map(({ key, call, result }) => <section className="tool-entry" key={key}><strong>{call?.tool || call?.text || "Résultat d’outil"}</strong>
       {call && <pre>{call.detail || (call.input ? JSON.stringify(call.input, null, 2) : call.text)}</pre>}
       {result && <div className={result.error ? "tool-result tool-failed" : "tool-result"}><small>{result.error ? "Erreur" : "Résultat"}</small><pre>{result.text || "Aucune sortie"}</pre></div>}
@@ -46,13 +53,19 @@ function Tools({ tools, busy }: { tools: ToolEntry[]; busy: boolean }) {
     </section>)}
   </details>;
 }
-export function ConversationTranscript({ snapshot, followRequest = 0 }: { snapshot: ConversationSnapshot; followRequest?: number }) {
+export function ConversationTranscript({ snapshot, followRequest = 0, onInterrupt }: { snapshot: ConversationSnapshot; followRequest?: number; onInterrupt?: () => void }) {
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const lastRequest = useRef(followRequest);
   const [paused, setPaused] = useState(false);
-  const rows = useMemo(() => transcriptRows(decodeEvents(snapshot)), [snapshot.events]);
+  const rows = useMemo(
+    () =>
+      transcriptRows(
+        decodeEvents(snapshot).filter(event => snapshot.readOnly || !isTurnReadyNotice(event)),
+      ),
+    [snapshot.events, snapshot.readOnly],
+  );
   function toBottom() {
     const element = viewport.current;
     if (element) element.scrollTop = element.scrollHeight;
@@ -73,7 +86,7 @@ export function ConversationTranscript({ snapshot, followRequest = 0 }: { snapsh
     following.current = element.scrollHeight - element.clientHeight - element.scrollTop < 48;
     setPaused(!following.current);
   }}><div ref={content} className="prompt-transcript-content">
-    {rows.map(row => "tools" in row ? <Tools key={row.key} tools={row.tools} busy={snapshot.busy} /> : <article className={`prompt-event prompt-${row.event.kind}`} key={row.key}>
+    {rows.map(row => "tools" in row ? <Tools key={row.key} tools={row.tools} busy={snapshot.busy} onInterrupt={onInterrupt} /> : <article className={`prompt-event prompt-${row.event.kind}`} key={row.key}>
       <strong>{row.event.interrupted ? "Assistant · réponse interrompue" : ({ user: "Vous", assistant: "Assistant", error: "Erreur", thinking: "Réflexion", approval: "Autorisation" } as Record<string, string>)[row.event.kind] ?? "Activité"}</strong>
       {row.event.kind === "assistant" ? <Markdown text={row.event.text} /> : <p>{eventText(row.event)}</p>}
       {row.event.detail && <details><summary>Détails</summary><pre>{row.event.detail}</pre></details>}

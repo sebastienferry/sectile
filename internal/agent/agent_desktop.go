@@ -1180,15 +1180,31 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		// Force asks the server to skip its duplicate-launch refusal. As with
 		// Mode, the agent does not interpret it, it passes it on.
 		Force bool
-		// View "conversation" explicitly asks for an interactive launch in
-		// Claude's structured view. The server never sees it: the agent keeps
-		// it until the dispatch comes back. Without it, the dispatch follows
-		// the workstation console view (#711). An engine it cannot honour, or
-		// an autonomous launch, gets what it would have had without it.
-		View string
+		// View "conversation" or "terminal" explicitly asks for an interactive
+		// launch in the structured conversation view or in a PTY terminal.
+		// The server never sees it: the agent keeps it until the dispatch
+		// comes back. Without it, the dispatch follows the workstation console
+		// view (#711).
+		View             string
+		Provider         string `json:"provider"`
+		EngineID         string `json:"engineId"`
+		Model            string `json:"model"`
+		ConversationMode string `json:"conversationMode"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.TaskID == "" {
 		http.Error(w, "Task and skill required", 400)
+		return
+	}
+	if input.View != "" && input.View != agentconfig.ConsoleViewConversation && input.View != agentconfig.ConsoleViewTerminal {
+		http.Error(w, "Unknown console view", http.StatusBadRequest)
+		return
+	}
+	if input.Provider != "" && input.Provider != "claude" && input.Provider != "codex" && input.Provider != "agy" {
+		http.Error(w, "Unknown provider", http.StatusBadRequest)
+		return
+	}
+	if !agentconfig.ValidConversationMode(input.ConversationMode) {
+		http.Error(w, "Unknown conversation mode", http.StatusBadRequest)
 		return
 	}
 	if input.BatchTaskIDs != nil {
@@ -1234,8 +1250,18 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unknown execution mode", 400)
 		return
 	}
-	if input.View == "conversation" {
-		d.conversationViews.mark(task.ID)
+	launchProvider := strings.TrimSpace(input.Provider)
+	if connectionID != "" && launchProvider == "" && strings.TrimSpace(input.EngineID) == "" && strings.TrimSpace(config.AIProvider) == "agy" {
+		launchProvider = "claude"
+	}
+	if input.View != "" || launchProvider != "" || strings.TrimSpace(input.EngineID) != "" || strings.TrimSpace(input.Model) != "" || strings.TrimSpace(input.ConversationMode) != "" {
+		d.conversationViews.markLaunch(task.ID, taskLaunchPreference{
+			view:             input.View,
+			provider:         launchProvider,
+			engineID:         strings.TrimSpace(input.EngineID),
+			model:            strings.TrimSpace(input.Model),
+			conversationMode: strings.TrimSpace(input.ConversationMode),
+		})
 	}
 	// The project travels with the launch: the server records it on the run
 	// and refuses a ticket of several projects launched without one (#741).
@@ -1244,6 +1270,9 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload := map[string]any{"targetDeviceId": d.link.deviceID, "skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force, "projectId": projectID}
+	if strings.TrimSpace(input.Model) != "" {
+		payload["model"] = strings.TrimSpace(input.Model)
+	}
 	if input.BatchTaskIDs != nil {
 		payload["batchTaskIds"] = input.BatchTaskIDs
 	}
@@ -1293,6 +1322,8 @@ func (d *agentDaemon) desktopCreateTask(w http.ResponseWriter, r *http.Request) 
 		Description string
 		IssueType   string
 		Priority    models.Priority
+		Sprint      string
+		Assignee    string
 		// TrackerID names one of the project's trackers for the ticket (#741).
 		// Empty, the server takes the project's default tracker.
 		TrackerID string
@@ -1312,6 +1343,8 @@ func (d *agentDaemon) desktopCreateTask(w http.ResponseWriter, r *http.Request) 
 		Description:           input.Description,
 		IssueType:             input.IssueType,
 		Priority:              input.Priority,
+		Sprint:                strings.TrimSpace(input.Sprint),
+		Assignee:              strings.TrimSpace(input.Assignee),
 		RequireRemoteCreation: true,
 	})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks", strings.NewReader(body))

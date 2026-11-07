@@ -140,7 +140,18 @@ fn required(value: &str) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn list_projects(app: tauri::AppHandle) -> Result<Value, String> {
-    request_agent(app, reqwest::Method::GET, "/desktop/projects", &[], None).await
+    let projects = request_agent(app, reqwest::Method::GET, "/desktop/projects", &[], None).await?;
+    if let Some(items) = projects.as_array() {
+        Ok(Value::Array(
+            items
+                .iter()
+                .filter(|item| item["disconnected"] != true)
+                .cloned()
+                .collect(),
+        ))
+    } else {
+        Ok(projects)
+    }
 }
 #[tauri::command]
 pub async fn list_tasks(app: tauri::AppHandle, project_id: String) -> Result<Value, String> {
@@ -194,6 +205,10 @@ pub struct CreateTrackerTask {
     priority: String,
     issue_type: String,
     tracker_id: String,
+    #[serde(default)]
+    sprint: Option<String>,
+    #[serde(default)]
+    assignee: Option<String>,
 }
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -206,6 +221,10 @@ pub struct UpdateTrackerTask {
     priority: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     issue_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    assignee: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pr_links: Option<Vec<TrackerPullRequest>>,
 }
@@ -243,10 +262,17 @@ fn validate_task_fields(title: Option<&str>, description: Option<&str>, priority
 pub async fn create_task(app: tauri::AppHandle, project_id: String, input: CreateTrackerTask) -> Result<Value, String> {
     required(&project_id)?;
     validate_task_fields(Some(&input.title), Some(&input.description), Some(&input.priority), Some(&input.issue_type))?;
+    if input.sprint.as_ref().is_some_and(|v| v.chars().count() > 200)
+        || input.assignee.as_ref().is_some_and(|v| v.chars().count() > 200)
+    {
+        return Err("Champs du ticket invalides".into());
+    }
     if input.tracker_id.len() > 1024 { return Err("Tracker invalide".into()); }
     request_agent(app, reqwest::Method::POST, "/desktop/create-task", &[], Some(json!({
         "projectId":project_id,"title":input.title.trim(),"description":input.description,
-        "priority":input.priority,"issueType":input.issue_type,"trackerId":input.tracker_id
+        "priority":input.priority,"issueType":input.issue_type,"trackerId":input.tracker_id,
+        "sprint":input.sprint.as_deref().unwrap_or("").trim(),
+        "assignee":input.assignee.as_deref().unwrap_or("").trim()
     }))).await
 }
 #[tauri::command]
@@ -254,10 +280,15 @@ pub async fn update_task(app: tauri::AppHandle, project_id: String, task_id: Str
     required(&project_id)?;
     required(&task_id)?;
     validate_task_fields(changes.title.as_deref(), changes.description.as_deref(), changes.priority.as_deref(), changes.issue_type.as_deref())?;
+    if changes.sprint.as_ref().is_some_and(|v| v.chars().count() > 200)
+        || changes.assignee.as_ref().is_some_and(|v| v.chars().count() > 200)
+    {
+        return Err("Champs du ticket invalides".into());
+    }
     if changes.pr_links.as_ref().is_some_and(|links| links.len() > 50 || links.iter().any(|link| !valid_pull_request_url(&link.url))) {
         return Err("Lien PR/MR invalide".into());
     }
-    if changes.title.is_none() && changes.description.is_none() && changes.priority.is_none() && changes.issue_type.is_none() && changes.pr_links.is_none() {
+    if changes.title.is_none() && changes.description.is_none() && changes.priority.is_none() && changes.issue_type.is_none() && changes.sprint.is_none() && changes.assignee.is_none() && changes.pr_links.is_none() {
         return Err("Aucune modification du ticket".into());
     }
     let body = serde_json::to_value(changes).map_err(|_| "Champs du ticket invalides")?;
@@ -323,12 +354,57 @@ pub struct LaunchTask {
     mode: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     batch_task_ids: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    view: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    engine_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    conversation_mode: Option<String>,
 }
 fn launch_body(input: LaunchTask) -> Result<Value, String> {
     required(&input.task_id)?;
     required(&input.skill_id)?;
     if !["", "interactive", "autonomous"].contains(&input.mode.as_str()) {
         return Err("Mode d’exécution invalide".into());
+    }
+    if let Some(view) = &input.view
+        && !["conversation", "terminal"].contains(&view.as_str())
+    {
+        return Err("Mode d’ouverture invalide".into());
+    }
+    if let Some(provider) = &input.provider
+        && !["claude", "codex"].contains(&provider.as_str())
+    {
+        return Err("Moteur non pris en charge".into());
+    }
+    if let Some(engine_id) = &input.engine_id
+        && (engine_id.trim().is_empty() || engine_id.len() > 128)
+    {
+        return Err("Profil de moteur invalide".into());
+    }
+    if let Some(model) = &input.model
+        && model.len() > 256
+    {
+        return Err("Modèle invalide".into());
+    }
+    if let Some(conversation_mode) = &input.conversation_mode
+        && ![
+            "",
+            "plan",
+            "execute",
+            "default",
+            "acceptEdits",
+            "auto",
+            "read-only",
+            "workspace-write",
+        ]
+        .contains(&conversation_mode.as_str())
+    {
+        return Err("Mode de conversation invalide".into());
     }
     if let Some(ids) = &input.batch_task_ids {
         if input.skill_id != "pickup_issues"
@@ -356,13 +432,27 @@ pub async fn launch_task(
 ) -> Result<Value, String> {
     required(&project_id)?;
     let mut body = launch_body(input)?;
-    body["view"] = serde_json::json!("conversation");
+    if body.get("view").is_none() {
+        body["view"] = serde_json::json!("conversation");
+    }
     request_agent(
         app,
         reqwest::Method::POST,
         "/desktop/tasks",
         &[("projectId", &project_id)],
         Some(body),
+    )
+    .await
+}
+#[tauri::command]
+pub async fn detach_run_terminal(app: tauri::AppHandle, run_id: String) -> Result<Value, String> {
+    required(&run_id)?;
+    request_agent(
+        app,
+        reqwest::Method::POST,
+        "/desktop/terminal/detach",
+        &[],
+        Some(json!({"runId": run_id})),
     )
     .await
 }
@@ -820,10 +910,21 @@ pub async fn read_conversation(app: tauri::AppHandle, run_id: String) -> Result<
 }
 
 #[derive(Deserialize, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
 pub enum ConversationMode {
+    #[serde(rename = "plan")]
     Plan,
+    #[serde(rename = "execute")]
     Execute,
+    #[serde(rename = "default")]
+    Default,
+    #[serde(rename = "acceptEdits")]
+    AcceptEdits,
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "read-only")]
+    ReadOnly,
+    #[serde(rename = "workspace-write")]
+    WorkspaceWrite,
 }
 
 #[derive(Deserialize, serde::Serialize)]
@@ -895,7 +996,7 @@ fn conversation_body(action: ConversationAction) -> Result<Value, String> {
         ConversationAction::Interrupt => Ok(serde_json::json!({"interrupt": true})),
         ConversationAction::Approval { id, decision } => {
             required(&id)?;
-            if !["allow", "deny"].contains(&decision.as_str()) {
+            if !["allow", "always", "deny"].contains(&decision.as_str()) {
                 return Err("Décision non prise en charge".into());
             }
             Ok(serde_json::json!({"approval": {"id": id, "decision": decision}}))
@@ -960,9 +1061,17 @@ mod conversation_tests {
         assert!(
             conversation_body(ConversationAction::Approval {
                 id: "a".into(),
-                decision: "always".into()
+                decision: "bypass".into()
             })
             .is_err()
+        );
+        assert_eq!(
+            conversation_body(ConversationAction::Approval {
+                id: "a".into(),
+                decision: "always".into()
+            })
+            .unwrap(),
+            serde_json::json!({"approval":{"id":"a","decision":"always"}})
         );
         assert!(
             conversation_body(ConversationAction::Message {
@@ -1114,8 +1223,11 @@ mod question_answer_tests {
 fn resolve_conversation_mode(mode: &str, provider: &str) -> Result<&'static str, String> {
     match (provider, mode) {
         ("claude" | "codex", "plan") => Ok("plan"),
-        ("claude", "execute") => Ok("default"),
-        ("codex", "execute") => Ok("workspace-write"),
+        ("claude", "execute" | "default") => Ok("default"),
+        ("claude", "acceptEdits") => Ok("acceptEdits"),
+        ("claude", "auto") => Ok("auto"),
+        ("codex", "execute" | "workspace-write") => Ok("workspace-write"),
+        ("codex", "read-only") => Ok("read-only"),
         _ => Err("Mode ou fournisseur non pris en charge".into()),
     }
 }
@@ -1143,8 +1255,20 @@ mod turn_options_tests {
             "default"
         );
         assert_eq!(
+            resolve_conversation_mode("acceptEdits", "claude").unwrap(),
+            "acceptEdits"
+        );
+        assert_eq!(
+            resolve_conversation_mode("auto", "claude").unwrap(),
+            "auto"
+        );
+        assert_eq!(
             resolve_conversation_mode("execute", "codex").unwrap(),
             "workspace-write"
+        );
+        assert_eq!(
+            resolve_conversation_mode("read-only", "codex").unwrap(),
+            "read-only"
         );
         assert!(resolve_conversation_mode("bypassPermissions", "claude").is_err());
         assert!(resolve_conversation_mode("execute", "unknown").is_err());

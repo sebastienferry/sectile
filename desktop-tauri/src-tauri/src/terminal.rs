@@ -27,3 +27,31 @@ pub fn open_terminal_at(path: String) -> Result<(), String> {
     };
     command.spawn().map(|_| ()).map_err(|_| "Impossible d’ouvrir le terminal".into())
 }
+
+#[tauri::command]
+pub fn open_folder_at(path: String) -> Result<(), String> {
+    let folder = Path::new(&path);
+    if !folder.is_absolute() || !folder.is_dir() {
+        return Err("Dossier introuvable".into());
+    }
+    // This is a file manager window explicitly requested by the user.
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = std::process::Command::new("/usr/bin/open");
+        command.arg(folder);
+        command
+    };
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut command = std::process::Command::new("xdg-open");
+        command.arg(folder);
+        command
+    };
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = std::process::Command::new("explorer.exe");
+        command.arg(folder);
+        command
+    };
+    command.spawn().map(|_| ()).map_err(|_| "Impossible d’ouvrir le dossier".into())
+}

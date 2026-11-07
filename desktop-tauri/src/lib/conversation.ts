@@ -2,7 +2,21 @@ import { invoke } from "@tauri-apps/api/core";
 export interface ConversationEvent {
   kind: string; text: string; interrupted?: boolean; detail?: string; tool?: string; input?: unknown; toolId?: string; error?: boolean;
 }
-export interface Approval { id: string; tool: string; description?: string; reason?: string; input?: unknown }
+export interface ApprovalChoice {
+  decision: "allow" | "always" | "deny";
+  label: string;
+}
+export interface Approval {
+  id: string;
+  tool: string;
+  description?: string;
+  reason?: string;
+  input?: unknown;
+  access?: unknown;
+  suggestions?: Record<string, unknown>[];
+  choices?: ApprovalChoice[];
+}
+export type ConversationMode = "plan" | "execute" | "default" | "acceptEdits" | "auto" | "read-only" | "workspace-write";
 export interface ConversationSnapshot {
   checkingMcp?: boolean; sectileMcp?: {status:string;source?:string};
   title?: string; canRename?: boolean; provider?: string; model?: string; mode?: string; models?: { model: string }[] | null;
@@ -12,9 +26,9 @@ export interface ConversationSnapshot {
 export const createConversation = (projectId: string, provider: string, engineId?: string) =>
   invoke<{ id: string }>("create_conversation", { projectId, provider, ...(engineId ? {engineId} : {}) });
 export const readConversation = (runId: string) => invoke<ConversationSnapshot>("read_conversation", { runId });
-export interface TurnOptions { model?: string; mode?: "plan" | "execute" }
+export interface TurnOptions { model?: string; mode?: ConversationMode }
 export const providerModels = (provider: string) => invoke<string[]>("provider_models", { provider });
-export type ConversationAction = { action: "message"; message: string; model?: string; mode?: "plan" | "execute" } | { action: "adoptConnection" } | { action: "checkMcp" } | { action: "interrupt" } | { action: "approval"; id: string; decision: "allow" | "deny" } | { action: "answer"; id: string; answers: Record<string, string> };
+export type ConversationAction = { action: "message"; message: string; model?: string; mode?: ConversationMode } | { action: "adoptConnection" } | { action: "checkMcp" } | { action: "interrupt" } | { action: "approval"; id: string; decision: "allow" | "always" | "deny" } | { action: "answer"; id: string; answers: Record<string, string> };
 export const controlConversation = (runId: string, input: ConversationAction) => invoke("control_conversation", { runId, input });
 export function decodeEvents(snapshot: ConversationSnapshot): ConversationEvent[] {
   return (snapshot.events ?? []).map(line => {

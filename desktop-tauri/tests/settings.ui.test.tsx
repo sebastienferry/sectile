@@ -440,3 +440,19 @@ test("connections section provides subtabs for Trackers and Accès PAT and defau
  expect(trackersTab.getAttribute("aria-selected")).toBe("false");
  expect(patTab.getAttribute("aria-selected")).toBe("true");
 });
+
+test("appearance settings allow configuring color theme and font size scale", async () => {
+ vi.mocked(api.localSetupStatus).mockResolvedValue({ ...ready, mode: "local" });
+ render(<LocalSettings onChanged={vi.fn()} />);
+ fireEvent.click(await screen.findByRole("button", { name: "Apparence" }));
+
+ const themeSelect = screen.getByLabelText("Thème de couleurs") as HTMLSelectElement;
+ const fontSizeSelect = screen.getByLabelText("Taille de police") as HTMLSelectElement;
+ expect(fontSizeSelect.value).toBe("default");
+
+ fireEvent.change(themeSelect, { target: { value: "light" } });
+ expect(document.documentElement.dataset.theme).toBe("light");
+
+ fireEvent.change(fontSizeSelect, { target: { value: "large" } });
+ expect(document.documentElement.dataset.fontSize).toBe("large");
+});

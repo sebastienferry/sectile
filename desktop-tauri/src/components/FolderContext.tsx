@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { Run } from "../domain/execution";
 import { attachFolder, detachFolder, projectFolders, type AttachedFolder } from "../lib/folders";
 import {projectContext,projectRepositories,type ProjectContext,type ProjectRepository} from "../lib/workspace";
@@ -25,14 +26,95 @@ export function PromptFolders({projectId,runId,directory,folders:runFolders,read
  const [pending,setPending]=useState(false);
  const [notice,setNotice]=useState("");
  const [error,setError]=useState("");
+ const [copiedPath,setCopiedPath]=useState("");
  const acting=useRef(false);
+ const detailsRef=useRef<HTMLDetailsElement>(null);
+ useEffect(()=>{
+  function onPointerDown(event:MouseEvent){
+   if(detailsRef.current?.open&&!detailsRef.current.contains(event.target as Node))detailsRef.current.removeAttribute("open");
+  }
+  function onKeyDown(event:KeyboardEvent){
+   if(event.key==="Escape"&&detailsRef.current?.open)detailsRef.current.removeAttribute("open");
+  }
+  document.addEventListener("mousedown",onPointerDown);
+  window.addEventListener("keydown",onKeyDown);
+  return()=>{document.removeEventListener("mousedown",onPointerDown);window.removeEventListener("keydown",onKeyDown);};
+ },[]);
  const configured=[...repositories.filter(r=>!r.code&&r.path).map(r=>({path:r.path,name:r.identity,role:"context",attached:false})),...([context?.specPath,context?.issueSpecPath].filter(Boolean) as string[]).map(path=>({path,name:"Spécifications",role:"spec",attached:false}))];
  const listed=[...(runFolders??[]).filter(f=>f.path!==directory),...configured,...folders.map(f=>({path:f.path,name:folderName(f.path),role:"local",attached:true}))].filter((f,index,all)=>f.path!==directory&&all.findIndex(other=>other.path===f.path)===index);
+ const allEntries=[...(directory?[{path:directory,label:"Travail"}]:[]),...listed.map(f=>({path:f.path,label:f.attached?"Attaché au projet":roleNames[f.role]||f.role}))];
+ async function copyFolderPath(path:string){
+  try{
+   await navigator.clipboard.writeText(path);
+   setCopiedPath(path);
+   setTimeout(()=>setCopiedPath(current=>current===path?"":current),1800);
+  }catch{
+   setError("Impossible de copier le chemin du dossier.");
+  }
+ }
+ async function openInFinder(path:string){
+  try{
+   await invoke("open_folder_at",{path});
+  }catch{
+   setError("Impossible d’ouvrir le dossier dans le Finder.");
+  }
+ }
  async function add(){if(acting.current)return;acting.current=true;setPending(true);onPendingChange?.(true);setError("");setNotice("");try{const result=await attachFolder(projectId,runId);if(result){await refresh();onChanged?.();setNotice(result.mappedAs?`Dépôt associé au projet : ${result.mappedAs}. Disponible au prochain message.`:runId?"Dossier ajouté au projet · disponible dès le prochain message.":"Dossier ajouté au projet · disponible au lancement du prompt.");}}catch{setError("Impossible d’ajouter ce dossier. Il est peut-être déjà associé ou indisponible. Vérifiez les dossiers du projet puis réessayez.");}finally{acting.current=false;setPending(false);onPendingChange?.(false);}}
  return <section className={`prompt-folders${compact?" compact":""}`} aria-label="Contexte de travail">
  <div className="prompt-context-toolbar">{!compact&&<span className="working-directory" title={directory}><Icon name="folder"/><span>{directory||"Dossier de travail en cours de chargement…"}</span></span>}
- <details><summary title="Voir les dossiers disponibles dans ce projet"><Icon name="folder"/> Dossiers · {listed.length+ (directory?1:0)}</summary><ul>{directory&&<li><strong>Travail</strong><code>{directory}</code></li>}{listed.map(f=><li key={f.path}><strong>{f.attached?"Attaché au projet":roleNames[f.role]||f.role}</strong><code>{f.path}</code></li>)}</ul><p>Les dossiers attachés sont partagés par toutes les conversations de ce projet. Leur retrait se fait dans sa configuration.</p>{unavailable&&<p>Dossiers du projet indisponibles. <button type="button" onClick={()=>void refresh()}>Réessayer les dossiers</button></p>}</details>
- {!readOnly&&<button type="button" title="Partager ce dossier avec les conversations du projet" disabled={pending} onClick={()=>void add()}><Icon name="plus"/>{pending?"Ajout…":"Ajouter un dossier"}</button>}</div>
+ <details ref={detailsRef}>
+  <summary title="Voir et gérer les dossiers de ce projet">
+   <Icon name="folder"/> <span className={compact?"sr-only":undefined}>Dossiers · </span><span>{allEntries.length}</span>
+  </summary>
+  <div className="prompt-folders-popover">
+   <ul>
+    {allEntries.map(entry=>(
+     <li key={entry.path} className="prompt-folder-row">
+      <button
+       type="button"
+       className="prompt-folder-copy"
+       title={`Cliquer pour copier : ${entry.path}`}
+       aria-label={`Copier le chemin ${entry.path}`}
+       onClick={()=>void copyFolderPath(entry.path)}
+      >
+       <strong>{entry.label}</strong>
+       <code>{entry.path}</code>
+       <span className="prompt-folder-copy-state" aria-hidden="true">
+        {copiedPath===entry.path?<Icon name="check"/>:<Icon name="copy"/>}
+       </span>
+      </button>
+      <button
+       type="button"
+       className="prompt-folder-finder"
+       title="Ouvrir dans le Finder"
+       aria-label={`Ouvrir ${entry.path} dans le Finder`}
+       onClick={()=>void openInFinder(entry.path)}
+      >
+       <Icon name="external"/>
+      </button>
+     </li>
+    ))}
+   </ul>
+   {!readOnly&&(
+    <div className="prompt-folders-footer">
+     <button
+      type="button"
+      className="prompt-folders-add"
+      aria-label={pending?"Ajout…":"Ajouter un dossier"}
+      title="Partager un dossier supplémentaire avec les conversations du projet"
+      disabled={pending}
+      onClick={()=>void add()}
+     >
+      <Icon name="plus"/>
+      <span>{pending?"Ajout…":"Ajouter un dossier"}</span>
+     </button>
+    </div>
+   )}
+   <p>Les dossiers attachés sont partagés par toutes les conversations de ce projet. Leur retrait se fait dans sa configuration.</p>
+   {unavailable&&<p>Dossiers du projet indisponibles. <button type="button" onClick={()=>void refresh()}>Réessayer les dossiers</button></p>}
+  </div>
+ </details>
+ </div>
  {!compact&&listed.length>0&&<div className="prompt-context-folders" aria-label="Dossiers supplémentaires utilisés par l’agent">{listed.map(folder=><span key={folder.path} title={folder.path}><Icon name="folder"/><span>{folderName(folder.path)}</span></span>)}</div>}
  {notice&&<p role="status">{notice}</p>}{error&&<p role="alert" className="error">{error}</p>}
  </section>;

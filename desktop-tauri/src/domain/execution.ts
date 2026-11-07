@@ -59,12 +59,41 @@ export interface OrchestrationReport {
   launched: { id: string; key: string; title: string }[];
   skipped: { id: string; key: string; reason: string }[];
 }
-export interface LaunchInput {
+export type TaskLaunchView = "conversation" | "terminal";
+export interface LaunchOptions {
+  view?: TaskLaunchView;
+  provider?: "claude" | "codex";
+  engineId?: string;
+  model?: string;
+  conversationMode?: string;
+}
+export interface LaunchInput extends LaunchOptions {
   taskId: string;
   skillId: string;
   prompt: string;
   mode: string;
   batchTaskIds?: string[];
+}
+const TASK_LAUNCH_VIEW_KEY = "sectile:taskLaunchView";
+export function readTaskLaunchView(): TaskLaunchView {
+  try {
+    return window.localStorage.getItem(TASK_LAUNCH_VIEW_KEY) === "terminal"
+      ? "terminal"
+      : "conversation";
+  } catch {
+    return "conversation";
+  }
+}
+export function saveTaskLaunchView(view: TaskLaunchView): void {
+  try {
+    if (view === "terminal") {
+      window.localStorage.setItem(TASK_LAUNCH_VIEW_KEY, "terminal");
+    } else {
+      window.localStorage.removeItem(TASK_LAUNCH_VIEW_KEY);
+    }
+  } catch {
+    // Ignore storage errors in restricted environments.
+  }
 }
 const activeStates = new Set([
   "queued",
@@ -119,15 +148,25 @@ export function launchInput(
   skillId: string,
   prompt: string,
   mode: string,
+  options?: LaunchOptions,
 ): LaunchInput {
-  return {
+  const effectiveMode = ["pickup", "pickup_issue", "pickup_issues"].includes(skillId)
+    ? "autonomous"
+    : mode;
+  const result: LaunchInput = {
     taskId,
     skillId,
     prompt,
-    mode: ["pickup", "pickup_issue", "pickup_issues"].includes(skillId)
-      ? "autonomous"
-      : mode,
+    mode: effectiveMode,
   };
+  if (effectiveMode !== "autonomous" && options) {
+    if (options.view === "terminal") result.view = "terminal";
+    if (options.provider) result.provider = options.provider;
+    if (options.engineId) result.engineId = options.engineId;
+    if (options.model) result.model = options.model;
+    if (options.conversationMode) result.conversationMode = options.conversationMode;
+  }
+  return result;
 }
 export function canLaunchTask(taskStatus: string, taskId: string, runs: Run[]) {
   return (

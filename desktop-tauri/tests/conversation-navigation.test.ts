@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { conversationGroups } from "../src/domain/conversation-navigation.ts";
+import { conversationGroups, conversationTitle } from "../src/domain/conversation-navigation.ts";
 import type { Run } from "../src/domain/execution.ts";
 
 const run = (id:string, taskId:string):Run => ({id,projectId:"p",taskId,taskKey:taskId,skill:"",status:"running",createdAt:"2026-10-30",conversation:true});
@@ -35,4 +35,37 @@ test("conversation navigation sorts by creation date and by ticket ID", () => {
   const byId = conversationGroups([newest, older, newer], [], "id");
   assert.equal(byId[0].label, "");
   assert.deepEqual(byId[0].runs.map(r => r.id), ["new", "old", "latest"]);
+});
+
+test("conversationTitle formats ticket conversations with task title and skill label while ignoring slash command titles", () => {
+  const clarifyRun: Run = {
+    id: "r1",
+    projectId: "p",
+    taskId: "jira-e827b55e-PE-2186",
+    taskKey: "PE-2186",
+    skill: "clarify",
+    title: "/clarify-issue jira-e827b55e-PE-2186",
+    status: "running",
+    createdAt: "2026-11-05",
+    conversation: true,
+  };
+  const task = {
+    id: "jira-e827b55e-PE-2186",
+    key: "PE-2186",
+    title: "G2 - Golden path - Pub/Sub - Create",
+    status: "to_clarify",
+    source: "jira" as const,
+  };
+  assert.equal(
+    conversationTitle({ title: "/clarify-issue jira-e827b55e-PE-2186" }, clarifyRun, task),
+    "G2 - Golden path - Pub/Sub - Create - Clarify",
+  );
+  assert.equal(
+    conversationTitle({ title: "/clarify-issue jira-e827b55e-PE-2186" }, clarifyRun, undefined),
+    "PE-2186 - Clarify",
+  );
+  assert.equal(
+    conversationTitle({ title: "G2 - Golden path - Pub/Sub - Create - Clarify" }, clarifyRun, undefined),
+    "G2 - Golden path - Pub/Sub - Create - Clarify",
+  );
 });

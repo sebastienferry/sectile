@@ -9,8 +9,8 @@ export const PRIORITY_RANK: Record<string, number> = {
   low: 1,
 };
 
-export type SortField = "key" | "title" | "stage" | "priority";
-export const SORTABLE_FIELDS: readonly SortField[] = ["key", "title", "stage", "priority"] as const;
+export type SortField = "key" | "title" | "issueType" | "stage" | "priority" | "assignee" | "sprint";
+export const SORTABLE_FIELDS: readonly SortField[] = ["key", "title", "issueType", "stage", "priority", "assignee", "sprint"] as const;
 
 export interface SortState {
   field: SortField;
@@ -43,8 +43,35 @@ export function compareBy(field: SortField, board?: BoardMapping): (a: Task, b: 
       return compareIdentity;
     case "title":
       return (a, b) => text(a.title).localeCompare(text(b.title), undefined, { sensitivity: "base" });
+    case "issueType":
+      return (a, b) => {
+        const left = text(a.issueType).trim();
+        const right = text(b.issueType).trim();
+        if (!left && !right) return 0;
+        if (!left) return 1;
+        if (!right) return -1;
+        return left.localeCompare(right, undefined, { sensitivity: "base" });
+      };
     case "stage":
       return (a, b) => stageRank(a, board) - stageRank(b, board);
+    case "assignee":
+      return (a, b) => {
+        const left = text(a.assignee).trim();
+        const right = text(b.assignee).trim();
+        if (!left && !right) return 0;
+        if (!left) return 1;
+        if (!right) return -1;
+        return left.localeCompare(right, undefined, { sensitivity: "base" });
+      };
+    case "sprint":
+      return (a, b) => {
+        const left = text(a.sprint).trim();
+        const right = text(b.sprint).trim();
+        if (!left && !right) return 0;
+        if (!left) return 1;
+        if (!right) return -1;
+        return natural(left, right);
+      };
     case "priority":
     default:
       return (a, b) => priorityRank(a) - priorityRank(b);

@@ -141,12 +141,21 @@ test("a stopped discussion describes the saved turn as completed and replaces th
  expect(screen.getByRole("button",{name:"Terminal"})).toBeTruthy();
 });
 test("pending tools require an explicit decision; navigation does not interrupt Go", async () => {
-  vi.mocked(api.readConversation).mockResolvedValue({ ...snapshot("approval-chat"), approvals: [{ id: "tool-1", tool: "Bash", input: { command: "git status" } }] });
+  vi.mocked(api.readConversation).mockResolvedValue({
+    ...snapshot("approval-chat"),
+    approvals: [{
+      id: "tool-1",
+      tool: "Bash",
+      input: { command: "git status" },
+      suggestions: [{ type: "addRules", behavior: "allow", rules: [{ toolName: "Bash", ruleContent: "git status" }] }],
+    }],
+  });
   const view = render(<ProjectPrompt projectId="project-three" runId="approval-chat" onCreated={vi.fn()} />);
   await screen.findByText("Autorisation requise · Bash");
   expect(api.controlConversation).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Autoriser une fois" }));
-  await waitFor(() => expect(api.controlConversation).toHaveBeenCalledWith("approval-chat", { action: "approval", id: "tool-1", decision: "allow" }));
+  expect(screen.getByRole("button", { name: "Toujours autoriser" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Toujours autoriser" }));
+  await waitFor(() => expect(api.controlConversation).toHaveBeenCalledWith("approval-chat", { action: "approval", id: "tool-1", decision: "always" }));
   view.unmount();
   expect(api.controlConversation).not.toHaveBeenCalledWith(expect.anything(), { action: "interrupt" });
 });
@@ -249,4 +258,40 @@ test("prompt suggestions fill the composer without starting execution", () => {
  expect((screen.getByRole("textbox",{name:"Prompt libre"}) as HTMLTextAreaElement).value).toContain("sans modifier de fichiers");
  expect((screen.getByLabelText("Mode de conversation") as HTMLSelectElement).value).toBe("plan");
  expect(api.createConversation).not.toHaveBeenCalled();
+});
+
+test("running tool commands can be canceled from the tool row or with Escape in the composer", async () => {
+ vi.mocked(api.readConversation).mockResolvedValue({
+  id: "tool-cancel-chat",
+  busy: true,
+  readOnly: false,
+  events: [JSON.stringify({ kind: "tool", tool: "Bash", toolId: "bash-1", text: "npm test" })],
+ });
+ render(<ProjectPrompt projectId="project-cancel" runId="tool-cancel-chat" onCreated={vi.fn()} />);
+ const cancelToolBtn = await screen.findByRole("button", { name: "Annuler la commande en cours" });
+ fireEvent.click(cancelToolBtn);
+ await waitFor(() => expect(api.controlConversation).toHaveBeenCalledWith("tool-cancel-chat", { action: "interrupt" }));
+
+ vi.mocked(api.controlConversation).mockClear();
+ fireEvent.keyDown(screen.getByRole("textbox", { name: "Message suivant" }), { key: "Escape" });
+ await waitFor(() => expect(api.controlConversation).toHaveBeenCalledWith("tool-cancel-chat", { action: "interrupt" }));
+});
+
+test("turn-ready notices are hidden in active conversations to avoid duplicating Prêt à répondre", async () => {
+ vi.mocked(api.readConversation).mockResolvedValue({
+  id: "ready-dedup-chat",
+  busy: false,
+  readOnly: false,
+  events: [
+   JSON.stringify({ kind: "assistant", text: "Answer ready" }),
+   JSON.stringify({ kind: "notice", text: "Ready for your next message" }),
+   JSON.stringify({ kind: "notice", text: "Prêt pour votre prochain message" }),
+  ],
+ });
+ render(<ProjectPrompt projectId="project-dedup" runId="ready-dedup-chat" onCreated={vi.fn()} />);
+ await screen.findByText("Answer ready");
+ expect(screen.getByLabelText("Suivi de la conversation").textContent).toContain("Prêt à répondre");
+ expect(screen.queryByText("Ready for your next message")).toBeNull();
+ expect(screen.queryByText("Prêt pour votre prochain message")).toBeNull();
+ expect(screen.queryByText("Réponse terminée")).toBeNull();
 });

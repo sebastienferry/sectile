@@ -104,7 +104,7 @@ func (d *agentDaemon) desktopConversationProfiles(w http.ResponseWriter, r *http
 				if input.Provider != "claude" && input.Provider != "codex" {
 					return fmt.Errorf("moteur non pris en charge")
 				}
-				if input.Mode != "" && input.Mode != "plan" && input.Mode != "execute" {
+				if !agentconfig.ValidConversationMode(input.Mode) {
 					return fmt.Errorf("mode de conversation non pris en charge")
 				}
 				index := -1

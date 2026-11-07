@@ -16,9 +16,10 @@ function validatedLink(value: string, existing: TaskPullRequest[]): { url?: stri
   return { url: text };
 }
 
-export function TaskEditor({ projectId, projectName, taskId, available, onClose, onSaved }: {
-  projectId: string; projectName: string; taskId?: string; available: boolean;
-  onClose: () => void; onSaved: (task: Task) => void;
+export function TaskEditor({ projectId, projectName, projects, onSelectProject, taskId, available, knownSprints = [], knownAssignees = [], onClose, onSaved }: {
+  projectId: string; projectName: string; projects?: { id: string; name: string }[]; onSelectProject?: (project: { id: string; name: string }) => void; taskId?: string; available: boolean;
+  knownSprints?: string[]; knownAssignees?: string[];
+  onClose: () => void; onSaved: (task: Task, options?: { launch?: boolean }) => void;
 }) {
   const [trackers, setTrackers] = useState<TaskTrackers>();
   const [trackerId, setTrackerId] = useState("");
@@ -40,7 +41,7 @@ export function TaskEditor({ projectId, projectName, taskId, available, onClose,
       if (!current) return;
       setTrackers(sources);
       setOriginal(task);
-      setDraft(task ? { title: task.title ?? "", description: task.description ?? "", priority: task.priority || "medium", issueType: task.issueType ?? "" } : emptyDraft);
+      setDraft(task ? { title: task.title ?? "", description: task.description ?? "", priority: task.priority || "medium", issueType: task.issueType ?? "", sprint: task.sprint ?? "", assignee: task.assignee ?? "" } : emptyDraft);
       setLinks(taskLinks(task));
       const selected = task?.trackerId || sources.defaultTrackerId || sources.trackers[0]?.id || "";
       setTrackerId(selected);
@@ -56,19 +57,34 @@ export function TaskEditor({ projectId, projectName, taskId, available, onClose,
       .catch(() => { if (current) { setTypes([]); setTypesError("Types de ticket indisponibles. Le type actuel reste utilisable."); } });
     return () => { current = false; };
   }, [projectId, trackerId]);
-  const dirty = original ? draft.title !== original.title || draft.description !== (original.description ?? "") || draft.priority !== (original.priority || "medium") || draft.issueType !== (original.issueType ?? "") || !sameLinks(links, taskLinks(original)) : !!draft.title.trim() || !!draft.description.trim();
+  const dirty = original ? draft.title !== original.title || draft.description !== (original.description ?? "") || draft.priority !== (original.priority || "medium") || draft.issueType !== (original.issueType ?? "") || (draft.sprint ?? "").trim() !== (original.sprint ?? "").trim() || (draft.assignee ?? "").trim() !== (original.assignee ?? "").trim() || !sameLinks(links, taskLinks(original)) : !!draft.title.trim() || !!draft.description.trim() || !!(draft.sprint ?? "").trim() || !!(draft.assignee ?? "").trim();
   const canSave = available && !loading && !saving && !createdId && !!trackers?.trackers.length && !!trackerId && !!draft.title.trim() && draft.title.length <= 500 && draft.description.length <= 60000;
   const selectedTracker = trackers?.trackers.find(item => item.id === trackerId);
-  async function save() {
+  async function save(launchAfterCreate = false) {
     if (!canSave) return;
     const title = draft.title.trim();
+    const sprint = (draft.sprint ?? "").trim();
+    const assignee = (draft.assignee ?? "").trim();
     setSaving(true); setError("");
     try {
       if (!taskId) {
-        const created = await createTask(projectId, { ...draft, title, trackerId });
+        const payload: TaskFields & { trackerId: string } = {
+          title,
+          description: draft.description,
+          priority: draft.priority,
+          issueType: draft.issueType,
+          trackerId,
+          ...(sprint ? { sprint } : {}),
+          ...(assignee ? { assignee } : {}),
+        };
+        const created = await createTask(projectId, payload);
         if (!created?.id) throw new Error("Création non confirmée. Vérifiez le tableau avant de réessayer.");
         setCreatedId(created.id);
-        onSaved({ ...draft, ...created });
+        if (launchAfterCreate) {
+          onSaved({ ...payload, ...created }, { launch: true });
+        } else {
+          onSaved({ ...payload, ...created });
+        }
       } else {
         if (!original) throw new Error("Ticket non chargé.");
         const changes: TaskUpdateFields = {};
@@ -76,6 +92,8 @@ export function TaskEditor({ projectId, projectName, taskId, available, onClose,
         if (draft.description !== (original.description ?? "")) changes.description = draft.description;
         if (draft.priority !== (original.priority || "medium")) changes.priority = draft.priority;
         if (draft.issueType !== (original.issueType ?? "")) changes.issueType = draft.issueType;
+        if (sprint !== (original.sprint ?? "").trim()) changes.sprint = sprint;
+        if (assignee !== (original.assignee ?? "").trim()) changes.assignee = assignee;
         if (!sameLinks(links, taskLinks(original))) changes.prLinks = links;
         if (!Object.keys(changes).length) { onClose(); return; }
         await updateTask(projectId, taskId, changes);
@@ -109,15 +127,25 @@ export function TaskEditor({ projectId, projectName, taskId, available, onClose,
     {!loading && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       {!trackers?.trackers.length && <p role="status">Ce projet n’a pas de tracker connecté. Ajoutez-en un dans la configuration du projet pour créer un ticket.</p>}
       <div className="task-editor-meta">
+        {!taskId && projects && projects.length > 1 && onSelectProject && (
+          <label>Projet<select aria-label="Projet" value={projectId} onChange={event => {
+            const next = projects.find(item => item.id === event.target.value);
+            if (next) onSelectProject(next);
+          }}>{projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        )}
         {taskId ? <p><span>Tracker</span><strong>{selectedTracker?.name || selectedTracker?.scope || original?.source || "—"}</strong></p> : trackers && trackers.trackers.length > 1 && <label>Tracker<select value={trackerId} onChange={event => { setTrackerId(event.target.value); setDraft(value => ({ ...value, issueType: "" })); }}>{trackers.trackers.map(item => <option key={item.id} value={item.id}>{item.name || item.scope || item.provider}</option>)}</select></label>}
         <label>Type<select value={draft.issueType} onChange={event => setDraft(value => ({ ...value, issueType: event.target.value }))}><option value="">Par défaut</option>{[...new Set([...types, ...(draft.issueType ? [draft.issueType] : [])])].map(type => <option key={type} value={type}>{type}</option>)}</select></label>
         <label>Priorité<select value={draft.priority} onChange={event => setDraft(value => ({ ...value, priority: event.target.value }))}>{priorityOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label>Sprint<input list="task-editor-sprints" maxLength={200} value={draft.sprint ?? ""} onChange={event => setDraft(value => ({ ...value, sprint: event.target.value }))} placeholder="Aucun sprint" /></label>
+        <datalist id="task-editor-sprints">{[...new Set([...knownSprints, ...(original?.sprint ? [original.sprint] : [])])].map(s => <option key={s} value={s} />)}</datalist>
+        <label>Assigné<input list="task-editor-assignees" maxLength={200} value={draft.assignee ?? ""} onChange={event => setDraft(value => ({ ...value, assignee: event.target.value }))} placeholder="Non assigné" /></label>
+        <datalist id="task-editor-assignees">{[...new Set([...knownAssignees, ...(original?.assignee ? [original.assignee] : [])])].map(person => <option key={person} value={person} />)}</datalist>
       </div>
       {typesError && <p className="muted">{typesError}</p>}
       <label>Titre<input autoFocus required maxLength={500} value={draft.title} onChange={event => setDraft(value => ({ ...value, title: event.target.value }))} placeholder="Que faut-il faire ?" /></label>
       <label>Description <span className="muted">· Markdown</span><textarea rows={6} maxLength={60000} value={draft.description} onChange={event => setDraft(value => ({ ...value, description: event.target.value }))} placeholder="Décrivez le contexte et le résultat attendu…" /></label>
       {taskId && <details className="task-editor-links"><summary>Liens PR/MR · {links.length}</summary><p className="muted">Le dernier lien est le lien principal du ticket.</p><ol>{links.map((link, index) => <li key={`${link.url}-${index}`}><span title={link.url}>{link.url}</span>{link.state && <small>{link.state}</small>}{index === links.length - 1 && <small>Principal</small>}<button type="button" aria-label={`Monter ${link.url}`} disabled={index === 0} onClick={() => moveLink(index, -1)}>↑</button><button type="button" aria-label={`Descendre ${link.url}`} disabled={index === links.length - 1} onClick={() => moveLink(index, 1)}>↓</button><button type="button" aria-label={`Retirer ${link.url}`} onClick={() => setLinks(current => current.filter((_, position) => position !== index))}>×</button></li>)}</ol><div className="task-editor-link-add"><input aria-label="URL PR/MR" value={linkInput} onChange={event => { setLinkInput(event.target.value); setLinkError(""); }} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); addLink(); } }} placeholder="https://…" /><button type="button" onClick={addLink}>Ajouter un lien</button></div>{linkError && <p role="alert" className="error">{linkError}</p>}</details>}
-      <footer><span>{taskId ? "La mise à jour est envoyée au tracker du ticket." : "Le ticket sera créé dans le tracker sélectionné."}</span><button type="button" onClick={close}>Annuler</button><button className="primary" disabled={!canSave || !!taskId && !dirty}>{saving ? "Enregistrement…" : taskId ? "Enregistrer" : "Créer le ticket"}</button></footer>
+      <footer><span>{taskId ? "La mise à jour est envoyée au tracker du ticket." : "Le ticket sera créé dans le tracker sélectionné."}</span><button type="button" onClick={close}>Annuler</button>{!taskId && <button type="button" disabled={!canSave} onClick={() => void save(true)}>{saving ? "Lancement…" : "Créer et lancer"}</button>}<button className="primary" disabled={!canSave || !!taskId && !dirty}>{saving ? "Enregistrement…" : taskId ? "Enregistrer" : "Créer le ticket"}</button></footer>
     </form>}
   </section>;
 }

@@ -4,7 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 import { executionSnapshot, getTask, launchTask, listProjects, listTasks, stopRun } from "./lib/agent";
 import { trackerColumns, type Project, type Task } from "./domain/board";
 import { epicColorHex } from "./domain/epic-color";
-import { executionConnectionLabel, isActive, projectRuns, statusLabel, type Run } from "./domain/execution";
+import { isActive, launchInput, projectRuns, readTaskLaunchView, saveTaskLaunchView, statusLabel, type Run, type TaskLaunchView } from "./domain/execution";
+import packageJson from "../package.json";
 import {
   ExecutionProvider,
   useExecutionMonitor,
@@ -16,19 +17,18 @@ import { AdvancedFolders } from "./components/AdvancedFolders";
 import { WorkflowSettings } from "./components/WorkflowSettings";
 import { OrchestrationSettings } from "./components/OrchestrationSettings";
 
-import { openExternalLink, projectContext, providerReadiness, type ProjectContext } from "./lib/workspace";
+import { openExternalLink, projectContext, providerReadiness, renameProject, type ProjectContext } from "./lib/workspace";
 import { engineMark, nextSkill, skillLabels, stages, stageLabels, taskStage } from "./domain/workflow";
 import { DEFAULT_SORT, nextSort, orderedTasks, type SortState } from "./domain/task-list-order";
 import { taskFilterPredicate } from "./domain/task-filters";
-import { launchInput } from "./domain/execution";
 import { AttachedFolderSettings } from "./components/FolderContext";
 import { ProjectProfiles } from "./components/ProjectProfiles";
 import { TaskEditor } from "./components/TaskEditor";
 import { LocalSettings } from "./components/LocalSettings";
 import { ModeOnboarding } from "./components/ModeOnboarding";
-import { enableLocalRuntime, localSetupStatus, prepareLocalUpdate } from "./lib/local";
+import { deleteLocalProject, enableLocalRuntime, localSetupStatus, prepareLocalUpdate } from "./lib/local";
 import { Icon } from "./components/Icon";
-import { readPreference, savePreference, useAppearance } from "./lib/appearance";
+import { readPreference, savePreference, useAppearance, useFontSize } from "./lib/appearance";
 import {
   createWorkspaceDestination,
   resolveLaunchDestination,
@@ -137,9 +137,17 @@ function Workspace() {
   const [renamingDraft, setRenamingDraft] = useState("");
   const [conversationActionError, setConversationActionError] = useState("");
   const [stoppingConversationId, setStoppingConversationId] = useState("");
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
+  const [renamingProjectDraft, setRenamingProjectDraft] = useState("");
+  const [projectActionError, setProjectActionError] = useState<{ projectId: string; message: string } | null>(null);
+  const renamingProjectSubmitting = useRef(false);
+  const [deletingProject, setDeletingProject] = useState<Project | null>(null);
+  const [deletingProjectPending, setDeletingProjectPending] = useState(false);
+  const [deletingProjectError, setDeletingProjectError] = useState("");
   const [navigationTasks, setNavigationTasks] = useState<{projectId:string;items:Task[]}>();
   const [navigationContext, setNavigationContext] = useState<{projectId:string;value:ProjectContext}>();
   const [appearance, setAppearance] = useAppearance();
+  useFontSize();
   const { snapshot, fresh, refresh: refreshExecutions } = useExecutionMonitor();
   function setArchived(runId:string, archived:boolean) {
     setArchivedConversationIds(previous=>{
@@ -159,6 +167,47 @@ function Workspace() {
     try {await stopRun(run.id);await refreshExecutions();}
     catch {setConversationActionError("Arrêt non confirmé. Actualisez le suivi avant de réessayer.");}
     finally {setStoppingConversationId("");}
+  }
+  async function submitProjectRename(project: Project, draft: string) {
+    if (renamingProjectSubmitting.current) return;
+    const nextName = draft.trim();
+    setRenamingProjectId(null);
+    if (!nextName || nextName === project.name) return;
+    renamingProjectSubmitting.current = true;
+    setProjectActionError(null);
+    const previousName = project.name;
+    setProjects(previous => previous.map(item => item.id === project.id ? { ...item, name: nextName } : item));
+    try {
+      await renameProject(project.id, nextName);
+      await refreshProjects();
+    } catch {
+      setProjects(previous => previous.map(item => item.id === project.id ? { ...item, name: previousName } : item));
+      setProjectActionError({ projectId: project.id, message: "Impossible de renommer le projet." });
+    } finally {
+      renamingProjectSubmitting.current = false;
+    }
+  }
+  async function confirmDeleteProject() {
+    if (!deletingProject || deletingProjectPending) return;
+    setDeletingProjectPending(true);
+    setDeletingProjectError("");
+    try {
+      await deleteLocalProject(deletingProject.id);
+      const removedId = deletingProject.id;
+      setDeletingProject(null);
+      const remaining = projects.filter(p => p.id !== removedId);
+      setProjects(remaining);
+      if (currentRef.current?.projectId === removedId) {
+        if (remaining[0]) navigate(remaining[0], "board");
+        else setCurrent({ id: "settings", projectId: "settings", view: "settings" });
+      }
+      await refreshProjects();
+      await refreshExecutions();
+    } catch (cause) {
+      setDeletingProjectError(String(cause));
+    } finally {
+      setDeletingProjectPending(false);
+    }
   }
   const request = useRef(0);
   const initialized = useRef(false);
@@ -294,6 +343,9 @@ function Workspace() {
       if (agentMenuRef.current && !agentMenuRef.current.contains(e.target as Node)) {
         agentMenuRef.current.removeAttribute("open");
       }
+      document.querySelectorAll<HTMLDetailsElement>("details.project-action-menu[open]").forEach(menu => {
+        if (!menu.contains(e.target as Node)) menu.removeAttribute("open");
+      });
     };
     window.addEventListener("mousedown", handleClickOutside);
     return () => window.removeEventListener("mousedown", handleClickOutside);
@@ -363,6 +415,9 @@ function Workspace() {
           <strong id="app-title">
             Sectile Desktop
           </strong>
+          <span className="preview-badge" title={`Version ${packageJson.version}`}>
+            v{packageJson.version}
+          </span>
         </div>
         <div className="header-actions">
           <div className="theme-toggle" aria-label="Apparence">
@@ -477,20 +532,56 @@ function Workspace() {
                   const conversations = runs.filter(run => run.conversation && archivedConversationIds.includes(run.id)===showArchivedConversations);
                   const projectTasks = navigationTasks?.projectId === project.id ? navigationTasks.items : [];
                   const projectBoard = navigationContext?.projectId === project.id ? navigationContext.value.board : undefined;
+                  const orchestratorEnabled = navigationContext?.projectId === project.id && navigationContext.value.orchestratorEnabled !== undefined
+                    ? navigationContext.value.orchestratorEnabled
+                    : Boolean(project.orchestratorEnabled);
                   const visibleConversations = conversations.slice(0, visibleConversationCount);
+                  const isRenamingProject = renamingProjectId === project.id;
                   return (
                     <section className="project-group" key={project.id}>
                       <div
                         className={`project-row ${selected ? "selected" : ""}`}
                       >
-                        <button
-                          className="project-heading"
-                          onClick={() => navigate(project, "board")}
-                        >
-                          <Icon name="folder" />
-                          <span>{project.name}</span>
-                          {runs.some(run => !run.conversation && isActive(run)) && <span className="dot live" />}
-                        </button>
+                        {isRenamingProject ? (
+                          <input
+                            className="project-rename"
+                            autoFocus
+                            maxLength={80}
+                            value={renamingProjectDraft}
+                            aria-label="Nom du projet"
+                            onChange={e => setRenamingProjectDraft(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                void submitProjectRename(project, renamingProjectDraft);
+                              } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setRenamingProjectId(null);
+                              }
+                            }}
+                            onBlur={() => {
+                              if (renamingProjectId === project.id) {
+                                void submitProjectRename(project, renamingProjectDraft);
+                              }
+                            }}
+                            onClick={e => e.stopPropagation()}
+                          />
+                        ) : (
+                          <button
+                            className="project-heading"
+                            onClick={() => navigate(project, "board")}
+                            onDoubleClick={() => {
+                              setProjectActionError(null);
+                              setRenamingProjectId(project.id);
+                              setRenamingProjectDraft(project.name);
+                            }}
+                          >
+                            <Icon name="folder" />
+                            <span>{project.name}</span>
+                            {runs.some(run => !run.conversation && isActive(run)) && <span className="dot live" />}
+                          </button>
+                        )}
                         <button
                           className="icon-button"
                           aria-label={`Nouveau prompt dans ${project.name}`}
@@ -502,9 +593,9 @@ function Workspace() {
                         <details className="project-action-menu">
                           <summary aria-label={`Actions pour ${project.name}`} title={`Actions pour ${project.name}`}>•••</summary>
                           <div className="project-action-panel">
-                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"board");}}>Voir les tickets</button>
-                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"board");}}>Ouvrir le tableau</button>
-                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"executions");}}>File des exécutions</button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"board");}}><Icon name="list" /><span>Voir les tickets</span></button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"board");}}><Icon name="kanban" /><span>Ouvrir le tableau</span></button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"executions");}}><Icon name="terminal" /><span>File des exécutions</span></button>
                             <hr />
                             <button
                               type="button"
@@ -515,7 +606,9 @@ function Workspace() {
                                 toggleProjectSort(project.id, "created");
                               }}
                             >
-                              {getProjectSort(project.id) === "created" ? "✓ " : ""}Trier par création
+                              <Icon name="clock" />
+                              <span>Trier par création</span>
+                              {getProjectSort(project.id) === "created" && <span className="project-menu-check" aria-hidden="true"><Icon name="check" /></span>}
                             </button>
                             <button
                               type="button"
@@ -526,7 +619,9 @@ function Workspace() {
                                 toggleProjectSort(project.id, "id");
                               }}
                             >
-                              {getProjectSort(project.id) === "id" ? "✓ " : ""}Trier par identifiant
+                              <Icon name="hash" />
+                              <span>Trier par identifiant</span>
+                              {getProjectSort(project.id) === "id" && <span className="project-menu-check" aria-hidden="true"><Icon name="check" /></span>}
                             </button>
                             <button
                               type="button"
@@ -537,31 +632,60 @@ function Workspace() {
                                 toggleProjectSort(project.id, "stage");
                               }}
                             >
-                              {getProjectSort(project.id) === "stage" ? "✓ " : ""}Grouper par étape
+                              <Icon name="layers" />
+                              <span>Grouper par étape</span>
+                              {getProjectSort(project.id) === "stage" && <span className="project-menu-check" aria-hidden="true"><Icon name="check" /></span>}
                             </button>
                             <hr />
-                            <button disabled={!fresh||!snapshot?.status.capabilities?.includes("task-page")} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"ticket-editor");}}>Nouveau ticket</button>
-                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"prompt");}}>Démarrer un prompt libre</button>
-                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");setShowArchivedConversations(value=>!value);}}>{showArchivedConversations?"Voir les conversations actives":"Voir les conversations archivées"}</button>
+                            <button disabled={!fresh||!snapshot?.status.capabilities?.includes("task-page")} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"ticket-editor");}}><Icon name="plusSquare" /><span>Nouveau ticket</span></button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"prompt");}}><Icon name="chat" /><span>Démarrer un prompt libre</span></button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");setShowArchivedConversations(value=>!value);}}><Icon name="archive" /><span>{showArchivedConversations?"Voir les conversations actives":"Voir les conversations archivées"}</span></button>
                             <hr />
-                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"project-settings");}}>Réglages du projet</button>
+                            <button
+                              type="button"
+                              onClick={event => {
+                                event.currentTarget.closest("details")?.removeAttribute("open");
+                                setProjectActionError(null);
+                                setRenamingProjectId(project.id);
+                                setRenamingProjectDraft(project.name);
+                              }}
+                            >
+                              <Icon name="edit" />
+                              <span>Renommer le projet</span>
+                            </button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"project-settings");}}><Icon name="settings" /><span>Réglages du projet</span></button>
+                            <button
+                              type="button"
+                              className="danger"
+                              onClick={event => {
+                                event.currentTarget.closest("details")?.removeAttribute("open");
+                                setDeletingProjectError("");
+                                setDeletingProject(project);
+                              }}
+                            >
+                              <Icon name="trash" />
+                              <span>Supprimer le projet</span>
+                            </button>
                           </div>
                         </details>
                       </div>
+                      {projectActionError?.projectId === project.id && <p className="sidebar-action-error" role="alert">{projectActionError.message}</p>}
                       {selected && (
                         <div className="project-children">
-                          <button
-                            className="sidebar-link"
-                            onClick={() => navigate(project, "orchestration")}
-                          >
-                            <Icon name="agent" />
-                            Orchestration
-                          </button>
+                          {orchestratorEnabled && (
+                            <button
+                              className="sidebar-link"
+                              onClick={() => navigate(project, "orchestration")}
+                            >
+                              <Icon name="agent" />
+                              Orchestration
+                            </button>
+                          )}
                           {showArchivedConversations&&<div className="sidebar-group-label">Archivées <button type="button" onClick={()=>setShowArchivedConversations(false)}>Retour</button></div>}
                           {conversationGroups(visibleConversations,projectTasks,getProjectSort(project.id),projectBoard).map(group=><div className="sidebar-conversation-group" key={group.label||"recent"}>{group.label&&<div className="sidebar-group-label">{group.label}<span>{group.runs.length}</span></div>}{group.runs.map(run=>{
                             const task=projectTasks.find(item=>item.id===run.taskId);
                             const isRenaming = renamingRunId === run.id;
-                            const conversationTitle = run.title || run.taskKey || run.prompt?.split("\n")[0] || "Conversation";
+                            const initialRenameTitle = conversationTitle(undefined, run, task);
                             return <div className="sidebar-conversation-row" key={run.id}>
                               {isRenaming ? (
                                 <input
@@ -644,7 +768,7 @@ function Workspace() {
                                   onClick={e => {
                                     e.stopPropagation();
                                     setRenamingRunId(run.id);
-                                    setRenamingDraft(conversationTitle);
+                                    setRenamingDraft(initialRenameTitle);
                                   }}
                                 >
                                   <Icon name="edit" />
@@ -674,16 +798,6 @@ function Workspace() {
                 </p>
               )}
             </div>
-            <footer className="sidebar-footer">
-              <div>
-                <span className={`dot ${connected ? "live" : ""}`} />
-                {connected ? "Agent connecté" : "Agent indisponible"}
-                <small>
-                  {fresh ? executionConnectionLabel(snapshot?.status.runtimeMode) : "Connexion en cours"}
-                </small>
-              </div>
-
-            </footer>
           </aside>
           <div
             className="sidebar-resizer"
@@ -769,6 +883,7 @@ function Workspace() {
                       key={current.id}
                       selection={current}
                       project={projects.find((p) => p.id === current.projectId)}
+                      projects={projects}
                       navigate={navigate}
                       onFolderMapped={(id,path)=>setProjects(items=>items.map(item=>item.id===id?{...item,path}:item))}
                       onProjectsChanged={() => void refreshProjects()}
@@ -779,6 +894,7 @@ function Workspace() {
                         return {projectId:current.projectId,items:[...items.filter(item=>item.id!==task.id),task]};
                       })}
                       onContextChanged={value=>setNavigationContext({projectId:current.projectId,value})}
+                      archivedConversationIds={archivedConversationIds}
                       onArchiveConversation={runId=>setArchived(runId,true)}
                     />
                   )}
@@ -801,12 +917,75 @@ function Workspace() {
         sidebarActionLabel={current?.view === "settings" ? settingsHasWorkspace ? "Retourner à l’espace de travail" : "" : sidebar ? "Masquer les projets" : "Afficher les projets"}
         shortcutModifier={modifier}
       />
+      {deletingProject && (
+        <div
+          className="project-delete-backdrop"
+          onMouseDown={event => {
+            if (event.target === event.currentTarget && !deletingProjectPending) {
+              setDeletingProject(null);
+            }
+          }}
+        >
+          <dialog open className="project-delete-dialog" role="alertdialog" aria-label={`Supprimer ${deletingProject.name}`}>
+            <h2>Supprimer « {deletingProject.name} » ?</h2>
+            <p className="muted">
+              Le projet sera retiré de Sectile sur ce poste. Les fichiers de votre dossier local et les tickets distants sont conservés.
+            </p>
+            {deletingProjectError && <p role="alert" className="error">{deletingProjectError}</p>}
+            <div className="project-delete-actions">
+              <button
+                type="button"
+                disabled={deletingProjectPending}
+                onClick={() => setDeletingProject(null)}
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                className="danger-button"
+                disabled={deletingProjectPending}
+                onClick={() => void confirmDeleteProject()}
+              >
+                {deletingProjectPending ? "Suppression…" : "Confirmer la suppression"}
+              </button>
+            </div>
+          </dialog>
+        </div>
+      )}
     </div>
   );
 }
+interface SavedBoardFilters {
+  query?: string;
+  priority?: string;
+  status?: string;
+  assignee?: string;
+  parent?: string;
+  sprint?: string;
+  issueType?: string;
+}
+
+function readBoardFilters(projectId: string): SavedBoardFilters {
+  if (!projectId) return {};
+  try {
+    const raw = readPreference(`boardFilters.${projectId}`, "");
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveBoardFilters(projectId: string, filters: SavedBoardFilters) {
+  if (!projectId) return;
+  savePreference(`boardFilters.${projectId}`, JSON.stringify(filters));
+}
+
 function ProjectPane({
   selection,
   project,
+  projects,
   navigate,
   onFolderMapped,
   onProjectsChanged,
@@ -814,16 +993,19 @@ function ProjectPane({
   onTasksChanged,
   onTaskChanged,
   onContextChanged,
+  archivedConversationIds,
   onArchiveConversation,
 }: {
   selection: WorkspaceView;
   project?: Project;
+  projects: Project[];
   onFolderMapped: (projectId:string,path:string) => void;
   onProjectsChanged: () => void;
   navigationTasks?: Task[];
   onTasksChanged: (tasks:Task[]) => void;
   onTaskChanged: (task:Task) => void;
   onContextChanged: (context:ProjectContext) => void;
+  archivedConversationIds: string[];
   onArchiveConversation: (runId:string) => void;
   navigate: (
     project: Project,
@@ -850,16 +1032,40 @@ function ProjectPane({
   const [errorState, setErrorState] = useState<{projectId:string;message:string}>();
   const error = errorState?.projectId === selection.projectId ? errorState.message : "";
   const [busy, setBusy] = useState(false);
-  const [queryState, setQueryState] = useState<{projectId:string;value:string}>();
-  const query = queryState?.projectId === selection.projectId ? queryState.value : "";
+  const [filtersState, setFiltersState] = useState<{projectId:string;filters:SavedBoardFilters}>(() => ({
+    projectId: selection.projectId,
+    filters: readBoardFilters(selection.projectId),
+  }));
+  const currentFilters = useMemo(
+    () => (filtersState.projectId === selection.projectId ? filtersState.filters : readBoardFilters(selection.projectId)),
+    [filtersState, selection.projectId],
+  );
+  const query = currentFilters.query ?? "";
+  const priorityFilter = currentFilters.priority ?? "";
+  const statusFilter = currentFilters.status ?? "";
+  const assigneeFilter = currentFilters.assignee ?? "";
+  const parentFilter = currentFilters.parent ?? "";
+  const sprintFilter = currentFilters.sprint ?? "";
+  const issueTypeFilter = currentFilters.issueType ?? "";
+  const updateFilters = useCallback((patch: Partial<SavedBoardFilters>) => {
+    setFiltersState(prev => {
+      const base = prev.projectId === selection.projectId ? prev.filters : readBoardFilters(selection.projectId);
+      const next = { ...base, ...patch };
+      saveBoardFilters(selection.projectId, next);
+      return { projectId: selection.projectId, filters: next };
+    });
+  }, [selection.projectId]);
+  const setPriorityFilter = (value: string) => updateFilters({ priority: value });
+  const setStatusFilter = (value: string) => updateFilters({ status: value });
+  const setAssigneeFilter = (value: string) => updateFilters({ assignee: value });
+  const setParentFilter = (value: string) => updateFilters({ parent: value });
+  const setSprintFilter = (value: string) => updateFilters({ sprint: value });
+  const setIssueTypeFilter = (value: string) => updateFilters({ issueType: value });
+  const [sprintSuggestionsOpen, setSprintSuggestionsOpen] = useState(false);
   const [grouping,setGrouping] = useState<"stage"|"tracker">(()=>readPreference("boardGrouping","stage")==="tracker"?"tracker":"stage");
   const [compactCards,setCompactCards] = useState(()=>readPreference("boardCards","compact")!=="full");
   const [ticketView,setTicketView]=useState<"board"|"list">(()=>readPreference("ticketView","board")==="list"?"list":"board");
   const [tableSort,setTableSort]=useState<SortState>(DEFAULT_SORT);
-  const [priorityFilter,setPriorityFilter]=useState("");
-  const [statusFilter,setStatusFilter]=useState("");
-  const [assigneeFilter,setAssigneeFilter]=useState("");
-  const [parentFilter,setParentFilter]=useState("");
   const [filterMenuOpen,setFilterMenuOpen]=useState(false);
   const filterMenuRef=useRef<HTMLDivElement>(null);
   useEffect(()=>{
@@ -880,9 +1086,9 @@ function ProjectPane({
   const [launchError,setLaunchError]=useState("");
   const [visibleByColumn,setVisibleByColumn] = useState<Record<string,number>>({});
   const [visibleListCount,setVisibleListCount]=useState(80);
-  useEffect(()=>setVisibleByColumn({}),[selection.projectId,query,grouping,priorityFilter,statusFilter,assigneeFilter,parentFilter]);
-  useEffect(()=>setVisibleListCount(80),[selection.projectId,query,priorityFilter,statusFilter,assigneeFilter,parentFilter]);
-  useEffect(()=>{setSelectedTaskIds([]);setBatchConfirm(false);setLaunchError("");setPriorityFilter("");setStatusFilter("");setAssigneeFilter("");setParentFilter("");},[selection.projectId]);
+  useEffect(()=>setVisibleByColumn({}),[selection.projectId,query,grouping,priorityFilter,statusFilter,assigneeFilter,parentFilter,sprintFilter,issueTypeFilter]);
+  useEffect(()=>setVisibleListCount(80),[selection.projectId,query,priorityFilter,statusFilter,assigneeFilter,parentFilter,sprintFilter,issueTypeFilter]);
+  useEffect(()=>{setSelectedTaskIds([]);setBatchConfirm(false);setLaunchError("");},[selection.projectId]);
   const [contextState,setContextState] = useState<{projectId:string;value:ProjectContext}>();
   const [contextError,setContextError] = useState<{projectId:string;message:string}>();
   const [contextRefresh,setContextRefresh] = useState(0);
@@ -944,8 +1150,10 @@ function ProjectPane({
       status: statusFilter,
       assignee: assigneeFilter,
       parent: parentFilter,
+      sprint: sprintFilter,
+      issueType: issueTypeFilter,
     }, context?.board),
-    [query, priorityFilter, statusFilter, assigneeFilter, parentFilter, context?.board]
+    [query, priorityFilter, statusFilter, assigneeFilter, parentFilter, sprintFilter, issueTypeFilter, context?.board]
   );
   const remoteColumns = trackerColumns(tasks, taskFilter);
   const hasRemoteTasks = allRemoteTasks.length > 0;
@@ -1019,19 +1227,53 @@ function ProjectPane({
       hasNone,
     };
   }, [allRemoteTasks]);
-  const hasActiveFilters = Boolean(priorityFilter || statusFilter || assigneeFilter || parentFilter);
-  const activeFilterCount = [priorityFilter, statusFilter, assigneeFilter, parentFilter].filter(Boolean).length;
+  const availableSprints = useMemo(() => {
+    const sprints = new Set<string>();
+    let hasNone = false;
+    for (const t of allRemoteTasks) {
+      if (t.sprint?.trim()) {
+        sprints.add(t.sprint.trim());
+      } else {
+        hasNone = true;
+      }
+    }
+    return {
+      sprints: Array.from(sprints).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })),
+      hasNone,
+    };
+  }, [allRemoteTasks]);
+  const availableIssueTypes = useMemo(() => {
+    const types = new Set<string>();
+    let hasNone = false;
+    for (const t of allRemoteTasks) {
+      if (t.issueType?.trim()) {
+        types.add(t.issueType.trim());
+      } else {
+        hasNone = true;
+      }
+    }
+    return {
+      types: Array.from(types).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
+      hasNone,
+    };
+  }, [allRemoteTasks]);
+  const hasActiveFilters = Boolean(priorityFilter || statusFilter || assigneeFilter || parentFilter || sprintFilter || issueTypeFilter);
+  const activeFilterCount = [priorityFilter, statusFilter, assigneeFilter, parentFilter, sprintFilter, issueTypeFilter].filter(Boolean).length;
   const resetFilters = () => {
-    setPriorityFilter("");
-    setStatusFilter("");
-    setAssigneeFilter("");
-    setParentFilter("");
+    updateFilters({
+      priority: "",
+      status: "",
+      assignee: "",
+      parent: "",
+      sprint: "",
+      issueType: "",
+    });
   };
   const columns = grouping === "stage" ? [...stages.map(stage=>({name:stageLabels[stage],tasks:visibleTasks.filter(task=>taskStage(task,context?.board)===stage),stage})),...(visibleTasks.some(task=>!taskStage(task,context?.board))?[{name:"Étape inconnue",tasks:visibleTasks.filter(task=>!taskStage(task,context?.board)),stage:undefined}]:[])] : remoteColumns.map(column=>({...column,stage:undefined}));
   const count = columns.reduce((n, c) => n + c.tasks.length, 0);
   const selectedTasks=selectedTaskIds.map(id=>allRemoteTasks.find(task=>task.id===id)).filter((task):task is Task=>Boolean(task));
   function toggleTask(id:string){setSelectedTaskIds(previous=>previous.includes(id)?previous.filter(item=>item!==id):[...previous,id]);setBatchConfirm(false);}
-  async function startSkill(task:Task,skillId:string){
+  async function startSkill(task:Task,skillId:string,viewOverride?:TaskLaunchView){
     if(launching||!project||!context)return;
     setLaunching(true);setLaunchError("");
     try{
@@ -1042,7 +1284,9 @@ function ProjectPane({
         const readiness=await providerReadiness(freshContext.aiProvider);
         if(readiness.steps?.mcp?.configuration?.present&&!readiness.steps.mcp.configuration.valid)throw new Error("MCP unavailable");
       }
-      await launchTask(project.id,launchInput(task.id,skillId,"",""));
+      const chosenView=viewOverride??readTaskLaunchView();
+      if(viewOverride)saveTaskLaunchView(viewOverride);
+      await launchTask(project.id,launchInput(task.id,skillId,"","",chosenView==="terminal"?{view:"terminal"}:undefined));
       await monitor.refresh();
       navigate(project,"task",undefined,task.id);
     }catch{setLaunchError("Lancement non confirmé. Vérifiez la configuration et le suivi avant de réessayer.");}
@@ -1066,7 +1310,8 @@ function ProjectPane({
   function taskMenu(task:Task){
     const next=context?nextSkill(task,context):undefined;
     const launchDisabled=launching||!monitor.fresh||taskStage(task,context?.board)==="finished";
-    return <select className="task-actions" aria-label={`Actions pour ${task.key||task.title}`} title="Actions du ticket" defaultValue="" onChange={event=>{const value=event.currentTarget.value;event.currentTarget.value="";if(value==="open"){if(project)navigate(project,"task",undefined,task.id);}else if(value==="edit"){if(project)navigate(project,"ticket-editor",undefined,task.id);}else if(value)void startSkill(task,value);}}><option value="">•••</option><option value="open">Voir le workflow</option><option value="edit" disabled={!monitor.fresh||!monitor.snapshot?.status.capabilities?.includes("task-page")}>Modifier le ticket</option>{next?.skillId&&<option value={next.skillId} disabled={launchDisabled}>Lancer : {next.label}</option>}{context?.skills.filter(skill=>skill.id!==next?.skillId&&skill.id!=="pickup_issues").map(skill=><option key={skill.id} value={skill.id} disabled={launchDisabled}>Lancer : {skillLabels[skill.id]||skill.id}</option>)}</select>;
+    const defaultView=readTaskLaunchView();
+    return <select className="task-actions" aria-label={`Actions pour ${task.key||task.title}`} title="Actions du ticket" defaultValue="" onChange={event=>{const value=event.currentTarget.value;event.currentTarget.value="";if(value==="open"){if(project)navigate(project,"task",undefined,task.id);}else if(value==="edit"){if(project)navigate(project,"ticket-editor",undefined,task.id);}else if(value.startsWith("terminal:")){void startSkill(task,value.slice(9),"terminal");}else if(value.startsWith("conversation:")){void startSkill(task,value.slice(13),"conversation");}else if(value)void startSkill(task,value);}}><option value="">•••</option><option value="open">Voir le workflow</option><option value="edit" disabled={!monitor.fresh||!monitor.snapshot?.status.capabilities?.includes("task-page")}>Modifier le ticket</option>{next?.skillId&&<option value={next.skillId} disabled={launchDisabled}>Lancer : {next.label}</option>}{next?.skillId&&next.skillId!=="pickup"&&(defaultView==="terminal"?<option value={`conversation:${next.skillId}`} disabled={launchDisabled}>Lancer en conversation : {next.label}</option>:<option value={`terminal:${next.skillId}`} disabled={launchDisabled}>Lancer dans le terminal : {next.label}</option>)}{context?.skills.filter(skill=>skill.id!==next?.skillId&&skill.id!=="pickup_issues").map(skill=><option key={skill.id} value={skill.id} disabled={launchDisabled}>Lancer : {skillLabels[skill.id]||skill.id}</option>)}</select>;
   }
   function epicStyle(task:Task):CSSProperties|undefined {
     const color=context?.board?.epicColors ? epicColorHex(task.parentKey) : undefined;
@@ -1114,7 +1359,7 @@ function ProjectPane({
           {error}
         </p>
       )}
-      {selection.view === "project-settings" ? <ProjectProfiles key={selection.projectId} projectId={selection.projectId} after={<section className="project-advanced" aria-label="Options avancées du projet"><h2>Options avancées</h2><details className="additional-folder-settings"><summary>Dossiers supplémentaires<small>Contexte partagé entre les conversations du projet</small></summary><AttachedFolderSettings projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/></details><AdvancedFolders projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/><WorkflowSettings projectId={selection.projectId}/><OrchestrationSettings projectId={selection.projectId} onSupervise={()=>{if(project)navigate(project,"orchestration");}}/></section>}><>{project && <ProjectFolderSetup variant="settings" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}<ProjectTrackerSetup projectId={selection.projectId} onChanged={() => {setContextRefresh(value=>value+1);onProjectsChanged();}} onManageTrackers={() => navigate({id:"settings",name:"Paramètres"},"settings",undefined,undefined,"connections")}/></></ProjectProfiles> : selection.view === "ticket-editor" ? <TaskEditor projectId={selection.projectId} projectName={project?.name||"Projet"} taskId={selection.taskId} available={!!monitor.fresh&&!!monitor.snapshot?.status.capabilities?.includes("task-page")} onClose={()=>{if(project)navigate(project,selection.taskId?"task":"board",undefined,selection.taskId);}} onSaved={task=>{onTaskChanged(task);void refresh();if(project)navigate(project,"task",undefined,task.id);}}/> : selection.view === "task" && selection.taskId ? <Suspense fallback={<p>Ouverture du workflow…</p>}><WorkflowTask projectId={selection.projectId} taskId={selection.taskId} onBack={()=>{if(project)navigate(project,"board");}} onSetup={()=>{if(project)navigate(project,"settings");}} onEdit={()=>{if(project)navigate(project,"ticket-editor",undefined,selection.taskId);}} onExecution={runId=>{if(project)navigate(project,"executions",runId||undefined);}} onArchiveConversation={onArchiveConversation}/></Suspense> : selection.view === "board" ? (
+      {selection.view === "project-settings" ? <ProjectProfiles key={selection.projectId} projectId={selection.projectId} after={<section className="project-advanced" aria-label="Options avancées du projet"><h2>Options avancées</h2><details className="additional-folder-settings"><summary>Dossiers supplémentaires<small>Contexte partagé entre les conversations du projet</small></summary><AttachedFolderSettings projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/></details><AdvancedFolders projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/><WorkflowSettings projectId={selection.projectId}/><OrchestrationSettings projectId={selection.projectId} onChanged={onProjectsChanged} onSupervise={()=>{if(project)navigate(project,"orchestration");}}/></section>}><>{project && <ProjectFolderSetup variant="settings" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}<ProjectTrackerSetup projectId={selection.projectId} onChanged={() => {setContextRefresh(value=>value+1);onProjectsChanged();}} onManageTrackers={() => navigate({id:"settings",name:"Paramètres"},"settings",undefined,undefined,"connections")}/></></ProjectProfiles> : selection.view === "ticket-editor" ? <TaskEditor projectId={selection.projectId} projectName={project?.name||"Projet"} projects={projects} onSelectProject={next=>{const found=projects.find(item=>item.id===next.id);if(found)navigate(found,"ticket-editor");}} taskId={selection.taskId} available={!!monitor.fresh&&!!monitor.snapshot?.status.capabilities?.includes("task-page")} knownSprints={availableSprints.sprints} knownAssignees={availableAssignees.people} onClose={()=>{if(project)navigate(project,selection.taskId?"task":"board",undefined,selection.taskId);}} onSaved={(task,options)=>{onTaskChanged(task);void refresh();if(project){if(options?.launch){const skillId=context?.skills.find(s=>s.id==="clarify")?.id||context?.skills[0]?.id||"clarify";void launchTask(project.id,launchInput(task.id,skillId,"","")).then(()=>monitor.refresh()).catch(()=>{}).finally(()=>navigate(project,"task",undefined,task.id));}else{navigate(project,"task",undefined,task.id);}}}}/> : selection.view === "task" && selection.taskId ? <Suspense fallback={<p>Ouverture du workflow…</p>}><WorkflowTask projectId={selection.projectId} taskId={selection.taskId} onBack={()=>{if(project)navigate(project,"board");}} onSetup={()=>{if(project)navigate(project,"settings");}} onEdit={()=>{if(project)navigate(project,"ticket-editor",undefined,selection.taskId);}} onExecution={runId=>{if(project)navigate(project,"executions",runId||undefined);}} onOpenConversation={runId=>{if(project)navigate(project,"prompt",runId);}} onArchiveConversation={onArchiveConversation} onTasksLoaded={items=>{setTaskState({projectId:selection.projectId,items});onTasksChanged(items);}}/></Suspense> : selection.view === "board" ? (
         <div className="board-workspace">
           {error && tasks.length > 0 && <p className="hint" role="status">La dernière actualisation a échoué. Les tickets affichés proviennent de la lecture précédente.</p>}
           {!boardContextPending && !currentContextError && !localOnlyProject && <div className="board-toolbar">
@@ -1125,7 +1370,7 @@ function ProjectPane({
                 aria-label="Rechercher des tickets"
                 placeholder="Rechercher un ticket…"
                 value={query}
-                onChange={(e) => setQueryState({projectId:selection.projectId,value:e.target.value})}
+                onChange={(e) => updateFilters({ query: e.target.value })}
               />
             </label>
             <div className="board-filter-dropdown" ref={filterMenuRef}>
@@ -1156,6 +1401,81 @@ function ProjectPane({
                   </div>
                   <div className="board-filter-popover-body">
                     <div className="board-filter-row">
+                      <span className="board-filter-label">Sprint</span>
+                      <div className="board-filter-sprint-field">
+                        <input
+                          type="text"
+                          list="board-filter-sprint-options"
+                          aria-label="Filtrer par sprint"
+                          className={sprintFilter ? "active" : ""}
+                          placeholder="Tous les sprints…"
+                          value={sprintFilter === "__none__" ? "Sans sprint" : sprintFilter}
+                          onFocus={() => setSprintSuggestionsOpen(true)}
+                          onBlur={() => setTimeout(() => setSprintSuggestionsOpen(false), 150)}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setSprintFilter(val === "Sans sprint" ? "__none__" : val);
+                            setSprintSuggestionsOpen(true);
+                          }}
+                        />
+                        {sprintFilter && (
+                          <button
+                            type="button"
+                            className="board-filter-input-clear"
+                            aria-label="Effacer le filtre sprint"
+                            title="Tous les sprints"
+                            onClick={() => setSprintFilter("")}
+                          >
+                            ×
+                          </button>
+                        )}
+                        <datalist id="board-filter-sprint-options">
+                          {availableSprints.hasNone && <option value="Sans sprint" />}
+                          {availableSprints.sprints.map(s => (
+                            <option key={s} value={s} />
+                          ))}
+                        </datalist>
+                        {sprintSuggestionsOpen && (availableSprints.hasNone || availableSprints.sprints.length > 0) && (
+                          <div className="board-filter-suggestions" role="listbox" aria-label="Suggestions de sprint">
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={!sprintFilter}
+                              className={`board-filter-suggestion-item ${!sprintFilter ? "active" : ""}`}
+                              onMouseDown={e => { e.preventDefault(); setSprintFilter(""); setSprintSuggestionsOpen(false); }}
+                            >
+                              Tous les sprints
+                            </button>
+                            {availableSprints.hasNone && (
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={sprintFilter === "__none__"}
+                                className={`board-filter-suggestion-item ${sprintFilter === "__none__" ? "active" : ""}`}
+                                onMouseDown={e => { e.preventDefault(); setSprintFilter("__none__"); setSprintSuggestionsOpen(false); }}
+                              >
+                                Sans sprint
+                              </button>
+                            )}
+                            {availableSprints.sprints
+                              .filter(s => !sprintFilter || sprintFilter === "__none__" || s.toLowerCase().includes(sprintFilter.toLowerCase()))
+                              .map(s => (
+                                <button
+                                  key={s}
+                                  type="button"
+                                  role="option"
+                                  aria-selected={sprintFilter === s}
+                                  className={`board-filter-suggestion-item ${sprintFilter === s ? "active" : ""}`}
+                                  onMouseDown={e => { e.preventDefault(); setSprintFilter(s); setSprintSuggestionsOpen(false); }}
+                                >
+                                  {s}
+                                </button>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="board-filter-row">
                       <span className="board-filter-label">Macro</span>
                       <select
                         aria-label="Filtrer par parent"
@@ -1184,6 +1504,21 @@ function ProjectPane({
                         {availableAssignees.hasUnassigned && <option value="__unassigned__">Non assigné</option>}
                         {availableAssignees.people.map(person => (
                           <option key={person} value={person}>{person}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="board-filter-row">
+                      <span className="board-filter-label">Type</span>
+                      <select
+                        aria-label="Filtrer par type"
+                        className={issueTypeFilter ? "active" : ""}
+                        value={issueTypeFilter}
+                        onChange={e => setIssueTypeFilter(e.target.value)}
+                      >
+                        <option value="">Tous les types</option>
+                        {availableIssueTypes.hasNone && <option value="__none__">Sans type</option>}
+                        {availableIssueTypes.types.map(type => (
+                          <option key={type} value={type}>{type}</option>
                         ))}
                       </select>
                     </div>
@@ -1255,48 +1590,50 @@ function ProjectPane({
                 </div>
               )}
             </div>
-            <div className="board-grouping-switch" role="group" aria-label="Regroupement des tickets">
-              <button
-                type="button"
-                className="grouping-toggle"
-                aria-pressed={grouping === "stage"}
-                title="Par étape du workflow"
-                aria-label="Par étape du workflow"
-                onClick={() => {
-                  setGrouping("stage");
-                  savePreference("boardGrouping", "stage");
-                }}
-              >
-                <Icon name="sparkles" />
-              </button>
-              <button
-                type="button"
-                className="grouping-toggle"
-                aria-pressed={grouping === "tracker"}
-                title="Par statut tracker"
-                aria-label="Par statut tracker"
-                onClick={() => {
-                  setGrouping("tracker");
-                  savePreference("boardGrouping", "tracker");
-                }}
-              >
-                <Icon name="kanban" />
-              </button>
-              <select
-                aria-label="Regrouper les tickets"
-                className="sr-only"
-                tabIndex={-1}
-                value={grouping}
-                onChange={e => {
-                  const value = e.target.value === "tracker" ? "tracker" : "stage";
-                  setGrouping(value);
-                  savePreference("boardGrouping", value);
-                }}
-              >
-                <option value="stage">Par étape du workflow</option>
-                <option value="tracker">Par statut tracker</option>
-              </select>
-            </div>
+            {ticketView === "board" && (
+              <div className="board-grouping-switch" role="group" aria-label="Regroupement des tickets">
+                <button
+                  type="button"
+                  className="grouping-toggle"
+                  aria-pressed={grouping === "stage"}
+                  title="Par étape du workflow"
+                  aria-label="Par étape du workflow"
+                  onClick={() => {
+                    setGrouping("stage");
+                    savePreference("boardGrouping", "stage");
+                  }}
+                >
+                  <Icon name="sparkles" />
+                </button>
+                <button
+                  type="button"
+                  className="grouping-toggle"
+                  aria-pressed={grouping === "tracker"}
+                  title="Par statut tracker"
+                  aria-label="Par statut tracker"
+                  onClick={() => {
+                    setGrouping("tracker");
+                    savePreference("boardGrouping", "tracker");
+                  }}
+                >
+                  <Icon name="kanban" />
+                </button>
+                <select
+                  aria-label="Regrouper les tickets"
+                  className="sr-only"
+                  tabIndex={-1}
+                  value={grouping}
+                  onChange={e => {
+                    const value = e.target.value === "tracker" ? "tracker" : "stage";
+                    setGrouping(value);
+                    savePreference("boardGrouping", value);
+                  }}
+                >
+                  <option value="stage">Par étape du workflow</option>
+                  <option value="tracker">Par statut tracker</option>
+                </select>
+              </div>
+            )}
             {ticketView==="board"&&<button type="button" className="board-density" aria-label="Cartes compactes" title="Basculer la densité des cartes" aria-pressed={compactCards} onClick={()=>setCompactCards(value=>{const next=!value;savePreference("boardCards",next?"compact":"full");return next;})}>{compactCards?"Compact":"Détaillé"}</button>}
             <span className="badge" title="Statuts du tracker · lecture seule">{count} ticket{count>1?"s":""}</span><span className="sr-only">Statuts du tracker · lecture seule</span>
             <button type="button" className="board-new-ticket" aria-label="Nouveau ticket" title="Nouveau ticket" disabled={!monitor.fresh||!monitor.snapshot?.status.capabilities?.includes("task-page")} onClick={()=>{if(project)navigate(project,"ticket-editor");}}><Icon name="plus"/></button>
@@ -1311,7 +1648,7 @@ function ProjectPane({
           )}
           {boardContextPending && !busy && <p className="hint" role="status">Chargement de la configuration du projet…</p>}
           {currentContextError && <div className="error" role="alert">Configuration du tableau indisponible : {currentContextError} <button onClick={()=>setContextRefresh(value=>value+1)}>Réessayer</button></div>}
-          {ticketView==="list"&&!localOnlyProject?<div className="ticket-list" role="region" aria-label="Liste des tickets" tabIndex={0}><table><thead><tr><th aria-label="Sélection"/>{([["key","Clé"],["title","Titre"],["stage","Statut"],["priority","Priorité"]] as const).map(([field,label])=>{const active=tableSort.field===field;return <th key={field} scope="col" aria-sort={active?(tableSort.ascending?"ascending":"descending"):"none"}><button type="button" className="sort-header" onClick={()=>setTableSort(current=>nextSort(current,field))}>{label}{active&&<span className="sort-arrow" aria-hidden="true">{tableSort.ascending?"▲":"▼"}</span>}</button></th>;})}<th>Moteur</th><th>PR</th><th>Actions</th></tr></thead><tbody>{sortedTasks.slice(0,visibleListCount).map(task=>{
+          {ticketView==="list"&&!localOnlyProject?<div className="ticket-list" role="region" aria-label="Liste des tickets" tabIndex={0}><table><thead><tr><th aria-label="Sélection"/>{([["key","Clé"],["title","Titre"],["issueType","Type"],["stage","Statut"],["priority","Priorité"],["sprint","Sprint"],["assignee","Assigné"]] as const).map(([field,label])=>{const active=tableSort.field===field;return <th key={field} scope="col" aria-sort={active?(tableSort.ascending?"ascending":"descending"):"none"}><button type="button" className="sort-header" onClick={()=>setTableSort(current=>nextSort(current,field))}>{label}{active&&<span className="sort-arrow" aria-hidden="true">{tableSort.ascending?"▲":"▼"}</span>}</button></th>;})}<th>Moteur</th><th>PR</th><th>Actions</th></tr></thead><tbody>{sortedTasks.slice(0,visibleListCount).map(task=>{
             const next=context?nextSkill(task,context):undefined;
             const taskRun=activeTaskRuns.get(task.id);
             const active=taskRun&&isActive(taskRun);
@@ -1323,8 +1660,11 @@ function ProjectPane({
               <td><input type="checkbox" aria-label={`Sélectionner ${task.key||task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={()=>toggleTask(task.id)}/></td>
               <td><button type="button" className="task-key-link" title={`Ouvrir le ticket ${task.key||task.id}`} aria-label={`Ouvrir le ticket ${task.key||task.id}`} onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.key||task.id}</button></td>
               <td><button type="button" className="task-open" onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button>{task.parentKey&&<small className="epic-chip" style={epicStyle(task)} title={task.parentTitle}>{task.parentKey}</small>}</td>
+              <td>{task.issueType||"—"}</td>
               <td>{task.trackerStatus||"—"}</td>
               <td><span className={`priority priority-${task.priority||"none"}`}>{task.priority||"—"}</span></td>
+              <td>{task.sprint||"—"}</td>
+              <td>{task.assignee||"Non assigné"}</td>
               <td>{context?.aiProvider?<span className="engine-mark" title={context.aiProvider==="codex"?"Codex":context.aiProvider==="claude"?"Claude Code":context.aiProvider}>{engineMark(context.aiProvider)}</span>:"—"}</td>
               <td className="ticket-pr-cell">{(()=>{
                 const prLinks = taskPullRequests(task);
@@ -1376,8 +1716,9 @@ function ProjectPane({
                     </div>
                     <h3><button className="task-open" title={task.title} onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button></h3>
                     {task.parentKey&&<span className="epic-chip" style={epicStyle(task)} title={task.parentTitle}>{task.parentKey}</span>}
+                    {task.issueType&&<span className="issue-type-chip" title={`Type : ${task.issueType}`}>{task.issueType}</span>}
+                    {task.sprint&&<span className="sprint-chip" title={`Sprint : ${task.sprint}`}>{task.sprint}</span>}
                     {task.priority&&<span className={`priority priority-${task.priority}`}>{task.priority}</span>}
-                    <p className="task-stage">{taskStage(task,context?.board)?stageLabels[taskStage(task,context?.board)!]:"Étape non déterminée"}</p>
                     {taskRun && isActive(taskRun) && <p className="task-run-state" role="status">{skillLabels[taskRun.skill] || taskRun.skill} · {statusLabel(taskRun)}</p>}
                     <footer>
                       <span>{task.assignee || "Non assigné"}</span>
@@ -1436,6 +1777,7 @@ function ProjectPane({
             } else setSelectedRun(id);
           }}
           initialTaskId={selection.taskId}
+          archivedConversationIds={archivedConversationIds}
           active
         />
       )}

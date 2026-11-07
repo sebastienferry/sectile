@@ -534,6 +534,8 @@ func (d *agentDaemon) restoreRuns() {
 		entry := record.Run
 		if entry.Conversation && entry.TaskID == "" && entry.Title == "" {
 			entry.Title = titleFromConversationTrace(record.Trace)
+		} else if entry.Conversation && entry.TaskID != "" && (strings.HasPrefix(strings.TrimSpace(entry.Title), "/") || strings.HasPrefix(strings.TrimSpace(entry.Title), "$")) {
+			entry.Title = ""
 		}
 		entry.SessionID = ""
 		entry.ExternalTerminal = ""

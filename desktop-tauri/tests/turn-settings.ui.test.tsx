@@ -23,10 +23,18 @@ test("live Codex models replace stale workstation suggestions without losing the
 });
 test("a compact profile model stays a single menu choice without a custom input or mode explanation",async()=>{
  vi.mocked(api.providerModels).mockResolvedValue([]);
- render(<TurnSettings compact provider="codex" defaultModel="gpt-6-astra" value={{model:"gpt-6-astra",mode:"execute"}} onChange={vi.fn()} disabled={false}/>);
- expect((screen.getByLabelText("Modèle") as HTMLSelectElement).value).toBe("gpt-6-astra");
+ const view=render(<TurnSettings compact showProviderMark provider="claude" defaultModel="claude-opus-4-6" value={{model:"claude-opus-4-6",mode:"execute"}} onChange={vi.fn()} disabled={false}/>);
+ expect((screen.getByLabelText("Modèle") as HTMLSelectElement).value).toBe("claude-opus-4-6");
  expect(screen.queryByLabelText("Identifiant du modèle")).toBeNull();
  expect(screen.getByText(/Choix appliqués à l’envoi/).hasAttribute("hidden")).toBe(true);
+ expect(document.querySelector(".composer-chip-model .composer-provider-icon-claude")).toBeTruthy();
+ expect(document.querySelector(".composer-chip-mode")?.classList.contains("composer-chip--alert")).toBe(true);
+ fireEvent.click(document.querySelector(".composer-chip-model")!);
+ expect(screen.getByRole("dialog",{name:"Modèle et effort"})).toBeTruthy();
+ expect(screen.getByText("Faster")).toBeTruthy();
+ expect(screen.getByText("Smarter")).toBeTruthy();
+ view.rerender(<TurnSettings compact showProviderMark provider="claude" defaultModel="claude-opus-4-6" value={{model:"claude-opus-4-6",mode:"plan"}} onChange={vi.fn()} disabled={false}/>);
+ expect(document.querySelector(".composer-chip-mode")?.classList.contains("composer-chip--accent")).toBe(true);
 });
 test("the first project prompt sends model and plan choices once through the controller",async()=>{
  vi.mocked(api.providerModels).mockResolvedValue(["chosen-model"]);
@@ -68,4 +76,15 @@ test("custom models remain available when the catalogue fails",async()=>{
  view.rerender(<TurnSettings provider="claude" value={{model:""}} onChange={onChange} disabled={false}/>);
  fireEvent.change(screen.getByLabelText("Identifiant du modèle"),{target:{value:"custom-model"}});
  expect(onChange).toHaveBeenCalledWith({model:"custom-model"});
+});
+test("Claude conversations expose Auto (YOLO) and AcceptEdits modes in the mode selector",async()=>{
+ vi.mocked(api.providerModels).mockResolvedValue([]);
+ const onChange=vi.fn();
+ render(<TurnSettings compact provider="claude" snapshot={{id:"yolo-chat",busy:false,readOnly:false,provider:"claude",mode:"acceptEdits"}} value={{}} onChange={onChange} disabled={false}/>);
+ expect(document.querySelector(".composer-chip-mode")?.textContent).toContain("Accepter les modifications");
+ fireEvent.click(document.querySelector(".composer-chip-mode")!);
+ const autoBtn=screen.getByRole("menuitemradio",{name:"Auto (YOLO)"});
+ expect(autoBtn).toBeTruthy();
+ fireEvent.click(autoBtn);
+ expect(onChange).toHaveBeenCalledWith({mode:"auto"});
 });

@@ -22,6 +22,54 @@ func automaticConversationTitle(message string) string {
 	return string(runes)
 }
 
+func taskSkillLabel(skillID string) string {
+	id := strings.TrimSpace(skillID)
+	if idx := strings.LastIndex(id, ":"); idx >= 0 {
+		id = id[idx+1:]
+	}
+	id = strings.TrimSuffix(id, "-issue")
+	switch id {
+	case "clarify":
+		return "Clarify"
+	case "specify":
+		return "Specify"
+	case "implement":
+		return "Implement"
+	case "adjust":
+		return "Adjust"
+	case "handoff":
+		return "Handoff"
+	case "pickup":
+		return "Pickup"
+	case "discuss":
+		return "Discuss"
+	case "create_pr":
+		return "Create PR"
+	case "":
+		return ""
+	default:
+		runes := []rune(id)
+		runes[0] = unicode.ToUpper(runes[0])
+		return string(runes)
+	}
+}
+
+func taskConversationTitle(taskTitle, skillID string) string {
+	base := strings.Join(strings.Fields(strings.TrimSpace(taskTitle)), " ")
+	skill := taskSkillLabel(skillID)
+	if base == "" {
+		return skill
+	}
+	if skill == "" {
+		return base
+	}
+	suffix := " - " + skill
+	if strings.HasSuffix(strings.ToLower(base), strings.ToLower(suffix)) {
+		return base
+	}
+	return base + suffix
+}
+
 func titleFromConversationTrace(lines []string) string {
 	for _, line := range lines {
 		var event conversationEvent
