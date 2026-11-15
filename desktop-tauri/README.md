@@ -399,6 +399,7 @@ opened or restored. Archive visibility is a preference on this desktop, while
 Go retains the transcript and run history. A stopped conversation labels its
 saved turn as completed and replaces the disabled composer with compact
 read-only folder and terminal controls.
+
 While the agent responds, the composer queues follow-up messages instead of
 sending them: press Enter or **Queue** beside **Interrupt**. Queued messages are
 listed above the composer, apart from the transcript, and each can be copied or
@@ -408,6 +409,7 @@ conversation or view is open. An interrupt, a turn ending in an error or a faile
 send pauses the queue until **Resume**; a failed message is never retried on its
 own. A stopped conversation keeps its queue visible but never sends it. The queue
 lives in memory only and is lost when Sectile Desktop quits.
+
 Conversation headers keep long titles and discussion actions on one line;
 response state stays beside the composer. Click the project in the sidebar to
 return to its board. Ticket conversations show a PR/MR link in the sidebar and
@@ -656,8 +658,8 @@ Saved OAuth application credentials are not prefilled in the desktop. Both editi
 ## Sectile V1 migration
 
 The [V1.0.0 migration plan](docs/sectile-v1-migration-plan.md) records the
-current phase status and evidence. Stages 0–4 are delivered on the dedicated
-branches; stages 6–7 are complete as product ownership and distribution
+current phase status and evidence. Stages 0 to 4 are delivered on the dedicated
+branches; stages 6 and 7 are complete as product ownership and distribution
 contracts. The seven scoped Electron-to-Tauri UX convergence lots are complete.
 Stages 5 and 8 remain open for exact release-binary, external integration and
 macOS installation qualification. Local/Fleet selection does not silently

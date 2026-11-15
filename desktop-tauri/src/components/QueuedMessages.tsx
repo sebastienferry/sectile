@@ -27,7 +27,7 @@ export function QueuedMessages({ queue, readOnly, onRemove, onResume }: { queue:
         <span className="queued-message-position" aria-hidden="true">{index + 1}</span>
         <p className="queued-message-text" title={item.text}>{item.text}</p>
         <span className="queued-message-status">{item.status === "sending" ? "Sending…" : item.status === "failed" ? `Failed: ${item.error ?? "unknown error"}` : "Queued"}</span>
-        <button type="button" className="icon-button" aria-label={`Copy queued message ${index + 1}`} title={copied === item.id ? "Copied" : "Copy"} onClick={() => void navigator.clipboard.writeText(item.text).then(() => setCopied(item.id), () => setCopied(""))}><Icon name={copied === item.id ? "check" : "copy"} /></button>
+        <button type="button" className="icon-button" aria-label={`Copy queued message ${index + 1}`} title={copied === item.id ? "Copied" : "Copy"} onClick={() => void navigator.clipboard.writeText(item.text).then(() => { setCopied(item.id); setTimeout(() => setCopied(current => current === item.id ? "" : current), 1800); }, () => setCopied(""))}><Icon name={copied === item.id ? "check" : "copy"} /></button>
         <button type="button" className="icon-button" aria-label={`Remove queued message ${index + 1}`} title="Remove" disabled={item.status === "sending"} onClick={() => onRemove(item.id)}><Icon name="trash" /></button>
       </li>)}
     </ol>
