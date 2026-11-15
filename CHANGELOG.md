@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Sectile Desktop shows how a ticket skill ended (done with its outcome and next step, needs your answer, needs verification, could not finish with the reason, stopped) in the conversation, the ticket workflow panel and the sidebar (#908).
 - Sectile Desktop can start a new conversation, or a skill on the same ticket, from an archived conversation, giving it that conversation's messages as background while leaving the archived one unchanged (#906).
 - Sectile Desktop shows an agent's questions one tab per question, highlights the answer the agent recommends, lets you skip a single question, and records your answers on the run's activity for the ticket.
 - Sectile Desktop is now localized in English across the Tauri application, Rust backend, and local Go agent, and detects installed AI Engine CLI versions and available models directly in Settings.

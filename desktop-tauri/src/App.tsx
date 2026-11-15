@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { executionSnapshot, getTask, launchTask, listProjects, listTasks, stopRun } from "./lib/agent";
 import { trackerColumns, type Project, type Task } from "./domain/board";
 import { epicColorHex } from "./domain/epic-color";
-import { isActive, launchInput, projectRuns, readTaskLaunchView, saveTaskLaunchView, statusLabel, type Run, type TaskLaunchView } from "./domain/execution";
+import { hasWaitMark, isActive, launchInput, projectRuns, readTaskLaunchView, saveTaskLaunchView, statusLabel, type Run, type TaskLaunchView } from "./domain/execution";
 import packageJson from "../package.json";
 import {
   ExecutionProvider,
@@ -37,6 +37,7 @@ import {
   type WorkspaceViewName,
 } from "./lib/workspace-preference";
 import { useConversation } from "./lib/conversation-controller";
+import { useSkillStatus } from "./lib/skill-results";
 import { renameConversation } from "./lib/conversation";
 import { conversationGroups, conversationTicketGroupKey, conversationTitle, deduplicateTicketConversations, type ConversationGrouping } from "./domain/conversation-navigation";
 import { pullRequestLabel, pullRequestStateLabel, taskPullRequests } from "./domain/pull-requests";
@@ -2078,10 +2079,14 @@ function ConversationNavigation({run,task,selected,onClick,onOpenTask}:{run:Run;
  const {snapshot,loaded,error}=useConversation(run.id);
  const title=useMemo(()=>conversationTitle(snapshot,run,task),[snapshot.events,snapshot.title,run,task]);
  const provider=run.provider==="claude"?"Claude Code":run.provider==="codex"?"Codex":run.engineName||"Assistant";
- const needsInput=isActive(run)&&((loaded&&snapshot.id===run.id&&!!snapshot.approvals?.length)||(!!run.waitingSince&&!run.waitingSince.startsWith("0001"))||run.status==="waiting");
+ const needsInput=isActive(run)&&((loaded&&snapshot.id===run.id&&!!snapshot.approvals?.length)||hasWaitMark(run.waitingSince)||run.status==="waiting");
  const activity=!isActive(run)?statusLabel(run):error?"Tracking interrupted":needsInput?"Action required":loaded&&snapshot.id===run.id?snapshot.busy?"Running":snapshot.readOnly?"Read-only":"Ready":statusLabel(run);
- return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={`${run.taskKey?`${run.taskKey} · `:""}${title} · ${provider}${run.model ? ` · ${run.model}` : ""} · ${task?.trackerStatus?`${task.trackerStatus} · `:""}${activity}`}>
-  <span className={`conversation-indicator ${needsInput?"needs-input":loaded&&snapshot.busy?"live":isActive(run)?"session":"idle"}`} />
+ // A ticket skill's row shows how the skill stands (#908); a free conversation keeps its activity.
+ const own=loaded&&snapshot.id===run.id;
+ const skill=useSkillStatus(run,{task,asking:own&&!!snapshot.approvals?.length,turnBusy:own?snapshot.busy:undefined});
+ const label=`${run.taskKey?`${run.taskKey} · `:""}${title} · ${provider}${run.model ? ` · ${run.model}` : ""} · ${task?.trackerStatus?`${task.trackerStatus} · `:""}${skill?skill.label:activity}`;
+ return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={label} aria-label={skill?label:undefined}>
+  <span className={`conversation-indicator ${skill?`skill-${skill.kind}`:needsInput?"needs-input":loaded&&snapshot.busy?"live":isActive(run)?"session":"idle"}`} />
   {run.taskKey && <span role="button" tabIndex={0} className="sidebar-task-key" title={`Open ticket ${run.taskKey}`} aria-label={`Open ticket ${run.taskKey}`} onClick={e=>{e.stopPropagation();onOpenTask?.();}} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.stopPropagation();onOpenTask?.();}}}>{run.taskKey}</span>}
   <span className="conversation-navigation-text"><span>{title}</span></span>
  </button>;

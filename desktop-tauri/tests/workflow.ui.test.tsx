@@ -111,9 +111,9 @@ test("a changed expected next skill is refreshed without launching the stale act
  show();const next=await screen.findByRole("button",{name:"Next step: Implement"});await waitFor(()=>expect(next.hasAttribute("disabled")).toBe(false));fireEvent.click(next);
  await screen.findByRole("alert");expect(api.launchTask).not.toHaveBeenCalled();
 });
-test("completed process output is not presented as a confirmed skill result",async()=>{
+test("a completed process without a skill verdict asks for verification instead of reading as done",async()=>{
  monitor.snapshot.runs=[{id:"run",projectId:"project",taskId:"task",skill:"implement",status:"completed",createdAt:"2026-10-28",trace:true}];vi.mocked(context.runResult).mockResolvedValue({});
- show();expect(await screen.findByText("Process completed · skill result unconfirmed")).toBeTruthy();expect(screen.getByText("Task output")).toBeTruthy();
+ show();expect(await screen.findByText("Needs verification · The session ended without reporting a result")).toBeTruthy();expect(screen.getByText("Task output")).toBeTruthy();
  expect(screen.queryByRole("button",{name:"Stop execution"})).toBeNull();
 });
 test("active workflow runs show an interrupt action and acknowledge a requested stop",async()=>{

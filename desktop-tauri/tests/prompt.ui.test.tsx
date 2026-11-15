@@ -105,7 +105,8 @@ test("a linked conversation shows ticket and execution state above the composer"
  expect(screen.getByRole("region",{name:"Ticket workflow"}).textContent).toContain("In Progress");
  expect(screen.getByRole("button",{name:"PR #42 · open"})).toBeTruthy();
  expect(screen.getByRole("button",{name:"Stop discussion"})).toBeTruthy();
- fireEvent.click(screen.getByText("Execution: Active session"));
+ // A ticket skill's strip shows the skill status in place of the run state (#908).
+ fireEvent.click(screen.getByText("Working · Clarify"));
  fireEvent.click(screen.getByRole("button",{name:"View execution queue"}));
  expect(openQueue).toHaveBeenCalledOnce();
 });

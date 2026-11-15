@@ -30,21 +30,10 @@ export function chainProgress(task:Task,project:Pick<ProjectContext,"board"|"pol
  const stage=taskStage(task,project.board);
  return {target,reached:!!stage&&stages.indexOf(stage)>=stages.indexOf(target)} as const;
 }
-export interface RunResult {activity?:{id:string;taskId:string;skillId:string;status:string}|null;successor?:{id:string;skillId:string;status:string}|null;task?:{status:string;labels?:string[]}}
-export function skillResultLabel(run:{id:string;taskId:string;skill:string;status:string},result?:RunResult){
- const own=result?.activity;
- const matched=own?.id===run.id&&own.taskId===run.taskId&&own.skillId===run.skill;
- const activity=matched?(result?.successor??own):undefined;
- if(activity?.status==="failed")return "Skill failure recorded";
- if(activity?.status==="canceled")return "Skill stopped";
- if(activity?.status==="completed"){
-  const id=activity.skillId.replace(/^[^:]*:/,"").replace(/-issue$/,"");
-  const target=({clarify:"clarified",specify:"specified",implement:"implemented",adjust:"reviewed",review:"reviewed",handoff:"finished"} as Record<string,Stage>)[id];
-  const stage=result?.task?taskStage({id:run.taskId,title:"",...result.task}):undefined;
-  return target&&(!stage||stages.indexOf(stage)<stages.indexOf(target))?"Skill completed · stage validation pending":"Skill completed · result confirmed";
- }
- return run.status==="completed"?"Process completed · skill result unconfirmed":"Skill result pending";
-}
+/** What the server recorded for a skill execution, as the local agent sends it. */
+export interface SkillRecord {id:string;taskId:string;skillId:string;status:string;summary?:string;error?:string;disconnected?:boolean;waitingReason?:string;completedAt?:string}
+/** The skill result of a run (`GET /desktop/run-result`): its own record, the skill its console went on to run, and the task. */
+export interface RunResult {activity?:SkillRecord|null;successor?:(SkillRecord&{waitingSince?:string})|null;task?:{status:string;labels?:string[]}}
 
 const ENGINE_MARKS: Record<string, string> = {
   claude: "Cl",

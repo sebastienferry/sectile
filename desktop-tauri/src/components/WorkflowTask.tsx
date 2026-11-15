@@ -2,11 +2,14 @@ import {lazy,Suspense,useEffect,useRef,useState} from "react";
 import type {Task} from "../domain/board";
 import {pullRequestLabel,pullRequestStateLabel,taskPullRequests} from "../domain/pull-requests";
 import {isActive,launchInput,readTaskLaunchView,saveTaskLaunchView,statusLabel,type LaunchOptions,type Run,type TaskLaunchView} from "../domain/execution";
-import {chainProgress,nextSkill,skillLabels,skillResultLabel,stageLabels,stages,taskStage,type RunResult} from "../domain/workflow";
+import {chainProgress,nextSkill,skillLabels,stageLabels,stages,taskStage} from "../domain/workflow";
+import {skillStatusText,skillStatusTitle} from "../domain/skill-status";
 import {executionSnapshot,launchTask,listTasks,stopRun} from "../lib/agent";
 import type {TurnOptions} from "../lib/conversation";
 import {conversationProfiles,type ProjectProfiles} from "../lib/profiles";
-import {declareReviewed,openExternalLink,projectContext,providerReadiness,runResult,type ProjectContext,type Readiness} from "../lib/workspace";
+import {declareReviewed,openExternalLink,projectContext,providerReadiness,type ProjectContext,type Readiness} from "../lib/workspace";
+import {useConversation} from "../lib/conversation-controller";
+import {useSkillStatus} from "../lib/skill-results";
 import {useExecutionMonitor} from "./ExecutionMonitor";
 import {Markdown} from "./Markdown";
 import {RunReview} from "./RunReview";
@@ -21,7 +24,7 @@ export function WorkflowTask(props:WorkflowTaskProps){
 function WorkflowTaskView({projectId,taskId,onBack,onSetup,onEdit,onExecution,onOpenConversation,onArchiveConversation,onTasksLoaded}:WorkflowTaskProps){
  const monitor=useExecutionMonitor();
  const [task,setTask]=useState<Task>();const [project,setProject]=useState<ProjectContext>();
- const [selected,setSelected]=useState("");const [result,setResult]=useState<RunResult>();
+ const [selected,setSelected]=useState("");
  const [readiness,setReadiness]=useState<Readiness>();
  const [error,setError]=useState("");const [readError,setReadError]=useState("");const [notice,setNotice]=useState("");const [pending,setPending]=useState(false);
  const [draft,setDraft]=useState("");const [customSkill,setCustomSkill]=useState("");
@@ -73,7 +76,12 @@ function WorkflowTaskView({projectId,taskId,onBack,onSetup,onEdit,onExecution,on
  },[projectId]);
  const effectiveProvider=customized.current?provider:(project?.aiProvider==="codex"?"codex":"claude");
  useEffect(()=>{if(!project?.aiProvider&&!customized.current)return;let current=true;void providerReadiness(effectiveProvider).then(value=>{if(current)setReadiness(value);}).catch(()=>{if(current)setReadiness(undefined);});return()=>{current=false;};},[project?.aiProvider,effectiveProvider]);
- useEffect(()=>{if(!run)return;let current=true;setResult(undefined);let resultReading=false;const read=()=>{if(resultReading)return;resultReading=true;void runResult(run.id).then(value=>{if(current)setResult(value);}).catch(()=>{if(current)setResult(undefined);}).finally(()=>{resultReading=false;});};read();const timer=setInterval(()=>{read();if(!acting.current&&!reading.current)void refresh();},4000);return()=>{current=false;clearInterval(timer);};},[run?.id,run?.status]);
+ useEffect(()=>{if(!run)return;const timer=setInterval(()=>{if(!acting.current&&!reading.current)void refresh();},4000);return()=>clearInterval(timer);},[run?.id,run?.status]);
+ // The selected run's skill status, read through the reader the conversation
+ // strip and the sidebar share, so the three surfaces never disagree (#908).
+ const conversation=useConversation(run?.id??"");
+ const asking=!!run?.conversation&&conversation.loaded&&conversation.snapshot.id===run.id&&!!conversation.snapshot.approvals?.length;
+ const skill=useSkillStatus(run,{task,project,asking,runIds:monitor.snapshot?.runs.map(r=>r.id)});
  useEffect(()=>{if(!submitted)return;const next=runs.find(r=>!submitted.ids.includes(r.id));if(next){setSelected(next.id);setSubmitted(undefined);setNotice("");if(next.conversation&&onOpenConversation)onOpenConversation(next.id);}},[monitor.snapshot,submitted,onOpenConversation]);
  const selectedProfile=profiles?.profiles.find(p=>p.id===profileId);
  const formatProfileLabel=(profile:{provider:string;name:string})=>{
@@ -200,7 +208,7 @@ function WorkflowTaskView({projectId,taskId,onBack,onSetup,onEdit,onExecution,on
     <div className="run-heading">
      <div className="run-heading-main">
       <h3>{skillLabels[run.skill]||run.skill} · {statusLabel(run)}</h3>
-      <p role="status" className="workflow-run-status">{skillResultLabel(run,result)}</p>
+      {skill&&<p role="status" className="workflow-run-status" title={skillStatusTitle(skill)}><span className={`skill-status-mark skill-${skill.kind}`} aria-hidden="true"/>{skillStatusText(skill)}</p>}
      </div>
      <div className="run-heading-actions">
       <label className="workflow-run-select">
@@ -214,11 +222,11 @@ function WorkflowTaskView({projectId,taskId,onBack,onSetup,onEdit,onExecution,on
      </div>
     </div>
     <RunReview key={run.id} run={run}/>
-    <TaskOutput projectId={projectId} run={run} task={task} board={project?.board} onExecution={onExecution} onArchive={onArchiveConversation?()=>onArchiveConversation(run.id):undefined} onChanged={()=>void monitor.refresh()}/>
+    <TaskOutput projectId={projectId} run={run} task={task} board={project?.board} project={project} onExecution={onExecution} onArchive={onArchiveConversation?()=>onArchiveConversation(run.id):undefined} onChanged={()=>void monitor.refresh()}/>
    </section>
   )}
  </section>;
 }
-function TaskOutput({projectId,run,task,board,onExecution,onArchive,onChanged}:{projectId:string;run:Run;task?:Task;board?:ProjectContext["board"];onExecution?:(runId:string)=>void;onArchive?:()=>void;onChanged:()=>void}){
- return run.conversation?<Suspense fallback={<p>Opening conversation…</p>}><ProjectPrompt projectId={projectId} runId={run.id} run={run} task={task} board={board} directory={run.directory} folders={run.folders} onCreated={()=>{}} onOpenQueue={onExecution?()=>onExecution(""):undefined} onArchive={onArchive} onStopped={onChanged} onFoldersChanged={onChanged}/></Suspense>:run.sessionId||run.trace||run.restored?<Suspense fallback={<p>Opening console…</p>}><RunConsole runId={run.id} sessionId={run.sessionId}/></Suspense>:<p>The console will be available once picked up by Go.</p>;
+function TaskOutput({projectId,run,task,board,project,onExecution,onArchive,onChanged}:{projectId:string;run:Run;task?:Task;board?:ProjectContext["board"];project?:ProjectContext;onExecution?:(runId:string)=>void;onArchive?:()=>void;onChanged:()=>void}){
+ return run.conversation?<Suspense fallback={<p>Opening conversation…</p>}><ProjectPrompt projectId={projectId} runId={run.id} run={run} task={task} board={board} projectContext={project} directory={run.directory} folders={run.folders} onCreated={()=>{}} onOpenQueue={onExecution?()=>onExecution(""):undefined} onArchive={onArchive} onStopped={onChanged} onFoldersChanged={onChanged}/></Suspense>:run.sessionId||run.trace||run.restored?<Suspense fallback={<p>Opening console…</p>}><RunConsole runId={run.id} sessionId={run.sessionId}/></Suspense>:<p>The console will be available once picked up by Go.</p>;
 }
