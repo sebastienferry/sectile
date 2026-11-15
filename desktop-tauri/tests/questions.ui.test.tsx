@@ -105,6 +105,16 @@ test("single choice advances, multiple choice and typing do not", () => {
  fireEvent.change(screen.getByLabelText("Free response: Anything else?"),{target:{value:"N"}});
  expect(selectedTab()).toBe("Q3, answered");
 });
+test("browsing single-choice options with the arrow keys answers without leaving the tab", () => {
+ render(<QuestionForm approval={three} disabled={false} onAnswer={vi.fn()} onSkip={vi.fn()} />);
+ const small=screen.getByRole("radio",{name:/Small/});
+ fireEvent.keyDown(small,{key:"ArrowDown"});
+ fireEvent.click(screen.getByRole("radio",{name:/Large/}));
+ expect(selectedTab()).toBe("Scope, answered");
+ fireEvent.keyDown(screen.getByRole("radio",{name:/Large/}),{key:" "});
+ fireEvent.click(small);
+ expect(selectedTab()).toBe("Tests, to answer");
+});
 test("a recommended option is highlighted, not preselected, and sent with its original label", async () => {
  const answer=vi.fn().mockResolvedValue(undefined);
  render(<QuestionForm approval={three} disabled={false} onAnswer={answer} onSkip={vi.fn()} />);

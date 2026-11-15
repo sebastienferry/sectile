@@ -46,6 +46,9 @@ export function QuestionForm({ approval, disabled, onAnswer, onSkip }: {
   const [error, setError] = useState("");
   const sending = useRef(false);
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
+  // Arrow keys move the selection inside a radio group: that browses the
+  // options, it does not choose one, so it must not move to the next tab.
+  const arrowed = useRef(false);
   const count = questions?.length ?? 0;
   const current = Math.min(active, Math.max(count - 1, 0));
   const joined = (value: Draft | undefined) => [...(value?.selected ?? []), value?.custom.trim() ?? ""].filter(Boolean).join(", ");
@@ -89,8 +92,9 @@ export function QuestionForm({ approval, disabled, onAnswer, onSkip }: {
           <input type={question.multiSelect ? "checkbox" : "radio"} name={`${prefix}-${index}`} value={option.label} checked={value.selected.includes(option.label)} onChange={event => {
             const selected = question.multiSelect ? event.target.checked ? [...value.selected, option.label] : value.selected.filter(item => item !== option.label) : [option.label];
             update(index, { selected, custom: question.multiSelect ? value.custom : "", skipped: false });
-            if (!question.multiSelect) advance(index);
-          }} />
+            if (!question.multiSelect && !arrowed.current) advance(index);
+            arrowed.current = false;
+          }} onKeyDown={event => { arrowed.current = event.key.startsWith("Arrow"); }} />
           <span><strong>{label.text}{label.recommended && <span className="badge question-badge">Recommended</span>}</strong>{option.description && <small>{option.description}</small>}</span>
         </label>;
       })}

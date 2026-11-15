@@ -92,6 +92,9 @@ task, so that the decision is visible after the conversation is closed.
   selecting an option marks the question answered and selects the next tab
   automatically. On the last tab, nothing moves. Selecting an option in a
   multiple-choice question, or typing a free answer, never moves the tab.
+  Moving through the options of a single-choice question with the arrow keys
+  browses them: it selects the option under focus without moving the tab, so
+  a keyboard user can reach every option; Space or a click chooses and moves.
 - **FR-6** There is no review tab. "Send answers" and "Skip request" stay
   visible under the tabs whatever tab is selected.
 
