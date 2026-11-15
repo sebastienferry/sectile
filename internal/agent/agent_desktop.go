@@ -83,15 +83,22 @@ func fileSha256(path string) string {
 }
 
 type desktopRun struct {
-	AgentProfileID   string    `json:"agentProfileId,omitempty"`
-	AgentProfileName string    `json:"agentProfileName,omitempty"`
-	Conversation     bool      `json:"conversation,omitempty"`
-	EngineID         string    `json:"engineId,omitempty"`
-	EngineName       string    `json:"engineName,omitempty"`
-	Branch           string    `json:"branch,omitempty"`
-	Kind             string    `json:"kind,omitempty"`
-	Provider         string    `json:"provider,omitempty"`
-	Model            string    `json:"model,omitempty"`
+	AgentProfileID   string `json:"agentProfileId,omitempty"`
+	AgentProfileName string `json:"agentProfileName,omitempty"`
+	Conversation     bool   `json:"conversation,omitempty"`
+	EngineID         string `json:"engineId,omitempty"`
+	EngineName       string `json:"engineName,omitempty"`
+	Branch           string `json:"branch,omitempty"`
+	Kind             string `json:"kind,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	Model            string `json:"model,omitempty"`
+	// ContextRunID names the archived conversation this run started over
+	// from (#906), ContextTitle its title at that moment and ContextOmitted
+	// how many of its earlier messages did not fit. The source never records
+	// anything in return.
+	ContextRunID   string `json:"contextRunId,omitempty"`
+	ContextTitle   string `json:"contextTitle,omitempty"`
+	ContextOmitted int    `json:"contextOmitted,omitempty"`
 	// ConnectionID binds a desktop conversation to the selected Local or Fleet
 	// runtime. It is an opaque identifier, never a credential.
 	ConnectionID    string    `json:"connectionId,omitempty"`
@@ -153,6 +160,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/conversation/title" {
 		d.desktopConversationTitle(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/conversation/former-context" {
+		d.desktopFormerContext(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/conversation" {
@@ -1191,6 +1202,10 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		EngineID         string `json:"engineId"`
 		Model            string `json:"model"`
 		ConversationMode string `json:"conversationMode"`
+		// ContextRunID names an archived conversation of this task whose
+		// messages the skill is given as former context (#906). The server
+		// never sees it: it waits in the launch preference, as View does.
+		ContextRunID string `json:"contextRunId"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.TaskID == "" {
 		http.Error(w, "Task and skill required", 400)
@@ -1223,6 +1238,13 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		input.Mode = "autonomous"
 	}
+	// Former context travels in the first message of a conversation (#906); a
+	// terminal or an autonomous run takes its prompt on a command line, which
+	// cannot carry it.
+	if input.ContextRunID != "" && (input.View != agentconfig.ConsoleViewConversation || input.Mode == "autonomous" || input.BatchTaskIDs != nil) {
+		http.Error(w, "Former context needs an interactive launch in the conversation view", http.StatusBadRequest)
+		return
+	}
 	var task models.Task
 	if err := d.readAPI(r.Context(), "/api/tasks/"+url.PathEscape(input.TaskID), &task); err != nil {
 		http.Error(w, err.Error(), 502)
@@ -1251,6 +1273,24 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unknown execution mode", 400)
 		return
 	}
+	if input.ContextRunID != "" {
+		d.queue.mu.Lock()
+		_, contextErr := d.formerContextLocked(projectID, input.ContextRunID, connectionID)
+		sourceTask := ""
+		if source := d.queue.runs[input.ContextRunID]; source != nil {
+			sourceTask = source.desktop.TaskID
+		}
+		d.queue.mu.Unlock()
+		if contextErr != nil {
+			http.Error(w, contextErr.Error(), formerContextStatus(contextErr))
+			return
+		}
+		// A skill starts over on the ticket of the archived conversation only.
+		if sourceTask == "" || (sourceTask != task.ID && sourceTask != task.Key) {
+			http.Error(w, "This conversation belongs to another ticket.", http.StatusBadRequest)
+			return
+		}
+	}
 	launchProvider := strings.TrimSpace(input.Provider)
 	if connectionID != "" && launchProvider == "" && strings.TrimSpace(input.EngineID) == "" && strings.TrimSpace(config.AIProvider) == "agy" {
 		launchProvider = "claude"
@@ -1262,6 +1302,9 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 			engineID:         strings.TrimSpace(input.EngineID),
 			model:            strings.TrimSpace(input.Model),
 			conversationMode: strings.TrimSpace(input.ConversationMode),
+			contextRunID:     input.ContextRunID,
+			contextProjectID: projectID,
+			connectionID:     connectionID,
 		})
 	}
 	// The project travels with the launch: the server records it on the run

@@ -364,6 +364,10 @@ pub struct LaunchTask {
     model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     conversation_mode: Option<String>,
+    /// The archived conversation a skill starts over from (#906). Only an
+    /// interactive launch in the conversation view can carry it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_run_id: Option<String>,
 }
 fn launch_body(input: LaunchTask) -> Result<Value, String> {
     required(&input.task_id)?;
@@ -416,6 +420,17 @@ fn launch_body(input: LaunchTask) -> Result<Value, String> {
             || ids.iter().collect::<std::collections::HashSet<_>>().len() != ids.len()
         {
             return Err("Invalid ticket batch".into());
+        }
+    }
+    if let Some(context_run_id) = &input.context_run_id {
+        required(context_run_id)?;
+        if input.view.as_deref() != Some("conversation")
+            || input.mode == "autonomous"
+            || input.batch_task_ids.is_some()
+        {
+            return Err(
+                "Former context needs an interactive launch in the conversation view".into(),
+            );
         }
     }
     let body = serde_json::to_value(input).map_err(|_| "Invalid request")?;
@@ -719,6 +734,7 @@ mod tests {
             engine_id: None,
             model: None,
             conversation_mode: None,
+            context_run_id: None,
         })
         .unwrap();
         assert!(body.get("force").is_none());
@@ -824,6 +840,7 @@ mod tests {
                 engine_id: None,
                 model: None,
                 conversation_mode: None,
+                context_run_id: None,
             })
             .is_err()
         );
@@ -839,9 +856,44 @@ mod tests {
                 engine_id: None,
                 model: None,
                 conversation_mode: None,
+                context_run_id: None,
             })
             .is_err()
         );
+    }
+
+    #[test]
+    fn former_context_needs_an_interactive_conversation_launch() {
+        let valid = serde_json::json!({"taskId":"t","skillId":"clarify","prompt":"Go on","mode":"","view":"conversation","contextRunId":"source"});
+        let body = launch_body(serde_json::from_value(valid).unwrap()).unwrap();
+        assert_eq!(body["contextRunId"], "source");
+        for invalid in [
+            serde_json::json!({"taskId":"t","skillId":"clarify","prompt":"","mode":"","contextRunId":"source"}),
+            serde_json::json!({"taskId":"t","skillId":"clarify","prompt":"","mode":"","view":"terminal","contextRunId":"source"}),
+            serde_json::json!({"taskId":"t","skillId":"clarify","prompt":"","mode":"autonomous","view":"conversation","contextRunId":"source"}),
+            serde_json::json!({"taskId":"t","skillId":"clarify","prompt":"","mode":"","view":"conversation","contextRunId":" "}),
+        ] {
+            assert!(launch_body(serde_json::from_value(invalid).unwrap()).is_err());
+        }
+        let plain = launch_body(
+            serde_json::from_value(
+                serde_json::json!({"taskId":"t","skillId":"clarify","prompt":"","mode":""}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(plain.get("contextRunId").is_none());
+    }
+
+    #[test]
+    fn new_conversation_body_carries_the_former_context_reference_only_when_given() {
+        let body = new_conversation_body("p", "claude", None, Some("source".into())).unwrap();
+        assert_eq!(body["contextRunId"], "source");
+        assert_eq!(body["view"], "conversation");
+        let plain = new_conversation_body("p", "codex", Some("engine".into()), None).unwrap();
+        assert!(plain.get("contextRunId").is_none());
+        assert!(new_conversation_body("p", "claude", None, Some("".into())).is_err());
+        assert!(new_conversation_body("p", "other", None, None).is_err());
     }
 
     #[test]
@@ -903,12 +955,57 @@ pub async fn create_conversation(
     project_id: String,
     provider: String,
     engine_id: Option<String>,
+    context_run_id: Option<String>,
 ) -> Result<Value, String> {
-    required(&project_id)?;
-    if !["claude", "codex"].contains(&provider.as_str()) {
+    let body = new_conversation_body(&project_id, &provider, engine_id, context_run_id)?;
+    request_agent(
+        app,
+        reqwest::Method::POST,
+        "/desktop/consoles",
+        &[],
+        Some(body),
+    )
+    .await
+}
+
+fn new_conversation_body(
+    project_id: &str,
+    provider: &str,
+    engine_id: Option<String>,
+    context_run_id: Option<String>,
+) -> Result<Value, String> {
+    required(project_id)?;
+    if !["claude", "codex"].contains(&provider) {
         return Err("Unsupported provider".into());
     }
-    request_agent(app, reqwest::Method::POST, "/desktop/consoles", &[], Some(serde_json::json!({"projectId": project_id, "provider": provider, "engineId": engine_id.unwrap_or_default(), "view": "conversation"}))).await
+    let mut body = serde_json::json!({"projectId": project_id, "provider": provider, "engineId": engine_id.unwrap_or_default(), "view": "conversation"});
+    // The archived conversation a new one starts over from (#906): the agent
+    // reads its history itself, so only its ID crosses.
+    if let Some(context_run_id) = context_run_id {
+        required(&context_run_id)?;
+        body["contextRunId"] = Value::String(context_run_id);
+    }
+    Ok(body)
+}
+
+/// What a Start over from this archived conversation would give (#906),
+/// without the history itself.
+#[tauri::command]
+pub async fn former_context_preview(
+    app: tauri::AppHandle,
+    project_id: String,
+    run_id: String,
+) -> Result<Value, String> {
+    required(&project_id)?;
+    required(&run_id)?;
+    request_agent(
+        app,
+        reqwest::Method::GET,
+        "/desktop/conversation/former-context",
+        &[("projectId", &project_id), ("id", &run_id)],
+        None,
+    )
+    .await
 }
 
 #[tauri::command]

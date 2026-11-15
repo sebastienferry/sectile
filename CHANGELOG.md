@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Sectile Desktop can start a new conversation, or a skill on the same ticket, from an archived conversation, giving it that conversation's messages as background while leaving the archived one unchanged (#906).
 - Sectile Desktop shows an agent's questions one tab per question, highlights the answer the agent recommends, lets you skip a single question, and records your answers on the run's activity for the ticket.
 - Sectile Desktop is now localized in English across the Tauri application, Rust backend, and local Go agent, and detects installed AI Engine CLI versions and available models directly in Settings.
 - Ticket list view includes a dedicated sortable Macro column, a Columns selector to toggle visible columns, and multi-select status filtering on the ticket board and list.

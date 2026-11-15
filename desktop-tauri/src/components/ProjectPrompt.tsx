@@ -44,8 +44,12 @@ interface ProjectPromptProps {
   onCreated:(id:string)=>void; onTitleChanged?:()=>void; onFoldersChanged?:()=>void;
   onOpenQueue?:()=>void; onOpenTask?:()=>void;
   onArchive?:()=>void; onStopped?:()=>void;
+  /** The conversation is in the archived list: it offers Start over (#906). */
+  archived?:boolean; onStartOver?:()=>void;
+  /** Opens the archived conversation a run started over from, when still listed. */
+  onOpenSource?:(runId:string)=>void;
 }
-export default function ProjectPrompt({ projectId, projectName, runId, agentAvailable=true, onCreated, onTitleChanged, directory, folders, onFoldersChanged, run, task, board, projectContext, taskRuns, canEditTask, knownSprints, knownAssignees, onTaskSaved, onSelectRun, onLaunchSkill, onEditTask, onOpenQueue, onOpenTask, onArchive, onStopped }: ProjectPromptProps) {
+export default function ProjectPrompt({ projectId, projectName, runId, agentAvailable=true, onCreated, onTitleChanged, directory, folders, onFoldersChanged, run, task, board, projectContext, taskRuns, canEditTask, knownSprints, knownAssignees, onTaskSaved, onSelectRun, onLaunchSkill, onEditTask, onOpenQueue, onOpenTask, onArchive, onStopped, archived, onStartOver, onOpenSource }: ProjectPromptProps) {
   const [provider, setProvider] = useState("claude");
   const [options, setOptions] = useState<TurnOptions>({});
   const [draft, setDraft] = useState("");
@@ -102,7 +106,7 @@ export default function ProjectPrompt({ projectId, projectName, runId, agentAvai
       setOptions({});
     }
   }
-  if (runId) return <Conversation id={runId} projectId={projectId} projectName={projectName} agentAvailable={agentAvailable} directory={directory} folders={folders} run={run} task={task} board={board} projectContext={projectContext} taskRuns={taskRuns} canEditTask={canEditTask} knownSprints={knownSprints} knownAssignees={knownAssignees} onTaskSaved={onTaskSaved} onSelectRun={onSelectRun} onLaunchSkill={onLaunchSkill} onEditTask={onEditTask} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onArchive={onArchive} onStopped={onStopped} onFoldersChanged={onFoldersChanged} onTitleChanged={onTitleChanged} />;
+  if (runId) return <Conversation id={runId} projectId={projectId} projectName={projectName} agentAvailable={agentAvailable} directory={directory} folders={folders} run={run} task={task} board={board} projectContext={projectContext} taskRuns={taskRuns} canEditTask={canEditTask} knownSprints={knownSprints} knownAssignees={knownAssignees} onTaskSaved={onTaskSaved} onSelectRun={onSelectRun} onLaunchSkill={onLaunchSkill} onEditTask={onEditTask} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onArchive={onArchive} onStopped={onStopped} onFoldersChanged={onFoldersChanged} onTitleChanged={onTitleChanged} archived={archived} onStartOver={onStartOver} onOpenSource={onOpenSource} />;
   return <section className="project-prompt prompt-start prompt-new">
     <div className="prompt-intro"><h2>New prompt</h2></div>
     <form className="composer" onSubmit={async e => {
@@ -151,7 +155,7 @@ export default function ProjectPrompt({ projectId, projectName, runId, agentAvai
     {error && <p role="alert" className="error">{error}</p>}
   </section>;
 }
-function Conversation({ id, projectId, projectName, agentAvailable, directory, folders, run, task, board, projectContext, taskRuns, canEditTask, knownSprints, knownAssignees, onTaskSaved, onSelectRun, onLaunchSkill, onOpenQueue, onOpenTask, onArchive, onStopped, onFoldersChanged, onTitleChanged }: { id:string;projectId:string;projectName?:string;agentAvailable:boolean;directory?:string;folders?:Run["folders"];run?:Run;task?:Task;board?:BoardMapping;projectContext?:ProjectContext;taskRuns?:Run[];canEditTask?:boolean;knownSprints?:string[];knownAssignees?:string[];onTaskSaved?:(task:Task)=>void;onSelectRun?:(runId:string)=>void;onLaunchSkill?:(skillId:string)=>void;onEditTask?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onArchive?:()=>void;onStopped?:()=>void;onFoldersChanged?:()=>void;onTitleChanged?:()=>void }) {
+function Conversation({ id, projectId, projectName, agentAvailable, directory, folders, run, task, board, projectContext, taskRuns, canEditTask, knownSprints, knownAssignees, onTaskSaved, onSelectRun, onLaunchSkill, onOpenQueue, onOpenTask, onArchive, onStopped, onFoldersChanged, onTitleChanged, archived, onStartOver, onOpenSource }: { id:string;projectId:string;projectName?:string;agentAvailable:boolean;directory?:string;folders?:Run["folders"];run?:Run;task?:Task;board?:BoardMapping;projectContext?:ProjectContext;taskRuns?:Run[];canEditTask?:boolean;knownSprints?:string[];knownAssignees?:string[];onTaskSaved?:(task:Task)=>void;onSelectRun?:(runId:string)=>void;onLaunchSkill?:(skillId:string)=>void;onEditTask?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onArchive?:()=>void;onStopped?:()=>void;onFoldersChanged?:()=>void;onTitleChanged?:()=>void;archived?:boolean;onStartOver?:()=>void;onOpenSource?:(runId:string)=>void }) {
   const { controller, snapshot, loaded, pending, error, queue } = useConversation(id);
   const [draft, setDraft] = useState("");
   const [queueFeedback, setQueueFeedback] = useState("");
@@ -232,6 +236,14 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
           {taskKey && <span role={onOpenTask ? "button" : undefined} tabIndex={onOpenTask ? 0 : undefined} className="sidebar-task-key" title={onOpenTask ? `Open ticket ${taskKey}` : undefined} aria-label={onOpenTask ? `Open ticket ${taskKey}` : undefined} onClick={e=>{if(onOpenTask){e.stopPropagation();onOpenTask();}}} onKeyDown={e=>{if(onOpenTask && (e.key==="Enter"||e.key===" ")){e.preventDefault();e.stopPropagation();onOpenTask();}}}>{taskKey}</span>}
           <span>{displayTitle}</span>
         </h2>
+        {run?.contextRunId && (
+          <p className="conversation-started-from">
+            {onOpenSource
+              ? <>Started from <button type="button" className="link-button" title="Open the archived conversation" onClick={()=>onOpenSource(run.contextRunId!)}>{run.contextTitle?.trim() || "an archived conversation"}</button></>
+              : <>Started from {run.contextTitle?.trim() ? `“${run.contextTitle.trim()}”` : "an archived conversation"}</>}
+            {(run.contextOmitted ?? 0) > 0 && <span className="muted"> · {run.contextOmitted} earlier message{run.contextOmitted === 1 ? "" : "s"} left out</span>}
+          </p>
+        )}
         <div className="workspace-path">
           <p title={directory}>{directory || "Conversation workspace"}</p>
           {directory && <button type="button" className="copy-path" title="Copy working folder path" aria-label="Copy working folder path" onClick={()=>void navigator.clipboard.writeText(directory).then(()=>setPathCopyState("Copied"),()=>setPathCopyState("Copy failed"))}>{pathCopyState||"Copy"}</button>}
@@ -320,6 +332,17 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
         )}
         {snapshot.canAdoptConnection && <button disabled={!agentAvailable || acting || !!error} title="This history is not linked to the selected connection yet." onClick={() => void control({ action: "adoptConnection" }).catch(() => {})}>Link to this connection</button>}
         {snapshot.canRename && <button type="button" className="icon-button" aria-label="Rename conversation" title="Rename conversation" onClick={()=>{setTitle(snapshot.title||displayTitle||"");setRenaming(true);}}><Icon name="edit" /></button>}
+        {archived && onStartOver && (!run || !isActive(run)) && (
+          <button
+            type="button"
+            className="conversation-start-over"
+            disabled={!agentAvailable || !loaded}
+            title={!agentAvailable ? "Agent unavailable. Reconnect to start over." : !loaded ? "Loading this conversation's history…" : "Start a new conversation or skill with this conversation as context"}
+            onClick={onStartOver}
+          >
+            <Icon name="refresh" /><span>Start over</span>
+          </button>
+        )}
         {run && isActive(run) ? (
           <button type="button" className="icon-button stop-button" aria-label="Stop discussion" title={stopping ? "Stopping…" : "Stop discussion"} disabled={!agentAvailable || stopping || !!run.cancelRequested} onClick={() => void stopConversation()}><Icon name="stop" /></button>
         ) : onArchive ? (

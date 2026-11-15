@@ -58,9 +58,17 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		// View "conversation" asks for Claude's structured view instead of a
 		// PTY. It is a preference: an engine it cannot honour gets the PTY.
 		View string `json:"view"`
+		// ContextRunID names an archived conversation whose messages the new
+		// conversation is given as former context (#906). Only a conversation
+		// view can carry it.
+		ContextRunID string `json:"contextRunId"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || strings.TrimSpace(input.ProjectID) == "" {
 		http.Error(w, "Project and AI engine required", http.StatusBadRequest)
+		return
+	}
+	if input.ContextRunID != "" && input.View != "conversation" {
+		http.Error(w, "Former context needs the conversation view", http.StatusBadRequest)
 		return
 	}
 	// The provider is checked before anything is fetched; the command itself is
@@ -148,11 +156,25 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 			mode = d.workstationAgyConversationMode()
 		}
 		d.queue.mu.Lock()
+		// The source is read before anything is created: a conversation that
+		// asked for former context never starts without it.
+		var former formerContext
+		if input.ContextRunID != "" {
+			former, err = d.formerContextLocked(input.ProjectID, input.ContextRunID, connectionID)
+			if err != nil {
+				d.queue.mu.Unlock()
+				http.Error(w, err.Error(), formerContextStatus(err))
+				return
+			}
+		}
 		run, err := d.newConversationLocked(input.ProjectID, root, conversationModel(config), mode, conversationOrigin(config, "It runs in this project's local repository."), provider)
 		if err != nil {
 			d.queue.mu.Unlock()
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
+		}
+		if input.ContextRunID != "" {
+			startFromFormerContextLocked(run, former)
 		}
 		applyProfile(run, profile)
 		run.desktop.EngineID, run.desktop.EngineName = engine.ID, engine.Name

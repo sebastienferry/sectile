@@ -97,6 +97,7 @@ pub fn run() {
             agent::provider_status,
             agent::provider_login,
             agent::create_conversation,
+            agent::former_context_preview,
             agent::conversation_profiles,
             agent::control_conversation_profiles,
             agent::rename_conversation,

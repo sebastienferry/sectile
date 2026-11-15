@@ -46,6 +46,7 @@ import "./App.css";
 
 const WorkflowTask = lazy(()=>import("./components/WorkflowTask").then(module=>({default:module.WorkflowTask})));
 const ProjectPrompt = lazy(() => import("./components/ProjectPrompt"));
+const StartOverDialog = lazy(() => import("./components/StartOverDialog"));
 
 const OPTIONAL_LIST_COLUMNS = [
   ["parent", "Macro"],
@@ -1187,6 +1188,7 @@ function ProjectPane({
   const [selectedTaskIds,setSelectedTaskIds]=useState<string[]>([]);
   const [batchConfirm,setBatchConfirm]=useState(false);
   const [launching,setLaunching]=useState(false);
+  const [startOverSource,setStartOverSource]=useState<Run|null>(null);
   const [launchError,setLaunchError]=useState("");
   const [visibleByColumn,setVisibleByColumn] = useState<Record<string,number>>({});
   const [visibleListCount,setVisibleListCount]=useState(80);
@@ -1399,8 +1401,11 @@ function ProjectPane({
   const count = columns.reduce((n, c) => n + c.tasks.length, 0);
   const selectedTasks=selectedTaskIds.map(id=>allRemoteTasks.find(task=>task.id===id)).filter((task):task is Task=>Boolean(task));
   function toggleTask(id:string){setSelectedTaskIds(previous=>previous.includes(id)?previous.filter(item=>item!==id):[...previous,id]);setBatchConfirm(false);}
-  async function startSkill(task:Task,skillId:string,viewOverride?:TaskLaunchView){
-    if(launching||!project||!context)return;
+  // startOver launches the skill in the conversation view with an archived
+  // conversation as former context (#906), and rethrows a failure for the
+  // dialog to show instead of the toolbar's generic notice.
+  async function startSkill(task:Task,skillId:string,viewOverride?:TaskLaunchView,startOver?:{prompt:string;contextRunId:string}){
+    if(launching||!project||!context){if(startOver)throw new Error("Another launch is in progress.");return;}
     setLaunching(true);setLaunchError("");
     try{
       const [freshTasks,freshContext,state]=await Promise.all([listTasks(project.id),projectContext(project.id),executionSnapshot()]);
@@ -1410,6 +1415,12 @@ function ProjectPane({
         const readiness=await providerReadiness(freshContext.aiProvider);
         if(readiness.steps?.mcp?.configuration?.present&&!readiness.steps.mcp.configuration.valid)throw new Error("MCP unavailable");
       }
+      if(startOver){
+        await launchTask(project.id,launchInput(task.id,skillId,startOver.prompt,"",{view:"conversation",contextRunId:startOver.contextRunId}));
+        await monitor.refresh();
+        navigate(project,"task",undefined,task.id);
+        return;
+      }
       const chosenView=viewOverride??readTaskLaunchView();
       if(viewOverride)saveTaskLaunchView(viewOverride);
       await launchTask(project.id,launchInput(task.id,skillId,"","",chosenView==="terminal"?{view:"terminal"}:undefined));
@@ -1417,8 +1428,22 @@ function ProjectPane({
       if (selection.view !== "prompt" || currentRun?.taskId !== task.id) {
         navigate(project,"task",undefined,task.id);
       }
-    }catch{setLaunchError("Launch not confirmed. Check configuration and status before trying again.");}
+    }catch(cause){
+      if(startOver)throw new Error(cause instanceof Error&&cause.message!=="Workflow unavailable"&&cause.message!=="MCP unavailable"?cause.message:typeof cause==="string"?cause:"This skill cannot start on this ticket now. Check its stage, its running executions and the project configuration.");
+      setLaunchError("Launch not confirmed. Check configuration and status before trying again.");
+    }
     finally{setLaunching(false);}
+  }
+  // Skills offered by Start over: interactive ones only, on the archived
+  // conversation's own ticket (#906).
+  function startOverSkills(source:Run){
+    const task=tasks.find(item=>item.id===source.taskId);
+    if(!source.taskId)return {skills:[],reason:"Skills need a conversation linked to a ticket."};
+    if(!task||!context)return {skills:[],reason:"This conversation's ticket is not loaded."};
+    if(taskStage(task,context.board)==="finished")return {skills:[],reason:"This ticket is finished."};
+    if((monitor.snapshot?.runs??[]).some(item=>item.taskId===task.id&&isActive(item)))return {skills:[],reason:"This ticket already has a running execution."};
+    const skills=context.skills.filter(skill=>!["pickup","pickup_issue","pickup_issues"].includes(skill.id)).map(skill=>({id:skill.id,label:skillLabels[skill.id]||skill.id}));
+    return {skills,reason:skills.length?undefined:"No interactive skill is available for this project."};
   }
   async function startBatch(){
     if(!project||launching||selectedTasks.length<2)return;
@@ -1970,6 +1995,9 @@ function ProjectPane({
             onOpenQueue={project?()=>navigate(project,"executions"):undefined}
             onOpenTask={currentRun?.taskId&&project?()=>void openTaskInTracker(project.id,currentRun.taskId,tasks.find(task=>task.id===currentRun?.taskId),setLaunchError):undefined}
             onArchive={currentRun?()=>onArchiveConversation(currentRun.id):undefined}
+            archived={!!currentRun&&archivedConversationIds.includes(currentRun.id)}
+            onStartOver={currentRun?()=>setStartOverSource(currentRun):undefined}
+            onOpenSource={project&&currentRun?.contextRunId&&monitor.snapshot?.runs.some(item=>item.id===currentRun.contextRunId)?sourceId=>navigate(project,"prompt",sourceId):undefined}
             onStopped={()=>void monitor.refresh()}
             onFoldersChanged={()=>void monitor.refresh()}
             onTitleChanged={()=>void monitor.refresh()}
@@ -1977,6 +2005,20 @@ function ProjectPane({
             runId={selection.runId}
             onCreated={id => { if (project) navigate(project, "prompt", id); }}
           />
+          {startOverSource && project && (()=>{
+            const offer=startOverSkills(startOverSource);
+            const sourceTask=tasks.find(item=>item.id===startOverSource.taskId);
+            return <StartOverDialog
+              projectId={selection.projectId}
+              source={startOverSource}
+              agentAvailable={monitor.fresh && !!monitor.snapshot?.status.connected}
+              skills={offer.skills}
+              skillUnavailable={offer.reason}
+              onStartSkill={sourceTask?(skillId,instructions)=>startSkill(sourceTask,skillId,"conversation",{prompt:instructions,contextRunId:startOverSource.id}):undefined}
+              onConversationCreated={id=>{void monitor.refresh();navigate(project,"prompt",id);}}
+              onClose={()=>setStartOverSource(null)}
+            />;
+          })()}
         </Suspense> : project ? <ProjectFolderSetup project={project} onMapped={path=>onFolderMapped(project.id,path)} /> : <p>Loading project…</p>
       ) : (
         <Supervisor

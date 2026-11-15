@@ -68,3 +68,10 @@ test("an idle conversation session is not labeled as an active response", () => 
   assert.equal(statusLabel({ ...conversation, cancelRequested: true }), "Stopping…");
   assert.equal(statusLabel({ ...conversation, waitingSince: "2026-10-29T00:00:00Z" }), "Action required");
 });
+
+test("former context is carried only by an interactive launch in the conversation view", () => {
+  assert.equal(launchInput("t", "clarify", "Go on", "", { view: "conversation", contextRunId: "source" }).contextRunId, "source");
+  assert.equal(launchInput("t", "clarify", "", "", { view: "terminal", contextRunId: "source" }).contextRunId, undefined);
+  assert.equal(launchInput("t", "clarify", "", "", { contextRunId: "source" }).contextRunId, undefined);
+  assert.equal(launchInput("t", "pickup", "", "", { view: "conversation", contextRunId: "source" }).contextRunId, undefined);
+});

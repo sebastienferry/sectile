@@ -68,6 +68,10 @@ type providerConversation struct {
 	// shellContext is what the commands typed with "!" since the last
 	// message printed; it goes to Claude with the next message.
 	shellContext string
+	// formerContext is the archived conversation a Start over began from
+	// (#906), rendered; it goes to the provider before the first message and
+	// is never journaled.
+	formerContext string
 	// commands are the slash commands Claude offers here, for the composer's
 	// completion; loadingCommands says a probe is reading them.
 	commands        []conversationSlash
@@ -482,7 +486,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 			http.Error(w, "Conversation could not be saved locally; message was not sent", http.StatusServiceUnavailable)
 			return
 		}
-		message := withShellContext(run.conversation, input.Message)
+		message := withFormerContext(run.conversation, withShellContext(run.conversation, input.Message))
 		queued := run.desktop.Provider == "codex" || run.desktop.Provider == "agy" || run.conversation.input == nil || run.conversation.input.send(conversationUserMessage(message)) != nil
 		if queued {
 			run.conversation.next = append(run.conversation.next, message)
@@ -503,7 +507,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Conversation could not be saved locally; message was not sent", http.StatusServiceUnavailable)
 		return
 	}
-	message := withShellContext(run.conversation, input.Message)
+	message := withFormerContext(run.conversation, withShellContext(run.conversation, input.Message))
 	if run.desktop.Provider == "codex" {
 		// Admission records the message under the queue lock, before another
 		// HTTP request can enqueue one behind it during process startup.
