@@ -166,6 +166,31 @@ it. Antigravity and Codex provide their own models, efforts and permission or
 sandbox modes; installed skills complete with `/` in Antigravity and Claude, and
 with `$` in Codex. See the [Desktop conversation guide](../desktop/README.md#experimental-conversations).
 
+### Start over from an archived conversation
+
+An archived conversation shows **Start over** in its header. It starts a new
+session that knows what the archived conversation said, while the archived one
+stays archived and unchanged.
+
+1. Open the conversation from **View archived conversations** and choose
+   **Start over**. The dialog says how many of its messages will be given as
+   former context.
+2. Choose **New conversation**, with its profile or engine (by default the one
+   the archived conversation used), or **Skill**, to run a skill on the
+   archived conversation's ticket.
+3. Type the new instructions and choose **Start**. Desktop opens the new
+   session, whose header reads **Started from** with a link back to the
+   archived conversation.
+
+The former context holds only what you and the assistant wrote; tool calls and
+their results are left out. It is limited to about 100,000 characters: past
+that, the most recent messages are kept, and the dialog and the new session say
+how many earlier messages were left out. A skill needs a conversation linked to
+a ticket, starts in the conversation view, and the autonomous pickups are not
+offered. Start over is unavailable while the agent is disconnected, and it
+refuses to start when the history is empty or not held by this workstation,
+rather than starting without the context you asked for.
+
 ## Use a prompt in Claude Code
 
 You can run a workflow skill in an existing Claude Code session rather than launching it from a ticket:

@@ -23,8 +23,12 @@ export interface ConversationSnapshot {
   connectionId?: string; canAdoptConnection?: boolean;
   id: string; busy: boolean; readOnly: boolean; events?: string[] | null; partial?: string; persistenceError?: string; approvals?: Approval[];
 }
-export const createConversation = (projectId: string, provider: string, engineId?: string) =>
-  invoke<{ id: string }>("create_conversation", { projectId, provider, ...(engineId ? {engineId} : {}) });
+export const createConversation = (projectId: string, provider: string, engineId?: string, contextRunId?: string) =>
+  invoke<{ id: string }>("create_conversation", { projectId, provider, ...(engineId ? {engineId} : {}), ...(contextRunId ? {contextRunId} : {}) });
+/** What a Start over from an archived conversation would give, without its text (#906). */
+export interface FormerContextPreview { sourceId: string; sourceTitle: string; messages: number; omitted: number; toolsOmitted: boolean; characters: number }
+export const formerContextPreview = (projectId: string, runId: string) =>
+  invoke<FormerContextPreview>("former_context_preview", { projectId, runId });
 export const readConversation = (runId: string) => invoke<ConversationSnapshot>("read_conversation", { runId });
 export interface TurnOptions { model?: string; mode?: ConversationMode }
 export const providerModels = (provider: string) => invoke<string[]>("provider_models", { provider });

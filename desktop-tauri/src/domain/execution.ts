@@ -23,6 +23,11 @@ export interface Run {
   trace?: boolean;
   restored?: boolean;
   sessionId?: string;
+  engineId?: string;
+  /** The archived conversation this run started over from (#906). */
+  contextRunId?: string;
+  contextTitle?: string;
+  contextOmitted?: number;
 }
 export interface Snapshot {
   status: {
@@ -66,6 +71,8 @@ export interface LaunchOptions {
   engineId?: string;
   model?: string;
   conversationMode?: string;
+  /** Archived conversation given as former context; conversation view only. */
+  contextRunId?: string;
 }
 export interface LaunchInput extends LaunchOptions {
   taskId: string;
@@ -165,6 +172,7 @@ export function launchInput(
     if (options.engineId) result.engineId = options.engineId;
     if (options.model) result.model = options.model;
     if (options.conversationMode) result.conversationMode = options.conversationMode;
+    if (options.contextRunId && options.view === "conversation") result.contextRunId = options.contextRunId;
   }
   return result;
 }

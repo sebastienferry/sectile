@@ -1386,7 +1386,28 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if hasLaunchPref && (launchPref.view == agentconfig.ConsoleViewConversation || launchPref.view == agentconfig.ConsoleViewTerminal) {
 		effectiveView = launchPref.view
 	}
-	if effectiveView != agentconfig.ConsoleViewTerminal && opensConversation(autonomous, models.NormalizeSkillID(payload.Action), marked, effectiveView, config) {
+	opens := effectiveView != agentconfig.ConsoleViewTerminal && opensConversation(autonomous, models.NormalizeSkillID(payload.Action), marked, effectiveView, config)
+	// A start over from an archived conversation (#906) is read again now:
+	// the source may have gone since the launch, and the skill never starts
+	// without the former context it was asked for.
+	var former *formerContext
+	if hasLaunchPref && launchPref.contextRunID != "" {
+		if !opens {
+			launchFailure = errors.New("Former context needs the conversation view; this engine opens a terminal.")
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", launchFailure.Error())
+			return
+		}
+		d.queue.mu.Lock()
+		built, contextErr := d.formerContextLocked(launchPref.contextProjectID, launchPref.contextRunID, launchPref.connectionID)
+		d.queue.mu.Unlock()
+		if contextErr != nil {
+			launchFailure = contextErr
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", contextErr.Error())
+			return
+		}
+		former = &built
+	}
+	if opens {
 		model, first, origin := conversationModel(config), "", "It runs in this task's worktree. Stop it to end the discussion."
 		var extraDirs []string
 		if payload.SkillID != "discuss" {
@@ -1406,7 +1427,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			}
 			origin = "It runs skill " + payload.SkillID + " in this task's worktree. Stop it when the skill is finished."
 		}
-		d.startLaunchConversationWithMode(run, desktopRun{ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, Title: taskConversationTitle(task.Title, payload.SkillID), ProjectID: config.ProjectID, Skill: payload.SkillID, Directory: workDir, Folders: runFolders(workDir, folders), Branch: branch, EngineID: config.EngineID, EngineName: config.EngineName}, model, launchPref.conversationMode, conversationOrigin(config, origin), first, envVars, extraDirs, liveProvider(config))
+		d.startLaunchConversationWithContext(run, desktopRun{ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, Title: taskConversationTitle(task.Title, payload.SkillID), ProjectID: config.ProjectID, Skill: payload.SkillID, Directory: workDir, Folders: runFolders(workDir, folders), Branch: branch, EngineID: config.EngineID, EngineName: config.EngineName}, model, launchPref.conversationMode, conversationOrigin(config, origin), first, former, envVars, extraDirs, liveProvider(config))
 		launched = true
 		d.recordCustomSkillUse(config, choice, payload.RunID)
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", "Execution opened as a conversation")
@@ -1473,6 +1494,14 @@ func (d *agentDaemon) startLaunchConversation(run *controlledRun, entry desktopR
 }
 
 func (d *agentDaemon) startLaunchConversationWithMode(run *controlledRun, entry desktopRun, model, requestedMode, origin, first string, env map[string]string, extraDirs []string, provider ...string) {
+	d.startLaunchConversationWithContext(run, entry, model, requestedMode, origin, first, nil, env, extraDirs, provider...)
+}
+
+// startLaunchConversationWithContext starts a launch conversation. When former
+// is set (#906), its notice opens the transcript and its text follows the
+// first message, so a skill command stays the first thing the provider
+// reads; the journal keeps the first message alone.
+func (d *agentDaemon) startLaunchConversationWithContext(run *controlledRun, entry desktopRun, model, requestedMode, origin, first string, former *formerContext, env map[string]string, extraDirs []string, provider ...string) {
 	mode := d.workstationConversationMode()
 	if len(provider) > 0 && provider[0] == "agy" {
 		mode = d.workstationAgyConversationMode()
@@ -1497,11 +1526,21 @@ func (d *agentDaemon) startLaunchConversationWithMode(run *controlledRun, entry 
 		}
 	}
 	run.conversation.env, run.conversation.extraDirs = env, extraDirs
+	sent := first
+	if former != nil {
+		run.desktop.ContextRunID, run.desktop.ContextTitle, run.desktop.ContextOmitted = former.SourceID, former.SourceTitle, former.Omitted
+		conversationWriteEvent(run.trace, formerContextNotice(*former))
+		if first != "" {
+			sent = first + "\n\n" + former.Text
+		} else {
+			run.conversation.formerContext = former.Text
+		}
+	}
 	if first != "" {
 		run.conversation.busy = true
 		conversationWrite(run.trace, "user", first, "")
 		if run.desktop.Provider == "codex" {
-			run.conversation.next = append(run.conversation.next, first)
+			run.conversation.next = append(run.conversation.next, sent)
 		}
 	}
 	d.queue.mu.Unlock()
@@ -1509,7 +1548,7 @@ func (d *agentDaemon) startLaunchConversationWithMode(run *controlledRun, entry 
 		if run.desktop.Provider == "codex" {
 			go d.codexConversationTurn(run, "")
 		} else {
-			go d.conversationTurn(run, first)
+			go d.conversationTurn(run, sent)
 		}
 	}
 }

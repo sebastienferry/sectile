@@ -415,6 +415,17 @@ body.resizing-sidebar {
 .project-delete-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; }
 .project-delete-actions .danger-button { background:var(--danger); color:#fff; border-color:var(--danger); }
 .project-delete-actions .danger-button:hover:not(:disabled) { opacity:.92; }
+.start-over-dialog { width:min(520px,100%); }
+.start-over-dialog form { display:grid; gap:12px; }
+.start-over-dialog .start-over-status { margin:0 0 4px; color:var(--muted); }
+.start-over-paths { display:flex; gap:16px; margin:0; padding:0; border:0; }
+.start-over-paths label { display:inline-flex; align-items:center; gap:6px; }
+.start-over-hint { margin:-6px 0 0; font-size:var(--font-sm); }
+.start-over-field { display:grid; gap:4px; font-size:var(--font-sm); }
+.start-over-field textarea, .start-over-field select { width:100%; font:inherit; }
+.conversation-start-over { display:inline-flex; align-items:center; gap:6px; }
+.conversation-started-from { margin:2px 0 0; font-size:var(--font-sm); color:var(--muted); }
+.conversation-started-from .link-button { border:0; padding:0; background:none; color:var(--accent); font:inherit; cursor:pointer; text-decoration:underline; }
 .project-children {
   padding: 4px 0 10px 16px;
 }

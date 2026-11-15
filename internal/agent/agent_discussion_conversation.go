@@ -33,6 +33,12 @@ type taskLaunchPreference struct {
 	engineID         string
 	model            string
 	conversationMode string
+	// contextRunID is the archived conversation the skill starts over from
+	// (#906), read again at dispatch in contextProjectID, for the desktop
+	// connection that asked.
+	contextRunID     string
+	contextProjectID string
+	connectionID     string
 }
 
 // pendingDiscussionViews remembers which task launches Desktop explicitly asked
