@@ -18,6 +18,8 @@ import { TaskEditor } from "./TaskEditor";
 import { TurnSettings } from "./TurnSettings";
 import { QuestionForm } from "./QuestionForm";
 import { ConversationTranscript } from "./ConversationTranscript";
+import { QueuedMessages } from "./QueuedMessages";
+import { QUEUE_LIMIT } from "../lib/conversation-queue";
 import { invoke } from "@tauri-apps/api/core";
 import { openExternalLink } from "../lib/workspace";
 import { pullRequestLabel, pullRequestStateLabel, taskPullRequests } from "../domain/pull-requests";
@@ -150,8 +152,9 @@ export default function ProjectPrompt({ projectId, projectName, runId, agentAvai
   </section>;
 }
 function Conversation({ id, projectId, projectName, agentAvailable, directory, folders, run, task, board, projectContext, taskRuns, canEditTask, knownSprints, knownAssignees, onTaskSaved, onSelectRun, onLaunchSkill, onOpenQueue, onOpenTask, onArchive, onStopped, onFoldersChanged, onTitleChanged }: { id:string;projectId:string;projectName?:string;agentAvailable:boolean;directory?:string;folders?:Run["folders"];run?:Run;task?:Task;board?:BoardMapping;projectContext?:ProjectContext;taskRuns?:Run[];canEditTask?:boolean;knownSprints?:string[];knownAssignees?:string[];onTaskSaved?:(task:Task)=>void;onSelectRun?:(runId:string)=>void;onLaunchSkill?:(skillId:string)=>void;onEditTask?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onArchive?:()=>void;onStopped?:()=>void;onFoldersChanged?:()=>void;onTitleChanged?:()=>void }) {
-  const { controller, snapshot, loaded, pending, error } = useConversation(id);
+  const { controller, snapshot, loaded, pending, error, queue } = useConversation(id);
   const [draft, setDraft] = useState("");
+  const [queueFeedback, setQueueFeedback] = useState("");
   const [actionError, setActionError] = useState("");
   const [mcpFeedback,setMcpFeedback]=useState("");
   const [acting, setActing] = useState(false);
@@ -186,6 +189,19 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
   const [pathCopyState,setPathCopyState] = useState("");
   useEffect(()=>setPathCopyState(""),[directory]);
   const busy = pending || snapshot.busy;
+  // While a turn runs, or while messages already wait, a submission joins the queue instead of being sent.
+  const queueing = busy || queue.items.length > 0;
+  const queueFull = queue.items.length >= QUEUE_LIMIT;
+  useEffect(() => { if (!queueFull) setQueueFeedback(""); }, [queueFull]);
+  function submitDraft() {
+    if (!loaded || snapshot.readOnly || attaching || !draft.trim()) return;
+    if (!queueing && (!agentAvailable || error)) return;
+    const result = controller.submit(draft, options);
+    if (result === "sent" || result === "queued") {
+      setDraft(""); setQueueFeedback("");
+      setFollowRequest(value => value + 1);
+    } else if (result === "full") setQueueFeedback(`Queue full (${QUEUE_LIMIT} messages). Remove one to add another.`);
+  }
   async function control(input: Exclude<ConversationAction, { action: "message" }>) {
     if (acting) throw new Error("An action is already in progress.");
     setActing(true); setActionError("");
@@ -457,6 +473,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
         </ol>
       </section>
     )}
+    <QueuedMessages queue={queue} readOnly={!!snapshot.readOnly} onRemove={itemId => controller.removeQueued(itemId)} onResume={() => controller.resumeQueue()} />
     {snapshot.readOnly ? <>
       <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} agentAvailable={agentAvailable} workflowOpen={workflowOpen} onToggleWorkflow={() => setWorkflowOpen(prev => !prev)} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} />
       <div className="conversation-readonly-footer" aria-label="History options">
@@ -464,7 +481,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
         <button type="button" className="composer-action" disabled={!directory} title="Open terminal in working folder" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Unable to open terminal in this folder."))}><Icon name="terminal"/>Terminal</button>
         {run?.taskId && <TaskPrStatus task={task} onOpenPr={url=>void openExternalLink(url).catch(()=>setLinkError("Unable to open PR/MR."))} />}
       </div>
-    </> : <form className="composer" onSubmit={e => { e.preventDefault(); if (agentAvailable && loaded && !busy && !attaching && !snapshot.readOnly && !error && draft.trim()) { void controller.send(draft, false, options); setDraft(""); setFollowRequest(value => value + 1); } }}>
+    </> : <form className="composer" onSubmit={e => { e.preventDefault(); submitDraft(); }}>
       <div className="composer-nav-row">
         <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} agentAvailable={agentAvailable} workflowOpen={workflowOpen} onToggleWorkflow={() => setWorkflowOpen(prev => !prev)} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} />
       </div>
@@ -484,7 +501,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
             sendOnEnter(e);
           }}
           disabled={!!snapshot.readOnly}
-          placeholder="Ask a question or describe a change…"
+          placeholder={snapshot.busy ? "Queue a follow-up…" : "Ask a question or describe a change…"}
         />
         <div className="composer-footer"><TurnSettings compact showProviderMark provider={snapshot.provider} snapshot={snapshot} value={options} onChange={setOptions} disabled={!loaded || busy || !!snapshot.readOnly || !!error || acting} />
         <div className="composer-inline-tools">
@@ -505,8 +522,12 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
             <Icon name="stopSquare" />
           </button>
         )}
-        <button className={`send-button ${busy && !snapshot.readOnly ? "sr-only" : ""}`} aria-label="Send" title="Send · Enter" disabled={!agentAvailable || !loaded || busy || attaching || !!snapshot.readOnly || !!error || !draft.trim()}><Icon name="send" /></button></div>
+        {queueing
+          ? <button className="send-button queue-button" aria-label="Queue message" title="Queue · Enter" disabled={!loaded || attaching || !!snapshot.readOnly || queueFull || !draft.trim()}><Icon name="plus" /></button>
+          : <button className="send-button" aria-label="Send" title="Send · Enter" disabled={!agentAvailable || !loaded || busy || attaching || !!snapshot.readOnly || !!error || !draft.trim()}><Icon name="send" /></button>}</div>
       </div>
+      {snapshot.busy && <p className="composer-feedback composer-shortcuts">Enter to queue · Esc to interrupt</p>}
+      {queueFeedback && <p className="composer-feedback" role="status">{queueFeedback}</p>}
       {mcpFeedback&&snapshot.sectileMcp?.status==="unknown"&&<p className="composer-feedback" role="status">{mcpFeedback}</p>}
     </form>}
     </div>
