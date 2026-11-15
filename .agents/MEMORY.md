@@ -1,5 +1,10 @@
 # Project Knowledge Base (MEMORY.md)
 
+### Tauri Task Branches Target `feat/tauri-monorepo` (2026-11-15)
+
+- Task worktrees created under the `tauri-monorepo` checkout (`.tasks/worktrees/issue-*`) branch from `feat/tauri-monorepo`, not from `main`. The session context still names `main` as the main branch, and a PR opened against it drags the whole unmerged monorepo history (403 commits for #905 instead of 4).
+- Before `gh pr create`, check the fork point (`git merge-base HEAD origin/feat/tauri-monorepo` against `origin/main`) and open the PR with `--base feat/tauri-monorepo`. A PR already opened against `main` is retargeted with `gh pr edit <n> --base feat/tauri-monorepo`.
+
 ### Autonomous Provider Lifetime Ownership (2026-10-30)
 
 - `startHeadlessRun` still used `StartDetached` after free conversations moved to `StartOwned`. A real owner-SIGKILL regression reproduced its delayed shell write after the owning test-agent process died. The headless caller now uses the same lifetime guard; process-group ownership alone only protects explicit Stop. Keep output draining, exit status, cancellation and Windows job handling intact.

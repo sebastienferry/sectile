@@ -3061,3 +3061,18 @@ button.conversation-workflow-toggle svg {
     border-bottom: 1px solid var(--border);
   }
 }
+
+/* Follow-up messages queued while a turn runs: dashed and muted, so they never read as sent. */
+.queued-messages { margin:0 8px 6px; padding:6px 8px; border:1px dashed var(--border); border-radius:8px; background:color-mix(in srgb,var(--surface) 70%,transparent); font-size:var(--font-base); }
+.queued-messages-header { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+.queued-messages-header strong { color:var(--muted); font-weight:600; }
+.queued-messages-paused { color:var(--muted); }
+.queued-messages-header .composer-action { margin-inline-start:auto; }
+.queued-messages ol { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px; }
+.queued-message { display:flex; align-items:flex-start; gap:6px; color:var(--muted); }
+.queued-message-position { min-width:1.4em; text-align:end; font-variant-numeric:tabular-nums; }
+.queued-message-text { flex:1; margin:0; white-space:pre-wrap; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; font-style:italic; }
+.queued-message-status { white-space:nowrap; font-size:.9em; }
+.queued-message.failed .queued-message-status { color:var(--danger); white-space:normal; }
+.queued-message .icon-button { padding:2px; }
+.queued-message .icon-button svg { width:12px; height:12px; }

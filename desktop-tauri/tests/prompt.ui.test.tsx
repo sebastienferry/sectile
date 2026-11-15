@@ -173,7 +173,9 @@ test("streamed state exposes interruption and the next turn waits for Go to beco
   vi.mocked(api.readConversation).mockResolvedValue({ ...snapshot("live-chat", true), partial: "Working draft" });
   render(<ProjectPrompt projectId="project-five" runId="live-chat" onCreated={vi.fn()} />);
   await screen.findByText("Working draft");
-  expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+  // While Go is busy the composer queues instead of sending: an empty draft has nothing to queue.
+  expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Queue message" }).hasAttribute("disabled")).toBe(true);
   vi.mocked(api.readConversation).mockResolvedValue(snapshot("live-chat"));
   fireEvent.click(screen.getByRole("button", { name: "Interrupt" }));
   await waitFor(() => expect(api.controlConversation).toHaveBeenCalledWith("live-chat", { action: "interrupt" }));
