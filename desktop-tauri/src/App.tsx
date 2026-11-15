@@ -1416,7 +1416,9 @@ function ProjectPane({
         if(readiness.steps?.mcp?.configuration?.present&&!readiness.steps.mcp.configuration.valid)throw new Error("MCP unavailable");
       }
       if(startOver){
-        await launchTask(project.id,launchInput(task.id,skillId,startOver.prompt,"",{view:"conversation",contextRunId:startOver.contextRunId}));
+        // Interactive explicitly: a project defaulting to autonomous would
+        // otherwise run the skill headless, where no former context fits.
+        await launchTask(project.id,launchInput(task.id,skillId,startOver.prompt,"interactive",{view:"conversation",contextRunId:startOver.contextRunId}));
         await monitor.refresh();
         navigate(project,"task",undefined,task.id);
         return;

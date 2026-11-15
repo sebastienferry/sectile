@@ -75,3 +75,9 @@ test("former context is carried only by an interactive launch in the conversatio
   assert.equal(launchInput("t", "clarify", "", "", { contextRunId: "source" }).contextRunId, undefined);
   assert.equal(launchInput("t", "pickup", "", "", { view: "conversation", contextRunId: "source" }).contextRunId, undefined);
 });
+
+test("a start over skill launch stays interactive whatever the project default", () => {
+  const input = launchInput("t", "clarify", "Go on", "interactive", { view: "conversation", contextRunId: "source" });
+  assert.equal(input.mode, "interactive");
+  assert.equal(input.contextRunId, "source");
+});
