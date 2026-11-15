@@ -22,7 +22,7 @@ const RunIDHeader = "X-Sectile-Run-Id"
 // server and a connected local agent over the agent WebSocket relay.
 type Message struct {
 	MsgID   string          `json:"msgId"`
-	Type    string          `json:"type"` // dispatch_step, pty_input, pty_resize, step_status, pty_output, heartbeat, pull_tasks, running_tasks, run_waiting, run_answered, project_inventory, error
+	Type    string          `json:"type"` // dispatch_step, pty_input, pty_resize, step_status, pty_output, heartbeat, pull_tasks, running_tasks, run_waiting, run_answered, run_step, project_inventory, error
 	TaskID  string          `json:"taskId,omitempty"`
 	UserID  string          `json:"userId,omitempty"`
 	Payload json.RawMessage `json:"payload,omitempty"`
@@ -53,6 +53,19 @@ const RunAnsweredType = "run_answered"
 type RunAnswered struct {
 	RunID        string    `json:"runId"`
 	WaitingSince time.Time `json:"waitingSince"`
+}
+
+// RunStepType is the message an agent sends to add one line to the activity of
+// a run it owns (#904): the answers the owner gave to an agent's questions in a
+// task-linked conversation. A server that predates it logs the unknown type and
+// carries on; the answers then stay in the conversation transcript only.
+const RunStepType = "run_step"
+
+// RunStep is the payload of RunStepType. Text is already masked by the agent:
+// a secret answer never leaves it in clear.
+type RunStep struct {
+	RunID string `json:"runId"`
+	Text  string `json:"text"`
 }
 
 // RunningTask represents an active task execution reported by an agent.

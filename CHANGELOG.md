@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Sectile Desktop shows an agent's questions one tab per question, highlights the answer the agent recommends, lets you skip a single question, and records your answers on the run's activity for the ticket.
 - Sectile Desktop is now localized in English across the Tauri application, Rust backend, and local Go agent, and detects installed AI Engine CLI versions and available models directly in Settings.
 - Ticket list view includes a dedicated sortable Macro column, a Columns selector to toggle visible columns, and multi-select status filtering on the ticket board and list.
 - Sectile Desktop presents a dedicated mode selection onboarding screen on first launch to choose between Local Companion and Fleet Agent, and allows switching modes anytime in Settings.
