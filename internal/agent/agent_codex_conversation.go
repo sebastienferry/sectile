@@ -989,15 +989,10 @@ func (d *agentDaemon) decideCodexApprovalLocked(run *controlledRun, id, decision
 		markApprovalWaitLocked(run)
 		event := conversationEvent{Kind: "approval", Text: decision, Tool: approval.Tool, ToolID: approval.ToolUseID}
 		if decision == "answer" {
-			safeAnswers := map[string]string{}
-			for question, answer := range answers {
-				if approval.QuestionSecrets[question] {
-					safeAnswers[question] = "[hidden]"
-				} else {
-					safeAnswers[question] = answer
-				}
+			event.Detail = answersDetail(maskedAnswers(approval, answers))
+			if approval.Tool == askUserQuestion {
+				d.recordAnswersLocked(run, event.Detail)
 			}
-			event.Detail = answersDetail(safeAnswers)
 		}
 		conversationWriteEvent(run.trace, event)
 		return nil

@@ -923,6 +923,63 @@ func (d *DB) RecordRunCustomSkill(runID, directory string) error {
 	return nil
 }
 
+// runStepLimit bounds a step an agent adds to a run: the answers it carries are
+// already held to 16 KB by the agent, plus one line per question.
+const runStepLimit = 20000
+
+// AppendAgentRunStep adds one line an agent reports to the activity of a run it
+// owns (#904). Only a queued or running remote run the agent's user owns, and
+// that was dispatched to this device when it names one, takes the step; the
+// row is checked again by the update itself, so a run finished meanwhile is
+// left alone. It reports whether the step was added.
+func (d *DB) AppendAgentRunStep(userID, deviceID, runID, text string) (bool, error) {
+	userID, deviceID, runID = strings.TrimSpace(userID), strings.TrimSpace(deviceID), strings.TrimSpace(runID)
+	if userID == "" || runID == "" || strings.TrimSpace(text) == "" {
+		return false, fmt.Errorf("user, run and step are required")
+	}
+	if len(text) > runStepLimit {
+		return false, fmt.Errorf("step exceeds %d bytes", runStepLimit)
+	}
+	activity, err := d.GetActivityByID(runID)
+	if err != nil {
+		return false, err
+	}
+	if activity == nil || activity.SkillID != "remote_run" || activity.UserID != userID ||
+		(activity.Status != "queued" && activity.Status != "running") ||
+		(activity.DeviceID != "" && activity.DeviceID != deviceID) {
+		return false, nil
+	}
+	var steps []string
+	var count int64
+	d.mu.Lock()
+	err = d.conn.WithTx(func(tx *sqlTx) error {
+		current, err := d.lockActivityStepsUnsafe(tx, runID)
+		if err != nil {
+			return err
+		}
+		steps = append(current, text)
+		payload, err := json.Marshal(steps)
+		if err != nil {
+			return err
+		}
+		result, err := tx.Exec(`UPDATE task_activities SET steps=? WHERE id=? AND skill_id='remote_run' AND user_id=? AND status IN ('queued', 'running')`, string(payload), runID, userID)
+		if err != nil {
+			return err
+		}
+		count, err = result.RowsAffected()
+		return err
+	})
+	d.mu.Unlock()
+	if err != nil || count == 0 {
+		return false, err
+	}
+	if task, err := d.GetTaskByID(activity.TaskID); err == nil && task != nil {
+		activity.Steps = steps
+		d.notifyPostBackListeners(task, activity, nil)
+	}
+	return true, nil
+}
+
 // AppendRemoteRunOutput adds captured CLI output to a running remote activity.
 // It is the only channel an autonomous run has: nobody is watching a terminal,
 // so what the CLI printed has to survive on the activity itself.

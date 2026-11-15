@@ -223,6 +223,24 @@ func (h *Handler) answerRunWait(ac *AgentConn, msg AgentMessage) {
 	}
 }
 
+// appendRunStep records a step an agent reports on a run it owns (#904). A
+// step for another agent's run, an unknown run or a finished one is dropped.
+func (h *Handler) appendRunStep(ac *AgentConn, msg AgentMessage) {
+	var payload agentprotocol.RunStep
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		log.Printf("[AgentConnect] Invalid run_step payload from %s: %v", ac.DeviceID, err)
+		return
+	}
+	added, err := h.db.AppendAgentRunStep(ac.UserID, ac.DeviceID, payload.RunID, payload.Text)
+	if err != nil {
+		log.Printf("[AgentConnect] Cannot add a step to run %s: %v", payload.RunID, err)
+		return
+	}
+	if !added {
+		log.Printf("[AgentConnect] Step dropped for run %s: not a running run of device %s", payload.RunID, ac.DeviceID)
+	}
+}
+
 func (h *Handler) SubscribeEvents() chan Event {
 	h.subMu.Lock()
 	defer h.subMu.Unlock()
@@ -4035,6 +4053,8 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 			// lands before the pull's reply, so the state resent after the pull
 			// already has it.
 			h.answerRunWait(ac, msg)
+		case agentprotocol.RunStepType:
+			h.appendRunStep(ac, msg)
 		default:
 			log.Printf("[AgentConnect] Unknown message type from agent: %s", msg.Type)
 		}

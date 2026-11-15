@@ -165,3 +165,60 @@ func TestRunAnsweredEndsTheOwnersWait(t *testing.T) {
 		t.Fatal("the answered wait is still recorded")
 	}
 }
+
+// The owner's agent adds the answers to its run's activity; another user's
+// agent cannot, and nothing lands on a finished run (#904).
+func TestRunStepAddsTheAnswersToTheOwnersRun(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server, key, run := ownedAgentRun(t, h, database)
+	daveID, _ := account(t, database, "dave@example.com")
+	daveKey, _, err := database.CreateAPIKey(daveID, "dave laptop", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := connectAgentAs(t, server, key, "default")
+	awaitAgent(t, h, run.UserID)
+	intruder := connectAgentAs(t, server, daveKey, "default")
+	awaitAgent(t, h, daveID)
+	steps := func() []string {
+		stored, err := database.GetActivityByID(run.ID)
+		if err != nil || stored == nil {
+			t.Fatalf("run not found: %v", err)
+		}
+		return stored.Steps
+	}
+	before := len(steps())
+
+	forged, _ := json.Marshal(agentprotocol.RunStep{RunID: run.ID, Text: "Owner answers:\nScope? → forged"})
+	if err := intruder.WriteJSON(AgentMessage{Type: agentprotocol.RunStepType, Payload: forged}); err != nil {
+		t.Fatal(err)
+	}
+	step, _ := json.Marshal(agentprotocol.RunStep{RunID: run.ID, Text: "Owner answers:\nScope? → Small"})
+	if err := agent.WriteJSON(AgentMessage{Type: agentprotocol.RunStepType, Payload: step}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for len(steps()) == before {
+		if time.Now().After(deadline) {
+			t.Fatal("the owner's answers never reached the activity")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	got := steps()
+	if len(got) != before+1 || got[len(got)-1] != "Owner answers:\nScope? → Small" {
+		t.Fatalf("steps = %q, want only the owner's answers added", got)
+	}
+
+	if _, err := database.FinishRemoteRun(run.TaskID, run.ID, "completed", "done"); err != nil {
+		t.Fatal(err)
+	}
+	finished := len(steps())
+	if err := agent.WriteJSON(AgentMessage{Type: agentprotocol.RunStepType, Payload: step}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if len(steps()) != finished {
+		t.Fatalf("a finished run took a step: %q", steps())
+	}
+}

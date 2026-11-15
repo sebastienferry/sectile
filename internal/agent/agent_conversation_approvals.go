@@ -10,6 +10,8 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+
+	"tasks/internal/agentprotocol"
 )
 
 // A conversation turn speaks Claude's streaming input protocol, the one the
@@ -238,7 +240,8 @@ func (d *agentDaemon) decideApprovalLocked(run *controlledRun, id, decision stri
 		markApprovalWaitLocked(run)
 		event := conversationEvent{Kind: "approval", Text: decision, Tool: approval.Tool, ToolID: approval.ToolUseID}
 		if decision == "answer" {
-			event.Detail = answersDetail(answers)
+			event.Detail = answersDetail(maskedAnswers(approval, answers))
+			d.recordAnswersLocked(run, event.Detail)
 		}
 		conversationWriteEvent(run.trace, event)
 		d.keepAllowRulesLocked(run, rules, unread)
@@ -309,6 +312,61 @@ func checkAnswers(approval conversationApproval, decision string, answers map[st
 		return fmt.Errorf("answer every question, briefly")
 	}
 	return nil
+}
+
+// maskedAnswers is the owner's answers as the trace and the run's activity may
+// keep them: the answer to a question marked secret, by Claude's input or by
+// Codex's request, reads "[hidden]" (#904).
+func maskedAnswers(approval conversationApproval, answers map[string]string) map[string]string {
+	var input struct {
+		Questions []struct {
+			Question string `json:"question"`
+			IsSecret bool   `json:"isSecret"`
+		} `json:"questions"`
+	}
+	_ = json.Unmarshal(approval.Input, &input)
+	secret := map[string]bool{}
+	for _, question := range input.Questions {
+		secret[question.Question] = question.IsSecret
+	}
+	masked := make(map[string]string, len(answers))
+	for question, answer := range answers {
+		if secret[question] || approval.QuestionSecrets[question] {
+			answer = "[hidden]"
+		}
+		masked[question] = answer
+	}
+	return masked
+}
+
+// recordAnswersLocked adds the owner's answers, already masked, as one step of
+// the activity of the run a task-linked conversation belongs to (#904). It is
+// sent without waiting: a missing connection or a refused step never holds up
+// the answer, which the agent already received. The queue lock is held.
+func (d *agentDaemon) recordAnswersLocked(run *controlledRun, detail string) {
+	if run.desktop.TaskID == "" || run.desktop.ID == "" || detail == "" {
+		return
+	}
+	go d.sendRunStep(run.desktop.ID, "Owner answers:\n"+detail)
+}
+
+// sendRunStep adds one line to the activity of a run this agent owns. Without
+// a connection the step is dropped: the transcript still holds the answers.
+func (d *agentDaemon) sendRunStep(runID, text string) {
+	d.link.mu.Lock()
+	conn := d.link.conn
+	d.link.mu.Unlock()
+	if conn == nil {
+		log.Printf("[Agent] Answers of run %s kept in the transcript only: not connected to the server", runID)
+		return
+	}
+	raw, err := json.Marshal(agentprotocol.RunStep{RunID: runID, Text: text})
+	if err != nil {
+		return
+	}
+	if err := d.link.write(conn, agentprotocol.Message{Type: agentprotocol.RunStepType, Payload: raw}); err != nil {
+		log.Printf("[Agent] Cannot add the answers to the activity of run %s: %v", runID, err)
+	}
 }
 
 // answersDetail is how the trace keeps the owner's answers, one per line.
