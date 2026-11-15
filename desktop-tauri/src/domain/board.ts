@@ -27,6 +27,7 @@ export interface Task {
   labels?: string[];
   prUrl?: string;
   prLinks?: TaskPullRequest[];
+  externalUrl?: string;
   trackerId?: string;
   description?: string;
   issueType?: string;
@@ -52,7 +53,7 @@ export function trackerColumns(
     // Only known remote sources belong on this board; unknown sources fail closed.
     if (!["github", "gitlab", "jira"].includes(task.source ?? "")) continue;
     if (!predicate(task)) continue;
-    const name = task.trackerStatus?.trim() || "Statut distant indisponible";
+    const name = task.trackerStatus?.trim() || "Remote status unavailable";
     const group = groups.get(name);
     if (group) group.push(task);
     else groups.set(name, [task]);

@@ -11,9 +11,9 @@ export interface LocalSetup {
   apiSetupAvailable?: boolean;
   dataDirectory?: string;
   profile?: { email: string; displayName: string; role?: string };
-  trackers?: { id: string; name: string; provider: string; site: string; scope: string }[];
+  trackers?: { id: string; name: string; provider: string; site: string; scope: string; ticketCount?: number }[];
   credentials?: { credentials: { tracker: string; siteUrl?: string; account?: string; kind?: string; disconnected?: boolean }[] };
-  projects?: { id: string; name: string; trackers?: { trackerId: string }[] }[];
+  projects?: { id: string; name: string; defaultTrackerId?: string; trackers?: { trackerId: string }[] }[];
 }
 export const localSetupStatus = async () => invoke<LocalSetup>("local_setup_status");
 export interface ServiceLog { path: string; text: string; missing: boolean; truncated: boolean }

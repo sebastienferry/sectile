@@ -14,7 +14,7 @@ test("Markdown renders headings, lists, tables and copyable fenced code without 
  expect(container.querySelector("table")).toBeTruthy();
  expect(container.querySelector("pre code")?.textContent).toBe("const answer = 42;");
  expect(container.querySelectorAll("img, script, iframe, a")).toHaveLength(0);
- fireEvent.click(screen.getByRole("button",{name:"Copier le code"}));
+ fireEvent.click(screen.getByRole("button",{name:"Copy code"}));
  await waitFor(()=>expect(writeText).toHaveBeenCalledWith("const answer = 42;"));
 });
 test("tool calls and out-of-order results remain paired by identity and collapse into a group", () => {
@@ -25,8 +25,8 @@ test("tool calls and out-of-order results remain paired by identity and collapse
  const {container}=render(<ConversationTranscript snapshot={snapshot(events)} />);
  const group=container.querySelector("details")!;
  expect(group.open).toBe(false);
- expect(group.querySelector("summary")?.textContent).toContain("2 appels d’outils");
- expect(group.querySelector("summary")?.textContent).toContain("1 en erreur");
+ expect(group.querySelector("summary")?.textContent).toContain("2 tool calls");
+ expect(group.querySelector("summary")?.textContent).toContain("1 failed");
  expect(screen.getByText("Answer")).toBeTruthy();
 });
 test("an orphan tool result stays visible and does not attach to a different call", () => {
@@ -36,16 +36,16 @@ test("an orphan tool result stays visible and does not attach to a different cal
 });
 test("following the response pauses on scroll-up and resumes only near the bottom or on request", () => {
  const view=render(<ConversationTranscript snapshot={snapshot([],"First")} />);
- const viewport=screen.getByLabelText("Historique de conversation");
+ const viewport=screen.getByLabelText("Conversation history");
  Object.defineProperties(viewport,{scrollHeight:{configurable:true,value:1000},clientHeight:{configurable:true,value:200}});
  view.rerender(<ConversationTranscript snapshot={snapshot([],"Second")} />);
  expect(viewport.scrollTop).toBe(1000);
  viewport.scrollTop=100;fireEvent.scroll(viewport);
  view.rerender(<ConversationTranscript snapshot={snapshot([],"Third")} />);
  expect(viewport.scrollTop).toBe(100);
- fireEvent.click(screen.getByRole("button",{name:/Aller en bas/}));
+ fireEvent.click(screen.getByRole("button",{name:/Jump to bottom/}));
  expect(viewport.scrollTop).toBe(1000);
- expect(screen.queryByRole("button",{name:/Aller en bas/})).toBeNull();
+ expect(screen.queryByRole("button",{name:/Jump to bottom/})).toBeNull();
  viewport.scrollTop=100;fireEvent.scroll(viewport);
  view.rerender(<ConversationTranscript snapshot={snapshot([],"Fourth")} followRequest={1} />);
  expect(viewport.scrollTop).toBe(1000);
@@ -67,7 +67,7 @@ test("content resize follows only while pinned, and observers disconnect on unmo
  const disconnect=vi.fn();
  vi.stubGlobal("ResizeObserver",class {constructor(callback:()=>void){resize=callback;}observe(){}disconnect=disconnect;});
  const view=render(<ConversationTranscript snapshot={snapshot([],"Draft")} />);
- const viewport=screen.getByLabelText("Historique de conversation");
+ const viewport=screen.getByLabelText("Conversation history");
  Object.defineProperties(viewport,{scrollHeight:{configurable:true,value:1000},clientHeight:{configurable:true,value:200}});
  resize();expect(viewport.scrollTop).toBe(1000);
  viewport.scrollTop=100;fireEvent.scroll(viewport);
@@ -80,12 +80,12 @@ test("content resize follows only while pinned, and observers disconnect on unmo
 
 test("recovered streaming fragments are marked interrupted and keep their Markdown", () => {
  render(<ConversationTranscript snapshot={{...snapshot([{kind:"assistant",text:"Recovered **fragment**",interrupted:true}]),busy:false}} />);
- expect(screen.getByText("Assistant · réponse interrompue")).toBeTruthy();
+ expect(screen.getByText("Assistant · response interrupted")).toBeTruthy();
  expect(screen.getByText("fragment").tagName).toBe("STRONG");
 });
 
 
-test("approval history uses French decisions without translating provider or user text", () => {
+test("approval history uses English decisions without translating provider or user text", () => {
  render(<ConversationTranscript snapshot={snapshot([
   {kind:"approval",text:"allow"},
   {kind:"approval",text:"deny"},
@@ -94,8 +94,8 @@ test("approval history uses French decisions without translating provider or use
   {kind:"assistant",text:"allow"},
   {kind:"user",text:"deny"},
  ])} />);
- expect(screen.getAllByText("Autorisation")).toHaveLength(4);
- for (const label of ["Demande autorisée une fois.","Demande refusée.","Autorisation mémorisée.","Réponse envoyée."]) expect(screen.getByText(label)).toBeTruthy();
+ expect(screen.getAllByText("Permission")).toHaveLength(4);
+ for (const label of ["Request allowed once.","Request denied.","Permission saved.","Answer sent."]) expect(screen.getByText(label)).toBeTruthy();
  expect(screen.getByText("Color → Blue")).toBeTruthy();
  expect(screen.getByText("allow")).toBeTruthy();
  expect(screen.getByText("deny")).toBeTruthy();

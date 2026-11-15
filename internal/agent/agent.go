@@ -486,10 +486,10 @@ func (d *agentDaemon) connectLoop(ctx context.Context) {
 				log.Printf("[Agent] Server still does not serve agent contract v%d (attempt %d). Retrying in %s...", agentconfig.Version, attempt, backoff)
 			} else if errors.Is(err, errAPIKeyExpired) {
 				// Nothing on the network will fix this; the owner has to renew
-				// the key. Say so in both languages the log already speaks,
+				// the key. Say so in the log and on stdout,
 				// then keep retrying so a renewal is picked up without a restart.
 				log.Printf("[Agent] %v (attempt %d). Renew the key from the web profile; retrying in %s...", err, attempt, backoff)
-				fmt.Printf("\n⚠️  [Agent] Clé d'API expirée : renouvelez-la depuis votre profil sur %s\n\n", d.link.serverURL)
+				fmt.Printf("\n⚠️  [Agent] API key expired: renew it from your profile on %s\n\n", d.link.serverURL)
 			} else {
 				log.Printf("[Agent] Connection lost (attempt %d): %v. Reconnecting in %s...", attempt, err, backoff)
 			}
@@ -653,9 +653,9 @@ func (d *agentDaemon) connect(ctx context.Context) (bool, error) {
 		d.onConnected()
 	}
 	log.Printf("[Agent] Connected to remote server")
-	fmt.Printf("\n✅ [Agent] Connecté avec succès au serveur Sectile (%s)\n", d.link.serverURL)
-	fmt.Printf("   Projet: [%s] | Machine: [%s]\n", d.link.projectID, d.link.deviceID)
-	fmt.Printf("   Prêt ! Les compétences déclenchées sur l'interface web s'exécuteront ici.\n\n")
+	fmt.Printf("\n✅ [Agent] Successfully connected to Sectile server (%s)\n", d.link.serverURL)
+	fmt.Printf("   Project: [%s] | Device: [%s]\n", d.link.projectID, d.link.deviceID)
+	fmt.Printf("   Ready! Skills triggered from the web interface will run here.\n\n")
 
 	// Message read loop.
 	for {
@@ -794,13 +794,13 @@ func pongLoop(ctx context.Context, conn *websocket.Conn, pongs <-chan []byte) {
 func logDisconnect(err error) {
 	if closeErr := receivedServerClose(err); closeErr != nil {
 		log.Printf("[Agent] Disconnected by the server: code %d, %s", closeErr.Code, closeErr.Text)
-		fmt.Printf("\n⚠️  [Agent] Déconnecté par le serveur (code %d) : %s\n\n", closeErr.Code, closeErr.Text)
+		fmt.Printf("\n⚠️  [Agent] Disconnected by the server (code %d): %s\n\n", closeErr.Code, closeErr.Text)
 		return
 	}
 	var closeErr *websocket.CloseError
 	if errors.As(err, &closeErr) && closeErr.Code == websocket.CloseAbnormalClosure {
 		log.Printf("[Agent] Connection lost without a server close frame: %v", err)
-		fmt.Printf("\n⚠️  [Agent] Connexion au serveur interrompue sans motif de fermeture reçu : %v\n\n", err)
+		fmt.Printf("\n⚠️  [Agent] Server connection lost without a close reason: %v\n\n", err)
 		return
 	}
 	log.Printf("[Agent] Connection closed without a reason from the server: %v", err)
@@ -1387,7 +1387,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		effectiveView = launchPref.view
 	}
 	if effectiveView != agentconfig.ConsoleViewTerminal && opensConversation(autonomous, models.NormalizeSkillID(payload.Action), marked, effectiveView, config) {
-		model, first, origin := conversationModel(config), "", "Elle s’exécute dans le worktree de cette tâche. Arrêtez-la pour terminer la discussion."
+		model, first, origin := conversationModel(config), "", "It runs in this task's worktree. Stop it to end the discussion."
 		var extraDirs []string
 		if payload.SkillID != "discuss" {
 			launch := agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders), Skill: choice}
@@ -1404,7 +1404,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			if skillModel, modelErr := LaunchModel(config, payload.SkillID, payload.Model); modelErr == nil && strings.TrimSpace(skillModel) != "" {
 				model = skillModel
 			}
-			origin = "Elle exécute le skill " + payload.SkillID + " dans le worktree de cette tâche. Arrêtez-la lorsque le skill est terminé."
+			origin = "It runs skill " + payload.SkillID + " in this task's worktree. Stop it when the skill is finished."
 		}
 		d.startLaunchConversationWithMode(run, desktopRun{ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, Title: taskConversationTitle(task.Title, payload.SkillID), ProjectID: config.ProjectID, Skill: payload.SkillID, Directory: workDir, Folders: runFolders(workDir, folders), Branch: branch, EngineID: config.EngineID, EngineName: config.EngineName}, model, launchPref.conversationMode, conversationOrigin(config, origin), first, envVars, extraDirs, liveProvider(config))
 		launched = true

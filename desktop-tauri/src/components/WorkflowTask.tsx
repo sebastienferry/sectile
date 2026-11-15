@@ -50,7 +50,7 @@ function WorkflowTaskView({projectId,taskId,onBack,onSetup,onEdit,onExecution,on
     setProvider(context.aiProvider);
    }
   }catch{
-   if(seq===generation.current)setReadError("Impossible de lire le workflow du ticket. Actualisez avant de lancer une action.");
+   if(seq===generation.current)setReadError("Unable to read ticket workflow. Refresh before launching an action.");
   }finally{
    if(seq===generation.current)reading.current=false;
   }
@@ -144,44 +144,44 @@ function WorkflowTaskView({projectId,taskId,onBack,onSetup,onEdit,onExecution,on
     if(turnOptions.mode)options.conversationMode=turnOptions.mode;
    }
    await launchTask(projectId,launchInput(taskId,skill,draft,kind==="chain"?"autonomous":"",options));
-   setSubmitted({ids:state.runs.map(r=>r.id),skill});setNotice("Lancement accepté · en attente de l’exécution. Aucun renvoi automatique.");
+   setSubmitted({ids:state.runs.map(r=>r.id),skill});setNotice("Launch accepted · waiting for execution. No automatic retry.");
    await monitor.refresh();await refresh();
-  }catch{setError("Lancement non confirmé : le ticket ou ses exécutions ont pu changer. Actualisez le suivi avant de réessayer. Vos instructions sont conservées.");}
+  }catch{setError("Launch not confirmed: the ticket or its executions may have changed. Refresh status before trying again. Your instructions are kept.");}
   finally{acting.current=false;setPending(false);}
  }
  const readinessUnknown=readiness?.steps?.skills?.status!=="success"||readiness?.steps?.mcp?.status!=="success";
  return <section className="workflow-task">
   <div className="workflow-task-top">
-   <button onClick={onBack}>← Tickets du projet</button>
+   <button onClick={onBack}>← Project tickets</button>
    <div className="workflow-task-top-actions">
-    <button disabled={pending} onClick={()=>{setError("");void monitor.refresh();void refresh();}}>Actualiser le workflow</button>
-    {task&&onEdit&&<button onClick={onEdit}>Modifier le ticket</button>}
+    <button disabled={pending} onClick={()=>{setError("");void monitor.refresh();void refresh();}}>Refresh workflow</button>
+    {task&&onEdit&&<button onClick={onEdit}>Edit ticket</button>}
    </div>
   </div>
   <header className="workflow-header">
    <div className="workflow-header-eyebrow">
-    <span className="eyebrow">WORKFLOW DU TICKET · {task?.key||taskId}</span>
-    {!!taskPullRequests(task).length&&<div className="workflow-pr-links"><strong>PR/MR</strong>{taskPullRequests(task).map(link=><button type="button" key={link.url} onClick={()=>void openExternalLink(link.url).catch(()=>setError("Impossible d’ouvrir le lien de PR / MR."))}>{pullRequestLabel(link)} · {pullRequestStateLabel(link)}</button>)}</div>}
+    <span className="eyebrow">TICKET WORKFLOW · {task?.key||taskId}</span>
+    {!!taskPullRequests(task).length&&<div className="workflow-pr-links"><strong>PR/MR</strong>{taskPullRequests(task).map(link=><button type="button" key={link.url} onClick={()=>void openExternalLink(link.url).catch(()=>setError("Unable to open PR / MR link."))}>{pullRequestLabel(link)} · {pullRequestStateLabel(link)}</button>)}</div>}
    </div>
-   <h2>{task?.title||"Chargement du ticket…"}</h2>
-   <p className="workflow-meta">Statut tracker : {task?.trackerStatus||"Indisponible"} · Assigné : {task?.assignee||"Non assigné"}{task?.sprint?` · Sprint : ${task.sprint}`:""}</p>
-   {task?.description&&<details className="workflow-description"><summary>Description du ticket</summary><Markdown text={task.description}/></details>}
-   <ol className="workflow-progress" aria-label="Étapes du workflow">{stages.map(stage=><li key={stage} aria-current={step?.stage===stage?"step":undefined}>{stageLabels[stage]}</li>)}</ol>
+   <h2>{task?.title||"Loading ticket…"}</h2>
+   <p className="workflow-meta">Tracker status: {task?.trackerStatus||"Unavailable"} · Assignee: {task?.assignee||"Unassigned"}{task?.sprint?` · Sprint: ${task.sprint}`:""}</p>
+   {task?.description&&<details className="workflow-description"><summary>Ticket description</summary><Markdown text={task.description}/></details>}
+   <ol className="workflow-progress" aria-label="Workflow stages">{stages.map(stage=><li key={stage} aria-current={step?.stage===stage?"step":undefined}>{stageLabels[stage]}</li>)}</ol>
   </header>
   {(error||readError)&&<p role="alert" className="error">{error||readError}</p>}
   {notice&&<p role="status" className="workflow-notice">{notice}</p>}
-  {task&&project&&!finished&&mcpConflict&&<p role="alert" className="error">L’entrée MCP existante ne correspond pas à ce compagnon. Vérifiez sa cible dans les moteurs IA avant de lancer le workflow.</p>}
+  {task&&project&&!finished&&mcpConflict&&<p role="alert" className="error">The existing MCP entry does not match this companion. Check its target in AI engines before launching the workflow.</p>}
   {step?.reason&&<p role="status" className="workflow-reason">{step.reason}</p>}
-  {active&&<p role="status" className="workflow-active-banner">{skillLabels[active.skill]||active.skill} · {statusLabel(active)}. Une exécution est déjà ouverte pour ce ticket.</p>}
+  {active&&<p role="status" className="workflow-active-banner">{skillLabels[active.skill]||active.skill} · {statusLabel(active)}. An execution is already open for this ticket.</p>}
   {task&&project&&!finished&&(
    <div className="workflow-launch-panel">
     <div className="workflow-launch-main">
      <div className="workflow-actions">
-      <button className="primary" disabled={blocked||!step?.skillId} onClick={()=>void launch("next")}>{pending?"Envoi…":step?.skillId?`Étape suivante : ${step.label}`:step?.label||"Étape indisponible"}</button>
-      {project?.skills.some(s=>s.id==="pickup")&&(chain?.reached?<p role="status" className="workflow-chain-reached">Objectif de la chaîne atteint : {stageLabels[chain.target]}.</p>:<button disabled={blocked} onClick={()=>void launch("chain")}>Lancer la chaîne · jusqu’à {project.policy.fullChainStopStage==="reviewed"?"Revu":"Implémenté"}</button>)}
+      <button className="primary" disabled={blocked||!step?.skillId} onClick={()=>void launch("next")}>{pending?"Sending…":step?.skillId?`Next step: ${step.label}`:step?.label||"Step unavailable"}</button>
+      {project?.skills.some(s=>s.id==="pickup")&&(chain?.reached?<p role="status" className="workflow-chain-reached">Chain target reached: {stageLabels[chain.target]}.</p>:<button disabled={blocked} onClick={()=>void launch("chain")}>Run chain · up to {project.policy.fullChainStopStage==="reviewed"?"Reviewed":"Implemented"}</button>)}
      </div>
      <div className="workflow-launch-bar">
-      <div className="workflow-view-toggle" role="group" aria-label="Mode d’ouverture">
+      <div className="workflow-view-toggle" role="group" aria-label="Launch view">
        <button type="button" className={launchView==="conversation"?"is-active":""} aria-pressed={launchView==="conversation"} disabled={pending} onClick={()=>{setLaunchView("conversation");saveTaskLaunchView("conversation");}}>Conversation</button>
        <button type="button" className={launchView==="terminal"?"is-active":""} aria-pressed={launchView==="terminal"} disabled={pending} onClick={()=>{setLaunchView("terminal");saveTaskLaunchView("terminal");}}>Terminal</button>
       </div>
@@ -189,12 +189,12 @@ function WorkflowTaskView({projectId,taskId,onBack,onSetup,onEdit,onExecution,on
      </div>
     </div>
     <div className="workflow-launch-disclosures">
-     <details className="workflow-advanced"><summary>Instructions et autre skill</summary><label>Instructions supplémentaires<textarea value={draft} maxLength={5000} disabled={pending} onChange={e=>setDraft(e.target.value)}/></label><label>Skill<select aria-label="Autre skill" value={customSkill} onChange={e=>setCustomSkill(e.target.value)}><option value="">Choisir une skill…</option>{project?.skills.map(s=><option key={s.id} value={s.id}>{skillLabels[s.id]||s.id}{s.command?` · /${s.command}`:""}</option>)}</select></label><button disabled={blocked||!customSkill||step?.stage==="finished"} onClick={()=>void launch("custom")}>Lancer la skill choisie</button></details>
-     {readinessUnknown&&<details className="workflow-prerequisite"><summary>Préparation du moteur non vérifiée</summary><p>Préparation skills/MCP non confirmée pour ce moteur. Une installation par plugin peut déjà être prête ; la connexion CLI seule ne le garantit pas.</p><button onClick={onSetup}>Vérifier les moteurs IA</button></details>}
+     <details className="workflow-advanced"><summary>Instructions and other skill</summary><label>Additional instructions<textarea value={draft} maxLength={5000} disabled={pending} onChange={e=>setDraft(e.target.value)}/></label><label>Skill<select aria-label="Other skill" value={customSkill} onChange={e=>setCustomSkill(e.target.value)}><option value="">Choose a skill…</option>{project?.skills.map(s=><option key={s.id} value={s.id}>{skillLabels[s.id]||s.id}{s.command?` · /${s.command}`:""}</option>)}</select></label><button disabled={blocked||!customSkill||step?.stage==="finished"} onClick={()=>void launch("custom")}>Launch selected skill</button></details>
+     {readinessUnknown&&<details className="workflow-prerequisite"><summary>Engine preparation unverified</summary><p>Skills/MCP preparation is unconfirmed for this engine. A plugin installation may already be ready; CLI connection alone does not guarantee it.</p><button onClick={onSetup}>Check AI engines</button></details>}
     </div>
    </div>
   )}
-  {step?.stage==="implemented"&&task?.prUrl&&<details className="manual-review"><summary>Déclarer la revue validée</summary><p>Cette action enregistre explicitement l’étape « Revu » sur le serveur. Elle ne lance aucune skill et ne fusionne pas la PR.</p><label>Justification<textarea value={reviewNote} onChange={e=>setReviewNote(e.target.value)} maxLength={1000}/></label><button disabled={blocked||!reviewNote.trim()} onClick={()=>{if(acting.current)return;acting.current=true;setPending(true);void declareReviewed(projectId,taskId,reviewNote).then(()=>refresh()).catch(()=>setError("Validation non confirmée. Actualisez le ticket avant de réessayer.")).finally(()=>{acting.current=false;setPending(false);});}}>Enregistrer la revue validée</button></details>}
+  {step?.stage==="implemented"&&task?.prUrl&&<details className="manual-review"><summary>Declare review validated</summary><p>This action explicitly records the "Reviewed" stage on the server. It does not launch any skill and does not merge the PR.</p><label>Justification<textarea value={reviewNote} onChange={e=>setReviewNote(e.target.value)} maxLength={1000}/></label><button disabled={blocked||!reviewNote.trim()} onClick={()=>{if(acting.current)return;acting.current=true;setPending(true);void declareReviewed(projectId,taskId,reviewNote).then(()=>refresh()).catch(()=>setError("Validation not confirmed. Refresh the ticket before trying again.")).finally(()=>{acting.current=false;setPending(false);});}}>Save validated review</button></details>}
   {run&&(
    <section className="workflow-run">
     <div className="run-heading">
@@ -204,13 +204,13 @@ function WorkflowTaskView({projectId,taskId,onBack,onSetup,onEdit,onExecution,on
      </div>
      <div className="run-heading-actions">
       <label className="workflow-run-select">
-       <span className="sr-only">Exécution</span>
-       <select aria-label="Exécution du ticket" value={run?.id??""} onChange={e=>setSelected(e.target.value)}>
-        {runs.map(r=><option key={r.id} value={r.id}>{skillLabels[r.skill]||r.skill} · {statusLabel(r)} · {new Date(r.createdAt).toLocaleString("fr")}</option>)}
+       <span className="sr-only">Execution</span>
+       <select aria-label="Ticket execution" value={run?.id??""} onChange={e=>setSelected(e.target.value)}>
+        {runs.map(r=><option key={r.id} value={r.id}>{skillLabels[r.skill]||r.skill} · {statusLabel(r)} · {new Date(r.createdAt).toLocaleString("en")}</option>)}
        </select>
       </label>
-      {run.conversation&&onOpenConversation&&<button type="button" onClick={()=>onOpenConversation(run.id)}>Ouvrir la conversation</button>}
-      {isActive(run)&&<button disabled={pending||!monitor.fresh||run.cancelRequested} onClick={()=>{void stopRun(run.id).then(()=>monitor.refresh()).catch(()=>setError("Arrêt non confirmé. Actualisez le suivi."));}}>{run.cancelRequested?"Arrêt demandé…":"Arrêter l’exécution"}</button>}
+      {run.conversation&&onOpenConversation&&<button type="button" onClick={()=>onOpenConversation(run.id)}>Open conversation</button>}
+      {isActive(run)&&<button disabled={pending||!monitor.fresh||run.cancelRequested} onClick={()=>{void stopRun(run.id).then(()=>monitor.refresh()).catch(()=>setError("Stop not confirmed. Refresh status."));}}>{run.cancelRequested?"Stop requested…":"Stop execution"}</button>}
      </div>
     </div>
     <RunReview key={run.id} run={run}/>
@@ -220,5 +220,5 @@ function WorkflowTaskView({projectId,taskId,onBack,onSetup,onEdit,onExecution,on
  </section>;
 }
 function TaskOutput({projectId,run,task,board,onExecution,onArchive,onChanged}:{projectId:string;run:Run;task?:Task;board?:ProjectContext["board"];onExecution?:(runId:string)=>void;onArchive?:()=>void;onChanged:()=>void}){
- return run.conversation?<Suspense fallback={<p>Ouverture de la conversation…</p>}><ProjectPrompt projectId={projectId} runId={run.id} run={run} task={task} board={board} directory={run.directory} folders={run.folders} onCreated={()=>{}} onOpenQueue={onExecution?()=>onExecution(""):undefined} onArchive={onArchive} onStopped={onChanged} onFoldersChanged={onChanged}/></Suspense>:run.sessionId||run.trace||run.restored?<Suspense fallback={<p>Ouverture de la console…</p>}><RunConsole runId={run.id} sessionId={run.sessionId}/></Suspense>:<p>La console sera disponible après la prise en charge par Go.</p>;
+ return run.conversation?<Suspense fallback={<p>Opening conversation…</p>}><ProjectPrompt projectId={projectId} runId={run.id} run={run} task={task} board={board} directory={run.directory} folders={run.folders} onCreated={()=>{}} onOpenQueue={onExecution?()=>onExecution(""):undefined} onArchive={onArchive} onStopped={onChanged} onFoldersChanged={onChanged}/></Suspense>:run.sessionId||run.trace||run.restored?<Suspense fallback={<p>Opening console…</p>}><RunConsole runId={run.id} sessionId={run.sessionId}/></Suspense>:<p>The console will be available once picked up by Go.</p>;
 }

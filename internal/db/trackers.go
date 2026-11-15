@@ -689,21 +689,65 @@ func trackerSourceChanged(current, next *models.Tracker) bool {
 		models.TrackerAddress(current.Site) != models.TrackerAddress(next.Site)
 }
 
+func linkedTrackerProjectNamesOn(tx *sqlTx, trackerID string) ([]string, error) {
+	rows, err := tx.Query(`SELECT p.name FROM project_trackers pt JOIN projects p ON p.id = pt.project_id WHERE pt.tracker_id = ? ORDER BY p.name`, trackerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
+}
+
 // DeleteTrackerAs deletes a tracker no project selects and no ticket belongs
 // to.
 func (d *DB) DeleteTrackerAs(userID string, id string) error {
+	return d.deleteTrackerWithOptionsAs(userID, id, false)
+}
+
+// PurgeTrackerAs deletes a tracker that no project selects, removing any
+// cached tickets or macros that still belong to it.
+func (d *DB) PurgeTrackerAs(userID string, id string) error {
+	return d.deleteTrackerWithOptionsAs(userID, id, true)
+}
+
+func (d *DB) deleteTrackerWithOptionsAs(userID string, id string, purgeOrphanedTasks bool) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	err := d.conn.WithTx(func(tx *sqlTx) error {
-		var links, tasks int
-		if err := tx.QueryRow(`SELECT COUNT(*) FROM project_trackers WHERE tracker_id = ?`, id).Scan(&links); err != nil {
+		projectNames, err := linkedTrackerProjectNamesOn(tx, id)
+		if err != nil {
 			return err
 		}
+		if len(projectNames) > 0 {
+			return fmt.Errorf("%w (utilisé par : %s)", ErrTrackerInUse, strings.Join(projectNames, ", "))
+		}
+		var tasks int
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM tasks WHERE tracker_id = ?`, id).Scan(&tasks); err != nil {
 			return err
 		}
-		if links > 0 || tasks > 0 {
-			return ErrTrackerInUse
+		if tasks > 0 {
+			if !purgeOrphanedTasks {
+				return fmt.Errorf("%w (%d ticket(s) en cache)", ErrTrackerInUse, tasks)
+			}
+			if _, err := tx.Exec(`DELETE FROM task_activities WHERE task_id IN (SELECT id FROM tasks WHERE tracker_id = ?)`, id); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`DELETE FROM tasks WHERE tracker_id = ?`, id); err != nil {
+				return err
+			}
+		}
+		if purgeOrphanedTasks {
+			if _, err := tx.Exec(`DELETE FROM macros WHERE tracker_id = ?`, id); err != nil {
+				return err
+			}
 		}
 		result, err := tx.Exec(`DELETE FROM trackers WHERE id = ?`, id)
 		if err != nil {

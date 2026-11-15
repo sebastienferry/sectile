@@ -20,11 +20,11 @@ afterEach(() => {
 test("renders onboarding view with Local Companion and Agent Fleet cards", () => {
   render(<ModeOnboarding onConfigured={vi.fn()} />);
 
-  expect(screen.getByRole("heading", { name: "Bienvenue dans Sectile Desktop" })).toBeTruthy();
-  expect(screen.getByRole("heading", { name: "Compagnon Local" })).toBeTruthy();
-  expect(screen.getByRole("heading", { name: "Agent Fleet" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Démarrer en mode Compagnon" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Configurer le mode Fleet" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Welcome to Sectile Desktop" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Local Companion" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Fleet Agent" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Start in Companion mode" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Configure Fleet mode" })).toBeTruthy();
 });
 
 test("selecting Local Companion initializes local runtime and calls onConfigured", async () => {
@@ -33,8 +33,8 @@ test("selecting Local Companion initializes local runtime and calls onConfigured
 
   render(<ModeOnboarding onConfigured={onConfigured} />);
 
-  fireEvent.click(screen.getByRole("button", { name: "Démarrer en mode Compagnon" }));
-  expect(screen.getByText("Démarrage du compagnon local…")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Start in Companion mode" }));
+  expect(screen.getByText("Starting local companion…")).toBeTruthy();
 
   await waitFor(() => {
     expect(api.enableLocalRuntime).toHaveBeenCalledOnce();
@@ -48,15 +48,15 @@ test("selecting Agent Fleet reveals pairing form and pairs with Fleet server", a
 
   render(<ModeOnboarding onConfigured={onConfigured} />);
 
-  fireEvent.click(screen.getByRole("button", { name: "Configurer le mode Fleet" }));
+  fireEvent.click(screen.getByRole("button", { name: "Configure Fleet mode" }));
 
-  const urlInput = screen.getByLabelText("Adresse du serveur Fleet");
-  const codeInput = screen.getByLabelText("Code de jumelage");
+  const urlInput = screen.getByLabelText("Fleet server URL");
+  const codeInput = screen.getByLabelText("Pairing code");
 
   fireEvent.change(urlInput, { target: { value: "https://sectile.example.com" } });
   fireEvent.change(codeInput, { target: { value: "pair123" } });
 
-  fireEvent.click(screen.getByRole("button", { name: "Associer à Fleet" }));
+  fireEvent.click(screen.getByRole("button", { name: "Pair with Fleet" }));
 
   await waitFor(() => {
     expect(api.pairFleetAgent).toHaveBeenCalledWith("https://sectile.example.com", "pair123");
@@ -70,8 +70,8 @@ test("attaching an existing Fleet agent calls attachFleetAgent", async () => {
 
   render(<ModeOnboarding onConfigured={onConfigured} />);
 
-  fireEvent.click(screen.getByRole("button", { name: "Configurer le mode Fleet" }));
-  fireEvent.click(screen.getByRole("button", { name: "Associer l’agent Fleet existant" }));
+  fireEvent.click(screen.getByRole("button", { name: "Configure Fleet mode" }));
+  fireEvent.click(screen.getByRole("button", { name: "Attach existing Fleet agent" }));
 
   await waitFor(() => {
     expect(api.attachFleetAgent).toHaveBeenCalledOnce();
@@ -84,7 +84,7 @@ test("displays error message when runtime enablement fails", async () => {
 
   render(<ModeOnboarding onConfigured={vi.fn()} />);
 
-  fireEvent.click(screen.getByRole("button", { name: "Démarrer en mode Compagnon" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start in Companion mode" }));
 
   expect(await screen.findByRole("alert")).toBeTruthy();
   expect(screen.getByRole("alert").textContent).toContain("Local startup failed");

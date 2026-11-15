@@ -9,8 +9,8 @@ export const PRIORITY_RANK: Record<string, number> = {
   low: 1,
 };
 
-export type SortField = "key" | "title" | "issueType" | "stage" | "priority" | "assignee" | "sprint";
-export const SORTABLE_FIELDS: readonly SortField[] = ["key", "title", "issueType", "stage", "priority", "assignee", "sprint"] as const;
+export type SortField = "key" | "title" | "parent" | "issueType" | "stage" | "priority" | "assignee" | "sprint";
+export const SORTABLE_FIELDS: readonly SortField[] = ["key", "title", "parent", "issueType", "stage", "priority", "assignee", "sprint"] as const;
 
 export interface SortState {
   field: SortField;
@@ -43,6 +43,15 @@ export function compareBy(field: SortField, board?: BoardMapping): (a: Task, b: 
       return compareIdentity;
     case "title":
       return (a, b) => text(a.title).localeCompare(text(b.title), undefined, { sensitivity: "base" });
+    case "parent":
+      return (a, b) => {
+        const left = text(a.parentKey).trim();
+        const right = text(b.parentKey).trim();
+        if (!left && !right) return 0;
+        if (!left) return 1;
+        if (!right) return -1;
+        return natural(left, right);
+      };
     case "issueType":
       return (a, b) => {
         const left = text(a.issueType).trim();

@@ -30,12 +30,12 @@ function runTitle(run: Run, tasks: Task[]): string {
     if (task?.title) return [run.taskKey, task.title].filter(Boolean).join(" · ");
     return run.title?.trim() || run.prompt?.trim().split("\n")[0] || run.taskKey || "Conversation";
   }
-  return run.taskKey || task?.title || run.taskId || "Console libre";
+  return run.taskKey || task?.title || run.taskId || "Free console";
 }
 
 function runSummary(run: Run, archived = false): string {
   const provider = run.provider === "claude" ? "Claude Code" : run.provider === "codex" ? "Codex" : run.engineName || "Assistant";
-  return [run.conversation ? provider : run.skill || run.engineName, run.conversation ? run.skill : "", statusLabel(run), archived ? "Archivée" : ""].filter(Boolean).join(" · ");
+  return [run.conversation ? provider : run.skill || run.engineName, run.conversation ? run.skill : "", statusLabel(run), archived ? "Archived" : ""].filter(Boolean).join(" · ");
 }
 
 export function Supervisor({
@@ -126,7 +126,7 @@ export function Supervisor({
   useEffect(()=>{
     if(view!=="orchestration"||!supportsOrchestration)return;
     let current=true,reading=false;
-    const read=async()=>{if(reading)return;reading=true;try{const latest=await getOrchestration(projectId);if(current){setOrchestration(latest);setOrchestrationError("");}}catch{if(current)setOrchestrationError("Capacité du projet non vérifiée. Actualisez le suivi avant de lancer un agent.");}finally{reading=false;}};
+    const read=async()=>{if(reading)return;reading=true;try{const latest=await getOrchestration(projectId);if(current){setOrchestration(latest);setOrchestrationError("");}}catch{if(current)setOrchestrationError("Project capacity unverified. Refresh status before launching an agent.");}finally{reading=false;}};
     const timer=setInterval(()=>void read(),15000);
     return()=>{current=false;clearInterval(timer);};
   },[projectId,view,supportsOrchestration]);
@@ -214,36 +214,35 @@ export function Supervisor({
       <div className="supervisor-heading">
         <h2>
           {view === "launch"
-            ? "Nouveau lancement"
+            ? "New launch"
             : view === "orchestration"
               ? "Orchestration"
-              : run ? "Détails de l’exécution" : "Exécutions"}
+              : run ? "Execution details" : "Executions"}
         </h2>
-        <span className="muted" title="Actualisation automatique toutes les 3 s">
+        <span className="muted" title="Auto-refresh every 3 s">
           {fresh
-            ? `À jour · ${lastRead}`
-            : "État non vérifié"}
+            ? `Up to date · ${lastRead}`
+            : "Status unverified"}
         </span>
         <button
-          aria-label="Actualiser le suivi"
+          aria-label="Refresh status"
           onClick={() => {
             void refresh();
             setReload((v) => v + 1);
           }}
         >
-          Actualiser
+          Refresh
         </button>
       </div>
       {pollError && (
         <p role="alert" className="error">
-          Suivi indisponible : {pollError}. Les données affichées sont
-          anciennes.
+          Status unavailable: {pollError}. Displayed data is stale.
         </p>
       )}
       {snapshot && !snapshot.status.connected && (
         <p role="alert">
-          L’agent local est déconnecté du serveur. Les nouveaux lancements sont
-          désactivés.
+          The local agent is disconnected from the server. New launches are
+          disabled.
         </p>
       )}
       {snapshot?.status.contractError && (
@@ -260,9 +259,9 @@ export function Supervisor({
         </p>
       )}
       <details className="launch-panel" open hidden={view !== "launch"}>
-        <summary>Démarrer une tâche</summary>
+        <summary>Start a task</summary>
         {metadataError && (
-          <p role="alert">Compétences indisponibles : {metadataError}</p>
+          <p role="alert">Skills unavailable: {metadataError}</p>
         )}
         <form
           onSubmit={(event) => {
@@ -275,7 +274,7 @@ export function Supervisor({
                     projectId,
                     launchInput(taskId, skillId, prompt, mode),
                   ),
-                "Demande acceptée. L’exécution apparaîtra après sa prise en charge par l’agent.",
+                "Request accepted. The execution will appear once picked up by the agent.",
               );
           }}
         >
@@ -287,7 +286,7 @@ export function Supervisor({
               disabled={!!pending}
               onChange={(e) => setTaskId(e.target.value)}
             >
-              <option value="">Choisir un ticket</option>
+              <option value="">Choose a ticket</option>
               {launchable.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.key || t.id} — {t.title}
@@ -296,7 +295,7 @@ export function Supervisor({
             </select>
           </label>
           <label>
-            Compétence
+            Skill
             <select
               required
               value={skillId}
@@ -317,15 +316,15 @@ export function Supervisor({
               disabled={!!pending}
               onChange={(e) => setMode(e.target.value)}
             >
-              <option value="">Configuration du projet</option>
-              <option value="autonomous">Autonome</option>
+              <option value="">Project configuration</option>
+              <option value="autonomous">Autonomous</option>
               <option value="interactive">
-                Interactif (console locale)
+                Interactive (local console)
               </option>
             </select>
           </label>
           <label className="wide">
-            Instructions supplémentaires
+            Additional instructions
             <textarea
               value={prompt}
               maxLength={5000}
@@ -335,9 +334,9 @@ export function Supervisor({
             />
           </label>
           <p className="muted wide">
-            Le fournisseur et les permissions proviennent de la configuration
-            Sectile. Les chaînes pickup sont toujours autonomes. Un mode
-            interactif peut ouvrir un terminal externe.
+            Provider and permissions come from the Sectile configuration. Pickup
+            chains are always autonomous. Interactive mode may open an external
+            terminal.
           </p>
           <button
             type="submit"
@@ -349,7 +348,7 @@ export function Supervisor({
               !skills.some((s) => s.id === skillId)
             }
           >
-            {pending === "launch" ? "Lancement…" : "Démarrer la tâche"}
+            {pending === "launch" ? "Launching…" : "Start task"}
           </button>
         </form>
       </details>
@@ -358,13 +357,13 @@ export function Supervisor({
         open
         hidden={view !== "orchestration"}
       >
-        <summary>Orchestration du backlog</summary>
-        <p className="muted">{runs.filter(r=>!!r.taskId&&isActive(r)).length} exécutions actives sur ce poste. La capacité d’orchestration partagée est calculée par le serveur.</p>
-        {view === "orchestration" && runs.filter(r=>!!r.taskId&&isActive(r)).map(r=><article className="orchestration-live-run" key={r.id}><strong>{tasks.find(t=>t.id===r.taskId)?.title||r.taskKey||r.taskId}</strong><span>{r.skill} · {statusLabel(r)}</span><button onClick={()=>onSelectRun(r.id)}>Voir l’exécution</button><button disabled={!!pending||!canStop(r,fresh)} onClick={()=>void act(`stop:${r.id}`,()=>stopRun(r.id),"Arrêt demandé pour cette exécution.")}>Arrêter cette exécution</button></article>)}
+        <summary>Backlog orchestration</summary>
+        <p className="muted">{runs.filter(r=>!!r.taskId&&isActive(r)).length} active executions on this workstation. Shared orchestration capacity is calculated by the server.</p>
+        {view === "orchestration" && runs.filter(r=>!!r.taskId&&isActive(r)).map(r=><article className="orchestration-live-run" key={r.id}><strong>{tasks.find(t=>t.id===r.taskId)?.title||r.taskKey||r.taskId}</strong><span>{r.skill} · {statusLabel(r)}</span><button onClick={()=>onSelectRun(r.id)}>View execution</button><button disabled={!!pending||!canStop(r,fresh)} onClick={()=>void act(`stop:${r.id}`,()=>stopRun(r.id),"Stop requested for this execution.")}>Stop this execution</button></article>)}
         {!supportsOrchestration ? (
           <p>
-            Le suivi doit être connecté à un agent compatible avec les agents
-            d’orchestration nommés.
+            Status monitoring must be connected to an agent that supports named
+            orchestration agents.
           </p>
         ) : (
           <>
@@ -372,14 +371,14 @@ export function Supervisor({
             {orchestration && (
               <>
                 <p>
-                  Capacité d’orchestration partagée :{" "}
-                  {orchestration.orchestratorEnabled ? "activée" : "désactivée"}{" "}
-                  · limite du serveur : {orchestration.orchestratorMaxConcurrent}{" "}
-                  exécutions. {orchestration.orchestratorActiveRuns===undefined?"Occupation du serveur non vérifiée.":`${orchestration.orchestratorActiveRuns} / ${orchestration.orchestratorMaxConcurrent} places utilisées.`}
+                  Shared orchestration capacity:{" "}
+                  {orchestration.orchestratorEnabled ? "enabled" : "disabled"}{" "}
+                  · server limit: {orchestration.orchestratorMaxConcurrent}{" "}
+                  executions. {orchestration.orchestratorActiveRuns===undefined?"Server usage unverified.":`${orchestration.orchestratorActiveRuns} / ${orchestration.orchestratorMaxConcurrent} slots in use.`}
                 </p>
                 <p className="muted">
-                  Configurez les agents et l’activation dans « Configurer le projet ». Chaque lancement évalue le backlog une fois
-                  ; il ne crée aucune boucle automatique.
+                  Configure agents and activation in "Configure project". Each launch evaluates the backlog once;
+                  it does not create an automatic loop.
                 </p>
                 {orchestration.agents.map((agent) => (
                   <article className="profile" key={agent.id}>
@@ -390,7 +389,7 @@ export function Supervisor({
                         <p role="alert">{agent.guidelinesError}</p>
                       )}
                       <details>
-                        <summary>Consignes enregistrées</summary>
+                        <summary>Saved guidelines</summary>
                         <pre>{agent.guidelines}</pre>
                       </details>
                     </div>
@@ -411,35 +410,35 @@ export function Supervisor({
                             );
                             if (mounted.current) setReport(result);
                           },
-                          "Évaluation du backlog terminée.",
+                          "Backlog evaluation completed.",
                         )
                       }
                     >
                       {pending === agent.id
-                        ? "Évaluation…"
-                        : "Lancer cet agent"}
+                        ? "Evaluating…"
+                        : "Launch this agent"}
                     </button>
                   </article>
                 ))}
                 {!orchestration.agents.length && (
-                  <p>Aucun agent enregistré dans ce projet.</p>
+                  <p>No agents saved in this project.</p>
                 )}
               </>
             )}
             {report && (
               <div role="status">
                 <p>
-                  {report.launched.length} lancements · {report.skipped.length}{" "}
-                  tickets ignorés · capacité après évaluation :{" "}
+                  {report.launched.length} launched · {report.skipped.length}{" "}
+                  tickets skipped · capacity after evaluation:{" "}
                   {report.activeRunsAfter}/{report.maxConcurrent}
                 </p>
                 <ul>
                   {report.launched.map((t) => (
-                    <li key={t.id}>Lancé : {t.key || t.title || t.id}</li>
+                    <li key={t.id}>Launched: {t.key || t.title || t.id}</li>
                   ))}
                   {report.skipped.map((t) => (
                     <li key={t.id}>
-                      {t.key || t.id} : {t.reason}
+                      {t.key || t.id}: {t.reason}
                     </li>
                   ))}
                 </ul>
@@ -449,23 +448,23 @@ export function Supervisor({
         )}
       </details>
       <div hidden={view !== "executions"} className="execution-workspace">
-        {!run && <h3>Exécutions de ce poste · {activeExecutionCount} exécution{activeExecutionCount > 1 ? "s" : ""} active{activeExecutionCount > 1 ? "s" : ""}{openFreeConversationCount > 0 && ` · ${openFreeConversationCount} session${openFreeConversationCount > 1 ? "s" : ""} ouverte${openFreeConversationCount > 1 ? "s" : ""}`}</h3>}
+        {!run && <h3>Workstation executions · {activeExecutionCount} active execution{activeExecutionCount > 1 ? "s" : ""}{openFreeConversationCount > 0 && ` · ${openFreeConversationCount} open session${openFreeConversationCount > 1 ? "s" : ""}`}</h3>}
         {!run && runs.length > 0 && (
           <div className="execution-toolbar">
             <label className="search execution-search">
               <Icon name="search" />
               <input
-                aria-label="Filtrer les exécutions"
-                placeholder="Filtrer par titre, ticket, skill ou branche…"
+                aria-label="Filter executions"
+                placeholder="Filter by title, ticket, skill, or branch…"
                 value={executionQuery}
                 onChange={event => setExecutionQuery(event.target.value)}
               />
             </label>
-            <div className="execution-archive-switch" role="group" aria-label="Filtrer par statut d’archivage">
+            <div className="execution-archive-switch" role="group" aria-label="Filter by archive status">
               {([
-                ["all", "Toutes"],
-                ["active", "Non archivées"],
-                ["archived", "Archivées"],
+                ["all", "All"],
+                ["active", "Unarchived"],
+                ["archived", "Archived"],
               ] as const).map(([value, label]) => (
                 <button
                   key={value}
@@ -495,7 +494,7 @@ export function Supervisor({
                 <strong>{runTitle(item, tasks)}</strong>
                 <span>{runSummary(item, archivedSet.has(item.id))}</span>
                 <small>
-                  {new Date(item.createdAt).toLocaleString("fr-FR")}
+                  {new Date(item.createdAt).toLocaleString("en-US")}
                   {item.engineName ? ` · ${item.engineName}` : ""}
                 </small>
               </button>
@@ -505,28 +504,28 @@ export function Supervisor({
                   void act(
                     `stop:${item.id}`,
                     () => stopRun(item.id),
-                    "Arrêt confirmé par l’agent. Le suivi est actualisé.",
+                    "Stop confirmed by the agent. Status is refreshed.",
                   )
                 }
               >
-                {pending === `stop:${item.id}` ? "Arrêt…" : "Arrêter"}
+                {pending === `stop:${item.id}` ? "Stopping…" : "Stop"}
               </button>
             </article>
           ))}
         </div>
         {fresh && !runs.length && (
-          <p className="muted">Aucune exécution locale pour ce projet.</p>
+          <p className="muted">No local executions for this project.</p>
         )}
         {fresh && runs.length > 0 && !filteredRuns.length && !run && (
-          <p className="muted">Aucune exécution ne correspond aux filtres sélectionnés.</p>
+          <p className="muted">No executions match the selected filters.</p>
         )}
         {run && (
           <section className="run-detail">
             <div className="run-detail-nav">
               <button className="text-button" onClick={() => onSelectRun("")}>
-                ← Toutes les exécutions
+                ← All executions
               </button>
-              {run.conversation && onOpenConversation && <button type="button" onClick={() => onOpenConversation(run.id)}>Ouvrir la conversation</button>}
+              {run.conversation && onOpenConversation && <button type="button" onClick={() => onOpenConversation(run.id)}>Open conversation</button>}
             </div>
             <div className="run-heading">
               <h3 title={runTitle(run, tasks)}>{runTitle(run, tasks)}</h3>
@@ -538,11 +537,11 @@ export function Supervisor({
                   void act(
                     `stop:${run.id}`,
                     () => stopRun(run.id),
-                    "Arrêt confirmé par l’agent.",
+                    "Stop confirmed by the agent.",
                   )
                 }
               >
-                {pending === `stop:${run.id}` ? "Arrêt…" : "Arrêter"}
+                {pending === `stop:${run.id}` ? "Stopping…" : "Stop"}
               </button>
             </div>
             <p className="muted">
@@ -552,17 +551,17 @@ export function Supervisor({
             <RunReview key={run.id} run={run}/>
             {run.waitingSince && !run.conversation && (
               <p>
-                Si une réponse ou une approbation est attendue, ouvrez la
-                session dans Sectile Desktop ou le terminal du fournisseur.
+                If a response or approval is needed, open the session in
+                Sectile Desktop or the provider's terminal.
               </p>
             )}
             {!run.conversation && (run.sessionId || run.trace || run.restored ? (
-              <Suspense fallback={<p>Chargement de la console…</p>}>
+              <Suspense fallback={<p>Loading console…</p>}>
                 {active && <RunConsole key={run.id} runId={run.id} />}
               </Suspense>
             ) : (
               <p>
-                La console n’est pas encore disponible pour cette exécution.
+                The console is not available for this execution yet.
               </p>
             ))}
           </section>

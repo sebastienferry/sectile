@@ -28,25 +28,32 @@ func conversationProfilesView(settings agentconfig.Settings, projectID string) m
 		if !simpleConversationEngine(e) {
 			continue
 		}
-		removable := e.ID != settings.Engines.Default
-		for project, id := range settings.Engines.Projects {
-			if project != projectID && id == e.ID {
-				removable = false
+		removable := projectID == "" || e.ID != settings.Engines.Default
+		if projectID != "" {
+			for project, id := range settings.Engines.Projects {
+				if project != projectID && !settings.DisconnectedProjects[project] && id == e.ID {
+					removable = false
+				}
 			}
-		}
-		for _, id := range settings.Engines.Tasks {
-			if id == e.ID {
-				removable = false
+			for _, id := range settings.Engines.Tasks {
+				if id == e.ID {
+					removable = false
+				}
 			}
 		}
 		profiles = append(profiles, conversationProfile{ID: e.ID, Name: e.Name, Provider: e.Provider, Model: e.Model, Mode: e.ConversationMode, CanDelete: removable})
 	}
-	selected := settings.ProjectEngine(projectID)
+	selected := settings.DefaultEngine()
+	inherited := false
+	if projectID != "" {
+		selected = settings.ProjectEngine(projectID)
+		inherited = settings.Engines.Projects[projectID] == ""
+	}
 	defaultID := ""
 	if simpleConversationEngine(selected) {
 		defaultID = selected.ID
 	}
-	return map[string]any{"profiles": profiles, "defaultId": defaultID, "inherited": settings.Engines.Projects[projectID] == ""}
+	return map[string]any{"profiles": profiles, "defaultId": defaultID, "inherited": inherited}
 }
 
 func (d *agentDaemon) desktopConversationProfiles(w http.ResponseWriter, r *http.Request) {
@@ -55,13 +62,11 @@ func (d *agentDaemon) desktopConversationProfiles(w http.ResponseWriter, r *http
 		return
 	}
 	projectID := strings.TrimSpace(r.URL.Query().Get("projectId"))
-	if projectID == "" {
-		http.Error(w, "Projet requis", 400)
-		return
-	}
-	if _, err := d.fetchConfig(r.Context(), projectID, ""); err != nil {
-		http.Error(w, "Projet indisponible", http.StatusBadGateway)
-		return
+	if projectID != "" {
+		if _, err := d.fetchConfig(r.Context(), projectID, ""); err != nil {
+			http.Error(w, "Project unavailable", http.StatusBadGateway)
+			return
+		}
 	}
 	var input struct {
 		Action      string `json:"action"`
@@ -76,7 +81,7 @@ func (d *agentDaemon) desktopConversationProfiles(w http.ResponseWriter, r *http
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
 		decoder.DisallowUnknownFields()
 		if decoder.Decode(&input) != nil {
-			http.Error(w, "Demande de profil invalide", 400)
+			http.Error(w, "Invalid profile request", 400)
 			return
 		}
 		d.prepareMu.Lock()
@@ -87,8 +92,14 @@ func (d *agentDaemon) desktopConversationProfiles(w http.ResponseWriter, r *http
 				if input.ID != "" {
 					e, ok := settings.Engine(input.ID)
 					if !ok || !simpleConversationEngine(e) {
-						return fmt.Errorf("profil indisponible")
+						return fmt.Errorf("profile unavailable")
 					}
+				}
+				if projectID == "" {
+					if input.ID == "" {
+						return fmt.Errorf("workstation default profile required")
+					}
+					return settings.ReplaceCatalogue(list, input.ID)
 				}
 				settings.SetProjectEngine(projectID, input.ID)
 				return nil
@@ -102,23 +113,23 @@ func (d *agentDaemon) desktopConversationProfiles(w http.ResponseWriter, r *http
 					list = append([]agentconfig.Engine(nil), settings.Engines.Catalogue...)
 				}
 				if input.Provider != "claude" && input.Provider != "codex" {
-					return fmt.Errorf("moteur non pris en charge")
+					return fmt.Errorf("unsupported engine")
 				}
 				if !agentconfig.ValidConversationMode(input.Mode) {
-					return fmt.Errorf("mode de conversation non pris en charge")
+					return fmt.Errorf("unsupported conversation mode")
 				}
 				index := -1
 				if input.ID != "" {
 					for i, e := range list {
 						if e.ID == input.ID {
 							if !simpleConversationEngine(e) {
-								return fmt.Errorf("ce profil doit être modifié dans l’éditeur complet des moteurs")
+								return fmt.Errorf("this profile must be edited in the full engine editor")
 							}
 							index = i
 						}
 					}
 					if index < 0 {
-						return fmt.Errorf("ce profil n’existe plus")
+						return fmt.Errorf("this profile no longer exists")
 					}
 				}
 				if index < 0 {
@@ -127,13 +138,13 @@ func (d *agentDaemon) desktopConversationProfiles(w http.ResponseWriter, r *http
 				}
 				list[index].Name, list[index].Provider, list[index].Model, list[index].ConversationMode = input.Name, input.Provider, input.Model, input.Mode
 				defaultID := settings.Engines.Default
-				if defaultID == "" {
+				if defaultID == "" || (projectID == "" && input.MakeDefault) {
 					defaultID = input.Name
 				}
 				if err := settings.ReplaceCatalogue(list, defaultID); err != nil {
 					return err
 				}
-				if input.MakeDefault {
+				if projectID != "" && input.MakeDefault {
 					settings.SetProjectEngine(projectID, settings.Engines.Catalogue[index].ID)
 				}
 				return nil
@@ -145,7 +156,7 @@ func (d *agentDaemon) desktopConversationProfiles(w http.ResponseWriter, r *http
 					}
 				}
 				if !found {
-					return fmt.Errorf("profil indisponible ou encore utilisé par un autre projet, une tâche ou le poste")
+					return fmt.Errorf("profile unavailable or still used by another project, a task, or the workstation")
 				}
 				kept := []agentconfig.Engine{}
 				for _, e := range list {
@@ -153,9 +164,18 @@ func (d *agentDaemon) desktopConversationProfiles(w http.ResponseWriter, r *http
 						kept = append(kept, e)
 					}
 				}
-				return settings.ReplaceCatalogue(kept, settings.Engines.Default)
+				if len(kept) == 0 {
+					settings.Engines = agentconfig.Engines{}
+					settings.Seeded.DefaultEngine = ""
+					return nil
+				}
+				defaultID := settings.Engines.Default
+				if defaultID == input.ID || defaultID == "" {
+					defaultID = kept[0].ID
+				}
+				return settings.ReplaceCatalogue(kept, defaultID)
 			default:
-				return fmt.Errorf("action de profil inconnue")
+				return fmt.Errorf("unknown profile action")
 			}
 		})
 		d.prepareMu.Unlock()
@@ -167,7 +187,7 @@ func (d *agentDaemon) desktopConversationProfiles(w http.ResponseWriter, r *http
 	}
 	settings, err := d.readSettings()
 	if err != nil {
-		http.Error(w, "Impossible de lire les profils locaux", 500)
+		http.Error(w, "Could not read local profiles", 500)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

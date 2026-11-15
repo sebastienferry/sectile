@@ -72,7 +72,7 @@ func primaryRoot(ctx context.Context, config agentconfig.Config, overrides agent
 	case models.PrimaryDefault:
 		return projectRoot, code, nil
 	case models.PrimaryUnmapped:
-		return "", "", fmt.Errorf("Le dépôt %s de la tâche n'est associé à aucun dossier sur ce poste : choisissez son dossier dans les réglages du projet de l'app desktop.", repository.Identity)
+		return "", "", fmt.Errorf("Task repository %s is not mapped to any folder on this workstation: choose its folder in the desktop app's project settings.", repository.Identity)
 	case models.PrimaryUndeclared:
 		if root, err = undeclaredPrimaryRoot(ctx, config, overrides, projectRoot, repository.URL, repository.Identity); err != nil {
 			return "", "", err
@@ -478,35 +478,35 @@ func repositoryWorktreeFor(ctx context.Context, config agentconfig.Config, overr
 // Plain folders and checkouts without an origin are read cleanly: they are
 // listed for what they are, beside the advice.
 func repositoryNotFound(repository, device string, folders []attachedFolder) error {
-	where := "sur ce poste"
+	where := "on this workstation"
 	if device = strings.TrimSpace(device); device != "" {
-		where = fmt.Sprintf("sur ce poste (%s)", device)
+		where = fmt.Sprintf("on this workstation (%s)", device)
 	}
 	var lines strings.Builder
 	unread := false
 	for _, folder := range folders {
-		fmt.Fprintf(&lines, "\n- %s : ", folder.Stored)
+		fmt.Fprintf(&lines, "\n- %s: ", folder.Stored)
 		switch {
 		case folder.Kind == folderKindMissing:
 			unread = true
-			lines.WriteString("introuvable, ou n'est pas un dossier")
+			lines.WriteString("not found, or not a directory")
 		case folder.Err != "":
 			unread = true
-			fmt.Fprintf(&lines, "git a échoué (%s)", folder.Err)
+			fmt.Fprintf(&lines, "git failed (%s)", folder.Err)
 		case folder.Kind == folderKindFolder:
-			lines.WriteString("n'est pas un checkout Git")
+			lines.WriteString("not a Git checkout")
 		case folder.Identity == "":
-			lines.WriteString("checkout Git sans origin, qui se modifie sur place, sans worktree")
+			lines.WriteString("Git checkout without an origin, modified in place without a worktree")
 		default:
-			fmt.Fprintf(&lines, "a pour origin %s", folder.Remote)
+			fmt.Fprintf(&lines, "has origin %s", folder.Remote)
 		}
 	}
 	if unread {
-		return fmt.Errorf("Le dépôt %s n'a été trouvé dans aucun dossier lisible du projet %s ; des dossiers attachés n'ont pas pu être lus :%s", repository, where, lines.String())
+		return fmt.Errorf("Repository %s was not found in any readable project folder %s; some attached folders could not be read:%s", repository, where, lines.String())
 	}
-	message := fmt.Sprintf("Le dépôt %s n'est ni associé ni attaché au projet %s : attachez son dossier dans les réglages du projet de l'app desktop, ou activez-y l'option « Any repository ».", repository, where)
+	message := fmt.Sprintf("Repository %s is neither mapped nor attached to the project %s: attach its folder in the desktop app's project settings, or enable \"Any repository\".", repository, where)
 	if len(folders) > 0 {
-		message += " Dossiers attachés au projet :" + lines.String()
+		message += " Folders attached to the project:" + lines.String()
 	}
 	return errors.New(message)
 }

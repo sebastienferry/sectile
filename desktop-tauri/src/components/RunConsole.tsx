@@ -33,15 +33,15 @@ export function RunConsole({ runId, sessionId }: { runId: string; sessionId?: st
       if (!disposed) fit.fit();
     });
     observer.observe(root.current!);
-    setStatus("Connexion au flux…");
+    setStatus("Connecting to stream…");
     void watchRun(runId, (event) => {
       if (disposed) return;
       if (event.kind === "bytes") {
         terminal.write(new Uint8Array(event.data));
-        setStatus("Flux connecté · lecture seule");
+        setStatus("Stream connected · read-only");
       } else if (event.kind === "error") setStatus(event.data);
       else
-        setStatus("Flux fermé. L’état de l’exécution est indiqué ci-dessus.");
+        setStatus("Stream closed. Execution status is shown above.");
     })
       .then((close) => {
         if (disposed) void close().catch(() => {});
@@ -70,22 +70,22 @@ export function RunConsole({ runId, sessionId }: { runId: string; sessionId?: st
               onClick={() => {
                 setDetaching(true);
                 void detachRunTerminal(runId)
-                  .catch(() => setStatus("Impossible d’ouvrir le terminal externe."))
+                  .catch(() => setStatus("Unable to open external terminal."))
                   .finally(() => setDetaching(false));
               }}
             >
-              Ouvrir dans le terminal
+              Open in terminal
             </button>
           )}
           <button onClick={() => setRetry((v) => v + 1)}>
-            Reconnecter le flux
+            Reconnect stream
           </button>
         </div>
       </div>
       <div className="terminal" ref={root} />
       <p className="muted">
-        Les réponses et approbations restent dans le terminal ou l’application
-        du fournisseur. Cette console ne transmet aucune saisie.
+        Answers and approvals stay in the provider's terminal or app. This
+        console does not forward input.
       </p>
     </section>
   );

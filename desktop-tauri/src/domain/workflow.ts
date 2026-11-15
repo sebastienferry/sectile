@@ -2,8 +2,8 @@ import type {Task} from "./board.ts";
 import type {BoardMapping,ProjectContext} from "../lib/workspace.ts";
 export const stages=["new","clarified","specified","implemented","reviewed","finished"] as const;
 export type Stage=typeof stages[number];
-export const stageLabels:Record<Stage,string>={new:"À clarifier",clarified:"Clarifié",specified:"Spécifié",implemented:"Implémenté",reviewed:"Revu",finished:"Terminé"};
-export const skillLabels:Record<string,string>={clarify:"Clarifier",specify:"Spécifier",implement:"Implémenter",adjust:"Ajuster / revoir",handoff:"Finaliser",pickup:"Lancer la chaîne",discuss:"Discuter"};
+export const stageLabels:Record<Stage,string>={new:"To clarify",clarified:"Clarified",specified:"Specified",implemented:"Implemented",reviewed:"Reviewed",finished:"Finished"};
+export const skillLabels:Record<string,string>={clarify:"Clarify",specify:"Specify",implement:"Implement",adjust:"Adjust / review",handoff:"Handoff",pickup:"Run chain",discuss:"Discuss"};
 export function taskStage(task:Task,board?:BoardMapping):Stage|undefined{
  if(["finished","done"].includes(task.status))return "finished";
  const labels=new Set((task.labels??[]).map(label=>label.trim().replace(/^#+/,"").toLowerCase()));
@@ -16,13 +16,13 @@ export function taskStage(task:Task,board?:BoardMapping):Stage|undefined{
 }
 export function nextSkill(task:Task,project:ProjectContext):{stage?:Stage;skillId?:string;label:string;reason?:string}{
  const stage=taskStage(task,project.board);
- if(stage==="finished")return {stage,label:"Terminé",reason:"Ce ticket est terminé."};
- if(!stage)return {label:"Étape inconnue",reason:"Aucune étape fiable n’a été fournie. Actualisez le ticket ou choisissez explicitement une skill."};
+ if(stage==="finished")return {stage,label:"Finished",reason:"This ticket is finished."};
+ if(!stage)return {label:"Unknown stage",reason:"No reliable stage was provided. Refresh the ticket or explicitly select a skill."};
  let skillId=({new:"clarify",clarified:"specify",specified:"implement",implemented:"adjust",reviewed:"handoff"} as Partial<Record<Stage,string>>)[stage];
  let label=skillLabels[skillId??""]??"";
- if(stage==="implemented"&&!task.prUrl?.trim()){skillId=project.policy?.prCreationStage==="specified"?"specify":"implement";label="Créer / retrouver la PR";}
- if(!project.configured)return {stage,label,reason:"Configurez le dépôt local du projet pour lancer une skill."};
- if(!project.skills.some(s=>s.id===skillId))return {stage,label,reason:"La skill attendue n’est pas disponible dans ce projet."};
+ if(stage==="implemented"&&!task.prUrl?.trim()){skillId=project.policy?.prCreationStage==="specified"?"specify":"implement";label="Create / find PR";}
+ if(!project.configured)return {stage,label,reason:"Configure the project's local repository to launch a skill."};
+ if(!project.skills.some(s=>s.id===skillId))return {stage,label,reason:"The expected skill is not available in this project."};
  return {stage,skillId,label};
 }
 export function chainProgress(task:Task,project:Pick<ProjectContext,"board"|"policy">){
@@ -35,15 +35,15 @@ export function skillResultLabel(run:{id:string;taskId:string;skill:string;statu
  const own=result?.activity;
  const matched=own?.id===run.id&&own.taskId===run.taskId&&own.skillId===run.skill;
  const activity=matched?(result?.successor??own):undefined;
- if(activity?.status==="failed")return "Échec enregistré pour la skill";
- if(activity?.status==="canceled")return "Skill arrêtée";
+ if(activity?.status==="failed")return "Skill failure recorded";
+ if(activity?.status==="canceled")return "Skill stopped";
  if(activity?.status==="completed"){
   const id=activity.skillId.replace(/^[^:]*:/,"").replace(/-issue$/,"");
   const target=({clarify:"clarified",specify:"specified",implement:"implemented",adjust:"reviewed",review:"reviewed",handoff:"finished"} as Record<string,Stage>)[id];
   const stage=result?.task?taskStage({id:run.taskId,title:"",...result.task}):undefined;
-  return target&&(!stage||stages.indexOf(stage)<stages.indexOf(target))?"Skill terminée · validation de l’étape en attente":"Skill terminée · résultat confirmé";
+  return target&&(!stage||stages.indexOf(stage)<stages.indexOf(target))?"Skill completed · stage validation pending":"Skill completed · result confirmed";
  }
- return run.status==="completed"?"Processus terminé · résultat de skill non confirmé":"Résultat de skill en attente";
+ return run.status==="completed"?"Process completed · skill result unconfirmed":"Skill result pending";
 }
 
 const ENGINE_MARKS: Record<string, string> = {

@@ -837,6 +837,7 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 	// from what was chosen before. Its seed marker stays, so the server values
 	// are not taken a second time.
 	delete(settings.ProjectSettings, id)
+	settings.SetProjectEngine(id, "")
 	// It leaves the workstation Sandbox whitelist too (#730); emptied, the
 	// whitelist covers every project again.
 	var whitelist []string
@@ -1039,7 +1040,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Query().Get("action") == "framework" {
 		if provider := r.URL.Query().Get("provider"); provider != "" && !setupProvider(provider) {
-			http.Error(w, "Fournisseur non pris en charge", 400)
+			http.Error(w, "Unsupported provider", 400)
 			return
 		}
 	}
@@ -1087,7 +1088,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			if result.Skills.Status == "success" {
 				if err := d.recordSetupAssets(provider, "skills", id, root, config.SpecFramework); err != nil {
 					result.Success = false
-					result.Skills = initializationStep{Status: "failed", Message: "Installation effectuée, mais sa vérification a échoué. Réessayez."}
+					result.Skills = initializationStep{Status: "failed", Message: "Installation completed, but verification failed. Try again."}
 				}
 			}
 		} else {
@@ -1114,7 +1115,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		}
 		if provider := r.URL.Query().Get("provider"); provider != "" {
 			if err := d.recordSetupAssets(provider, "sdd", id, root, config.SpecFramework); err != nil {
-				http.Error(w, "Installation effectuée, mais sa vérification a échoué. Réessayez.", 500)
+				http.Error(w, "Installation completed, but verification failed. Try again.", 500)
 				return
 			}
 		}
@@ -1266,7 +1267,7 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 	// The project travels with the launch: the server records it on the run
 	// and refuses a ticket of several projects launched without one (#741).
 	if strings.TrimSpace(d.link.deviceID) == "" {
-		http.Error(w, "Identité du poste local indisponible", http.StatusBadRequest)
+		http.Error(w, "Local workstation identity unavailable", http.StatusBadRequest)
 		return
 	}
 	payload := map[string]any{"targetDeviceId": d.link.deviceID, "skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force, "projectId": projectID}
@@ -1292,7 +1293,7 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 	if connectionID != "" && response.StatusCode >= 200 && response.StatusCode < 300 {
 		raw, readErr := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 		if readErr != nil {
-			http.Error(w, "Réponse de lancement incomplète. Actualisez le suivi avant de réessayer.", http.StatusBadGateway)
+			http.Error(w, "Incomplete launch response. Refresh tracking before retrying.", http.StatusBadGateway)
 			return
 		}
 		var accepted struct {

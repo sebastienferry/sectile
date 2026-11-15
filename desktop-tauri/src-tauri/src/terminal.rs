@@ -4,7 +4,7 @@ use std::path::Path;
 pub fn open_terminal_at(path: String) -> Result<(), String> {
     let folder = Path::new(&path);
     if !folder.is_absolute() || !folder.is_dir() {
-        return Err("Dossier de travail introuvable".into());
+        return Err("Working folder not found".into());
     }
     // This is a terminal window explicitly requested by the user.
     #[cfg(target_os = "macos")]
@@ -25,14 +25,14 @@ pub fn open_terminal_at(path: String) -> Result<(), String> {
         command.arg("/K").arg("cd").arg("/d").arg(folder);
         command
     };
-    command.spawn().map(|_| ()).map_err(|_| "Impossible d’ouvrir le terminal".into())
+    command.spawn().map(|_| ()).map_err(|_| "Unable to open terminal".into())
 }
 
 #[tauri::command]
 pub fn open_folder_at(path: String) -> Result<(), String> {
     let folder = Path::new(&path);
     if !folder.is_absolute() || !folder.is_dir() {
-        return Err("Dossier introuvable".into());
+        return Err("Folder not found".into());
     }
     // This is a file manager window explicitly requested by the user.
     #[cfg(target_os = "macos")]
@@ -53,5 +53,5 @@ pub fn open_folder_at(path: String) -> Result<(), String> {
         command.arg(folder);
         command
     };
-    command.spawn().map(|_| ()).map_err(|_| "Impossible d’ouvrir le dossier".into())
+    command.spawn().map(|_| ()).map_err(|_| "Unable to open folder".into())
 }

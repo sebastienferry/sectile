@@ -37,14 +37,14 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); });
 test("sidebar navigation replaces the view without canceling a run", async () => {
   render(<App />);
-  fireEvent.click(await screen.findByRole("button", { name: /Toutes les exécutions/ }));
-  await screen.findByText("Exécutions de ce poste · 1 exécution active");
+  fireEvent.click(await screen.findByRole("button", { name: /All executions/ }));
+  await screen.findByText("Workstation executions · 1 active execution");
   fireEvent.click(screen.getByRole("button", { name: /APP-1/ }));
   await screen.findByText("Live output");
   expect(screen.queryByRole("tablist")).toBeNull();
   expect(api.executionSnapshot).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByRole("button", { name: "Tableau" }));
-  await screen.findByRole("textbox", { name: "Rechercher des tickets" });
+  fireEvent.click(screen.getByRole("button", { name: "Board" }));
+  await screen.findByRole("textbox", { name: "Search tickets" });
   expect(screen.queryByText("Live output")).toBeNull();
   expect(api.stopRun).not.toHaveBeenCalled();
 });
@@ -54,13 +54,13 @@ test("the execution queue opens a conversation directly", async () => {
     runs: [{ id: "conversation", projectId: "p", taskKey: "APP-1", conversation: true, provider: "codex", status: "running", createdAt: "2026-10-28" }],
   });
   render(<App />);
-  fireEvent.click(await screen.findByRole("button", { name: /Toutes les exécutions/ }));
-  await screen.findByText("Exécutions de ce poste · 0 exécution active · 1 session ouverte");
+  fireEvent.click(await screen.findByRole("button", { name: /All executions/ }));
+  await screen.findByText("Workstation executions · 0 active execution · 1 open session");
   const runButton = await waitFor(() => document.querySelector<HTMLButtonElement>(".execution-list .run-select"));
   expect(runButton).toBeTruthy();
   fireEvent.click(runButton!);
   await screen.findByText("Free prompt for p");
-  expect(screen.queryByRole("button", { name: "← Toutes les exécutions" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "← All executions" })).toBeNull();
 });
 test("the native macOS Settings menu opens the existing Settings view", async () => {
   Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
@@ -75,7 +75,7 @@ test("the native macOS Settings menu opens the existing Settings view", async ()
     await screen.findByRole("button", { name: "Example" });
     await waitFor(() => expect(openSettings).toBeDefined());
     openSettings?.();
-    expect(await screen.findByRole("heading", { name: "Configuration du poste" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Workstation configuration" })).toBeTruthy();
   } finally {
     delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   }
@@ -90,28 +90,28 @@ test("workflow run status stays on its ticket instead of duplicating the project
   vi.mocked(workspace.projectContext).mockResolvedValue({ configured: true, path: "/work/example", skills: [], policy: {}, board: { trackers: [{ trackerId: "jira-1", provider: "jira" }] } });
   render(<App />);
   await screen.findByText("Task with active run");
-  expect(await screen.findByText("Implémenter · En cours")).toBeTruthy();
+  expect(await screen.findByText("Implement · Running")).toBeTruthy();
   const sidebar = screen.getByRole("complementary");
   expect(within(sidebar).queryByText("APP-2")).toBeNull();
-  expect(within(sidebar).getByRole("button", { name: /Toutes les exécutions/ })).toBeTruthy();
+  expect(within(sidebar).getByRole("button", { name: /All executions/ })).toBeTruthy();
 });
 test("ticket workflow keeps its own return action without repeated project controls",async()=>{
  vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
  vi.mocked(api.listTasks).mockResolvedValue([{id:"task",key:"APP-1",title:"A tracked ticket",status:"to_clarify",source:"jira",trackerStatus:"Open"}]);
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
  render(<App/>);
- fireEvent.click(await screen.findByRole("button",{name:"Ouvrir le workflow de APP-1"}));
+ fireEvent.click(await screen.findByRole("button",{name:"Open workflow for APP-1"}));
  expect(await screen.findByRole("heading",{name:"A tracked ticket"})).toBeTruthy();
- expect(screen.getByRole("button",{name:"← Tickets du projet"})).toBeTruthy();
- expect(screen.queryByRole("button",{name:"Tableau"})).toBeNull();
- expect(screen.queryByRole("button",{name:"Nouveau prompt"})).toBeNull();
- expect(screen.queryByRole("button",{name:"Configurer le projet"})).toBeNull();
- expect(screen.getByRole("button",{name:"Nouveau prompt dans Example"})).toBeTruthy();
- fireEvent.click(screen.getByRole("button",{name:"← Tickets du projet"}));
- expect(await screen.findByRole("textbox",{name:"Rechercher des tickets"})).toBeTruthy();
+ expect(screen.getByRole("button",{name:"← Project tickets"})).toBeTruthy();
+ expect(screen.queryByRole("button",{name:"Board"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"New prompt"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Configure project"})).toBeNull();
+ expect(screen.getByRole("button",{name:"New prompt in Example"})).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"← Project tickets"}));
+ expect(await screen.findByRole("textbox",{name:"Search tickets"})).toBeTruthy();
 });
 test("project menu opens the execution queue and groups ticket conversations by stage",async()=>{
- vi.mocked(api.listTasks).mockResolvedValue([{id:"new",key:"APP-1",title:"New task",status:"to_clarify",source:"jira",trackerStatus:"Open"},{id:"reviewed",key:"APP-2",title:"Reviewed task",status:"to_close",source:"jira",trackerStatus:"Done",prUrl:"https://gitlab.example.com/team/app/-/merge_requests/7",prLinks:[{url:"https://gitlab.example.com/team/app/-/merge_requests/7",state:"merged"}]}]);
+ vi.mocked(api.listTasks).mockResolvedValue([{id:"new",key:"APP-1",title:"New task",status:"to_clarify",source:"jira",trackerStatus:"Open",externalUrl:"https://jira.example.com/browse/APP-1"},{id:"reviewed",key:"APP-2",title:"Reviewed task",status:"to_close",source:"jira",trackerStatus:"Done",prUrl:"https://gitlab.example.com/team/app/-/merge_requests/7",prLinks:[{url:"https://gitlab.example.com/team/app/-/merge_requests/7",state:"merged"}]}]);
  vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true,capabilities:[]},runs:[
   {id:"new-run",projectId:"p",taskId:"new",taskKey:"APP-1",conversation:true,title:"Clarify this",provider:"claude",status:"running",skill:"clarify",createdAt:"2026-10-30"},
   {id:"reviewed-run",projectId:"p",taskId:"reviewed",taskKey:"APP-2",conversation:true,title:"Review this",provider:"codex",status:"completed",skill:"adjust",createdAt:"2026-10-29"},
@@ -123,18 +123,18 @@ test("project menu opens the execution queue and groups ticket conversations by 
  expect(await within(sidebar).findByText("Reviewed task - Adjust")).toBeTruthy();
  expect(within(sidebar).queryByText("Clarify this")).toBeNull();
  expect(sidebar.querySelector(".conversation-indicator.session")).not.toBeNull();
- fireEvent.click(within(sidebar).getByRole("button",{name:"Ouvrir le ticket APP-1"}));
- expect(await screen.findByRole("heading",{name:"New task"})).toBeTruthy();
- fireEvent.click(within(sidebar).getByLabelText("Actions pour Example"));
- fireEvent.click(within(sidebar).getByRole("menuitemcheckbox",{name:/Grouper par étape/}));
+ fireEvent.click(within(sidebar).getByRole("button",{name:"Open ticket APP-1"}));
+ await waitFor(()=>expect(workspace.openExternalLink).toHaveBeenCalledWith("https://jira.example.com/browse/APP-1"));
+ fireEvent.click(within(sidebar).getByLabelText("Actions for Example"));
+ fireEvent.click(within(sidebar).getByRole("menuitemcheckbox",{name:/Group by stage/}));
  expect(localStorage.getItem("sectile-tauri.conversationGrouping")).toBe("stage");
- await within(sidebar).findByText("À clarifier");
- expect(within(sidebar).getByText("Revu")).toBeTruthy();
- expect(within(sidebar).getByRole("button",{name:"Ouvrir la PR/MR de APP-2"}).getAttribute("title")).toContain("MR !7 · fusionnée");
- fireEvent.click(within(sidebar).getByRole("button",{name:"Ouvrir la PR/MR de APP-2"}));
+ await within(sidebar).findByText("To clarify");
+ expect(within(sidebar).getByText("Reviewed")).toBeTruthy();
+ expect(within(sidebar).getByRole("button",{name:"Open PR/MR for APP-2"}).getAttribute("title")).toContain("MR !7 · merged");
+ fireEvent.click(within(sidebar).getByRole("button",{name:"Open PR/MR for APP-2"}));
  expect(workspace.openExternalLink).toHaveBeenCalledWith("https://gitlab.example.com/team/app/-/merge_requests/7");
- fireEvent.click(within(sidebar).getByRole("button",{name:"File des exécutions"}));
- await screen.findByText("Exécutions de ce poste · 1 exécution active");
+ fireEvent.click(within(sidebar).getByRole("button",{name:"Execution queue"}));
+ await screen.findByText("Workstation executions · 1 active execution");
 });
 test("conversation actions stop a live session and archive and restore a finished one",async()=>{
  vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:true,capabilities:[]},runs:[
@@ -145,19 +145,19 @@ test("conversation actions stop a live session and archive and restore a finishe
  const sidebar=screen.getByRole("complementary");
  await within(sidebar).findByText("Live discussion");
  const liveRow=within(sidebar).getByText("Live discussion").closest(".sidebar-conversation-row")!;
- expect(within(liveRow).queryByRole("button",{name:"Archiver la conversation"})).toBeNull();
- fireEvent.click(within(liveRow).getByRole("button",{name:"Arrêter la conversation"}));
+ expect(within(liveRow).queryByRole("button",{name:"Archive conversation"})).toBeNull();
+ fireEvent.click(within(liveRow).getByRole("button",{name:"Stop conversation"}));
  await waitFor(()=>expect(api.stopRun).toHaveBeenCalledWith("live-chat"));
  const finishedRow=within(sidebar).getByText("Finished discussion").closest(".sidebar-conversation-row")!;
- expect(within(finishedRow).queryByRole("button",{name:"Arrêter la conversation"})).toBeNull();
- fireEvent.click(within(finishedRow).getByRole("button",{name:"Archiver la conversation"}));
+ expect(within(finishedRow).queryByRole("button",{name:"Stop conversation"})).toBeNull();
+ fireEvent.click(within(finishedRow).getByRole("button",{name:"Archive conversation"}));
  expect(within(sidebar).queryByText("Finished discussion")).toBeNull();
  expect(localStorage.getItem("sectile-tauri.archivedConversations")).toBe('["done-chat"]');
- fireEvent.click(within(sidebar).getByLabelText("Actions pour Example"));
- fireEvent.click(within(sidebar).getByRole("button",{name:"Voir les conversations archivées"}));
+ fireEvent.click(within(sidebar).getByLabelText("Actions for Example"));
+ fireEvent.click(within(sidebar).getByRole("button",{name:"View archived conversations"}));
  expect(within(sidebar).getByText("Finished discussion")).toBeTruthy();
  const archivedRow=within(sidebar).getByText("Finished discussion").closest(".sidebar-conversation-row")!;
- fireEvent.click(within(archivedRow).getByRole("button",{name:"Restaurer la conversation"}));
+ fireEvent.click(within(archivedRow).getByRole("button",{name:"Restore conversation"}));
  expect(localStorage.getItem("sectile-tauri.archivedConversations")).toBe("[]");
 });
 test("opening a stopped conversation keeps its terminal status in the sidebar", async () => {
@@ -170,13 +170,13 @@ test("opening a stopped conversation keeps its terminal status in the sidebar", 
  render(<App />);
  const sidebar=screen.getByRole("complementary");
  const conversation=await within(sidebar).findByRole("button",{name:/Stopped discussion/});
- expect(conversation.getAttribute("title")).toContain("Arrêté");
+ expect(conversation.getAttribute("title")).toContain("Stopped");
  fireEvent.click(conversation);
  await conversationFor("stopped-chat").refresh();
  await waitFor(()=>expect(invoke).toHaveBeenCalledWith("read_conversation",{runId:"stopped-chat"}));
  expect(conversationFor("stopped-chat").getSnapshot().loaded).toBe(true);
- await waitFor(()=>expect(conversation.getAttribute("title")).toContain("Arrêté"));
- expect(conversation.getAttribute("title")).not.toContain("Lecture seule");
+ await waitFor(()=>expect(conversation.getAttribute("title")).toContain("Stopped"));
+ expect(conversation.getAttribute("title")).not.toContain("Read-only");
 });
 test("launch restores the last project board instead of selecting the first project", async () => {
   vi.mocked(api.listProjects).mockResolvedValue([
@@ -211,14 +211,14 @@ test("launch falls back to the project board when the saved conversation is gone
   vi.mocked(workspace.projectContext).mockResolvedValue({ configured: true, path: "/work/example", skills: [], policy: {}, board: { trackers: [] } });
   localStorage.setItem("sectile-tauri.workspace", JSON.stringify({ projectId: "p", view: "prompt", runId: "removed-conversation" }));
   render(<App />);
-  await screen.findByRole("heading", { name: "Votre projet local est prêt" });
+  await screen.findByRole("heading", { name: "Your local project is ready" });
   expect(screen.queryByText("Free prompt for p")).toBeNull();
 });
 test("theme selection remains available without tabs", async () => {
   render(<App />);
   await screen.findByRole("button", { name: "Example" });
-  expect(await screen.findAllByRole("button", { name: "Tableau" })).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button", { name: "Thème clair" }));
+  expect(await screen.findAllByRole("button", { name: "Board" })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Light theme" }));
   expect(document.documentElement.dataset.theme).toBe("light");
   expect(screen.queryByRole("tab")).toBeNull();
 });
@@ -227,13 +227,13 @@ test("a trackerless local project shows prompt guidance without tracker controls
  vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[]}});
  render(<App />);
- await screen.findByRole("heading",{name:"Votre projet local est prêt"});
- expect(screen.getByText("Aucun tracker n’est associé. Lancez un prompt pour travailler dans votre dossier local.")).toBeTruthy();
- expect(screen.getByRole("button",{name:"Nouveau prompt"})).toBeTruthy();
- expect(screen.queryByRole("textbox",{name:"Rechercher des tickets"})).toBeNull();
- expect(screen.queryByRole("combobox",{name:"Regrouper les tickets"})).toBeNull();
- expect(screen.queryByText("Statuts du tracker · lecture seule")).toBeNull();
- expect(screen.queryByRole("button",{name:"Commencer une conversation"})).toBeNull();
+ await screen.findByRole("heading",{name:"Your local project is ready"});
+ expect(screen.getByText("No tracker is attached. Start a prompt to work in your local folder.")).toBeTruthy();
+ expect(screen.getByRole("button",{name:"New prompt"})).toBeTruthy();
+ expect(screen.queryByRole("textbox",{name:"Search tickets"})).toBeNull();
+ expect(screen.queryByRole("combobox",{name:"Group tickets"})).toBeNull();
+ expect(screen.queryByText("Tracker statuses · read-only")).toBeNull();
+ expect(screen.queryByRole("button",{name:"Start a conversation"})).toBeNull();
 });
 
 test("a folderless project can attach its folder directly from the board", async () => {
@@ -241,12 +241,12 @@ test("a folderless project can attach its folder directly from the board", async
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"",skills:[],policy:{},board:{trackers:[]}});
  vi.mocked(invoke).mockResolvedValue("/work/new-folder");
  render(<App />);
- await screen.findByRole("heading",{name:"Choisissez un dossier pour commencer"});
- expect(screen.getByText("Lancez un prompt libre dans ce projet, sans configurer de tracker.")).toBeTruthy();
- fireEvent.click(screen.getByRole("button",{name:"Choisir un dossier"}));
- await screen.findByRole("heading",{name:"Votre projet local est prêt"});
+ await screen.findByRole("heading",{name:"Choose a folder to get started"});
+ expect(screen.getByText("Start a free prompt in this project without configuring a tracker.")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Choose folder"}));
+ await screen.findByRole("heading",{name:"Your local project is ready"});
  expect(invoke).toHaveBeenCalledWith("choose_project_folder",{projectId:"p"});
- expect(screen.queryByRole("textbox",{name:"Rechercher des tickets"})).toBeNull();
+ expect(screen.queryByRole("textbox",{name:"Search tickets"})).toBeNull();
 });
 
 test("a local board does not flash remote controls while its project context loads",async()=>{
@@ -254,12 +254,12 @@ test("a local board does not flash remote controls while its project context loa
  let resolveContext!: (value:workspace.ProjectContext)=>void;
  vi.mocked(workspace.projectContext).mockReturnValue(new Promise(resolve=>{resolveContext=resolve;}));
  render(<App />);
- await screen.findByText("Chargement de la configuration du projet…");
- expect(screen.queryByRole("textbox",{name:"Rechercher des tickets"})).toBeNull();
- expect(screen.queryByRole("heading",{name:"Aucun ticket distant"})).toBeNull();
+ await screen.findByText("Loading project configuration…");
+ expect(screen.queryByRole("textbox",{name:"Search tickets"})).toBeNull();
+ expect(screen.queryByRole("heading",{name:"No remote tickets"})).toBeNull();
  resolveContext({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"local",provider:"local"}]}});
- await screen.findByRole("heading",{name:"Votre projet local est prêt"});
- expect(screen.queryByRole("textbox",{name:"Rechercher des tickets"})).toBeNull();
+ await screen.findByRole("heading",{name:"Your local project is ready"});
+ expect(screen.queryByRole("textbox",{name:"Search tickets"})).toBeNull();
 });
 
 test("a failed board context read explains the problem and can be retried",async()=>{
@@ -269,9 +269,9 @@ test("a failed board context read explains the problem and can be retried",async
   .mockResolvedValueOnce({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[]}});
  render(<App />);
  expect((await screen.findByRole("alert")).textContent).toContain("Context unavailable");
- expect(screen.queryByRole("heading",{name:"Aucun ticket distant"})).toBeNull();
- fireEvent.click(screen.getByRole("button",{name:"Réessayer"}));
- await screen.findByRole("heading",{name:"Votre projet local est prêt"});
+ expect(screen.queryByRole("heading",{name:"No remote tickets"})).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Retry"}));
+ await screen.findByRole("heading",{name:"Your local project is ready"});
  expect(screen.queryByRole("alert")).toBeNull();
 });
 
@@ -284,10 +284,10 @@ test("switching projects does not show another project's tickets or search filte
  vi.mocked(workspace.projectContext).mockImplementation(id=>Promise.resolve({configured:true,path:id==="p"?"/work/example":"/work/second",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}}));
  render(<App />);
  await screen.findByText("Old project ticket");
- fireEvent.change(screen.getByRole("textbox",{name:"Rechercher des tickets"}),{target:{value:"Old"}});
+ fireEvent.change(screen.getByRole("textbox",{name:"Search tickets"}),{target:{value:"Old"}});
  fireEvent.click(screen.getByRole("button",{name:"Second project"}));
  expect(screen.queryByText("Old project ticket")).toBeNull();
- expect((await screen.findByRole("textbox",{name:"Rechercher des tickets"}) as HTMLInputElement).value).toBe("");
+ expect((await screen.findByRole("textbox",{name:"Search tickets"}) as HTMLInputElement).value).toBe("");
  resolveSecond([{id:"new",key:"APP-2",title:"Second project ticket",source:"jira",trackerStatus:"Open",status:"to_clarify"}]);
  await screen.findByText("Second project ticket");
 });
@@ -297,28 +297,28 @@ test("a failed local ticket refresh does not expose remote tracker controls",asy
  vi.mocked(api.listTasks).mockResolvedValueOnce([]).mockRejectedValueOnce(new Error("Ticket read unavailable"));
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[]}});
  render(<App />);
- await screen.findByRole("heading",{name:"Votre projet local est prêt"});
- fireEvent.click(screen.getByRole("button",{name:"Actualiser le tableau"}));
+ await screen.findByRole("heading",{name:"Your local project is ready"});
+ fireEvent.click(screen.getByRole("button",{name:"Refresh board"}));
  expect((await screen.findByRole("alert")).textContent).toContain("Ticket read unavailable");
- expect(screen.queryByRole("textbox",{name:"Rechercher des tickets"})).toBeNull();
+ expect(screen.queryByRole("textbox",{name:"Search tickets"})).toBeNull();
 });
 
 test("the synthetic local tracker does not show remote tracker controls",async()=>{
  vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"local",provider:"local"}]}});
  render(<App />);
- await screen.findByRole("heading",{name:"Votre projet local est prêt"});
- expect(screen.queryByRole("textbox",{name:"Rechercher des tickets"})).toBeNull();
- expect(screen.queryByRole("combobox",{name:"Regrouper les tickets"})).toBeNull();
- expect(screen.queryByText("Statuts du tracker · lecture seule")).toBeNull();
+ await screen.findByRole("heading",{name:"Your local project is ready"});
+ expect(screen.queryByRole("textbox",{name:"Search tickets"})).toBeNull();
+ expect(screen.queryByRole("combobox",{name:"Group tickets"})).toBeNull();
+ expect(screen.queryByText("Tracker statuses · read-only")).toBeNull();
 });
 
 test("an older agent identifies a single local tracker through project settings",async()=>{
  vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",issueTracker:"local",skills:[],policy:{},board:{trackers:[{trackerId:"local"}]}});
  render(<App />);
- await screen.findByRole("heading",{name:"Votre projet local est prêt"});
- expect(screen.queryByRole("textbox",{name:"Rechercher des tickets"})).toBeNull();
+ await screen.findByRole("heading",{name:"Your local project is ready"});
+ expect(screen.queryByRole("textbox",{name:"Search tickets"})).toBeNull();
 });
 
 test("tracker-backed projects retain board search, grouping and ticket status",async()=>{
@@ -326,14 +326,14 @@ test("tracker-backed projects retain board search, grouping and ticket status",a
  vi.mocked(api.listTasks).mockResolvedValue([{id:"t",key:"APP-2",title:"Remote issue",source:"jira",trackerStatus:"To Do",status:"to_clarify"}]);
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
  render(<App />);
- await screen.findByRole("textbox",{name:"Rechercher des tickets"});
+ await screen.findByRole("textbox",{name:"Search tickets"});
  await screen.findByText("Remote issue");
- expect(screen.getByRole("combobox",{name:"Regrouper les tickets"})).toBeTruthy();
- expect(screen.getByText("Statuts du tracker · lecture seule")).toBeTruthy();
+ expect(screen.getByRole("combobox",{name:"Group tickets"})).toBeTruthy();
+ expect(screen.getByText("Tracker statuses · read-only")).toBeTruthy();
  expect(screen.getByText("Remote issue")).toBeTruthy();
- expect(screen.queryByRole("button",{name:"Effacer la sélection"})).toBeNull();
- expect(screen.queryByRole("button",{name:"Préparer un lot"})).toBeNull();
- expect(screen.getByRole("region",{name:"Colonnes de tickets, défilement horizontal"}).getAttribute("tabindex")).toBe("0");
+ expect(screen.queryByRole("button",{name:"Clear selection"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Prepare batch"})).toBeNull();
+ expect(screen.getByRole("region",{name:"Ticket columns, horizontal scroll"}).getAttribute("tabindex")).toBe("0");
 });
 test("workflow columns open by default and the tracker grouping choice persists",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue([{id:"t",key:"APP-2",title:"Remote issue",source:"jira",trackerStatus:"To Do",status:"to_clarify"}]);
@@ -342,8 +342,8 @@ test("workflow columns open by default and the tracker grouping choice persists"
  await screen.findByText("Remote issue");
  expect(document.querySelector('.column[data-stage="new"]')).not.toBeNull();
  expect(document.querySelector('.column[data-stage="clarified"]')).not.toBeNull();
- const stageButton=screen.getByRole("button",{name:"Par étape du workflow"});
- const trackerButton=screen.getByRole("button",{name:"Par statut tracker"});
+ const stageButton=screen.getByRole("button",{name:"By workflow stage"});
+ const trackerButton=screen.getByRole("button",{name:"By tracker status"});
  expect(stageButton.getAttribute("aria-pressed")).toBe("true");
  expect(trackerButton.getAttribute("aria-pressed")).toBe("false");
  fireEvent.click(trackerButton);
@@ -354,20 +354,30 @@ test("workflow columns open by default and the tracker grouping choice persists"
  view.unmount();
  render(<App/>);
  await screen.findByText("Remote issue");
- expect(screen.getByRole("button",{name:"Par statut tracker"}).getAttribute("aria-pressed")).toBe("true");
+ expect(screen.getByRole("button",{name:"By tracker status"}).getAttribute("aria-pressed")).toBe("true");
 });
 test("the backlog list keeps epic context and selection while switching views",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue([{id:"t1",key:"APP-1",title:"First issue",source:"jira",trackerStatus:"To Do",status:"to_clarify",parentKey:"EPIC-1",priority:"high"},{id:"t2",key:"APP-2",title:"Second issue",source:"jira",trackerStatus:"To Do",status:"to_clarify",parentKey:"EPIC-1",priority:"medium"}]);
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
  render(<App/>);
  await screen.findByText("First issue");
- fireEvent.click(screen.getByRole("button",{name:"Liste"}));
- const list=screen.getByRole("region",{name:"Liste des tickets"});
+ fireEvent.click(screen.getByRole("button",{name:"List"}));
+ const list=screen.getByRole("region",{name:"Ticket list"});
+ expect(within(list).getByRole("button",{name:/Macro/})).toBeTruthy();
  expect(within(list).getAllByText("EPIC-1")).toHaveLength(2);
- fireEvent.click(within(list).getByRole("checkbox",{name:"Sélectionner APP-1"}));
- expect(screen.getByText("1 sélectionné")).toBeTruthy();
- fireEvent.click(within(screen.getByRole("group",{name:"Vue des tickets"})).getByRole("button",{name:"Tableau"}));
- expect((screen.getByRole("checkbox",{name:"Sélectionner APP-1"}) as HTMLInputElement).checked).toBe(true);
+ expect(within(list).getByRole("button",{name:"First issue"}).closest("td")?.textContent).toBe("First issue");
+ fireEvent.click(screen.getByRole("button",{name:"List columns"}));
+ const colDialog=screen.getByRole("dialog",{name:"List columns"});
+ fireEvent.click(within(colDialog).getByRole("menuitemcheckbox",{name:"Macro"}));
+ expect(within(list).queryByRole("button",{name:/Macro/})).toBeNull();
+ expect(within(list).queryByText("EPIC-1")).toBeNull();
+ fireEvent.click(within(colDialog).getByRole("button",{name:"Show all"}));
+ expect(within(list).getByRole("button",{name:/Macro/})).toBeTruthy();
+ expect(within(list).getAllByText("EPIC-1")).toHaveLength(2);
+ fireEvent.click(within(list).getByRole("checkbox",{name:"Select APP-1"}));
+ expect(screen.getByText("1 selected")).toBeTruthy();
+ fireEvent.click(within(screen.getByRole("group",{name:"Ticket view"})).getByRole("button",{name:"Board"}));
+ expect((screen.getByRole("checkbox",{name:"Select APP-1"}) as HTMLInputElement).checked).toBe(true);
  expect(localStorage.getItem("sectile-tauri.ticketView")).toBe("board");
 });
 test("the ticket list displays shortened engine monogram, proposes the next logical action, and aligns actions",async()=>{
@@ -375,11 +385,11 @@ test("the ticket list displays shortened engine monogram, proposes the next logi
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",aiProvider:"codex",skills:[{id:"clarify"}],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
  render(<App/>);
  await screen.findByText("First issue");
- fireEvent.click(screen.getByRole("button",{name:"Liste"}));
- const list=screen.getByRole("region",{name:"Liste des tickets"});
+ fireEvent.click(screen.getByRole("button",{name:"List"}));
+ const list=screen.getByRole("region",{name:"Ticket list"});
  expect(within(list).getByText("Cx")).toBeTruthy();
- const runButton=within(list).getByRole("button",{name:"Lancer Clarifier pour APP-1"});
- expect(runButton.textContent).toBe("Clarifier");
+ const runButton=within(list).getByRole("button",{name:"Launch Clarify for APP-1"});
+ expect(runButton.textContent).toBe("Clarify");
  fireEvent.click(runButton);
  await waitFor(()=>expect(api.launchTask).toHaveBeenCalledWith("p",{taskId:"t1",skillId:"clarify",prompt:"",mode:""}));
 });
@@ -392,10 +402,10 @@ test("clicking table headers orders tasks by that column",async()=>{
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
  render(<App/>);
  await screen.findByText("Alpha task");
- fireEvent.click(screen.getByRole("button",{name:"Liste"}));
- const list=screen.getByRole("region",{name:"Liste des tickets"});
+ fireEvent.click(screen.getByRole("button",{name:"List"}));
+ const list=screen.getByRole("region",{name:"Ticket list"});
  // Defaults to priority descending: APP-2 (urgent), APP-10 (medium), APP-1 (low)
- const priorityHeader=within(list).getByRole("button",{name:/Priorité/});
+ const priorityHeader=within(list).getByRole("button",{name:/Priority/});
  expect(priorityHeader.closest("th")?.getAttribute("aria-sort")).toBe("descending");
  let rows=within(list).getAllByRole("row").slice(1);
  expect(rows[0].textContent).toContain("APP-2");
@@ -411,7 +421,7 @@ test("clicking table headers orders tasks by that column",async()=>{
  expect(rows[2].textContent).toContain("APP-2");
 
  // Click title sorts alphabetically ascending: Alpha task (APP-2), Middle task (APP-10), Zebra task (APP-1)
- const titleHeader=within(list).getByRole("button",{name:/Titre/});
+ const titleHeader=within(list).getByRole("button",{name:/Title/});
  fireEvent.click(titleHeader);
  expect(titleHeader.closest("th")?.getAttribute("aria-sort")).toBe("ascending");
  rows=within(list).getAllByRole("row").slice(1);
@@ -420,7 +430,7 @@ test("clicking table headers orders tasks by that column",async()=>{
  expect(rows[2].textContent).toContain("Zebra task");
 
  // Click key sorts naturally: APP-1, APP-2, APP-10
- const keyHeader=within(list).getByRole("button",{name:/Clé/});
+ const keyHeader=within(list).getByRole("button",{name:/Key/});
  fireEvent.click(keyHeader);
  expect(keyHeader.closest("th")?.getAttribute("aria-sort")).toBe("ascending");
  rows=within(list).getAllByRole("row").slice(1);
@@ -441,19 +451,19 @@ test("the board toolbar filters tasks by priority, status, assignee, parent, spr
  expect(screen.getByText("Third issue")).toBeTruthy();
 
  // Open filter dropdown
- const filterToggle=screen.getByRole("button",{name:"Filtres de tickets"});
+ const filterToggle=screen.getByRole("button",{name:"Ticket filters"});
  fireEvent.click(filterToggle);
- expect(screen.getByRole("dialog",{name:"Filtres de tickets"})).toBeTruthy();
+ expect(screen.getByRole("dialog",{name:"Ticket filters"})).toBeTruthy();
 
  // Filter by priority: urgent
- const prioritySelect=screen.getByRole("combobox",{name:"Filtrer par priorité"});
+ const prioritySelect=screen.getByRole("combobox",{name:"Filter by priority"});
  fireEvent.change(prioritySelect,{target:{value:"urgent"}});
  expect(screen.getByText("First issue")).toBeTruthy();
  expect(screen.queryByText("Second issue")).toBeNull();
  expect(screen.queryByText("Third issue")).toBeNull();
 
  // Reset button in popover header
- const resetBtn=screen.getByRole("button",{name:"Réinitialiser"});
+ const resetBtn=screen.getByRole("button",{name:"Reset"});
  fireEvent.click(resetBtn);
  expect(screen.getByText("Second issue")).toBeTruthy();
  expect(screen.getByText("Third issue")).toBeTruthy();
@@ -462,14 +472,26 @@ test("the board toolbar filters tasks by priority, status, assignee, parent, spr
  fireEvent.click(filterToggle);
 
  // Filter by status: to do
- const statusSelect=screen.getByRole("combobox",{name:"Filtrer par statut"});
+ const statusSelect=screen.getByRole("combobox",{name:"Filter by status"});
  fireEvent.change(statusSelect,{target:{value:"to do"}});
  expect(screen.queryByText("First issue")).toBeNull();
  expect(screen.getByText("Second issue")).toBeTruthy();
  expect(screen.getByText("Third issue")).toBeTruthy();
 
+ // Add a second status via the multi-select status menu: In Progress
+ const statusMenu=screen.getByRole("menu",{name:"Status"});
+ fireEvent.click(within(statusMenu).getByRole("menuitemcheckbox",{name:/In Progress/}));
+ expect(screen.getByText("First issue")).toBeTruthy();
+ expect(screen.getByText("Second issue")).toBeTruthy();
+ expect(screen.getByText("Third issue")).toBeTruthy();
+
+ // Uncheck In Progress so only To Do remains
+ fireEvent.click(within(statusMenu).getByRole("menuitemcheckbox",{name:/In Progress/}));
+ expect(screen.queryByText("First issue")).toBeNull();
+ expect(screen.getByText("Second issue")).toBeTruthy();
+
  // Filter by assignee: Bob
- const assigneeSelect=screen.getByRole("combobox",{name:"Filtrer par assigné"});
+ const assigneeSelect=screen.getByRole("combobox",{name:"Filter by assignee"});
  fireEvent.change(assigneeSelect,{target:{value:"Bob"}});
  expect(screen.queryByText("First issue")).toBeNull();
  expect(screen.getByText("Second issue")).toBeTruthy();
@@ -481,14 +503,14 @@ test("the board toolbar filters tasks by priority, status, assignee, parent, spr
  expect(screen.getByText("Third issue")).toBeTruthy();
 
  // Reset via button
- fireEvent.click(screen.getByRole("button",{name:"Réinitialiser"}));
+ fireEvent.click(screen.getByRole("button",{name:"Reset"}));
  expect(screen.getByText("First issue")).toBeTruthy();
 
  // Re-open filter dropdown
  fireEvent.click(filterToggle);
 
  // Filter by parent: EPIC-1
- const parentSelect=screen.getByRole("combobox",{name:"Filtrer par parent"});
+ const parentSelect=screen.getByRole("combobox",{name:"Filter by parent"});
  fireEvent.change(parentSelect,{target:{value:"EPIC-1"}});
  expect(screen.getByText("First issue")).toBeTruthy();
  expect(screen.getByText("Second issue")).toBeTruthy();
@@ -500,25 +522,25 @@ test("the board toolbar filters tasks by priority, status, assignee, parent, spr
  expect(screen.queryByText("Second issue")).toBeNull();
  expect(screen.getByText("Third issue")).toBeTruthy();
 
- // Reset and filter by sprint (free input and Sans sprint)
- fireEvent.click(screen.getByRole("button",{name:"Réinitialiser"}));
+ // Reset and filter by sprint (free input and No sprint)
+ fireEvent.click(screen.getByRole("button",{name:"Reset"}));
  fireEvent.click(filterToggle);
- const sprintInput=screen.getByLabelText("Filtrer par sprint");
+ const sprintInput=screen.getByLabelText("Filter by sprint");
  fireEvent.change(sprintInput,{target:{value:"Sprint 42"}});
  expect(screen.getByText("First issue")).toBeTruthy();
  expect(screen.queryByText("Second issue")).toBeNull();
  expect(screen.queryByText("Third issue")).toBeNull();
 
- // Filter by no sprint ("Sans sprint")
- fireEvent.change(sprintInput,{target:{value:"Sans sprint"}});
+ // Filter by no sprint ("No sprint")
+ fireEvent.change(sprintInput,{target:{value:"No sprint"}});
  expect(screen.queryByText("First issue")).toBeNull();
  expect(screen.queryByText("Second issue")).toBeNull();
  expect(screen.getByText("Third issue")).toBeTruthy();
 
- // Reset and filter by issueType (Bug and Sans type)
- fireEvent.click(screen.getByRole("button",{name:"Réinitialiser"}));
+ // Reset and filter by issueType (Bug and No type)
+ fireEvent.click(screen.getByRole("button",{name:"Reset"}));
  fireEvent.click(filterToggle);
- const typeSelect=screen.getByRole("combobox",{name:"Filtrer par type"});
+ const typeSelect=screen.getByRole("combobox",{name:"Filter by type"});
  fireEvent.change(typeSelect,{target:{value:"Bug"}});
  expect(screen.getByText("First issue")).toBeTruthy();
  expect(screen.queryByText("Second issue")).toBeNull();
@@ -531,22 +553,22 @@ test("the board toolbar filters tasks by priority, status, assignee, parent, spr
  fireEvent.change(typeSelect,{target:{value:""}});
 
  // Filters are preserved when opening a task and returning to the board
- const sprintInputAgain=screen.getByLabelText("Filtrer par sprint");
+ const sprintInputAgain=screen.getByLabelText("Filter by sprint");
  fireEvent.change(sprintInputAgain,{target:{value:"Sprint 42"}});
  fireEvent.click(screen.getByRole("button",{name:"First issue"}));
- await screen.findByRole("button",{name:"← Tickets du projet"});
- fireEvent.click(screen.getByRole("button",{name:"← Tickets du projet"}));
+ await screen.findByRole("button",{name:"← Project tickets"});
+ fireEvent.click(screen.getByRole("button",{name:"← Project tickets"}));
  expect(await screen.findByText("First issue")).toBeTruthy();
  expect(screen.queryByText("Second issue")).toBeNull();
 
- // Switching to Liste view hides the workflow/tracker grouping toggle and shows Type, Sprint & Assigné columns
- expect(screen.getByRole("group",{name:"Regroupement des tickets"})).toBeTruthy();
- fireEvent.click(screen.getByRole("button",{name:"Liste"}));
- expect(screen.queryByRole("group",{name:"Regroupement des tickets"})).toBeNull();
- const list=screen.getByRole("region",{name:"Liste des tickets"});
+ // Switching to List view hides the workflow/tracker grouping toggle and shows Type, Sprint & Assignee columns
+ expect(screen.getByRole("group",{name:"Ticket grouping"})).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"List"}));
+ expect(screen.queryByRole("group",{name:"Ticket grouping"})).toBeNull();
+ const list=screen.getByRole("region",{name:"Ticket list"});
  expect(within(list).getByRole("button",{name:/Type/})).toBeTruthy();
  expect(within(list).getByRole("button",{name:/Sprint/})).toBeTruthy();
- expect(within(list).getByRole("button",{name:/Assigné/})).toBeTruthy();
+ expect(within(list).getByRole("button",{name:/Assignee/})).toBeTruthy();
  expect(within(list).getByText("Bug")).toBeTruthy();
  expect(within(list).getByText("Alice")).toBeTruthy();
  expect(within(list).getByText("Sprint 42")).toBeTruthy();
@@ -559,8 +581,8 @@ test("the board uses Sectile epic colors only when the project enables them",asy
  const card=document.querySelector(".board .task") as HTMLElement;
  expect(card.classList.contains("has-epic-color")).toBe(true);
  expect(card.style.getPropertyValue("--epic")).toBe("#f59e0b");
- expect(screen.getByRole("checkbox",{name:"Sélectionner APP-1"})).toBeTruthy();
- expect(screen.getByRole("combobox",{name:"Actions pour APP-1"})).toBeTruthy();
+ expect(screen.getByRole("checkbox",{name:"Select APP-1"})).toBeTruthy();
+ expect(screen.getByRole("combobox",{name:"Actions for APP-1"})).toBeTruthy();
 });
 test("a selected ticket batch requires confirmation and uses the Go pickup skill",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue([{id:"t1",key:"APP-1",title:"First issue",source:"jira",trackerStatus:"To Do",status:"to_clarify"},{id:"t2",key:"APP-2",title:"Second issue",source:"jira",trackerStatus:"To Do",status:"to_clarify"}]);
@@ -568,12 +590,12 @@ test("a selected ticket batch requires confirmation and uses the Go pickup skill
  vi.mocked(api.launchTask).mockResolvedValue({});
  render(<App/>);
  await screen.findByText("First issue");
- fireEvent.click(screen.getByRole("checkbox",{name:"Sélectionner APP-1"}));
- fireEvent.click(screen.getByRole("checkbox",{name:"Sélectionner APP-2"}));
- expect(screen.getByRole("button",{name:"Effacer la sélection"})).toBeTruthy();
- fireEvent.click(screen.getByRole("button",{name:"Préparer un lot"}));
+ fireEvent.click(screen.getByRole("checkbox",{name:"Select APP-1"}));
+ fireEvent.click(screen.getByRole("checkbox",{name:"Select APP-2"}));
+ expect(screen.getByRole("button",{name:"Clear selection"})).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Prepare batch"}));
  expect(api.launchTask).not.toHaveBeenCalled();
- fireEvent.click(screen.getByRole("button",{name:"Lancer le lot"}));
+ fireEvent.click(screen.getByRole("button",{name:"Launch batch"}));
  await waitFor(()=>expect(api.launchTask).toHaveBeenCalledWith("p",{taskId:"t1",skillId:"pickup_issues",prompt:"",mode:"autonomous",batchTaskIds:["t1","t2"]}));
 });
 test("the board skill menu launches the selected skill only after refreshing its ticket",async()=>{
@@ -583,8 +605,8 @@ test("the board skill menu launches the selected skill only after refreshing its
  vi.mocked(api.launchTask).mockResolvedValue({});
  render(<App/>);
  await screen.findByText("First issue");
- const menu=screen.getByRole("combobox",{name:"Actions pour APP-1"});
- await waitFor(()=>expect((within(menu).getByRole("option",{name:"Lancer : Clarifier"}) as HTMLOptionElement).disabled).toBe(false));
+ const menu=screen.getByRole("combobox",{name:"Actions for APP-1"});
+ await waitFor(()=>expect((within(menu).getByRole("option",{name:"Launch: Clarify"}) as HTMLOptionElement).disabled).toBe(false));
  fireEvent.change(menu,{target:{value:"clarify"}});
  await waitFor(()=>expect(api.launchTask).toHaveBeenCalledWith("p",{taskId:"t1",skillId:"clarify",prompt:"",mode:""}));
 });
@@ -593,7 +615,7 @@ test("board density defaults to compact and remembers the detailed choice",async
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
  const view=render(<App />);
  await screen.findByText("A long remote issue title");
- const density=screen.getByRole("button",{name:"Cartes compactes"});
+ const density=screen.getByRole("button",{name:"Compact cards"});
  expect(density.getAttribute("aria-pressed")).toBe("true");
  expect(document.querySelector(".board .task.compact")).not.toBeNull();
  fireEvent.click(density);
@@ -603,7 +625,7 @@ test("board density defaults to compact and remembers the detailed choice",async
  view.unmount();
  render(<App />);
  await screen.findByText("A long remote issue title");
- expect(screen.getByRole("button",{name:"Cartes compactes"}).getAttribute("aria-pressed")).toBe("false");
+ expect(screen.getByRole("button",{name:"Compact cards"}).getAttribute("aria-pressed")).toBe("false");
 });
 
 test("a large tracker board renders tickets progressively while search reaches the full result",async()=>{
@@ -611,15 +633,15 @@ test("a large tracker board renders tickets progressively while search reaches t
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
  render(<App />);
  await screen.findByText("Ticket 1");
- fireEvent.change(screen.getByRole("combobox",{name:"Regrouper les tickets"}),{target:{value:"tracker"}});
+ fireEvent.change(screen.getByRole("combobox",{name:"Group tickets"}),{target:{value:"tracker"}});
  expect(screen.getByText("1988 tickets")).toBeTruthy();
  expect(document.querySelectorAll(".board .task")).toHaveLength(40);
- fireEvent.click(screen.getByRole("button",{name:"Afficher les tickets suivants dans To Do"}));
+ fireEvent.click(screen.getByRole("button",{name:"Show more tickets in To Do"}));
  expect(document.querySelectorAll(".board .task")).toHaveLength(80);
- fireEvent.change(screen.getByRole("textbox",{name:"Rechercher des tickets"}),{target:{value:"APP-1988"}});
+ fireEvent.change(screen.getByRole("textbox",{name:"Search tickets"}),{target:{value:"APP-1988"}});
  await screen.findByText("Ticket 1988");
  expect(document.querySelectorAll(".board .task")).toHaveLength(1);
- expect(screen.queryByRole("button",{name:"Afficher les tickets suivants dans To Do"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Show more tickets in To Do"})).toBeNull();
 });
 test("active workflow tickets remain in the first visible board batch",async()=>{
  vi.mocked(api.listTasks).mockResolvedValue(Array.from({length:100},(_,index)=>({id:`task-${index+1}`,key:`APP-${index+1}`,title:`Ticket ${index+1}`,source:"jira",trackerStatus:"To Do",status:"to_implement"})));
@@ -629,7 +651,7 @@ test("active workflow tickets remain in the first visible board batch",async()=>
  await screen.findByText("Ticket 100");
  expect(document.querySelectorAll(".board .task")).toHaveLength(40);
  expect(screen.queryByText("Ticket 40")).toBeNull();
- expect(screen.getByText("Implémenter · En cours")).toBeTruthy();
+ expect(screen.getByText("Implement · Running")).toBeTruthy();
 });
 
 test("an empty remote tracker board names the missing tickets and keeps its local prompt path",async()=>{
@@ -637,11 +659,11 @@ test("an empty remote tracker board names the missing tickets and keeps its loca
  vi.mocked(api.listTasks).mockResolvedValue([]);
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
  render(<App />);
- await screen.findByRole("heading",{name:"Aucun ticket distant"});
- expect(screen.getByText("Le tracker ne remonte aucun ticket. Vous pouvez lancer un prompt dans le dossier local associé.")).toBeTruthy();
- expect(screen.getByRole("textbox",{name:"Rechercher des tickets"})).toBeTruthy();
- expect(screen.getByRole("combobox",{name:"Regrouper les tickets"})).toBeTruthy();
- expect(screen.getByRole("button",{name:"Nouveau prompt"})).toBeTruthy();
+ await screen.findByRole("heading",{name:"No remote tickets"});
+ expect(screen.getByText("The tracker returned no tickets. You can start a prompt in the mapped local folder.")).toBeTruthy();
+ expect(screen.getByRole("textbox",{name:"Search tickets"})).toBeTruthy();
+ expect(screen.getByRole("combobox",{name:"Group tickets"})).toBeTruthy();
+ expect(screen.getByRole("button",{name:"New prompt"})).toBeTruthy();
 });
 
 test("a failed ticket refresh identifies the retained board data as stale",async()=>{
@@ -651,24 +673,24 @@ test("a failed ticket refresh identifies the retained board data as stale",async
  vi.mocked(workspace.projectContext).mockResolvedValue({configured:true,path:"/work/example",skills:[],policy:{},board:{trackers:[{trackerId:"jira-1",provider:"jira"}]}});
  render(<App />);
  await screen.findByText("Previous ticket read");
- fireEvent.click(screen.getByRole("button",{name:"Actualiser le tableau"}));
+ fireEvent.click(screen.getByRole("button",{name:"Refresh board"}));
  expect((await screen.findByRole("alert")).textContent).toContain("Tracker temporarily unavailable");
- expect(await screen.findByText("La dernière actualisation a échoué. Les tickets affichés proviennent de la lecture précédente.")).toBeTruthy();
+ expect(await screen.findByText("The last refresh failed. Displayed tickets come from the previous read.")).toBeTruthy();
  expect(screen.getByText("Previous ticket read")).toBeTruthy();
- fireEvent.click(screen.getByRole("button",{name:"Nouveau prompt"}));
- await screen.findByRole("heading",{name:"Où voulez-vous travailler ?"});
+ fireEvent.click(screen.getByRole("button",{name:"New prompt"}));
+ await screen.findByRole("heading",{name:"Where would you like to work?"});
  expect(screen.queryByRole("alert")).toBeNull();
 });
 
 test("opening a folder navigates straight to its free prompt; cancel leaves the board visible", async () => {
   vi.mocked(invoke).mockResolvedValueOnce(null).mockResolvedValueOnce({id:"p",name:"Example",path:"/work/example"});
   render(<App />);
-  await screen.findByRole("textbox", {name:"Rechercher des tickets"});
-  fireEvent.click(screen.getByRole("button",{name:"Ouvrir un dossier"}));
-  await screen.findByRole("textbox", {name:"Rechercher des tickets"});
-  await waitFor(() => expect(screen.getByRole("button",{name:"Ouvrir un dossier"}).hasAttribute("disabled")).toBe(false));
+  await screen.findByRole("textbox", {name:"Search tickets"});
+  fireEvent.click(screen.getByRole("button",{name:"Open folder"}));
+  await screen.findByRole("textbox", {name:"Search tickets"});
+  await waitFor(() => expect(screen.getByRole("button",{name:"Open folder"}).hasAttribute("disabled")).toBe(false));
   vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
-  fireEvent.click(screen.getByRole("button",{name:"Ouvrir un dossier"}));
+  fireEvent.click(screen.getByRole("button",{name:"Open folder"}));
   await screen.findByText("Free prompt for p");
   expect(invoke).toHaveBeenCalledWith("open_folder_project");
 });
@@ -677,9 +699,9 @@ test("settings remain reachable with the sidebar collapsed", async () => {
  vi.mocked(invoke).mockResolvedValue({enabled:true,ready:true,signedIn:true});
  render(<App />);
  await screen.findByRole("button",{name:"Example"});
- fireEvent.click(screen.getByRole("button",{name:"Afficher ou masquer les projets"}));
- fireEvent.click(screen.getByRole("button",{name:"Paramètres"}));
- await screen.findByRole("navigation",{name:"Sections des paramètres"});
+ fireEvent.click(screen.getByRole("button",{name:"Show or hide projects"}));
+ fireEvent.click(screen.getByRole("button",{name:"Settings"}));
+ await screen.findByRole("navigation",{name:"Settings sections"});
  expect(screen.queryByRole("tablist")).toBeNull();
 });
 
@@ -691,7 +713,7 @@ test("keyboard navigation opens a prompt and settings while the sidebar width pe
  render(<App />);
  await screen.findByRole("button", { name: "Example" });
  const modifier = /Mac/i.test(navigator.platform || navigator.userAgent) ? { metaKey: true } : { ctrlKey: true };
- const divider = screen.getByRole("separator", { name: "Redimensionner la barre latérale" });
+ const divider = screen.getByRole("separator", { name: "Resize sidebar" });
  fireEvent.keyDown(divider, { key: "ArrowRight" });
  expect(divider.getAttribute("aria-valuenow")).toBe("288");
  expect(localStorage.getItem("sectile-tauri.sidebarWidth")).toBe("288");
@@ -702,7 +724,7 @@ test("keyboard navigation opens a prompt and settings while the sidebar width pe
  fireEvent.keyDown(window, { key: "n", ...modifier });
  await screen.findByText("Free prompt for p");
  fireEvent.keyDown(window, { key: ",", ...modifier });
- await screen.findByRole("navigation", { name: "Sections des paramètres" });
+ await screen.findByRole("navigation", { name: "Settings sections" });
  fireEvent.keyDown(window, { key: ",", ...modifier });
  await screen.findByText("Free prompt for p");
 });
@@ -712,7 +734,7 @@ test("narrow windows cap the visible sidebar without discarding the saved width"
  render(<App/>);
  await screen.findByRole("button",{name:"Example"});
  const sidebar=screen.getByRole("complementary");
- const divider=screen.getByRole("separator",{name:"Redimensionner la barre latérale"});
+ const divider=screen.getByRole("separator",{name:"Resize sidebar"});
  expect(sidebar.style.width).toBe("300px");
  expect(divider.getAttribute("aria-valuenow")).toBe("300");
  expect(divider.getAttribute("aria-valuemax")).toBe("300");
@@ -729,11 +751,11 @@ test("settings use one navigation rail and return to the previous workspace", as
   : null);
  render(<App />);
  await screen.findByRole("button", { name: "Example" });
- fireEvent.click(screen.getByRole("button", { name: "Paramètres" }));
- await screen.findByRole("navigation", { name: "Sections des paramètres" });
+ fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+ await screen.findByRole("navigation", { name: "Settings sections" });
  expect(screen.queryByRole("button", { name: "Example" })).toBeNull();
- fireEvent.click(screen.getByRole("button", { name: "Retourner à l’espace de travail" }));
- await screen.findByRole("textbox", { name: "Rechercher des tickets" });
+ fireEvent.click(screen.getByRole("button", { name: "Return to workspace" }));
+ await screen.findByRole("textbox", { name: "Search tickets" });
  expect(screen.getByRole("button", { name: "Example" })).toBeTruthy();
 });
 
@@ -743,10 +765,10 @@ test("first-run settings hide the project sidebar even before a project exists",
   ? {path:"/test/companion.log",text:"",missing:true,truncated:false}
   : null);
  render(<App />);
- await screen.findByRole("navigation", { name: "Sections des paramètres" });
- expect(screen.queryByRole("textbox", { name: "Filtrer les projets" })).toBeNull();
- expect(screen.queryByRole("separator", { name: "Redimensionner la barre latérale" })).toBeNull();
- expect(screen.queryByRole("button", { name: "Afficher ou masquer les projets" })).toBeNull();
+ await screen.findByRole("navigation", { name: "Settings sections" });
+ expect(screen.queryByRole("textbox", { name: "Filter projects" })).toBeNull();
+ expect(screen.queryByRole("separator", { name: "Resize sidebar" })).toBeNull();
+ expect(screen.queryByRole("button", { name: "Show or hide projects" })).toBeNull();
 });
 
 test("settings return to an available board after the previous project disappears", async () => {
@@ -762,12 +784,12 @@ test("settings return to an available board after the previous project disappear
     ? { path: "/test/companion.log", text: "", missing: true, truncated: false }
     : null);
  render(<App />);
- fireEvent.click(await screen.findByRole("button", { name: "Paramètres" }));
- fireEvent.click(await screen.findByRole("button", { name: "Services locaux" }));
+ fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+ fireEvent.click(await screen.findByRole("button", { name: "Local services" }));
  firstProjectExists = false;
- fireEvent.click(screen.getByRole("button", { name: "Actualiser" }));
+ fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
  await waitFor(() => expect(api.listProjects).toHaveBeenCalledTimes(2));
- fireEvent.click(await screen.findByRole("button", { name: "Retourner à l’espace de travail" }));
+ fireEvent.click(await screen.findByRole("button", { name: "Return to workspace" }));
  expect(await screen.findByRole("heading", { name: "Remaining" })).toBeTruthy();
  expect(screen.queryByRole("button", { name: "Example" })).toBeNull();
 });
@@ -775,10 +797,10 @@ test("settings return to an available board after the previous project disappear
 test("an unmapped project asks for its folder before mounting the prompt and keeps the same project", async () => {
  vi.mocked(invoke).mockResolvedValue("/work/example");
  render(<App />);
- fireEvent.click(await screen.findByRole("button",{name:"Nouveau prompt dans Example"}));
- await screen.findByRole("heading",{name:"Où voulez-vous travailler ?"});
+ fireEvent.click(await screen.findByRole("button",{name:"New prompt in Example"}));
+ await screen.findByRole("heading",{name:"Where would you like to work?"});
  expect(screen.queryByText("Free prompt for p")).toBeNull();
- fireEvent.click(screen.getByRole("button",{name:"Choisir un dossier"}));
+ fireEvent.click(screen.getByRole("button",{name:"Choose folder"}));
  await screen.findByText("Free prompt for p");
  expect(invoke).toHaveBeenCalledWith("choose_project_folder",{projectId:"p"});
  expect(invoke).not.toHaveBeenCalledWith("open_folder_project");
@@ -788,16 +810,16 @@ test("an unmapped project asks for its folder before mounting the prompt and kee
 test("canceling the project folder picker keeps setup available and errors can be retried", async () => {
  vi.mocked(invoke).mockResolvedValueOnce(null).mockRejectedValueOnce(new Error("Agent HTTP 409: technical details")).mockResolvedValueOnce("/work/retry");
  render(<App />);
- fireEvent.click(await screen.findByRole("button",{name:"Nouveau prompt dans Example"}));
- fireEvent.click(await screen.findByRole("button",{name:"Choisir un dossier"}));
- await waitFor(()=>expect(screen.getByRole("button",{name:"Choisir un dossier"}).hasAttribute("disabled")).toBe(false));
+ fireEvent.click(await screen.findByRole("button",{name:"New prompt in Example"}));
+ fireEvent.click(await screen.findByRole("button",{name:"Choose folder"}));
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Choose folder"}).hasAttribute("disabled")).toBe(false));
  expect(screen.queryByRole("alert")).toBeNull();
  expect(screen.queryByText("Free prompt for p")).toBeNull();
- fireEvent.click(screen.getByRole("button",{name:"Choisir un dossier"}));
+ fireEvent.click(screen.getByRole("button",{name:"Choose folder"}));
  const error=await screen.findByRole("alert");
- expect(error.textContent).toContain("Impossible d’associer ce dossier");
+ expect(error.textContent).toContain("Unable to map this folder");
  expect(error.textContent).not.toContain("409");
- fireEvent.click(screen.getByRole("button",{name:"Choisir un dossier"}));
+ fireEvent.click(screen.getByRole("button",{name:"Choose folder"}));
  await screen.findByText("Free prompt for p");
  expect(invoke).toHaveBeenCalledTimes(3);
 });
@@ -805,10 +827,10 @@ test("canceling the project folder picker keeps setup available and errors can b
 test("mapped projects open their prompt directly",async()=>{
  vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/example"}]);
  render(<App />);
- fireEvent.click(await screen.findByRole("button",{name:"Nouveau prompt dans Example"}));
+ fireEvent.click(await screen.findByRole("button",{name:"New prompt in Example"}));
  await screen.findByText("Free prompt for p");
- expect(screen.queryByRole("button",{name:"Choisir un dossier"})).toBeNull();
- expect(screen.queryByRole("button",{name:"Nouveau prompt"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Choose folder"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"New prompt"})).toBeNull();
  expect(invoke).not.toHaveBeenCalled();
 });
 
@@ -818,30 +840,38 @@ test("existing conversations stay readable without a current project folder",asy
  await conversationFor("saved").refresh();
  render(<App />);
  fireEvent.click(await screen.findByRole("button",{name:/Saved conversation/}));
- expect(screen.getByRole("button",{name:/Saved conversation/}).getAttribute("title")).toContain("Claude Code · Prête");
+ expect(screen.getByRole("button",{name:/Saved conversation/}).getAttribute("title")).toContain("Claude Code · Ready");
  await screen.findByText("Free prompt for p");
- expect(screen.queryByRole("button",{name:"Nouveau prompt"})).toBeNull();
- expect(screen.queryByRole("button",{name:"Configurer le projet"})).toBeNull();
- expect(screen.queryByRole("button",{name:"Tableau"})).toBeNull();
- expect(screen.getByRole("button",{name:"Nouveau prompt dans Example"})).toBeTruthy();
- expect(screen.queryByRole("button",{name:"Choisir un dossier"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"New prompt"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Configure project"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Board"})).toBeNull();
+ expect(screen.getByRole("button",{name:"New prompt in Example"})).toBeTruthy();
+ expect(screen.queryByRole("button",{name:"Choose folder"})).toBeNull();
 });
 
 test("project settings change the existing folder and update the toolbar and next prompt",async()=>{
  vi.mocked(api.listProjects).mockResolvedValue([{id:"p",name:"Example",path:"/work/old"}]);
  vi.mocked(invoke).mockImplementation(async command=>command==="conversation_profiles"?{profiles:[],defaultId:"",inherited:true}:command==="choose_project_folder"?"/work/new":null);
  render(<App />);
- const settingsButton=await screen.findByRole("button",{name:"Configurer le projet"});
+ const settingsButton=await screen.findByRole("button",{name:"Configure project"});
  expect(settingsButton.classList.contains("icon-button")).toBe(true);
  fireEvent.click(settingsButton);
- await screen.findByRole("region",{name:"Dossier du projet"});
- expect(screen.queryByRole("button",{name:"Configurer le projet"})).toBeNull();
+ await screen.findByRole("region",{name:"Project folder"});
+ expect(screen.queryByRole("button",{name:"Configure project"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Board"})).toBeNull();
+ expect(screen.getAllByRole("tab").map(tab=>tab.textContent)).toEqual([
+  "Folders",
+  "Conversations",
+  "Tickets",
+  "Specifications (SDD)",
+  "Workflow",
+ ]);
  expect(screen.getByText("/work/old",{selector:"code"})).toBeTruthy();
- fireEvent.click(screen.getByRole("button",{name:"Changer de dossier"}));
+ fireEvent.click(screen.getByRole("button",{name:"Change folder"}));
  await screen.findByText("/work/new",{selector:"code"});
  expect(screen.getByText("/work/new",{selector:".workspace-toolbar p"})).toBeTruthy();
  expect(invoke).toHaveBeenCalledWith("choose_project_folder",{projectId:"p"});
- fireEvent.click(screen.getByRole("button",{name:"Nouveau prompt"}));
+ fireEvent.click(screen.getByRole("button",{name:"New prompt"}));
  await screen.findByText("Free prompt for p");
  expect(api.stopRun).not.toHaveBeenCalled();
  expect(invoke).not.toHaveBeenCalledWith("open_folder_project");
@@ -852,25 +882,25 @@ test("project settings keep the old folder on cancellation or failure and permit
  const choose=vi.fn().mockResolvedValueOnce(null).mockRejectedValueOnce(new Error("HTTP 409")).mockResolvedValueOnce("/work/new");
  vi.mocked(invoke).mockImplementation(async command=>command==="conversation_profiles"?{profiles:[],defaultId:"",inherited:true}:command==="choose_project_folder"?choose():null);
  render(<App />);
- fireEvent.click(await screen.findByRole("button",{name:"Configurer le projet"}));
- fireEvent.click(await screen.findByRole("button",{name:"Changer de dossier"}));
- await waitFor(()=>expect(screen.getByRole("button",{name:"Changer de dossier"}).hasAttribute("disabled")).toBe(false));
+ fireEvent.click(await screen.findByRole("button",{name:"Configure project"}));
+ fireEvent.click(await screen.findByRole("button",{name:"Change folder"}));
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Change folder"}).hasAttribute("disabled")).toBe(false));
  expect(screen.getByText("/work/old",{selector:"code"})).toBeTruthy();
  expect(screen.queryByRole("alert")).toBeNull();
- fireEvent.click(screen.getByRole("button",{name:"Changer de dossier"}));
+ fireEvent.click(screen.getByRole("button",{name:"Change folder"}));
  expect((await screen.findByRole("alert")).textContent).not.toContain("409");
  expect(screen.getByText("/work/old",{selector:"code"})).toBeTruthy();
- fireEvent.click(screen.getByRole("button",{name:"Changer de dossier"}));
+ fireEvent.click(screen.getByRole("button",{name:"Change folder"}));
  await screen.findByText("/work/new",{selector:"code"});
 });
 
 test("project settings can also associate the first folder",async()=>{
  vi.mocked(invoke).mockImplementation(async command=>command==="conversation_profiles"?{profiles:[],defaultId:"",inherited:true}:command==="choose_project_folder"?"/work/first":null);
  render(<App />);
- fireEvent.click(await screen.findByRole("button",{name:"Configurer le projet"}));
- await screen.findByText("Aucun dossier associé à ce projet.");
- fireEvent.click(screen.getByRole("button",{name:"Choisir un dossier"}));
- await screen.findByRole("button",{name:"Changer de dossier"});
+ fireEvent.click(await screen.findByRole("button",{name:"Configure project"}));
+ await screen.findByText("No folder mapped to this project.");
+ fireEvent.click(screen.getByRole("button",{name:"Choose folder"}));
+ await screen.findByRole("button",{name:"Change folder"});
  expect(screen.getByText("/work/first",{selector:"code"})).toBeTruthy();
 });
 
@@ -884,15 +914,15 @@ test("project settings attach a tracker directly to the selected project", async
    return null;
  });
  render(<App />);
- fireEvent.click(await screen.findByRole("button",{name:"Configurer le projet"}));
- await screen.findByRole("region",{name:"Source de tickets du projet"});
- fireEvent.change(await screen.findByLabelText("Tracker à ajouter"),{target:{value:"t"}});
- fireEvent.click(screen.getByRole("button",{name:"Associer le tracker"}));
+ fireEvent.click(await screen.findByRole("button",{name:"Configure project"}));
+ await screen.findByRole("region",{name:"Project ticket source"});
+ fireEvent.change(await screen.findByLabelText("Tracker to add"),{target:{value:"t"}});
+ fireEvent.click(screen.getByRole("button",{name:"Attach tracker"}));
  await waitFor(()=>expect(invoke).toHaveBeenCalledWith("attach_project_tracker",{projectId:"p",trackerId:"t"}));
  expect(attach).toHaveBeenCalledOnce();
- expect(await screen.findByText("Trackers associés : Fixture tracker.")).toBeTruthy();
- expect(screen.queryByText("Toutes les sources disponibles sont déjà associées à ce projet.")).toBeNull();
- expect(screen.queryByRole("button",{name:"Associer le tracker"})).toBeNull();
+ expect(await screen.findByText("Attached trackers: Fixture tracker.")).toBeTruthy();
+ expect(screen.queryByText("All available sources are already attached to this project.")).toBeNull();
+ expect(screen.queryByRole("button",{name:"Attach tracker"})).toBeNull();
  expect(invoke).not.toHaveBeenCalledWith("create_local_project",expect.anything());
 });
 test("project settings explain that prompts remain available without a tracker", async () => {
@@ -902,11 +932,11 @@ test("project settings explain that prompts remain available without a tracker",
    return null;
  });
  render(<App />);
- fireEvent.click(await screen.findByRole("button",{name:"Configurer le projet"}));
- const trackerSetup=await screen.findByRole("region",{name:"Source de tickets du projet"});
- expect(within(trackerSetup).getByText("Aucune source distante configurée. Les prompts restent disponibles sans tracker.")).toBeTruthy();
- expect(within(trackerSetup).getByRole("button",{name:"Gérer les sources"})).toBeTruthy();
- expect(within(trackerSetup).queryByRole("button",{name:"Associer le tracker"})).toBeNull();
+ fireEvent.click(await screen.findByRole("button",{name:"Configure project"}));
+ const trackerSetup=await screen.findByRole("region",{name:"Project ticket source"});
+ expect(within(trackerSetup).getByText("No remote source configured. Prompts remain available without a tracker.")).toBeTruthy();
+ expect(within(trackerSetup).getByRole("button",{name:"Manage sources"})).toBeTruthy();
+ expect(within(trackerSetup).queryByRole("button",{name:"Attach tracker"})).toBeNull();
 });
 test("project settings keep tracker management available when sources cannot load", async () => {
  vi.mocked(invoke).mockImplementation(async command => {
@@ -915,11 +945,11 @@ test("project settings keep tracker management available when sources cannot loa
    return null;
  });
  render(<App />);
- fireEvent.click(await screen.findByRole("button",{name:"Configurer le projet"}));
- const trackerSetup=await screen.findByRole("region",{name:"Source de tickets du projet"});
- expect((await within(trackerSetup).findByRole("alert")).textContent).toContain("Impossible de charger les sources de tickets.");
- expect(within(trackerSetup).getByRole("button",{name:"Réessayer"})).toBeTruthy();
- expect(within(trackerSetup).getByRole("button",{name:"Gérer les sources"})).toBeTruthy();
+ fireEvent.click(await screen.findByRole("button",{name:"Configure project"}));
+ const trackerSetup=await screen.findByRole("region",{name:"Project ticket source"});
+ expect((await within(trackerSetup).findByRole("alert")).textContent).toContain("Unable to load ticket sources.");
+ expect(within(trackerSetup).getByRole("button",{name:"Retry"})).toBeTruthy();
+ expect(within(trackerSetup).getByRole("button",{name:"Manage sources"})).toBeTruthy();
 });
 test("project tracker setup opens tracker management directly and returns to the project", async () => {
  const scrollIntoView=vi.fn();
@@ -934,16 +964,16 @@ test("project tracker setup opens tracker management directly and returns to the
    return null;
  });
  render(<App/>);
- fireEvent.click(await screen.findByRole("button",{name:"Configurer le projet"}));
- const trackerSetup=await screen.findByRole("region",{name:"Source de tickets du projet"});
- fireEvent.click(within(trackerSetup).getByRole("button",{name:"Gérer les sources"}));
- expect(await screen.findByRole("button",{name:"Comptes et trackers",current:"page"})).toBeTruthy();
+ fireEvent.click(await screen.findByRole("button",{name:"Configure project"}));
+ const trackerSetup=await screen.findByRole("region",{name:"Project ticket source"});
+ fireEvent.click(within(trackerSetup).getByRole("button",{name:"Manage sources"}));
+ expect(await screen.findByRole("button",{name:"Accounts and trackers",current:"page"})).toBeTruthy();
  await waitFor(()=>expect(scrollIntoView).toHaveBeenCalledWith({block:"start"}));
  expect((scrollIntoView.mock.instances[0] as HTMLElement).classList.contains("tracker-list")).toBe(true);
- expect(screen.getByRole("button",{name:"Modifier"})).toBeTruthy();
- expect(screen.getByRole("button",{name:"Supprimer"})).toBeTruthy();
- fireEvent.click(screen.getByRole("button",{name:"Retourner à l’espace de travail"}));
- expect(await screen.findByRole("region",{name:"Source de tickets du projet"})).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Edit"})).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Delete"})).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Return to workspace"}));
+ expect(await screen.findByRole("region",{name:"Project ticket source"})).toBeTruthy();
  } finally {HTMLElement.prototype.scrollIntoView=originalScrollIntoView;}
 });
 
@@ -960,10 +990,10 @@ test("sidebar runs render single line titles, pulsing indicators, and menu sort 
  expect(row.querySelector("small")).toBeNull();
  expect(row.querySelector(".conversation-indicator.session")).not.toBeNull();
 
- fireEvent.click(within(sidebar).getByLabelText("Actions pour Example"));
- const sortCreated = within(sidebar).getByRole("menuitemcheckbox", { name: /Trier par création/ });
- const sortId = within(sidebar).getByRole("menuitemcheckbox", { name: /Trier par identifiant/ });
- const groupStage = within(sidebar).getByRole("menuitemcheckbox", { name: /Grouper par étape/ });
+ fireEvent.click(within(sidebar).getByLabelText("Actions for Example"));
+ const sortCreated = within(sidebar).getByRole("menuitemcheckbox", { name: /Sort by created/ });
+ const sortId = within(sidebar).getByRole("menuitemcheckbox", { name: /Sort by ID/ });
+ const groupStage = within(sidebar).getByRole("menuitemcheckbox", { name: /Group by stage/ });
 
  expect(sortCreated.getAttribute("aria-checked")).toBe("false");
  expect(sortId.getAttribute("aria-checked")).toBe("false");
@@ -1007,12 +1037,12 @@ test("project context menu confirms and deletes a project", async () => {
  });
  render(<App />);
  const sidebar = await screen.findByRole("complementary");
- const actionToggle = await within(sidebar).findByLabelText("Actions pour Example");
+ const actionToggle = await within(sidebar).findByLabelText("Actions for Example");
  fireEvent.click(actionToggle);
- fireEvent.click(within(actionToggle.closest("details")!).getByRole("button", { name: "Supprimer le projet" }));
+ fireEvent.click(within(actionToggle.closest("details")!).getByRole("button", { name: "Delete project" }));
 
- const dialog = await screen.findByRole("alertdialog", { name: "Supprimer Example" });
- fireEvent.click(within(dialog).getByRole("button", { name: "Confirmer la suppression" }));
+ const dialog = await screen.findByRole("alertdialog", { name: "Delete Example" });
+ fireEvent.click(within(dialog).getByRole("button", { name: "Confirm deletion" }));
 
  await waitFor(() => expect(invoke).toHaveBeenCalledWith("delete_local_project", { projectId: "p" }));
  await waitFor(() => expect(within(sidebar).queryByRole("button", { name: "Example" })).toBeNull());
@@ -1033,16 +1063,16 @@ test("project context menu renames the display name without changing the directo
  });
  render(<App />);
  const sidebar = await screen.findByRole("complementary");
- const actionToggle = await within(sidebar).findByLabelText("Actions pour Example");
+ const actionToggle = await within(sidebar).findByLabelText("Actions for Example");
  fireEvent.click(actionToggle);
- fireEvent.click(within(actionToggle.closest("details")!).getByRole("button", { name: "Renommer le projet" }));
+ fireEvent.click(within(actionToggle.closest("details")!).getByRole("button", { name: "Rename project" }));
 
- const input = await within(sidebar).findByRole("textbox", { name: "Nom du projet" });
+ const input = await within(sidebar).findByRole("textbox", { name: "Project name" });
  expect((input as HTMLInputElement).value).toBe("Example");
- fireEvent.change(input, { target: { value: "Mon Projet Renommé" } });
+ fireEvent.change(input, { target: { value: "My Renamed Project" } });
  fireEvent.keyDown(input, { key: "Enter" });
 
- await waitFor(() => expect(invoke).toHaveBeenCalledWith("rename_project", { projectId: "p", name: "Mon Projet Renommé" }));
- expect(await within(sidebar).findByRole("button", { name: "Mon Projet Renommé" })).toBeTruthy();
+ await waitFor(() => expect(invoke).toHaveBeenCalledWith("rename_project", { projectId: "p", name: "My Renamed Project" }));
+ expect(await within(sidebar).findByRole("button", { name: "My Renamed Project" })).toBeTruthy();
  expect(screen.getByText("/work/example")).toBeTruthy();
 });

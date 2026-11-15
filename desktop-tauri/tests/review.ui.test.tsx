@@ -8,8 +8,8 @@ test("review reads a run folder only on demand and shows untrusted patches as te
  const run={id:"run",projectId:"project",taskId:"task",skill:"implement",status:"completed",createdAt:"2026-10-28",directory:"/worktree",folders:[{path:"/other",name:"other",role:"context"}]};
  const view=render(<RunReview run={run}/>);expect(api.runDiff).not.toHaveBeenCalled();
  const details=view.container.querySelector("details")!;details.open=true;fireEvent(details,new Event("toggle"));
- expect(await screen.findByText("1 fichiers · +1 −0")).toBeTruthy();
+ expect(await screen.findByText("1 files · +1 −0")).toBeTruthy();
  expect(api.runDiff).toHaveBeenCalledWith("run",undefined);expect(view.container.querySelector("script")).toBeNull();
- fireEvent.change(screen.getByLabelText("Dossier de la revue"),{target:{value:"/other"}});
+ fireEvent.change(screen.getByLabelText("Review folder"),{target:{value:"/other"}});
  await waitFor(()=>expect(api.runDiff).toHaveBeenCalledWith("run","/other"));expect(api.openRunEditor).not.toHaveBeenCalled();
 });

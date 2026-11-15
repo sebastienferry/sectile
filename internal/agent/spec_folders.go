@@ -32,7 +32,7 @@ func resolveSpecFolder(stored, root, setting string) (string, error) {
 		mapped = filepath.Join(root, mapped)
 	}
 	if _, err := os.Stat(mapped); err != nil {
-		return "", fmt.Errorf("le dossier des spécifications %s déclaré sur ce poste est introuvable (réglage « %s » du projet)", mapped, setting)
+		return "", fmt.Errorf("specifications folder %s configured on this workstation was not found (project setting %q)", mapped, setting)
 	}
 	return mapped, nil
 }
@@ -64,12 +64,12 @@ func ensureTaskSpecWorktree(ctx context.Context, issueFolder, codeRoot, workDir,
 	key := strings.TrimSpace(taskKey)
 	name, err := safeWorktreeName(key)
 	if err != nil {
-		return models.TaskSpecWorkspace{}, fmt.Errorf("clé de tâche invalide : %q", taskKey)
+		return models.TaskSpecWorkspace{}, fmt.Errorf("invalid task key: %q", taskKey)
 	}
 	branch = strings.TrimSpace(branch)
-	workspace, err := ensureSpecWorktree(ctx, issueFolder, name, "la tâche "+key, useWorktrees, func(string) (string, error) {
+	workspace, err := ensureSpecWorktree(ctx, issueFolder, name, "task "+key, useWorktrees, func(string) (string, error) {
 		if branch == "" {
-			return "", fmt.Errorf("la tâche %s n'a pas de branche de travail : sa branche de spécifications ne peut pas être nommée", key)
+			return "", fmt.Errorf("task %s has no working branch: its specifications branch cannot be named", key)
 		}
 		return branch, nil
 	})

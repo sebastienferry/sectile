@@ -6,7 +6,7 @@ fn provider_check(provider: &str) -> Result<(), String> {
     if ["claude", "codex"].contains(&provider) {
         Ok(())
     } else {
-        Err("Moteur non pris en charge".into())
+        Err("Unsupported engine".into())
     }
 }
 fn project_view(source: &Value) -> Value {
@@ -109,7 +109,7 @@ async fn project_metadata(app: tauri::AppHandle, project_id: &str) -> Result<Val
 #[tauri::command]
 pub async fn project_context(app: tauri::AppHandle, project_id: String) -> Result<Value, String> {
     if project_id.trim().is_empty() {
-        return Err("Projet requis".into());
+        return Err("Project required".into());
     }
     Ok(project_view(&project_metadata(app, &project_id).await?))
 }
@@ -119,7 +119,7 @@ pub async fn project_repositories(
     project_id: String,
 ) -> Result<Value, String> {
     if project_id.trim().is_empty() {
-        return Err("Projet requis".into());
+        return Err("Project required".into());
     }
     request_agent(
         app,
@@ -150,7 +150,7 @@ pub async fn install_provider_skills(
 ) -> Result<Value, String> {
     provider_check(&provider)?;
     if project_id.trim().is_empty() {
-        return Err("Choisissez un projet source".into());
+        return Err("Select a source project".into());
     }
     request_agent(
         app,
@@ -184,7 +184,7 @@ pub async fn configure_provider_mcp(
         && view.pointer("/steps/mcp/configuration/valid") != Some(&Value::Bool(true))
         && !replace_existing
     {
-        return Err("Confirmez explicitement le remplacement de l’entrée MCP existante".into());
+        return Err("Explicitly confirm replacing the existing MCP entry".into());
     }
     // Register this provider only. Do not remove project entries or auto-repair another desktop.
     request_agent(
@@ -242,7 +242,7 @@ mod tests {
 #[tauri::command]
 pub async fn run_result(app: tauri::AppHandle, run_id: String) -> Result<Value, String> {
     if run_id.trim().is_empty() {
-        return Err("Exécution requise".into());
+        return Err("Run required".into());
     }
     request_agent(
         app,
@@ -278,14 +278,14 @@ pub async fn save_orchestration(
         || !(1..=10).contains(&input.orchestrator_max_concurrent)
         || input.agents.len() > 20
     {
-        return Err("Configuration d’orchestration invalide".into());
+        return Err("Invalid orchestration configuration".into());
     }
     request_agent(
         app,
         Method::PUT,
         "/desktop/orchestration",
         &[("projectId", &project_id)],
-        Some(serde_json::to_value(input).map_err(|_| "Configuration invalide")?),
+        Some(serde_json::to_value(input).map_err(|_| "Invalid configuration")?),
     )
     .await
     .map(|_| ())
@@ -308,14 +308,14 @@ pub async fn save_workflow_policy(
         || !["clarified", "specified", "implemented"].contains(&input.pr_creation_stage.as_str())
         || !["interactive", "autonomous"].contains(&input.default_skill_mode.as_str())
     {
-        return Err("Politique de workflow invalide".into());
+        return Err("Invalid workflow policy".into());
     }
     request_agent(
         app,
         Method::PUT,
         "/desktop/project",
         &[("id", &project_id)],
-        Some(serde_json::to_value(input).map_err(|_| "Configuration invalide")?),
+        Some(serde_json::to_value(input).map_err(|_| "Invalid configuration")?),
     )
     .await
     .map(|_| ())
@@ -325,10 +325,10 @@ fn project_rename_body(project_id: &str, name: &str) -> Result<Value, String> {
     let trimmed_id = project_id.trim();
     let trimmed_name = name.trim();
     if trimmed_id.is_empty() || trimmed_id.len() > 1024 {
-        return Err("Identifiant de projet invalide".into());
+        return Err("Invalid project ID".into());
     }
     if trimmed_name.is_empty() || trimmed_name.chars().count() > 80 {
-        return Err("Nom du projet invalide".into());
+        return Err("Invalid project name".into());
     }
     Ok(json!({"name": trimmed_name}))
 }
@@ -358,7 +358,7 @@ pub async fn run_diff(
     folder: Option<String>,
 ) -> Result<Value, String> {
     if run_id.trim().is_empty() {
-        return Err("Exécution requise".into());
+        return Err("Run required".into());
     }
     let mut query = vec![("id", run_id.as_str())];
     if let Some(path) = folder.as_deref() {
@@ -373,7 +373,7 @@ pub async fn open_run_editor(
     folder: Option<String>,
 ) -> Result<(), String> {
     if run_id.trim().is_empty() {
-        return Err("Exécution requise".into());
+        return Err("Run required".into());
     }
     request_agent(
         app,
@@ -388,17 +388,17 @@ pub async fn open_run_editor(
 #[tauri::command]
 pub fn open_external_link(app: tauri::AppHandle, url: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
-    let parsed = reqwest::Url::parse(&url).map_err(|_| "Lien invalide")?;
+    let parsed = reqwest::Url::parse(&url).map_err(|_| "Invalid link")?;
     if !["https", "http"].contains(&parsed.scheme())
         || parsed.host_str().is_none()
         || !parsed.username().is_empty()
         || parsed.password().is_some()
     {
-        return Err("Lien HTTP requis, sans identifiants".into());
+        return Err("HTTP link required, without credentials".into());
     }
     app.opener()
         .open_url(parsed.as_str(), None::<&str>)
-        .map_err(|_| "Impossible d’ouvrir le lien".into())
+        .map_err(|_| "Unable to open link".into())
 }
 #[tauri::command]
 pub async fn editor_preference(
@@ -409,7 +409,7 @@ pub async fn editor_preference(
     let mut defaults = view["defaults"].clone();
     if let Some(editor) = editor {
         if !["code", "cursor", "zed"].contains(&editor.as_str()) {
-            return Err("Éditeur non pris en charge".into());
+            return Err("Unsupported editor".into());
         }
         defaults["editorCommand"] = Value::String(editor);
         request_agent(
@@ -438,7 +438,7 @@ pub async fn declare_reviewed(
         || note.trim().is_empty()
         || note.len() > 2000
     {
-        return Err("Projet, ticket et justification requis".into());
+        return Err("Project, ticket, and justification required".into());
     }
     request_agent(
         app,
@@ -457,7 +457,7 @@ pub async fn choose_repository_folder(
     repository: String,
 ) -> Result<Option<String>, String> {
     if project_id.trim().is_empty() || repository.trim().is_empty() {
-        return Err("Projet et dépôt requis".into());
+        return Err("Project and repository required".into());
     }
     let Some(path) = crate::local::pick_project_folder(&app).await? else {
         return Ok(None);
@@ -480,13 +480,13 @@ pub async fn choose_specification_folder(
     use_primary: bool,
 ) -> Result<Option<String>, String> {
     if project_id.trim().is_empty() || !["macro", "issue"].contains(&kind.as_str()) {
-        return Err("Projet et type de spécification requis".into());
+        return Err("Project and specification type required".into());
     }
     let project = project_metadata(app.clone(), &project_id).await?;
     let root = project["path"]
         .as_str()
         .filter(|s| !s.is_empty())
-        .ok_or("Associez d’abord le dossier de travail du projet")?;
+        .ok_or("Attach the project working folder first")?;
     let selected = if use_primary {
         String::new()
     } else {
@@ -573,7 +573,7 @@ mod permission_tests {
 
     #[test]
     fn project_rename_validates_and_trims_display_name() {
-        assert!(project_rename_body("", "Mon projet").is_err());
+        assert!(project_rename_body("", "My project").is_err());
         assert!(project_rename_body("proj-1", "   ").is_err());
         assert!(project_rename_body("proj-1", &"a".repeat(81)).is_err());
         assert_eq!(

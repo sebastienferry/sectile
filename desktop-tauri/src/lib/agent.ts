@@ -4,7 +4,7 @@ import type { Project, Task } from "../domain/board";
 function requireDesktop() {
   if (!isTauri())
     throw new Error(
-      "Ouvrez l’application de bureau avec npm run tauri dev pour connecter l’agent.",
+      "Open the desktop application with npm run tauri dev to connect the agent.",
     );
 }
 export async function listProjects(): Promise<Project[]> {

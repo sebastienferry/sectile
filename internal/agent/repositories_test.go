@@ -449,7 +449,7 @@ func TestRepositoryWorktreeInAnAttachedFolder(t *testing.T) {
 	if _, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, noOrigin, "laptop"); err == nil || !strings.Contains(err.Error(), "change it in place") {
 		t.Errorf("folder without a remote: %v", err)
 	}
-	if _, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "github.com/o/elsewhere", "laptop"); err == nil || !strings.Contains(err.Error(), "attachez") {
+	if _, err := repositoryWorktree(ctx, multiRepoConfig(), overrides, projectRoot, task, "github.com/o/elsewhere", "laptop"); err == nil || !strings.Contains(err.Error(), "attach its folder") {
 		t.Errorf("neither mapped nor attached: %v", err)
 	}
 
@@ -555,7 +555,7 @@ func TestRepositoryWorktreeRefusalNamesTheReason(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "gone")
 	broken := brokenCheckout(t)
 	task := models.Task{Key: "#1", BranchName: branchOf("feat/1")}
-	const advice = "attachez son dossier"
+	const advice = "attach its folder"
 
 	for _, c := range []struct {
 		name    string
@@ -563,13 +563,13 @@ func TestRepositoryWorktreeRefusalNamesTheReason(t *testing.T) {
 		want    []string
 		advice  bool
 	}{
-		{"nothing attached", nil, []string{"github.com/o/lib", "ni associé ni attaché", "(laptop)"}, true},
-		{"another origin", []string{other}, []string{"(laptop)", other + " : a pour origin git@github.com:o/other.git"}, true},
-		{"plain folder", []string{plain}, []string{plain + " : n'est pas un checkout Git"}, true},
-		{"no origin", []string{noOrigin}, []string{noOrigin + " : checkout Git sans origin", "sur place"}, true},
-		{"missing", []string{missing}, []string{"(laptop)", missing + " : introuvable"}, false},
-		{"git failing", []string{broken}, []string{broken + " : git a échoué", "bad config"}, false},
-		{"several reasons", []string{missing, broken, other}, []string{missing + " : introuvable", broken + " : git a échoué", other + " : a pour origin"}, false},
+		{"nothing attached", nil, []string{"github.com/o/lib", "neither mapped nor attached", "(laptop)"}, true},
+		{"another origin", []string{other}, []string{"(laptop)", other + ": has origin git@github.com:o/other.git"}, true},
+		{"plain folder", []string{plain}, []string{plain + ": not a Git checkout"}, true},
+		{"no origin", []string{noOrigin}, []string{noOrigin + ": Git checkout without an origin", "in place"}, true},
+		{"missing", []string{missing}, []string{"(laptop)", missing + ": not found"}, false},
+		{"git failing", []string{broken}, []string{broken + ": git failed", "bad config"}, false},
+		{"several reasons", []string{missing, broken, other}, []string{missing + ": not found", broken + ": git failed", other + ": has origin"}, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, err := repositoryWorktree(ctx, multiRepoConfig(), attachedTo(agentconfig.Settings{}, c.folders...), projectRoot, task, "github.com/o/lib", "laptop")

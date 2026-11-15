@@ -11,7 +11,7 @@ struct Connection {
 }
 
 fn validate_connection(connection: &Connection) -> Result<reqwest::Url, String> {
-    let url = reqwest::Url::parse(&connection.url).map_err(|_| "Adresse de l’agent invalide")?;
+    let url = reqwest::Url::parse(&connection.url).map_err(|_| "Invalid agent address")?;
     if url.scheme() != "http"
         || url.host_str() != Some("127.0.0.1")
         || !url.username().is_empty()
@@ -21,7 +21,7 @@ fn validate_connection(connection: &Connection) -> Result<reqwest::Url, String> 
         || url.fragment().is_some()
         || connection.token.trim().is_empty()
     {
-        return Err("Connexion locale à l’agent invalide".into());
+        return Err("Invalid local agent connection".into());
     }
     Ok(url)
 }
@@ -31,20 +31,20 @@ fn connection(app: &tauri::AppHandle) -> Result<Connection, String> {
         crate::local::connection_path(app).ok_or_else(|| {
             match crate::local::runtime_mode(app) {
                 Ok(Some(crate::local::RuntimeMode::Local)) => {
-                    "Connexion au compagnon local introuvable".to_string()
+                    "Local companion connection not found".to_string()
                 }
                 Ok(Some(crate::local::RuntimeMode::Fleet)) => {
-                    "Connexion Fleet introuvable. Associez un agent Fleet depuis les paramètres."
+                    "Fleet connection not found. Pair a Fleet agent from settings."
                         .to_string()
                 }
-                _ => "Choisissez le mode Local ou Fleet dans les paramètres pour continuer."
+                _ => "Select Local or Fleet mode in settings to continue."
                     .to_string(),
             }
         })?;
     let contents = std::fs::read(path)
-        .map_err(|_| "Agent introuvable. Démarrez et associez l’agent Sectile.")?;
+        .map_err(|_| "Agent not found. Start and pair the Sectile agent.")?;
     let mut connection: Connection =
-        serde_json::from_slice(&contents).map_err(|_| "Fichier de connexion invalide")?;
+        serde_json::from_slice(&contents).map_err(|_| "Invalid connection file")?;
     validate_connection(&connection)?;
     connection.connection_id = crate::local::runtime_connection_id(app)?;
     Ok(connection)
@@ -57,7 +57,7 @@ fn request_url(
 ) -> Result<reqwest::Url, String> {
     let mut url = validate_connection(connection)?
         .join(route)
-        .map_err(|_| "Route invalide")?;
+        .map_err(|_| "Invalid route")?;
     if !query.is_empty() {
         url.query_pairs_mut().extend_pairs(query.iter().copied());
     }
@@ -94,15 +94,15 @@ async fn send_request(
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(if mutation { 65 } else { 20 }))
         .build()
-        .map_err(|_| "Impossible de créer la connexion locale")?;
+        .map_err(|_| "Unable to create local connection")?;
     let mut request = client.request(method, url).bearer_auth(&connection.token);
     request = request.header("X-Sectile-Connection-ID", &connection.connection_id);
     if let Some(body) = body {
         request = request.json(&body);
     }
     let response = request.send().await.map_err(|_| if mutation {
-        "Réponse non reçue : l’action a peut-être été acceptée. Actualisez les exécutions avant de réessayer."
-    } else { "L’agent local est inaccessible." })?;
+        "No response received: the action may have been accepted. Refresh runs before retrying."
+    } else { "Local agent is unreachable." })?;
     let status = response.status();
     if status == reqwest::StatusCode::NO_CONTENT {
         return Ok(Value::Null);
@@ -110,16 +110,16 @@ async fn send_request(
     let text = response
         .text()
         .await
-        .map_err(|_| "Réponse interrompue. Vérifiez les exécutions avant de réessayer.")?;
+        .map_err(|_| "Response interrupted. Check runs before retrying.")?;
     if !status.is_success() {
         let detail = serde_json::from_str::<Value>(&text)
             .ok()
             .and_then(|v| v.get("error").and_then(Value::as_str).map(str::to_owned))
             .unwrap_or(text);
         // Redact the local bearer token even if a misbehaving agent echoes it.
-        let detail = detail.replace(&connection.token, "[masqué]");
+        let detail = detail.replace(&connection.token, "[redacted]");
         return Err(format!(
-            "Agent HTTP {} : {}",
+            "Agent HTTP {}: {}",
             status.as_u16(),
             detail.chars().take(1600).collect::<String>()
         ));
@@ -127,12 +127,12 @@ async fn send_request(
     if text.trim().is_empty() {
         return Ok(Value::Null);
     }
-    serde_json::from_str(&text).map_err(|_| "Réponse de l’agent invalide".into())
+    serde_json::from_str(&text).map_err(|_| "Invalid agent response".into())
 }
 
 fn required(value: &str) -> Result<(), String> {
     if value.trim().is_empty() || value.len() > 1024 {
-        Err("Identifiant invalide".into())
+        Err("Invalid ID".into())
     } else {
         Ok(())
     }
@@ -255,7 +255,7 @@ fn validate_task_fields(title: Option<&str>, description: Option<&str>, priority
         || description.is_some_and(|value| value.chars().count() > 60000)
         || priority.is_some_and(|value| !["urgent", "high", "medium", "low"].contains(&value))
         || issue_type.is_some_and(|value| value.chars().count() > 100)
-    { return Err("Champs du ticket invalides".into()); }
+    { return Err("Invalid ticket fields".into()); }
     Ok(())
 }
 #[tauri::command]
@@ -265,9 +265,9 @@ pub async fn create_task(app: tauri::AppHandle, project_id: String, input: Creat
     if input.sprint.as_ref().is_some_and(|v| v.chars().count() > 200)
         || input.assignee.as_ref().is_some_and(|v| v.chars().count() > 200)
     {
-        return Err("Champs du ticket invalides".into());
+        return Err("Invalid ticket fields".into());
     }
-    if input.tracker_id.len() > 1024 { return Err("Tracker invalide".into()); }
+    if input.tracker_id.len() > 1024 { return Err("Invalid tracker".into()); }
     request_agent(app, reqwest::Method::POST, "/desktop/create-task", &[], Some(json!({
         "projectId":project_id,"title":input.title.trim(),"description":input.description,
         "priority":input.priority,"issueType":input.issue_type,"trackerId":input.tracker_id,
@@ -283,15 +283,15 @@ pub async fn update_task(app: tauri::AppHandle, project_id: String, task_id: Str
     if changes.sprint.as_ref().is_some_and(|v| v.chars().count() > 200)
         || changes.assignee.as_ref().is_some_and(|v| v.chars().count() > 200)
     {
-        return Err("Champs du ticket invalides".into());
+        return Err("Invalid ticket fields".into());
     }
     if changes.pr_links.as_ref().is_some_and(|links| links.len() > 50 || links.iter().any(|link| !valid_pull_request_url(&link.url))) {
-        return Err("Lien PR/MR invalide".into());
+        return Err("Invalid PR/MR link".into());
     }
     if changes.title.is_none() && changes.description.is_none() && changes.priority.is_none() && changes.issue_type.is_none() && changes.sprint.is_none() && changes.assignee.is_none() && changes.pr_links.is_none() {
-        return Err("Aucune modification du ticket".into());
+        return Err("No ticket changes".into());
     }
-    let body = serde_json::to_value(changes).map_err(|_| "Champs du ticket invalides")?;
+    let body = serde_json::to_value(changes).map_err(|_| "Invalid ticket fields")?;
     request_agent(app, reqwest::Method::PUT, "/desktop/tasks/detail", &[("projectId", &project_id), ("taskId", &task_id)], Some(body)).await
 }
 #[tauri::command]
@@ -331,7 +331,7 @@ pub async fn project_skills(app: tauri::AppHandle, project_id: String) -> Result
     let skills = project
         .pointer("/server/skills")
         .and_then(Value::as_array)
-        .ok_or("Liste des compétences indisponible")?;
+        .ok_or("Skills list unavailable")?;
     // Return only the launch catalogue, not configuration or embedded instructions.
     Ok(Value::Array(
         skills
@@ -369,27 +369,27 @@ fn launch_body(input: LaunchTask) -> Result<Value, String> {
     required(&input.task_id)?;
     required(&input.skill_id)?;
     if !["", "interactive", "autonomous"].contains(&input.mode.as_str()) {
-        return Err("Mode d’exécution invalide".into());
+        return Err("Invalid execution mode".into());
     }
     if let Some(view) = &input.view
         && !["conversation", "terminal"].contains(&view.as_str())
     {
-        return Err("Mode d’ouverture invalide".into());
+        return Err("Invalid launch view".into());
     }
     if let Some(provider) = &input.provider
         && !["claude", "codex"].contains(&provider.as_str())
     {
-        return Err("Moteur non pris en charge".into());
+        return Err("Unsupported engine".into());
     }
     if let Some(engine_id) = &input.engine_id
         && (engine_id.trim().is_empty() || engine_id.len() > 128)
     {
-        return Err("Profil de moteur invalide".into());
+        return Err("Invalid engine profile".into());
     }
     if let Some(model) = &input.model
         && model.len() > 256
     {
-        return Err("Modèle invalide".into());
+        return Err("Invalid model".into());
     }
     if let Some(conversation_mode) = &input.conversation_mode
         && ![
@@ -404,7 +404,7 @@ fn launch_body(input: LaunchTask) -> Result<Value, String> {
         ]
         .contains(&conversation_mode.as_str())
     {
-        return Err("Mode de conversation invalide".into());
+        return Err("Invalid conversation mode".into());
     }
     if let Some(ids) = &input.batch_task_ids {
         if input.skill_id != "pickup_issues"
@@ -415,12 +415,12 @@ fn launch_body(input: LaunchTask) -> Result<Value, String> {
             || ids.iter().any(|id| required(id).is_err())
             || ids.iter().collect::<std::collections::HashSet<_>>().len() != ids.len()
         {
-            return Err("Lot de tickets invalide".into());
+            return Err("Invalid ticket batch".into());
         }
     }
-    let body = serde_json::to_value(input).map_err(|_| "Requête invalide")?;
+    let body = serde_json::to_value(input).map_err(|_| "Invalid request")?;
     if body.to_string().len() > 8192 {
-        return Err("Instructions trop longues (limite de 8 Ko pour la requête)".into());
+        return Err("Instructions too long (8 KB request limit)".into());
     }
     Ok(body)
 }
@@ -541,20 +541,20 @@ pub async fn watch_run(
     let connection = connection(&app)?;
     let mut url = request_url(&connection, "/desktop/terminal", &[("id", &run_id)])?;
     url.set_scheme("ws")
-        .map_err(|_| "Adresse de flux invalide")?;
+        .map_err(|_| "Invalid stream address")?;
     let mut request = url
         .as_str()
         .into_client_request()
-        .map_err(|_| "Connexion au flux impossible")?;
+        .map_err(|_| "Unable to connect to stream")?;
     request.headers_mut().insert(
         "Authorization",
         format!("Bearer {}", connection.token)
             .parse()
-            .map_err(|_| "Jeton invalide")?,
+            .map_err(|_| "Invalid token")?,
     );
-    let mut streams = state.0.lock().map_err(|_| "Flux indisponible")?;
+    let mut streams = state.0.lock().map_err(|_| "Stream unavailable")?;
     if streams.len() >= 4 || streams.contains_key(&subscription) {
-        return Err("Trop de flux ouverts".into());
+        return Err("Too many open streams".into());
     }
     let handle = tauri::async_runtime::spawn(async move {
         let connected = tokio::time::timeout(
@@ -582,7 +582,7 @@ pub async fn watch_run(
                         Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => break,
                         Err(_) => {
                             let _ = output.send(Output::Error(
-                                "Flux interrompu. Reconnectez la console.".into(),
+                                "Stream interrupted. Reconnect the console.".into(),
                             ));
                             break;
                         }
@@ -594,7 +594,7 @@ pub async fn watch_run(
             }
             _ => {
                 let _ = output.send(Output::Error(
-                    "Console indisponible ou pas encore prête. Réessayez.".into(),
+                    "Console unavailable or not ready yet. Try again.".into(),
                 ));
             }
         }
@@ -607,7 +607,7 @@ pub fn unwatch_run(state: tauri::State<'_, Streams>, subscription: String) -> Re
     if let Some(handle) = state
         .0
         .lock()
-        .map_err(|_| "Flux indisponible")?
+        .map_err(|_| "Stream unavailable")?
         .remove(&subscription)
     {
         handle.abort();
@@ -711,9 +711,14 @@ mod tests {
         let body = launch_body(LaunchTask {
             task_id: "ticket".into(),
             skill_id: "implement_issue".into(),
-            prompt: "Fix l'API".into(),
+            prompt: "Fix the API".into(),
             mode: "".into(),
             batch_task_ids: None,
+            view: None,
+            provider: None,
+            engine_id: None,
+            model: None,
+            conversation_mode: None,
         })
         .unwrap();
         assert!(body.get("force").is_none());
@@ -739,7 +744,7 @@ mod tests {
         );
         let payload: Value =
             serde_json::from_str(request.split("\r\n\r\n").nth(1).unwrap()).unwrap();
-        assert_eq!(payload["prompt"], "Fix l'API");
+        assert_eq!(payload["prompt"], "Fix the API");
         assert_eq!(payload["mode"], "");
         assert_eq!(payload["skillId"], "implement_issue");
     }
@@ -814,6 +819,11 @@ mod tests {
                 prompt: "".into(),
                 mode: "unsafe".into(),
                 batch_task_ids: None,
+                view: None,
+                provider: None,
+                engine_id: None,
+                model: None,
+                conversation_mode: None,
             })
             .is_err()
         );
@@ -824,6 +834,11 @@ mod tests {
                 prompt: "x".repeat(8192),
                 mode: "".into(),
                 batch_task_ids: None,
+                view: None,
+                provider: None,
+                engine_id: None,
+                model: None,
+                conversation_mode: None,
             })
             .is_err()
         );
@@ -891,7 +906,7 @@ pub async fn create_conversation(
 ) -> Result<Value, String> {
     required(&project_id)?;
     if !["claude", "codex"].contains(&provider.as_str()) {
-        return Err("Fournisseur non pris en charge".into());
+        return Err("Unsupported provider".into());
     }
     request_agent(app, reqwest::Method::POST, "/desktop/consoles", &[], Some(serde_json::json!({"projectId": project_id, "provider": provider, "engineId": engine_id.unwrap_or_default(), "view": "conversation"}))).await
 }
@@ -956,7 +971,7 @@ fn conversation_body(action: ConversationAction) -> Result<Value, String> {
             mode,
         } => {
             if message.trim().is_empty() || message.len() > 32000 {
-                return Err("Message vide ou trop long (32 Ko maximum)".into());
+                return Err("Message is empty or too long (32 KB maximum)".into());
             }
             let mut body = serde_json::json!({"message": message});
             if let Some(model) = model.filter(|value| !value.is_empty()) {
@@ -966,12 +981,12 @@ fn conversation_body(action: ConversationAction) -> Result<Value, String> {
                         .chars()
                         .all(|c| c.is_ascii_alphanumeric() || "._-:@/".contains(c))
                 {
-                    return Err("Identifiant du modèle invalide".into());
+                    return Err("Invalid model ID".into());
                 }
                 body["model"] = Value::String(model);
             }
             if let Some(mode) = mode {
-                body["mode"] = serde_json::to_value(mode).map_err(|_| "Mode invalide")?;
+                body["mode"] = serde_json::to_value(mode).map_err(|_| "Invalid mode")?;
             }
             Ok(body)
         }
@@ -988,7 +1003,7 @@ fn conversation_body(action: ConversationAction) -> Result<Value, String> {
                     question.trim().is_empty() || answer.trim().is_empty()
                 })
             {
-                return Err("Répondez à chaque question (16 Ko maximum au total)".into());
+                return Err("Answer every question (16 KB total maximum)".into());
             }
             Ok(serde_json::json!({"approval":{"id":id,"decision":"answer","answers":answers}}))
         }
@@ -997,7 +1012,7 @@ fn conversation_body(action: ConversationAction) -> Result<Value, String> {
         ConversationAction::Approval { id, decision } => {
             required(&id)?;
             if !["allow", "always", "deny"].contains(&decision.as_str()) {
-                return Err("Décision non prise en charge".into());
+                return Err("Unsupported decision".into());
             }
             Ok(serde_json::json!({"approval": {"id": id, "decision": decision}}))
         }
@@ -1107,7 +1122,7 @@ async fn provider_request(
     login: bool,
 ) -> Result<Value, String> {
     if !["claude", "codex"].contains(&provider.as_str()) {
-        return Err("Fournisseur invalide".into());
+        return Err("Invalid provider".into());
     }
     request_agent(
         app,
@@ -1149,7 +1164,7 @@ pub async fn retry_folder_project(
         || !std::path::Path::new(&path).is_absolute()
         || !std::path::Path::new(&path).is_dir()
     {
-        return Err("Dossier local indisponible".into());
+        return Err("Local folder unavailable".into());
     }
     map_folder_project(app, &project_id, &path).await
 }
@@ -1160,16 +1175,16 @@ pub fn open_conversation_link(app: tauri::AppHandle, url: String) -> Result<(), 
     let parsed = conversation_link_url(&url)?;
     app.opener()
         .open_url(parsed.as_str(), None::<&str>)
-        .map_err(|_| "Impossible d’ouvrir le lien".into())
+        .map_err(|_| "Unable to open link".into())
 }
 
 fn conversation_link_url(url: &str) -> Result<reqwest::Url, String> {
-    let parsed = reqwest::Url::parse(url).map_err(|_| "Lien invalide")?;
+    let parsed = reqwest::Url::parse(url).map_err(|_| "Invalid link")?;
     if !["http", "https"].contains(&parsed.scheme())
         || !parsed.username().is_empty()
         || parsed.password().is_some()
     {
-        return Err("Lien non pris en charge".into());
+        return Err("Unsupported link".into());
     }
     Ok(parsed)
 }
@@ -1228,13 +1243,13 @@ fn resolve_conversation_mode(mode: &str, provider: &str) -> Result<&'static str,
         ("claude", "auto") => Ok("auto"),
         ("codex", "execute" | "workspace-write") => Ok("workspace-write"),
         ("codex", "read-only") => Ok("read-only"),
-        _ => Err("Mode ou fournisseur non pris en charge".into()),
+        _ => Err("Unsupported mode or provider".into()),
     }
 }
 #[tauri::command]
 pub async fn provider_models(app: tauri::AppHandle, provider: String) -> Result<Value, String> {
     if !["claude", "codex"].contains(&provider.as_str()) {
-        return Err("Fournisseur invalide".into());
+        return Err("Invalid provider".into());
     }
     let catalogue = request_agent(app, reqwest::Method::GET, "/desktop/engines", &[], None).await?;
     Ok(catalogue
@@ -1293,14 +1308,19 @@ mod turn_options_tests {
 #[tauri::command]
 pub async fn conversation_profiles(
     app: tauri::AppHandle,
-    project_id: String,
+    project_id: Option<String>,
 ) -> Result<Value, String> {
-    required(&project_id)?;
+    let project_id = project_id.unwrap_or_default();
+    let query: &[(&str, &str)] = if project_id.trim().is_empty() {
+        &[]
+    } else {
+        &[("projectId", project_id.trim())]
+    };
     request_agent(
         app,
         reqwest::Method::GET,
         "/desktop/conversation-profiles",
-        &[("projectId", &project_id)],
+        query,
         None,
     )
     .await
@@ -1328,15 +1348,20 @@ pub enum ProfileAction {
 #[tauri::command]
 pub async fn control_conversation_profiles(
     app: tauri::AppHandle,
-    project_id: String,
+    project_id: Option<String>,
     input: ProfileAction,
 ) -> Result<Value, String> {
-    required(&project_id)?;
+    let project_id = project_id.unwrap_or_default();
+    let query: &[(&str, &str)] = if project_id.trim().is_empty() {
+        &[]
+    } else {
+        &[("projectId", project_id.trim())]
+    };
     request_agent(
         app,
         reqwest::Method::POST,
         "/desktop/conversation-profiles",
-        &[("projectId", &project_id)],
+        query,
         Some(serde_json::to_value(input).map_err(|e| e.to_string())?),
     )
     .await
@@ -1413,7 +1438,7 @@ pub async fn attach_chosen_folder(
                 .iter()
                 .any(|run| run["id"] == id && run["projectId"] == project_id)
         }) {
-            return Err("Cette conversation n’appartient pas au projet".into());
+            return Err("This conversation does not belong to the project".into());
         }
         request_agent(
             app,

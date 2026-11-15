@@ -32,6 +32,7 @@ type trackerSummary struct {
 	Site           string                 `json:"site"`
 	Scope          string                 `json:"scope"`
 	Identity       string                 `json:"identity"`
+	TicketCount    int                    `json:"ticketCount,omitempty"`
 	TrackerColumns []models.TrackerColumn `json:"trackerColumns,omitempty"`
 	StageColumns   map[string][]string    `json:"stageColumns,omitempty"`
 }
@@ -67,7 +68,7 @@ func (h *Handler) HandleTrackers(w http.ResponseWriter, r *http.Request) {
 			if t.Provider == "local" {
 				continue
 			}
-			summary := trackerSummary{ID: t.ID, Name: t.Name, Provider: t.Provider, Site: t.Site, Scope: t.Scope, Identity: t.Identity}
+			summary := trackerSummary{ID: t.ID, Name: t.Name, Provider: t.Provider, Site: t.Site, Scope: t.Scope, Identity: t.Identity, TicketCount: t.TicketCount}
 			// The columns, as the tracker's other member routes, once a
 			// project selects it (#741).
 			if caller.IsAdmin() || h.db.TrackerHasProjects(t.ID) {
@@ -232,7 +233,14 @@ func (h *Handler) HandleAdminTrackers(w http.ResponseWriter, r *http.Request) {
 			}
 			writeJSON(w, http.StatusOK, updated)
 		case http.MethodDelete:
-			if err := h.db.DeleteTrackerAs(caller.UserID, trackerID); err != nil {
+			purge := r.URL.Query().Get("purge") == "1" || r.URL.Query().Get("purge") == "true"
+			var err error
+			if purge {
+				err = h.db.PurgeTrackerAs(caller.UserID, trackerID)
+			} else {
+				err = h.db.DeleteTrackerAs(caller.UserID, trackerID)
+			}
+			if err != nil {
 				status := http.StatusBadRequest
 				if errors.Is(err, db.ErrTrackerInUse) {
 					status = http.StatusConflict

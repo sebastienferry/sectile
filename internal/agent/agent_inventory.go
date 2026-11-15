@@ -37,12 +37,12 @@ func (n *inventoryNotifier) notify() {
 func (d *agentDaemon) projectInventory(ctx context.Context) agentprotocol.ProjectInventory {
 	p := agentprotocol.ProjectInventory{SchemaVersion: agentprotocol.InventoryVersion, ProjectIDs: []string{}}
 	if _, err := d.readSettings(); err != nil {
-		log.Printf("[Agent] Lecture de l'inventaire local impossible : %v", err)
+		log.Printf("[Agent] Could not read local inventory: %v", err)
 		return p
 	}
 	projects, err := d.discoverProjects(ctx)
 	if err != nil {
-		log.Printf("[Agent] Découverte des projets impossible : %v", err)
+		log.Printf("[Agent] Could not discover projects: %v", err)
 		return p
 	}
 	scope := d.link.projectID

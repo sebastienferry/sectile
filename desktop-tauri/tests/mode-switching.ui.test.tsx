@@ -18,6 +18,7 @@ vi.mock("../src/lib/local", () => ({
   updateLocalTracker: vi.fn(),
   deleteLocalTracker: vi.fn(),
   createLocalProject: vi.fn(),
+  deleteLocalProject: vi.fn(),
   attachProjectTracker: vi.fn(),
   chooseProjectFolder: vi.fn(),
   syncLocalTracker: vi.fn(),
@@ -47,13 +48,13 @@ test("displays active mode badge for Local mode and allows expanding Fleet mode 
 
   render(<LocalSettings onChanged={vi.fn()} initialSection="services" />);
 
-  expect(await screen.findByText("Mode actif : Compagnon Local")).toBeTruthy();
-  expect(screen.getByText("Basculer vers le mode Fleet (Agent d’équipe)")).toBeTruthy();
+  expect(await screen.findByText("Active mode: Local Companion")).toBeTruthy();
+  expect(screen.getByText("Switch to Fleet mode (Team Agent)")).toBeTruthy();
 
   // Expand the Fleet switch details
-  fireEvent.click(screen.getByText("Basculer vers le mode Fleet (Agent d’équipe)"));
-  expect(screen.getByLabelText("Adresse du backend Fleet")).toBeTruthy();
-  expect(screen.getByLabelText("Code de jumelage")).toBeTruthy();
+  fireEvent.click(screen.getByText("Switch to Fleet mode (Team Agent)"));
+  expect(screen.getByLabelText("Fleet backend URL")).toBeTruthy();
+  expect(screen.getByLabelText("Pairing code")).toBeTruthy();
 });
 
 test("displays active mode badge for Fleet mode and allows switching back to Local", async () => {
@@ -70,10 +71,10 @@ test("displays active mode badge for Fleet mode and allows switching back to Loc
 
   render(<LocalSettings onChanged={vi.fn()} initialSection="services" />);
 
-  expect(await screen.findByText("Mode actif : Agent Fleet")).toBeTruthy();
-  expect(screen.getByText("Basculer vers le mode Compagnon local")).toBeTruthy();
+  expect(await screen.findByText("Active mode: Fleet Agent")).toBeTruthy();
+  expect(screen.getByText("Switch to Local Companion mode")).toBeTruthy();
 
-  fireEvent.click(screen.getByRole("button", { name: "Activer le mode Compagnon local" }));
+  fireEvent.click(screen.getByRole("button", { name: "Enable Local Companion mode" }));
 
   await waitFor(() => {
     expect(api.enableLocalRuntime).toHaveBeenCalledOnce();
@@ -96,15 +97,15 @@ test("prompts confirmation when switching mode while active executions exist", a
 
   render(<LocalSettings onChanged={vi.fn()} initialSection="services" hasActiveExecutions={true} />);
 
-  await screen.findByText("Mode actif : Agent Fleet");
-  fireEvent.click(screen.getByRole("button", { name: "Activer le mode Compagnon local" }));
+  await screen.findByText("Active mode: Fleet Agent");
+  fireEvent.click(screen.getByRole("button", { name: "Enable Local Companion mode" }));
 
-  expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("Des exécutions sont actuellement en cours"));
+  expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("Executions are currently running on this workstation."));
   expect(api.enableLocalRuntime).not.toHaveBeenCalled();
 
   // Confirm this time
   confirmSpy.mockReturnValue(true);
-  fireEvent.click(screen.getByRole("button", { name: "Activer le mode Compagnon local" }));
+  fireEvent.click(screen.getByRole("button", { name: "Enable Local Companion mode" }));
 
   await waitFor(() => {
     expect(api.enableLocalRuntime).toHaveBeenCalledOnce();

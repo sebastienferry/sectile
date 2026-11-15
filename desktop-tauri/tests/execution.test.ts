@@ -18,9 +18,9 @@ const run: Run = {
   createdAt: "2026-10-28T12:00:00Z",
 };
 test("connection status names the Fleet backend while execution stays on the workstation", () => {
-  assert.equal(executionConnectionLabel("fleet"), "Agent local · backend Fleet");
-  assert.equal(executionConnectionLabel("local"), "Exécution locale");
-  assert.equal(executionConnectionLabel(undefined), "Exécution locale");
+  assert.equal(executionConnectionLabel("fleet"), "Local agent · Fleet backend");
+  assert.equal(executionConnectionLabel("local"), "Local runtime");
+  assert.equal(executionConnectionLabel(undefined), "Local runtime");
 });
 test("stop requires fresh live state and preserves cancellation acknowledgement", () => {
   assert.equal(canStop(run, true), true);
@@ -33,7 +33,7 @@ test("stop requires fresh live state and preserves cancellation acknowledgement"
   assert.equal(canStop(run, false), false);
   assert.equal(
     statusLabel({ ...run, cancelRequested: true }),
-    "Arrêt demandé…",
+    "Stopping…",
   );
 });
 test("runs stay scoped to their project and active tasks cannot be launched twice", () => {
@@ -63,8 +63,8 @@ test("canonical pickup remains autonomous even through the advanced skill choose
 
 test("an idle conversation session is not labeled as an active response", () => {
   const conversation: Run = { ...run, conversation: true };
-  assert.equal(statusLabel(conversation), "Session active");
-  assert.equal(statusLabel(run), "En cours");
-  assert.equal(statusLabel({ ...conversation, cancelRequested: true }), "Arrêt demandé…");
-  assert.equal(statusLabel({ ...conversation, waitingSince: "2026-10-29T00:00:00Z" }), "Votre intervention est requise");
+  assert.equal(statusLabel(conversation), "Active session");
+  assert.equal(statusLabel(run), "Running");
+  assert.equal(statusLabel({ ...conversation, cancelRequested: true }), "Stopping…");
+  assert.equal(statusLabel({ ...conversation, waitingSince: "2026-10-29T00:00:00Z" }), "Action required");
 });

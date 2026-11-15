@@ -8,7 +8,7 @@ test("task pull requests preserve multiple forge states and the legacy primary l
     { url: "https://gitlab.example.com/a/b/-/merge_requests/7", state: "open" },
   ] };
   const links = taskPullRequests(task);
-  assert.deepEqual(links.map(link => `${pullRequestLabel(link)} · ${pullRequestStateLabel(link)}`), ["PR #42 · fusionnée", "MR !7 · ouverte"]);
+  assert.deepEqual(links.map(link => `${pullRequestLabel(link)} · ${pullRequestStateLabel(link)}`), ["PR #42 · merged", "MR !7 · open"]);
   assert.deepEqual(taskPullRequests({ id: "old", title: "Old", status: "to_review", prUrl: task.prUrl }), [{ url: task.prUrl }]);
-  assert.equal(pullRequestStateLabel({ url: task.prUrl, missingToken: "gitlab" }), "état indisponible · connexion forge requise");
+  assert.equal(pullRequestStateLabel({ url: task.prUrl, missingToken: "gitlab" }), "state unavailable · forge connection required");
 });

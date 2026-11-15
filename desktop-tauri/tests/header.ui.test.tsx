@@ -53,10 +53,10 @@ test("header displays local companion status when in local mode", async () => {
   expect(connectionContainer?.querySelector(".connection-dot")).toBeDefined();
   expect(connectionContainer?.querySelector("a")).toBeNull();
 
-  const moreButton = await screen.findByLabelText("Actions du compagnon local");
+  const moreButton = await screen.findByLabelText("Local companion actions");
   fireEvent.click(moreButton);
-  expect(await screen.findByText("Redémarrer le compagnon")).toBeDefined();
-  expect(screen.getByText("Arrêter le compagnon")).toBeDefined();
+  expect(await screen.findByText("Restart companion")).toBeDefined();
+  expect(screen.getByText("Stop companion")).toBeDefined();
 });
 
 test("header displays connection indicator with link to server in fleet mode", async () => {
@@ -74,10 +74,10 @@ test("header displays connection indicator with link to server in fleet mode", a
   fireEvent.click(connectionLink);
   expect(invoke).toHaveBeenCalledWith("open_external_link", { url: "https://sectile.example.com" });
 
-  const moreButton = await screen.findByLabelText("Actions de l’agent Fleet");
+  const moreButton = await screen.findByLabelText("Fleet agent actions");
   fireEvent.click(moreButton);
-  expect(await screen.findByText("Redémarrer l’agent")).toBeDefined();
-  expect(screen.getByText("Arrêter l’agent")).toBeDefined();
+  expect(await screen.findByText("Restart agent")).toBeDefined();
+  expect(screen.getByText("Stop agent")).toBeDefined();
 });
 
 test("header displays disconnected indicator when status is disconnected in fleet mode", async () => {
@@ -94,8 +94,8 @@ test("header displays disconnected indicator when status is disconnected in flee
 
 test("header includes theme toggle controls and settings button", async () => {
   render(<App />);
-  expect(await screen.findByRole("button", { name: "Thème sombre" })).toBeDefined();
-  expect(screen.getByRole("button", { name: "Thème clair" })).toBeDefined();
-  expect(screen.getByRole("button", { name: "Thème système" })).toBeDefined();
-  expect(screen.getByRole("button", { name: "Paramètres" })).toBeDefined();
+  expect(await screen.findByRole("button", { name: "Dark theme" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "Light theme" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "System theme" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "Settings" })).toBeDefined();
 });

@@ -32,14 +32,14 @@ function useMonitor() {
             if (!disposed) {
               setFresh(false);
               setPollError(
-                "Les dernières données datent de plus de 10 secondes",
+                "Latest data is more than 10 seconds old",
               );
             }
           }, 10000);
           setSnapshot(next);
           setFresh(true);
           setPollError("");
-          setLastRead(new Date().toLocaleTimeString("fr-FR"));
+          setLastRead(new Date().toLocaleTimeString("en-US"));
         } catch (error) {
           if (!disposed) {
             setFresh(false);

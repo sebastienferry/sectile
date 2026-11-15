@@ -38,7 +38,7 @@ import {
 } from "./lib/workspace-preference";
 import { useConversation } from "./lib/conversation-controller";
 import { renameConversation } from "./lib/conversation";
-import { conversationGroups, conversationTitle, type ConversationGrouping } from "./domain/conversation-navigation";
+import { conversationGroups, conversationTicketGroupKey, conversationTitle, deduplicateTicketConversations, type ConversationGrouping } from "./domain/conversation-navigation";
 import { pullRequestLabel, pullRequestStateLabel, taskPullRequests } from "./domain/pull-requests";
 import { CommandPalette } from "./components/CommandPalette";
 import { shortcutModifier, workspaceShortcut } from "./lib/workspace-shortcuts";
@@ -47,6 +47,34 @@ import "./App.css";
 const WorkflowTask = lazy(()=>import("./components/WorkflowTask").then(module=>({default:module.WorkflowTask})));
 const ProjectPrompt = lazy(() => import("./components/ProjectPrompt"));
 
+const OPTIONAL_LIST_COLUMNS = [
+  ["parent", "Macro"],
+  ["issueType", "Type"],
+  ["stage", "Status"],
+  ["priority", "Priority"],
+  ["sprint", "Sprint"],
+  ["assignee", "Assignee"],
+  ["engine", "Engine"],
+  ["pr", "PR"],
+] as const;
+type OptionalListColumn = (typeof OPTIONAL_LIST_COLUMNS)[number][0];
+const DEFAULT_LIST_COLUMNS: OptionalListColumn[] = OPTIONAL_LIST_COLUMNS.map(([id]) => id);
+
+function readListColumns(): OptionalListColumn[] {
+  const raw = readPreference("ticketListColumns", "");
+  if (!raw) return DEFAULT_LIST_COLUMNS;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const valid = new Set<string>(DEFAULT_LIST_COLUMNS);
+      return parsed.filter((col): col is OptionalListColumn => typeof col === "string" && valid.has(col));
+    }
+  } catch {
+    /* ignore invalid saved column preference */
+  }
+  return DEFAULT_LIST_COLUMNS;
+}
+
 type View = WorkspaceViewName | "settings" | "ticket-editor";
 interface WorkspaceView {
   id: string;
@@ -54,7 +82,7 @@ interface WorkspaceView {
   view: View;
   runId?: string;
   taskId?: string;
-  settingsSection?: "connections";
+  settingsSection?: "connections" | "engines";
 }
 export default function App() {
   return (
@@ -89,7 +117,7 @@ function Workspace() {
     folderBusy.current = true; setOpeningFolder(true); setFolderError("");
     try {
       const project = await invoke<(Project & { mappingError?: string }) | null>("open_folder_project");
-      if (project?.mappingError) { setUnmapped(project); setFolderError(`Le projet a été créé, mais le dossier n’a pas été associé : ${project.mappingError}`); await refreshProjects(); }
+      if (project?.mappingError) { setUnmapped(project); setFolderError(`The project was created, but the folder was not mapped: ${project.mappingError}`); await refreshProjects(); }
       else if (project) { await refreshProjects(); navigate(project, "prompt"); }
     } catch (cause) { setFolderError(String(cause)); }
     finally { folderBusy.current = false; setOpeningFolder(false); }
@@ -150,13 +178,21 @@ function Workspace() {
   useFontSize();
   const { snapshot, fresh, refresh: refreshExecutions } = useExecutionMonitor();
   function setArchived(runId:string, archived:boolean) {
+    const targetRun = snapshot?.runs.find(item => item.id === runId);
+    const targetGroupKey = targetRun ? conversationTicketGroupKey(targetRun) : "";
+    const matchingIds = targetRun && targetGroupKey
+      ? (snapshot?.runs ?? [])
+          .filter(item => item.conversation && conversationTicketGroupKey(item) === targetGroupKey)
+          .map(item => item.id)
+      : [runId];
+    if (!matchingIds.includes(runId)) matchingIds.push(runId);
     setArchivedConversationIds(previous=>{
-      const next=archived?[...new Set([...previous,runId])]:previous.filter(id=>id!==runId);
+      const next=archived?[...new Set([...previous,...matchingIds])]:previous.filter(id=>!matchingIds.includes(id));
       savePreference("archivedConversations",JSON.stringify(next));
       return next;
     });
     setConversationActionError("");
-    if(archived && currentRef.current?.runId===runId){
+    if(archived && currentRef.current?.runId && matchingIds.includes(currentRef.current.runId)){
       const project=projects.find(item=>item.id===currentRef.current?.projectId);
       if(project)navigate(project,"board");
     }
@@ -165,7 +201,7 @@ function Workspace() {
     if(stoppingConversationId || !fresh || !isActive(run))return;
     setStoppingConversationId(run.id);setConversationActionError("");
     try {await stopRun(run.id);await refreshExecutions();}
-    catch {setConversationActionError("Arrêt non confirmé. Actualisez le suivi avant de réessayer.");}
+    catch {setConversationActionError("Stop not confirmed. Refresh status before trying again.");}
     finally {setStoppingConversationId("");}
   }
   async function submitProjectRename(project: Project, draft: string) {
@@ -182,7 +218,7 @@ function Workspace() {
       await refreshProjects();
     } catch {
       setProjects(previous => previous.map(item => item.id === project.id ? { ...item, name: previousName } : item));
-      setProjectActionError({ projectId: project.id, message: "Impossible de renommer le projet." });
+      setProjectActionError({ projectId: project.id, message: "Unable to rename project." });
     } finally {
       renamingProjectSubmitting.current = false;
     }
@@ -213,7 +249,7 @@ function Workspace() {
   const initialized = useRef(false);
   const pendingRunRestore = useRef<WorkspaceDestination | null>(null);
   const navigate = useCallback(
-    (project: Project, view: View, runId?: string, taskId?: string, settingsSection?: "connections") => {
+    (project: Project, view: View, runId?: string, taskId?: string, settingsSection?: "connections" | "engines") => {
       if (view === "settings" && currentRef.current?.view !== "settings") {
         workspaceBeforeSettings.current = currentRef.current;
       }
@@ -332,10 +368,10 @@ function Workspace() {
   } else {
     connectionText = connected
       ? "Local"
-      : "Compagnon indisponible";
+      : "Companion unavailable";
     connectionTitle = connected
-      ? "Compagnon local actif · Prêt pour les exécutions"
-      : "Le compagnon local est indisponible. Redémarrez-le depuis le menu ou les paramètres.";
+      ? "Local companion active · Ready for executions"
+      : "The local companion is unavailable. Restart it from the menu or settings.";
   }
   const agentMenuRef = useRef<HTMLDetailsElement | null>(null);
   useEffect(() => {
@@ -371,7 +407,7 @@ function Workspace() {
         if (currentRef.current?.view === "settings") {
           returnToWorkspace();
         } else {
-          navigate({ id: "settings", name: "Paramètres" }, "settings");
+          navigate({ id: "settings", name: "Settings" }, "settings");
         }
       } else if (action === "sidebar") {
         setSidebar(value => !value);
@@ -392,7 +428,7 @@ function Workspace() {
       if (currentRef.current?.view === "settings") {
         returnToWorkspace();
       } else {
-        navigate({ id: "settings", name: "Paramètres" }, "settings");
+        navigate({ id: "settings", name: "Settings" }, "settings");
       }
     }).then(stop => { if (disposed) stop(); else unlisten = stop; }).catch(() => {});
     return () => { disposed = true; unlisten?.(); };
@@ -404,8 +440,8 @@ function Workspace() {
           {(current?.view !== "settings" || settingsHasWorkspace) && <button
             id="toggle-sidebar"
             className="icon-button"
-            title={settingsHasWorkspace ? "Retourner à l’espace de travail" : `Afficher ou masquer les projets · ${modifier}B`}
-            aria-label={settingsHasWorkspace ? "Retourner à l’espace de travail" : "Afficher ou masquer les projets"}
+            title={settingsHasWorkspace ? "Return to workspace" : `Show or hide projects · ${modifier}B`}
+            aria-label={settingsHasWorkspace ? "Return to workspace" : "Show or hide projects"}
             aria-keyshortcuts={settingsHasWorkspace ? undefined : mac ? "Meta+B" : "Control+B"}
             aria-expanded={showProjectSidebar}
             onClick={returnToWorkspace}
@@ -420,13 +456,13 @@ function Workspace() {
           </span>
         </div>
         <div className="header-actions">
-          <div className="theme-toggle" aria-label="Apparence">
+          <div className="theme-toggle" aria-label="Appearance">
             {(["system", "light", "dark"] as const).map((value, i) => (
               <button
                 key={value}
                 className="icon-button"
-                aria-label={["Thème système", "Thème clair", "Thème sombre"][i]}
-                title={["Système", "Clair", "Sombre"][i]}
+                aria-label={["System theme", "Light theme", "Dark theme"][i]}
+                title={["System", "Light", "Dark"][i]}
                 aria-pressed={appearance === value}
                 onClick={() => setAppearance(value)}
               >
@@ -434,7 +470,7 @@ function Workspace() {
               </button>
             ))}
           </div>
-          <button className="icon-button" aria-label="Navigation rapide" title="Navigation rapide · Cmd/Ctrl+K" onClick={() => setPaletteOpen(true)}><Icon name="search" /></button>
+          <button className="icon-button" aria-label="Quick navigation" title="Quick navigation · Cmd/Ctrl+K" onClick={() => setPaletteOpen(true)}><Icon name="search" /></button>
           <div id="connection" className="connection-status" data-state={connected ? "on" : "off"} data-mode={runtimeMode} title={connectionTitle}>
             {isFleet && connected && serverUrl ? (
               <a
@@ -459,8 +495,8 @@ function Workspace() {
             <summary
               id="agent-actions-more"
               className="icon-button"
-              title={isFleet ? "Actions de l’agent Fleet" : "Actions du compagnon local"}
-              aria-label={isFleet ? "Actions de l’agent Fleet" : "Actions du compagnon local"}
+              title={isFleet ? "Fleet agent actions" : "Local companion actions"}
+              aria-label={isFleet ? "Fleet agent actions" : "Local companion actions"}
             >
               <Icon name="more" />
             </summary>
@@ -473,7 +509,7 @@ function Workspace() {
                 }}
               >
                 <Icon name="refresh" />
-                <span>{isFleet ? "Redémarrer l’agent" : "Redémarrer le compagnon"}</span>
+                <span>{isFleet ? "Restart agent" : "Restart companion"}</span>
               </button>
               <button
                 type="button"
@@ -484,20 +520,20 @@ function Workspace() {
                 }}
               >
                 <Icon name="close" />
-                <span>{isFleet ? "Arrêter l’agent" : "Arrêter le compagnon"}</span>
+                <span>{isFleet ? "Stop agent" : "Stop companion"}</span>
               </button>
             </div>
           </details>
           <button
             id="settings"
             className="icon-button"
-            title={`Paramètres · ${modifier},`}
-            aria-label="Paramètres"
+            title={`Settings · ${modifier},`}
+            aria-label="Settings"
             aria-pressed={current?.view === "settings"}
             aria-keyshortcuts={mac ? "Meta+Comma" : "Control+Comma"}
             onClick={() => {
               if (current?.view === "settings") returnToWorkspace();
-              else navigate({ id: "settings", name: "Paramètres" }, "settings");
+              else navigate({ id: "settings", name: "Settings" }, "settings");
             }}
           >
             <Icon name="settings" />
@@ -512,15 +548,15 @@ function Workspace() {
               <div className="sidebar-search">
                 <Icon name="search" />
                 <input
-                  aria-label="Filtrer les projets"
-                  placeholder="Rechercher un projet"
+                  aria-label="Filter projects"
+                  placeholder="Search projects"
                   value={filter}
                   onChange={(e) => setFilter(e.target.value)}
                 />
               </div>
-              <button className="sidebar-link" disabled={openingFolder} onClick={() => void openFolder()}><Icon name="folder" />{openingFolder ? "Ouverture…" : "Ouvrir un dossier"}</button>
+              <button className="sidebar-link" disabled={openingFolder} onClick={() => void openFolder()}><Icon name="folder" />{openingFolder ? "Opening…" : "Open folder"}</button>
               <div className="section-label">
-                PROJETS <span>{projects.length}</span>
+                PROJECTS <span>{projects.length}</span>
               </div>
               {projects
                 .filter((p) =>
@@ -529,7 +565,9 @@ function Workspace() {
                 .map((project) => {
                   const runs = projectRuns(snapshot?.runs ?? [], project.id);
                   const selected = current?.projectId === project.id;
-                  const conversations = runs.filter(run => run.conversation && archivedConversationIds.includes(run.id)===showArchivedConversations);
+                  const matchingConversations = runs.filter(run => run.conversation && archivedConversationIds.includes(run.id)===showArchivedConversations);
+                  const conversations = deduplicateTicketConversations(matchingConversations);
+                  const currentSelectedRun = current?.runId ? runs.find(r => r.id === current.runId) : undefined;
                   const projectTasks = navigationTasks?.projectId === project.id ? navigationTasks.items : [];
                   const projectBoard = navigationContext?.projectId === project.id ? navigationContext.value.board : undefined;
                   const orchestratorEnabled = navigationContext?.projectId === project.id && navigationContext.value.orchestratorEnabled !== undefined
@@ -548,7 +586,7 @@ function Workspace() {
                             autoFocus
                             maxLength={80}
                             value={renamingProjectDraft}
-                            aria-label="Nom du projet"
+                            aria-label="Project name"
                             onChange={e => setRenamingProjectDraft(e.target.value)}
                             onKeyDown={e => {
                               if (e.key === "Enter") {
@@ -584,18 +622,18 @@ function Workspace() {
                         )}
                         <button
                           className="icon-button"
-                          aria-label={`Nouveau prompt dans ${project.name}`}
-                          title="Nouveau prompt"
+                          aria-label={`New prompt in ${project.name}`}
+                          title="New prompt"
                           onClick={() => navigate(project, "prompt")}
                         >
                           <Icon name="plus" />
                         </button>
                         <details className="project-action-menu">
-                          <summary aria-label={`Actions pour ${project.name}`} title={`Actions pour ${project.name}`}>•••</summary>
+                          <summary aria-label={`Actions for ${project.name}`} title={`Actions for ${project.name}`}>•••</summary>
                           <div className="project-action-panel">
-                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"board");}}><Icon name="list" /><span>Voir les tickets</span></button>
-                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"board");}}><Icon name="kanban" /><span>Ouvrir le tableau</span></button>
-                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"executions");}}><Icon name="terminal" /><span>File des exécutions</span></button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"board");}}><Icon name="list" /><span>View tickets</span></button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"board");}}><Icon name="kanban" /><span>Open board</span></button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"executions");}}><Icon name="terminal" /><span>Execution queue</span></button>
                             <hr />
                             <button
                               type="button"
@@ -607,7 +645,7 @@ function Workspace() {
                               }}
                             >
                               <Icon name="clock" />
-                              <span>Trier par création</span>
+                              <span>Sort by created</span>
                               {getProjectSort(project.id) === "created" && <span className="project-menu-check" aria-hidden="true"><Icon name="check" /></span>}
                             </button>
                             <button
@@ -620,7 +658,7 @@ function Workspace() {
                               }}
                             >
                               <Icon name="hash" />
-                              <span>Trier par identifiant</span>
+                              <span>Sort by ID</span>
                               {getProjectSort(project.id) === "id" && <span className="project-menu-check" aria-hidden="true"><Icon name="check" /></span>}
                             </button>
                             <button
@@ -633,13 +671,13 @@ function Workspace() {
                               }}
                             >
                               <Icon name="layers" />
-                              <span>Grouper par étape</span>
+                              <span>Group by stage</span>
                               {getProjectSort(project.id) === "stage" && <span className="project-menu-check" aria-hidden="true"><Icon name="check" /></span>}
                             </button>
                             <hr />
-                            <button disabled={!fresh||!snapshot?.status.capabilities?.includes("task-page")} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"ticket-editor");}}><Icon name="plusSquare" /><span>Nouveau ticket</span></button>
-                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"prompt");}}><Icon name="chat" /><span>Démarrer un prompt libre</span></button>
-                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");setShowArchivedConversations(value=>!value);}}><Icon name="archive" /><span>{showArchivedConversations?"Voir les conversations actives":"Voir les conversations archivées"}</span></button>
+                            <button disabled={!fresh||!snapshot?.status.capabilities?.includes("task-page")} onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"ticket-editor");}}><Icon name="plusSquare" /><span>New ticket</span></button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"prompt");}}><Icon name="chat" /><span>Start free prompt</span></button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");setShowArchivedConversations(value=>!value);}}><Icon name="archive" /><span>{showArchivedConversations?"View active conversations":"View archived conversations"}</span></button>
                             <hr />
                             <button
                               type="button"
@@ -651,9 +689,9 @@ function Workspace() {
                               }}
                             >
                               <Icon name="edit" />
-                              <span>Renommer le projet</span>
+                              <span>Rename project</span>
                             </button>
-                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"project-settings");}}><Icon name="settings" /><span>Réglages du projet</span></button>
+                            <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"project-settings");}}><Icon name="settings" /><span>Project settings</span></button>
                             <button
                               type="button"
                               className="danger"
@@ -664,7 +702,7 @@ function Workspace() {
                               }}
                             >
                               <Icon name="trash" />
-                              <span>Supprimer le projet</span>
+                              <span>Delete project</span>
                             </button>
                           </div>
                         </details>
@@ -681,7 +719,7 @@ function Workspace() {
                               Orchestration
                             </button>
                           )}
-                          {showArchivedConversations&&<div className="sidebar-group-label">Archivées <button type="button" onClick={()=>setShowArchivedConversations(false)}>Retour</button></div>}
+                          {showArchivedConversations&&<div className="sidebar-group-label">Archived <button type="button" onClick={()=>setShowArchivedConversations(false)}>Back</button></div>}
                           {conversationGroups(visibleConversations,projectTasks,getProjectSort(project.id),projectBoard).map(group=><div className="sidebar-conversation-group" key={group.label||"recent"}>{group.label&&<div className="sidebar-group-label">{group.label}<span>{group.runs.length}</span></div>}{group.runs.map(run=>{
                             const task=projectTasks.find(item=>item.id===run.taskId);
                             const isRenaming = renamingRunId === run.id;
@@ -692,7 +730,7 @@ function Workspace() {
                                   className="task-rename"
                                   autoFocus
                                   value={renamingDraft}
-                                  aria-label="Nom de la conversation"
+                                  aria-label="Conversation name"
                                   onChange={e => setRenamingDraft(e.target.value)}
                                   onKeyDown={async e => {
                                     if (e.key === "Enter") {
@@ -704,7 +742,7 @@ function Workspace() {
                                           await renameConversation(run.id, val);
                                           void refreshExecutions();
                                         } catch {
-                                          setConversationActionError("Impossible de renommer la conversation.");
+                                          setConversationActionError("Unable to rename conversation.");
                                         }
                                       }
                                     } else if (e.key === "Escape") {
@@ -721,22 +759,22 @@ function Workspace() {
                                         await renameConversation(run.id, val);
                                         void refreshExecutions();
                                       } catch {
-                                        setConversationActionError("Impossible de renommer la conversation.");
+                                        setConversationActionError("Unable to rename conversation.");
                                       }
                                     }
                                   }}
                                   onClick={e => e.stopPropagation()}
                                 />
                               ) : (
-                                <RunNavigation run={run} task={task} selected={current?.runId===run.id} onClick={()=>navigate(project,"prompt",run.id)} onOpenTask={run.taskId ? () => navigate(project, "task", undefined, run.taskId) : undefined} />
+                                <RunNavigation run={run} task={task} selected={current?.runId===run.id || (Boolean(run.taskId) && Boolean(currentSelectedRun) && conversationTicketGroupKey(currentSelectedRun!) === conversationTicketGroupKey(run))} onClick={()=>navigate(project,"prompt",run.id)} onOpenTask={run.taskId ? () => void openTaskInTracker(project.id, run.taskId, task, setConversationActionError) : undefined} />
                               )}
-                              <ConversationPrAction task={task} taskKey={run.taskKey} onError={()=>setConversationActionError("Impossible d’ouvrir la PR/MR.")}/>
+                              <ConversationPrAction task={task} taskKey={run.taskKey} onError={()=>setConversationActionError("Unable to open PR/MR.")}/>
                               {!showArchivedConversations && isActive(run) ? (
                                 <button
                                   type="button"
                                   className="task-stop-button"
-                                  aria-label="Arrêter la conversation"
-                                  title={stoppingConversationId === run.id ? "Arrêt en cours…" : "Arrêter la conversation"}
+                                  aria-label="Stop conversation"
+                                  title={stoppingConversationId === run.id ? "Stopping…" : "Stop conversation"}
                                   disabled={!fresh || !!stoppingConversationId}
                                   onClick={e => {
                                     e.stopPropagation();
@@ -749,8 +787,8 @@ function Workspace() {
                                 <button
                                   type="button"
                                   className="task-archive"
-                                  aria-label={showArchivedConversations ? "Restaurer la conversation" : "Archiver la conversation"}
-                                  title={showArchivedConversations ? "Restaurer la conversation" : "Archiver la conversation"}
+                                  aria-label={showArchivedConversations ? "Restore conversation" : "Archive conversation"}
+                                  title={showArchivedConversations ? "Restore conversation" : "Archive conversation"}
                                   onClick={e => {
                                     e.stopPropagation();
                                     setArchived(run.id, !showArchivedConversations);
@@ -763,8 +801,8 @@ function Workspace() {
                                 <button
                                   type="button"
                                   className="task-rename-button"
-                                  aria-label="Renommer la conversation"
-                                  title="Renommer la conversation"
+                                  aria-label="Rename conversation"
+                                  title="Rename conversation"
                                   onClick={e => {
                                     e.stopPropagation();
                                     setRenamingRunId(run.id);
@@ -777,13 +815,13 @@ function Workspace() {
                             </div>;
                           })}</div>)}
                           {conversationActionError&&<p className="sidebar-action-error" role="alert">{conversationActionError}</p>}
-                          {conversations.length>visibleConversationCount&&<button className="sidebar-link" onClick={()=>setVisibleConversationCount(value=>value+8)}>Afficher les conversations suivantes · {visibleConversationCount}/{conversations.length}</button>}
+                          {conversations.length>visibleConversationCount&&<button className="sidebar-link" onClick={()=>setVisibleConversationCount(value=>value+8)}>Show more conversations · {visibleConversationCount}/{conversations.length}</button>}
                           <button
                             className="sidebar-link"
                             onClick={() => navigate(project, "executions")}
                           >
                             <Icon name="terminal" />
-                            Toutes les exécutions <span>{runs.length}</span>
+                            All executions <span>{runs.length}</span>
                           </button>
                         </div>
                       )}
@@ -793,8 +831,8 @@ function Workspace() {
               {!projects.length && (
                 <p className="sidebar-hint">
                   {busy
-                    ? "Connexion à l’agent…"
-                    : "Vos projets apparaîtront ici."}
+                    ? "Connecting to agent…"
+                    : "Your projects will appear here."}
                 </p>
               )}
             </div>
@@ -802,8 +840,8 @@ function Workspace() {
           <div
             className="sidebar-resizer"
             role="separator"
-            aria-label="Redimensionner la barre latérale"
-            title="Glisser pour redimensionner · ← → au clavier"
+            aria-label="Resize sidebar"
+            title="Drag to resize · ← → with keyboard"
             aria-orientation="vertical"
             aria-valuemin={200}
             aria-valuemax={sidebarMaximum}
@@ -850,21 +888,21 @@ function Workspace() {
                 {unmapped && <button onClick={async () => {
                   try { await invoke("retry_folder_project", { projectId: unmapped.id, path: unmapped.path }); setFolderError(""); setUnmapped(null); await refreshProjects(); navigate(unmapped, "prompt"); }
                   catch (cause) { setFolderError(String(cause)); }
-                }}>Réessayer l’association</button>}
+                }}>Retry mapping</button>}
               </div>}
               {error && current?.view !== "settings" && (
                 <div role="alert" className="error">
                   {error}
-                  <button onClick={() => void refreshProjects()}>Réessayer</button>
+                  <button onClick={() => void refreshProjects()}>Retry</button>
                 </div>
               )}
               {!current && (
                 <section className="welcome">
                   <span className="brand-mark">S</span>
-                  <h1>Votre espace de travail</h1>
+                  <h1>Your workspace</h1>
                   <p>
-                    Choisissez un projet pour ouvrir son tableau, ou lancez un
-                    nouveau prompt.
+                    Choose a project to open its board, or start a
+                    new prompt.
                   </p>
                 </section>
               )}
@@ -874,6 +912,7 @@ function Workspace() {
                     <LocalSettings
                       initialSection={current.settingsSection}
                       hasActiveExecutions={snapshot?.runs.some(isActive) ?? false}
+                      onClose={settingsHasWorkspace ? returnToWorkspace : undefined}
                       onConfigureProject={id=>{const project=projects.find(p=>p.id===id);if(project)navigate(project,"project-settings");}}
                       onOpenFolder={() => void openFolder()}
                       onChanged={() => { setProjects([]); void refreshProjects(); void refreshExecutions(); }}
@@ -912,9 +951,9 @@ function Workspace() {
         selectedProjectId={current?.projectId}
         onNavigate={navigate}
         onOpenFolder={() => void openFolder()}
-        onOpenSettings={() => navigate({ id: "settings", name: "Paramètres" }, "settings")}
+        onOpenSettings={() => navigate({ id: "settings", name: "Settings" }, "settings")}
         onToggleSidebar={returnToWorkspace}
-        sidebarActionLabel={current?.view === "settings" ? settingsHasWorkspace ? "Retourner à l’espace de travail" : "" : sidebar ? "Masquer les projets" : "Afficher les projets"}
+        sidebarActionLabel={current?.view === "settings" ? settingsHasWorkspace ? "Return to workspace" : "" : sidebar ? "Hide projects" : "Show projects"}
         shortcutModifier={modifier}
       />
       {deletingProject && (
@@ -926,10 +965,10 @@ function Workspace() {
             }
           }}
         >
-          <dialog open className="project-delete-dialog" role="alertdialog" aria-label={`Supprimer ${deletingProject.name}`}>
-            <h2>Supprimer « {deletingProject.name} » ?</h2>
+          <dialog open className="project-delete-dialog" role="alertdialog" aria-label={`Delete ${deletingProject.name}`}>
+            <h2>Delete “{deletingProject.name}”?</h2>
             <p className="muted">
-              Le projet sera retiré de Sectile sur ce poste. Les fichiers de votre dossier local et les tickets distants sont conservés.
+              The project will be removed from Sectile on this workstation. Files in your local folder and remote tickets are preserved.
             </p>
             {deletingProjectError && <p role="alert" className="error">{deletingProjectError}</p>}
             <div className="project-delete-actions">
@@ -938,7 +977,7 @@ function Workspace() {
                 disabled={deletingProjectPending}
                 onClick={() => setDeletingProject(null)}
               >
-                Annuler
+                Cancel
               </button>
               <button
                 type="button"
@@ -946,7 +985,7 @@ function Workspace() {
                 disabled={deletingProjectPending}
                 onClick={() => void confirmDeleteProject()}
               >
-                {deletingProjectPending ? "Suppression…" : "Confirmer la suppression"}
+                {deletingProjectPending ? "Deleting…" : "Confirm deletion"}
               </button>
             </div>
           </dialog>
@@ -959,6 +998,7 @@ interface SavedBoardFilters {
   query?: string;
   priority?: string;
   status?: string;
+  statuses?: string[];
   assignee?: string;
   parent?: string;
   sprint?: string;
@@ -980,6 +1020,28 @@ function readBoardFilters(projectId: string): SavedBoardFilters {
 function saveBoardFilters(projectId: string, filters: SavedBoardFilters) {
   if (!projectId) return;
   savePreference(`boardFilters.${projectId}`, JSON.stringify(filters));
+}
+
+async function openTaskInTracker(
+  projectId: string,
+  taskId?: string,
+  task?: Task,
+  onError?: (message: string) => void,
+) {
+  try {
+    let url = task?.externalUrl?.trim();
+    if (!url && projectId && taskId) {
+      const detail = await getTask(projectId, taskId);
+      url = detail?.externalUrl?.trim();
+    }
+    if (!url) {
+      onError?.("No external tracker link is available for this ticket.");
+      return;
+    }
+    await openExternalLink(url);
+  } catch {
+    onError?.("Unable to open the ticket in the tracker.");
+  }
 }
 
 function ProjectPane({
@@ -1012,7 +1074,7 @@ function ProjectPane({
     view: View,
     runId?: string,
     taskId?: string,
-    settingsSection?: "connections",
+    settingsSection?: "connections" | "engines",
   ) => void;
 }) {
   const monitor = useExecutionMonitor();
@@ -1042,7 +1104,16 @@ function ProjectPane({
   );
   const query = currentFilters.query ?? "";
   const priorityFilter = currentFilters.priority ?? "";
-  const statusFilter = currentFilters.status ?? "";
+  const statusFilters = useMemo(() => {
+    if (Array.isArray(currentFilters.statuses)) {
+      return currentFilters.statuses.map(s => s.trim().toLowerCase()).filter(Boolean);
+    }
+    if (currentFilters.status?.trim()) {
+      return currentFilters.status.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+    }
+    return [];
+  }, [currentFilters.statuses, currentFilters.status]);
+  const statusFilter = statusFilters.join(",");
   const assigneeFilter = currentFilters.assignee ?? "";
   const parentFilter = currentFilters.parent ?? "";
   const sprintFilter = currentFilters.sprint ?? "";
@@ -1056,7 +1127,20 @@ function ProjectPane({
     });
   }, [selection.projectId]);
   const setPriorityFilter = (value: string) => updateFilters({ priority: value });
-  const setStatusFilter = (value: string) => updateFilters({ status: value });
+  const setStatusFilters = (values: string[]) => {
+    const normalized = Array.from(new Set(values.map(v => v.trim().toLowerCase()).filter(Boolean)));
+    updateFilters({ statuses: normalized, status: normalized.join(",") });
+  };
+  const setStatusFilter = (value: string) => setStatusFilters(value ? value.split(",") : []);
+  const toggleStatusFilter = (value: string) => {
+    const target = value.trim().toLowerCase();
+    if (!target) return;
+    setStatusFilters(
+      statusFilters.includes(target)
+        ? statusFilters.filter(item => item !== target)
+        : [...statusFilters, target],
+    );
+  };
   const setAssigneeFilter = (value: string) => updateFilters({ assignee: value });
   const setParentFilter = (value: string) => updateFilters({ parent: value });
   const setSprintFilter = (value: string) => updateFilters({ sprint: value });
@@ -1066,20 +1150,38 @@ function ProjectPane({
   const [compactCards,setCompactCards] = useState(()=>readPreference("boardCards","compact")!=="full");
   const [ticketView,setTicketView]=useState<"board"|"list">(()=>readPreference("ticketView","board")==="list"?"list":"board");
   const [tableSort,setTableSort]=useState<SortState>(DEFAULT_SORT);
+  const [listColumns,setListColumns]=useState<OptionalListColumn[]>(()=>readListColumns());
+  const visibleColumns=useMemo(()=>new Set<OptionalListColumn>(listColumns),[listColumns]);
+  const toggleListColumn=(col:OptionalListColumn)=>{
+    setListColumns(prev=>{
+      const next=prev.includes(col)?prev.filter(item=>item!==col):DEFAULT_LIST_COLUMNS.filter(item=>prev.includes(item)||item===col);
+      savePreference("ticketListColumns",JSON.stringify(next));
+      return next;
+    });
+  };
+  const resetListColumns=()=>{
+    setListColumns(DEFAULT_LIST_COLUMNS);
+    savePreference("ticketListColumns",JSON.stringify(DEFAULT_LIST_COLUMNS));
+  };
   const [filterMenuOpen,setFilterMenuOpen]=useState(false);
   const filterMenuRef=useRef<HTMLDivElement>(null);
+  const [columnMenuOpen,setColumnMenuOpen]=useState(false);
+  const columnMenuRef=useRef<HTMLDivElement>(null);
   useEffect(()=>{
-    if(!filterMenuOpen)return;
+    if(!filterMenuOpen&&!columnMenuOpen)return;
     const onPointerDown=(event:MouseEvent)=>{
       if(filterMenuRef.current&&!filterMenuRef.current.contains(event.target as Node)){
         setFilterMenuOpen(false);
       }
+      if(columnMenuRef.current&&!columnMenuRef.current.contains(event.target as Node)){
+        setColumnMenuOpen(false);
+      }
     };
-    const onKeyDown=(event:KeyboardEvent)=>{if(event.key==="Escape")setFilterMenuOpen(false);};
+    const onKeyDown=(event:KeyboardEvent)=>{if(event.key==="Escape"){setFilterMenuOpen(false);setColumnMenuOpen(false);}};
     window.addEventListener("pointerdown",onPointerDown);
     window.addEventListener("keydown",onKeyDown);
     return ()=>{window.removeEventListener("pointerdown",onPointerDown);window.removeEventListener("keydown",onKeyDown);};
-  },[filterMenuOpen]);
+  },[filterMenuOpen,columnMenuOpen]);
   const [selectedTaskIds,setSelectedTaskIds]=useState<string[]>([]);
   const [batchConfirm,setBatchConfirm]=useState(false);
   const [launching,setLaunching]=useState(false);
@@ -1096,6 +1198,8 @@ function ProjectPane({
   const currentContextError = contextError?.projectId === selection.projectId ? contextError.message : "";
   useEffect(()=>{let current=true;setContextError(undefined);void projectContext(selection.projectId).then(data=>{if(current){setContextState({projectId:selection.projectId,value:data});onContextChanged(data);setContextError(undefined);}}).catch(cause=>{if(current)setContextError({projectId:selection.projectId,message:String(cause)});});return()=>{current=false;};},[selection.projectId,contextRefresh]);
   const [selectedRun, setSelectedRun] = useState(selection.runId ?? "");
+  const [projectSettingsTab, setProjectSettingsTab] = useState("folder");
+  useEffect(() => setProjectSettingsTab("folder"), [selection.projectId]);
   const request = useRef(0);
   async function refresh() {
     const seq = ++request.current;
@@ -1137,6 +1241,25 @@ function ProjectPane({
     const timer=setInterval(()=>void read(),15000);
     return()=>{current=false;clearInterval(timer);};
   },[selection.projectId,selection.view,currentRun?.taskId]);
+  const seenTaskRunIds = useRef<{ taskId: string; ids: Set<string> } | null>(null);
+  useEffect(() => {
+    if (selection.view !== "prompt" || !currentRun?.taskId || !project) {
+      seenTaskRunIds.current = null;
+      return;
+    }
+    const taskId = currentRun.taskId;
+    const runsForTask = projectRuns(monitor.snapshot?.runs ?? [], selection.projectId).filter(r => r.taskId === taskId && r.conversation);
+    if (!seenTaskRunIds.current || seenTaskRunIds.current.taskId !== taskId) {
+      seenTaskRunIds.current = { taskId, ids: new Set(runsForTask.map(r => r.id)) };
+      return;
+    }
+    const known = seenTaskRunIds.current.ids;
+    const newlyStarted = runsForTask.find(r => !known.has(r.id));
+    for (const r of runsForTask) known.add(r.id);
+    if (newlyStarted && newlyStarted.id !== selection.runId) {
+      navigate(project, "prompt", newlyStarted.id);
+    }
+  }, [selection.view, selection.projectId, selection.runId, currentRun?.taskId, monitor.snapshot?.runs, project, navigate]);
   useEffect(() => {
     if (selection.view === "executions" && selection.runId && currentRun?.conversation && project) {
       navigate(project, "prompt", selection.runId);
@@ -1147,13 +1270,13 @@ function ProjectPane({
     () => taskFilterPredicate({
       query,
       priority: priorityFilter,
-      status: statusFilter,
+      statuses: statusFilters,
       assignee: assigneeFilter,
       parent: parentFilter,
       sprint: sprintFilter,
       issueType: issueTypeFilter,
     }, context?.board),
-    [query, priorityFilter, statusFilter, assigneeFilter, parentFilter, sprintFilter, issueTypeFilter, context?.board]
+    [query, priorityFilter, statusFilters, assigneeFilter, parentFilter, sprintFilter, issueTypeFilter, context?.board]
   );
   const remoteColumns = trackerColumns(tasks, taskFilter);
   const hasRemoteTasks = allRemoteTasks.length > 0;
@@ -1257,19 +1380,20 @@ function ProjectPane({
       hasNone,
     };
   }, [allRemoteTasks]);
-  const hasActiveFilters = Boolean(priorityFilter || statusFilter || assigneeFilter || parentFilter || sprintFilter || issueTypeFilter);
-  const activeFilterCount = [priorityFilter, statusFilter, assigneeFilter, parentFilter, sprintFilter, issueTypeFilter].filter(Boolean).length;
+  const hasActiveFilters = Boolean(priorityFilter || statusFilters.length > 0 || assigneeFilter || parentFilter || sprintFilter || issueTypeFilter);
+  const activeFilterCount = [priorityFilter, statusFilters.length > 0 ? "status" : "", assigneeFilter, parentFilter, sprintFilter, issueTypeFilter].filter(Boolean).length;
   const resetFilters = () => {
     updateFilters({
       priority: "",
       status: "",
+      statuses: [],
       assignee: "",
       parent: "",
       sprint: "",
       issueType: "",
     });
   };
-  const columns = grouping === "stage" ? [...stages.map(stage=>({name:stageLabels[stage],tasks:visibleTasks.filter(task=>taskStage(task,context?.board)===stage),stage})),...(visibleTasks.some(task=>!taskStage(task,context?.board))?[{name:"Étape inconnue",tasks:visibleTasks.filter(task=>!taskStage(task,context?.board)),stage:undefined}]:[])] : remoteColumns.map(column=>({...column,stage:undefined}));
+  const columns = grouping === "stage" ? [...stages.map(stage=>({name:stageLabels[stage],tasks:visibleTasks.filter(task=>taskStage(task,context?.board)===stage),stage})),...(visibleTasks.some(task=>!taskStage(task,context?.board))?[{name:"Unknown stage",tasks:visibleTasks.filter(task=>!taskStage(task,context?.board)),stage:undefined}]:[])] : remoteColumns.map(column=>({...column,stage:undefined}));
   const count = columns.reduce((n, c) => n + c.tasks.length, 0);
   const selectedTasks=selectedTaskIds.map(id=>allRemoteTasks.find(task=>task.id===id)).filter((task):task is Task=>Boolean(task));
   function toggleTask(id:string){setSelectedTaskIds(previous=>previous.includes(id)?previous.filter(item=>item!==id):[...previous,id]);setBatchConfirm(false);}
@@ -1288,8 +1412,10 @@ function ProjectPane({
       if(viewOverride)saveTaskLaunchView(viewOverride);
       await launchTask(project.id,launchInput(task.id,skillId,"","",chosenView==="terminal"?{view:"terminal"}:undefined));
       await monitor.refresh();
-      navigate(project,"task",undefined,task.id);
-    }catch{setLaunchError("Lancement non confirmé. Vérifiez la configuration et le suivi avant de réessayer.");}
+      if (selection.view !== "prompt" || currentRun?.taskId !== task.id) {
+        navigate(project,"task",undefined,task.id);
+      }
+    }catch{setLaunchError("Launch not confirmed. Check configuration and status before trying again.");}
     finally{setLaunching(false);}
   }
   async function startBatch(){
@@ -1304,14 +1430,14 @@ function ProjectPane({
       }
       await launchTask(project.id,{...launchInput(selectedTasks[0].id,"pickup_issues","","autonomous"),batchTaskIds:selectedTasks.map(task=>task.id)});
       setBatchConfirm(false);setSelectedTaskIds([]);await monitor.refresh();
-    }catch{setLaunchError("Lot non lancé. Vérifiez les tickets, la skill et les exécutions avant de réessayer.");}
+    }catch{setLaunchError("Batch not launched. Check the tickets, skill, and executions before trying again.");}
     finally{setLaunching(false);}
   }
   function taskMenu(task:Task){
     const next=context?nextSkill(task,context):undefined;
     const launchDisabled=launching||!monitor.fresh||taskStage(task,context?.board)==="finished";
     const defaultView=readTaskLaunchView();
-    return <select className="task-actions" aria-label={`Actions pour ${task.key||task.title}`} title="Actions du ticket" defaultValue="" onChange={event=>{const value=event.currentTarget.value;event.currentTarget.value="";if(value==="open"){if(project)navigate(project,"task",undefined,task.id);}else if(value==="edit"){if(project)navigate(project,"ticket-editor",undefined,task.id);}else if(value.startsWith("terminal:")){void startSkill(task,value.slice(9),"terminal");}else if(value.startsWith("conversation:")){void startSkill(task,value.slice(13),"conversation");}else if(value)void startSkill(task,value);}}><option value="">•••</option><option value="open">Voir le workflow</option><option value="edit" disabled={!monitor.fresh||!monitor.snapshot?.status.capabilities?.includes("task-page")}>Modifier le ticket</option>{next?.skillId&&<option value={next.skillId} disabled={launchDisabled}>Lancer : {next.label}</option>}{next?.skillId&&next.skillId!=="pickup"&&(defaultView==="terminal"?<option value={`conversation:${next.skillId}`} disabled={launchDisabled}>Lancer en conversation : {next.label}</option>:<option value={`terminal:${next.skillId}`} disabled={launchDisabled}>Lancer dans le terminal : {next.label}</option>)}{context?.skills.filter(skill=>skill.id!==next?.skillId&&skill.id!=="pickup_issues").map(skill=><option key={skill.id} value={skill.id} disabled={launchDisabled}>Lancer : {skillLabels[skill.id]||skill.id}</option>)}</select>;
+    return <select className="task-actions" aria-label={`Actions for ${task.key||task.title}`} title="Ticket actions" defaultValue="" onChange={event=>{const value=event.currentTarget.value;event.currentTarget.value="";if(value==="open"){if(project)navigate(project,"task",undefined,task.id);}else if(value==="edit"){if(project)navigate(project,"ticket-editor",undefined,task.id);}else if(value.startsWith("terminal:")){void startSkill(task,value.slice(9),"terminal");}else if(value.startsWith("conversation:")){void startSkill(task,value.slice(13),"conversation");}else if(value)void startSkill(task,value);}}><option value="">•••</option><option value="open">View workflow</option><option value="edit" disabled={!monitor.fresh||!monitor.snapshot?.status.capabilities?.includes("task-page")}>Edit ticket</option>{next?.skillId&&<option value={next.skillId} disabled={launchDisabled}>Launch: {next.label}</option>}{next?.skillId&&next.skillId!=="pickup"&&(defaultView==="terminal"?<option value={`conversation:${next.skillId}`} disabled={launchDisabled}>Launch in conversation: {next.label}</option>:<option value={`terminal:${next.skillId}`} disabled={launchDisabled}>Launch in terminal: {next.label}</option>)}{context?.skills.filter(skill=>skill.id!==next?.skillId&&skill.id!=="pickup_issues").map(skill=><option key={skill.id} value={skill.id} disabled={launchDisabled}>Launch: {skillLabels[skill.id]||skill.id}</option>)}</select>;
   }
   function epicStyle(task:Task):CSSProperties|undefined {
     const color=context?.board?.epicColors ? epicColorHex(task.parentKey) : undefined;
@@ -1322,30 +1448,30 @@ function ProjectPane({
       {!(selection.view === "prompt" && selection.runId) && (
         <div className="workspace-toolbar">
           <div>
-            <h1>{project?.name ?? "Projet"}</h1>
-            <div className="workspace-path"><p title={workingDirectory}>{workingDirectory || (selection.runId ? "Dossier de l’exécution en cours de chargement…" : "Espace de travail du projet")}</p>{workingDirectory&&<button type="button" className="copy-path" title="Copier le chemin du dossier de travail" aria-label="Copier le chemin du dossier de travail" onClick={()=>void navigator.clipboard.writeText(workingDirectory).then(()=>setPathCopyState("Copié"),()=>setPathCopyState("Copie impossible"))}>{pathCopyState||"Copier"}</button>}</div>
+            <h1>{project?.name ?? "Project"}</h1>
+            <div className="workspace-path"><p title={workingDirectory}>{workingDirectory || (selection.runId ? "Loading execution folder…" : "Project workspace")}</p>{workingDirectory&&<button type="button" className="copy-path" title="Copy working folder path" aria-label="Copy working folder path" onClick={()=>void navigator.clipboard.writeText(workingDirectory).then(()=>setPathCopyState("Copied"),()=>setPathCopyState("Copy failed"))}>{pathCopyState||"Copy"}</button>}</div>
           </div>
           <div className="toolbar-actions">
             {project && selection.view !== "task" && selection.view !== "ticket-editor" && !(selection.view === "executions" && currentRun?.conversation) && (
               <>
-                {selection.view !== "board" && <button onClick={() => navigate(project, "board")}>
+                {selection.view !== "board" && selection.view !== "project-settings" && <button onClick={() => navigate(project, "board")}>
                   <Icon name="board" />
-                  Tableau
+                  Board
                 </button>}
                 {selection.view !== "prompt" && <button
                   className={selection.view === "board" ? "primary" : "subtle"}
                   onClick={() => navigate(project, "prompt")}
                 >
                   <Icon name="plus" />
-                  Nouveau prompt
+                  New prompt
                 </button>}
-                {selection.view !== "project-settings" && <button className={selection.view === "board" ? "icon-button" : undefined} title="Configurer le projet" aria-label="Configurer le projet" onClick={() => navigate(project, "project-settings")}><Icon name="settings" />{selection.view !== "board" && "Configurer le projet"}</button>}
+                {selection.view !== "project-settings" && <button className={selection.view === "board" ? "icon-button" : undefined} title="Configure project" aria-label="Configure project" onClick={() => navigate(project, "project-settings")}><Icon name="settings" />{selection.view !== "board" && "Configure project"}</button>}
               </>
             )}
             {selection.view === "board" && <button
               className="icon-button"
-              title="Actualiser"
-              aria-label="Actualiser le tableau"
+              title="Refresh"
+              aria-label="Refresh board"
               disabled={busy}
               onClick={() => void refresh()}
             >
@@ -1359,16 +1485,16 @@ function ProjectPane({
           {error}
         </p>
       )}
-      {selection.view === "project-settings" ? <ProjectProfiles key={selection.projectId} projectId={selection.projectId} after={<section className="project-advanced" aria-label="Options avancées du projet"><h2>Options avancées</h2><details className="additional-folder-settings"><summary>Dossiers supplémentaires<small>Contexte partagé entre les conversations du projet</small></summary><AttachedFolderSettings projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/></details><AdvancedFolders projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/><WorkflowSettings projectId={selection.projectId}/><OrchestrationSettings projectId={selection.projectId} onChanged={onProjectsChanged} onSupervise={()=>{if(project)navigate(project,"orchestration");}}/></section>}><>{project && <ProjectFolderSetup variant="settings" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}<ProjectTrackerSetup projectId={selection.projectId} onChanged={() => {setContextRefresh(value=>value+1);onProjectsChanged();}} onManageTrackers={() => navigate({id:"settings",name:"Paramètres"},"settings",undefined,undefined,"connections")}/></></ProjectProfiles> : selection.view === "ticket-editor" ? <TaskEditor projectId={selection.projectId} projectName={project?.name||"Projet"} projects={projects} onSelectProject={next=>{const found=projects.find(item=>item.id===next.id);if(found)navigate(found,"ticket-editor");}} taskId={selection.taskId} available={!!monitor.fresh&&!!monitor.snapshot?.status.capabilities?.includes("task-page")} knownSprints={availableSprints.sprints} knownAssignees={availableAssignees.people} onClose={()=>{if(project)navigate(project,selection.taskId?"task":"board",undefined,selection.taskId);}} onSaved={(task,options)=>{onTaskChanged(task);void refresh();if(project){if(options?.launch){const skillId=context?.skills.find(s=>s.id==="clarify")?.id||context?.skills[0]?.id||"clarify";void launchTask(project.id,launchInput(task.id,skillId,"","")).then(()=>monitor.refresh()).catch(()=>{}).finally(()=>navigate(project,"task",undefined,task.id));}else{navigate(project,"task",undefined,task.id);}}}}/> : selection.view === "task" && selection.taskId ? <Suspense fallback={<p>Ouverture du workflow…</p>}><WorkflowTask projectId={selection.projectId} taskId={selection.taskId} onBack={()=>{if(project)navigate(project,"board");}} onSetup={()=>{if(project)navigate(project,"settings");}} onEdit={()=>{if(project)navigate(project,"ticket-editor",undefined,selection.taskId);}} onExecution={runId=>{if(project)navigate(project,"executions",runId||undefined);}} onOpenConversation={runId=>{if(project)navigate(project,"prompt",runId);}} onArchiveConversation={onArchiveConversation} onTasksLoaded={items=>{setTaskState({projectId:selection.projectId,items});onTasksChanged(items);}}/></Suspense> : selection.view === "board" ? (
+      {selection.view === "project-settings" ? <ProjectProfiles key={selection.projectId} projectId={selection.projectId} activeTab={projectSettingsTab} onTabChange={setProjectSettingsTab} onManageProfiles={() => navigate({id:"settings",name:"Settings"},"settings",undefined,undefined,"engines")} tabs={[{id:"folder",label:"Folders",content:<>{project && <ProjectFolderSetup variant="settings" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}<AttachedFolderSettings projectId={selection.projectId} onChanged={()=>void monitor.refresh()}/></>},{id:"conversations",label:"Conversations"},{id:"tracker",label:"Tickets",content:<ProjectTrackerSetup projectId={selection.projectId} onChanged={() => {setContextRefresh(value=>value+1);onProjectsChanged();}} onManageTrackers={() => navigate({id:"settings",name:"Settings"},"settings",undefined,undefined,"connections")}/>},{id:"specs",label:"Specifications (SDD)",content:<AdvancedFolders projectId={selection.projectId} active={projectSettingsTab==="specs"} defaultOpen={projectSettingsTab==="specs"} onChanged={()=>void monitor.refresh()}/>},{id:"workflow",label:"Workflow",content:<><WorkflowSettings projectId={selection.projectId} defaultOpen={projectSettingsTab==="workflow"}/><OrchestrationSettings projectId={selection.projectId} defaultOpen={projectSettingsTab==="workflow"} onChanged={onProjectsChanged} onSupervise={()=>{if(project)navigate(project,"orchestration");}}/></>}]} /> : selection.view === "ticket-editor" ? <TaskEditor projectId={selection.projectId} projectName={project?.name||"Project"} projects={projects} onSelectProject={next=>{const found=projects.find(item=>item.id===next.id);if(found)navigate(found,"ticket-editor");}} taskId={selection.taskId} available={!!monitor.fresh&&!!monitor.snapshot?.status.capabilities?.includes("task-page")} knownSprints={availableSprints.sprints} knownAssignees={availableAssignees.people} onClose={()=>{if(project)navigate(project,selection.taskId?"task":"board",undefined,selection.taskId);}} onSaved={(task,options)=>{onTaskChanged(task);void refresh();if(project){if(options?.launch){const skillId=context?.skills.find(s=>s.id==="clarify")?.id||context?.skills[0]?.id||"clarify";void launchTask(project.id,launchInput(task.id,skillId,"","")).then(()=>monitor.refresh()).catch(()=>{}).finally(()=>navigate(project,"task",undefined,task.id));}else{navigate(project,"task",undefined,task.id);}}}}/> : selection.view === "task" && selection.taskId ? <Suspense fallback={<p>Opening workflow…</p>}><WorkflowTask projectId={selection.projectId} taskId={selection.taskId} onBack={()=>{if(project)navigate(project,"board");}} onSetup={()=>{if(project)navigate(project,"settings");}} onEdit={()=>{if(project)navigate(project,"ticket-editor",undefined,selection.taskId);}} onExecution={runId=>{if(project)navigate(project,"executions",runId||undefined);}} onOpenConversation={runId=>{if(project)navigate(project,"prompt",runId);}} onArchiveConversation={onArchiveConversation} onTasksLoaded={items=>{setTaskState({projectId:selection.projectId,items});onTasksChanged(items);}}/></Suspense> : selection.view === "board" ? (
         <div className="board-workspace">
-          {error && tasks.length > 0 && <p className="hint" role="status">La dernière actualisation a échoué. Les tickets affichés proviennent de la lecture précédente.</p>}
+          {error && tasks.length > 0 && <p className="hint" role="status">The last refresh failed. Displayed tickets come from the previous read.</p>}
           {!boardContextPending && !currentContextError && !localOnlyProject && <div className="board-toolbar">
-            <div className="board-view-switch" role="group" aria-label="Vue des tickets"><button type="button" aria-pressed={ticketView==="board"} onClick={()=>{setTicketView("board");savePreference("ticketView","board");}}>Tableau</button><button type="button" aria-pressed={ticketView==="list"} onClick={()=>{setTicketView("list");savePreference("ticketView","list");}}>Liste</button></div>
+            <div className="board-view-switch" role="group" aria-label="Ticket view"><button type="button" aria-label="Board" title="Board" aria-pressed={ticketView==="board"} onClick={()=>{setTicketView("board");savePreference("ticketView","board");}}><Icon name="kanban" size={14} /></button><button type="button" aria-label="List" title="List" aria-pressed={ticketView==="list"} onClick={()=>{setTicketView("list");savePreference("ticketView","list");}}><Icon name="list" size={14} /></button></div>
             <label className="search">
               <Icon name="search" />
               <input
-                aria-label="Rechercher des tickets"
-                placeholder="Rechercher un ticket…"
+                aria-label="Search tickets"
+                placeholder="Search tickets…"
                 value={query}
                 onChange={(e) => updateFilters({ query: e.target.value })}
               />
@@ -1377,25 +1503,25 @@ function ProjectPane({
               <button
                 type="button"
                 className={`board-filter-toggle ${hasActiveFilters ? "active" : ""}`}
-                aria-label="Filtres de tickets"
-                title={hasActiveFilters ? `${activeFilterCount} filtre${activeFilterCount > 1 ? "s" : ""} actif${activeFilterCount > 1 ? "s" : ""}` : "Filtrer les tickets"}
+                aria-label="Ticket filters"
+                title={hasActiveFilters ? `${activeFilterCount} active filter${activeFilterCount > 1 ? "s" : ""}` : "Filter tickets"}
                 aria-expanded={filterMenuOpen}
                 onClick={() => setFilterMenuOpen(open => !open)}
               >
-                <span>Filtres</span>
+                <span>Filters</span>
                 {activeFilterCount > 0 && <span className="filter-count-badge">{activeFilterCount}</span>}
               </button>
               {filterMenuOpen && (
-                <div className="board-filter-popover" role="dialog" aria-label="Filtres de tickets">
+                <div className="board-filter-popover" role="dialog" aria-label="Ticket filters">
                   <div className="board-filter-popover-header">
-                    <span className="filter-title">Filtres</span>
+                    <span className="filter-title">Filters</span>
                     {hasActiveFilters && (
                       <button
                         type="button"
                         className="filter-reset-button"
                         onClick={() => { resetFilters(); setFilterMenuOpen(false); }}
                       >
-                        Réinitialiser
+                        Reset
                       </button>
                     )}
                   </div>
@@ -1406,15 +1532,15 @@ function ProjectPane({
                         <input
                           type="text"
                           list="board-filter-sprint-options"
-                          aria-label="Filtrer par sprint"
+                          aria-label="Filter by sprint"
                           className={sprintFilter ? "active" : ""}
-                          placeholder="Tous les sprints…"
-                          value={sprintFilter === "__none__" ? "Sans sprint" : sprintFilter}
+                          placeholder="All sprints…"
+                          value={sprintFilter === "__none__" ? "No sprint" : sprintFilter}
                           onFocus={() => setSprintSuggestionsOpen(true)}
                           onBlur={() => setTimeout(() => setSprintSuggestionsOpen(false), 150)}
                           onChange={e => {
                             const val = e.target.value;
-                            setSprintFilter(val === "Sans sprint" ? "__none__" : val);
+                            setSprintFilter(val === "No sprint" ? "__none__" : val);
                             setSprintSuggestionsOpen(true);
                           }}
                         />
@@ -1422,21 +1548,21 @@ function ProjectPane({
                           <button
                             type="button"
                             className="board-filter-input-clear"
-                            aria-label="Effacer le filtre sprint"
-                            title="Tous les sprints"
+                            aria-label="Clear sprint filter"
+                            title="All sprints"
                             onClick={() => setSprintFilter("")}
                           >
                             ×
                           </button>
                         )}
                         <datalist id="board-filter-sprint-options">
-                          {availableSprints.hasNone && <option value="Sans sprint" />}
+                          {availableSprints.hasNone && <option value="No sprint" />}
                           {availableSprints.sprints.map(s => (
                             <option key={s} value={s} />
                           ))}
                         </datalist>
                         {sprintSuggestionsOpen && (availableSprints.hasNone || availableSprints.sprints.length > 0) && (
-                          <div className="board-filter-suggestions" role="listbox" aria-label="Suggestions de sprint">
+                          <div className="board-filter-suggestions" role="listbox" aria-label="Sprint suggestions">
                             <button
                               type="button"
                               role="option"
@@ -1444,7 +1570,7 @@ function ProjectPane({
                               className={`board-filter-suggestion-item ${!sprintFilter ? "active" : ""}`}
                               onMouseDown={e => { e.preventDefault(); setSprintFilter(""); setSprintSuggestionsOpen(false); }}
                             >
-                              Tous les sprints
+                              All sprints
                             </button>
                             {availableSprints.hasNone && (
                               <button
@@ -1454,7 +1580,7 @@ function ProjectPane({
                                 className={`board-filter-suggestion-item ${sprintFilter === "__none__" ? "active" : ""}`}
                                 onMouseDown={e => { e.preventDefault(); setSprintFilter("__none__"); setSprintSuggestionsOpen(false); }}
                               >
-                                Sans sprint
+                                No sprint
                               </button>
                             )}
                             {availableSprints.sprints
@@ -1478,13 +1604,13 @@ function ProjectPane({
                     <div className="board-filter-row">
                       <span className="board-filter-label">Macro</span>
                       <select
-                        aria-label="Filtrer par parent"
+                        aria-label="Filter by parent"
                         className={parentFilter ? "active" : ""}
                         value={parentFilter}
                         onChange={e => setParentFilter(e.target.value)}
                       >
-                        <option value="">Toutes macros…</option>
-                        {availableParents.hasNone && <option value="__none__">Sans macro</option>}
+                        <option value="">All macros…</option>
+                        {availableParents.hasNone && <option value="__none__">No macro</option>}
                         {availableParents.parents.map(p => (
                           <option key={p.key} value={p.key}>
                             {p.key}{p.title ? ` · ${p.title}` : ""}
@@ -1493,15 +1619,15 @@ function ProjectPane({
                       </select>
                     </div>
                     <div className="board-filter-row">
-                      <span className="board-filter-label">Personne</span>
+                      <span className="board-filter-label">Assignee</span>
                       <select
-                        aria-label="Filtrer par assigné"
+                        aria-label="Filter by assignee"
                         className={assigneeFilter ? "active" : ""}
                         value={assigneeFilter}
                         onChange={e => setAssigneeFilter(e.target.value)}
                       >
-                        <option value="">Toutes personnes</option>
-                        {availableAssignees.hasUnassigned && <option value="__unassigned__">Non assigné</option>}
+                        <option value="">All assignees</option>
+                        {availableAssignees.hasUnassigned && <option value="__unassigned__">Unassigned</option>}
                         {availableAssignees.people.map(person => (
                           <option key={person} value={person}>{person}</option>
                         ))}
@@ -1510,61 +1636,61 @@ function ProjectPane({
                     <div className="board-filter-row">
                       <span className="board-filter-label">Type</span>
                       <select
-                        aria-label="Filtrer par type"
+                        aria-label="Filter by type"
                         className={issueTypeFilter ? "active" : ""}
                         value={issueTypeFilter}
                         onChange={e => setIssueTypeFilter(e.target.value)}
                       >
-                        <option value="">Tous les types</option>
-                        {availableIssueTypes.hasNone && <option value="__none__">Sans type</option>}
+                        <option value="">All types</option>
+                        {availableIssueTypes.hasNone && <option value="__none__">No type</option>}
                         {availableIssueTypes.types.map(type => (
                           <option key={type} value={type}>{type}</option>
                         ))}
                       </select>
                     </div>
                     <div className="board-filter-row">
-                      <span className="board-filter-label">Priorité</span>
+                      <span className="board-filter-label">Priority</span>
                       <select
-                        aria-label="Filtrer par priorité"
+                        aria-label="Filter by priority"
                         className={priorityFilter ? "active" : ""}
                         value={priorityFilter}
                         onChange={e => setPriorityFilter(e.target.value)}
                       >
-                        <option value="">Toutes priorités</option>
+                        <option value="">All priorities</option>
                         <option value="urgent">Urgent</option>
-                        <option value="high">Haute</option>
-                        <option value="medium">Moyenne</option>
-                        <option value="low">Basse</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
                       </select>
                     </div>
                     {availableStatuses.length > 0 && (
                       <div className="board-filter-section-divider">
                         <div className="board-filter-section-header">
-                          <span className="board-filter-section-title">Statut</span>
-                          {statusFilter && (
+                          <span className="board-filter-section-title">Status</span>
+                          {statusFilters.length > 0 && (
                             <button
                               type="button"
                               className="filter-reset-button"
-                              onClick={() => setStatusFilter("")}
+                              onClick={() => setStatusFilters([])}
                             >
-                              Tous
+                              All
                             </button>
                           )}
                         </div>
                         <select
-                          aria-label="Filtrer par statut"
+                          aria-label="Filter by status"
                           className="sr-only"
-                          value={statusFilter}
+                          value={statusFilters[0] ?? ""}
                           onChange={e => setStatusFilter(e.target.value)}
                         >
-                          <option value="">Tous les statuts</option>
+                          <option value="">All statuses</option>
                           {availableStatuses.map(s => (
                             <option key={s.value} value={s.value}>{s.label}</option>
                           ))}
                         </select>
-                        <div className="board-filter-status-list" role="menu" aria-label="Statut">
+                        <div className="board-filter-status-list" role="menu" aria-label="Status">
                           {availableStatuses.map(s => {
-                            const isActive = statusFilter === s.value;
+                            const isActive = statusFilters.includes(s.value);
                             const count = statusCounts[s.value] ?? 0;
                             return (
                               <button
@@ -1573,7 +1699,7 @@ function ProjectPane({
                                 role="menuitemcheckbox"
                                 aria-checked={isActive}
                                 className={`board-filter-status-item ${isActive ? "active" : ""}`}
-                                onClick={() => setStatusFilter(isActive ? "" : s.value)}
+                                onClick={() => toggleStatusFilter(s.value)}
                               >
                                 <span className={`board-filter-checkbox ${isActive ? "checked" : ""}`}>
                                   {isActive && <Icon name="check" />}
@@ -1590,14 +1716,67 @@ function ProjectPane({
                 </div>
               )}
             </div>
+            {ticketView === "list" && (
+              <div className="board-filter-dropdown" ref={columnMenuRef}>
+                <button
+                  type="button"
+                  className={`board-filter-toggle ${listColumns.length < DEFAULT_LIST_COLUMNS.length ? "active" : ""}`}
+                  aria-label="List columns"
+                  title="Choose visible columns"
+                  aria-expanded={columnMenuOpen}
+                  onClick={() => setColumnMenuOpen(open => !open)}
+                >
+                  <span>Columns</span>
+                  {listColumns.length < DEFAULT_LIST_COLUMNS.length && (
+                    <span className="filter-count-badge">{listColumns.length}/{DEFAULT_LIST_COLUMNS.length}</span>
+                  )}
+                </button>
+                {columnMenuOpen && (
+                  <div className="board-filter-popover" role="dialog" aria-label="List columns">
+                    <div className="board-filter-popover-header">
+                      <span className="filter-title">Columns</span>
+                      {listColumns.length < DEFAULT_LIST_COLUMNS.length && (
+                        <button
+                          type="button"
+                          className="filter-reset-button"
+                          onClick={resetListColumns}
+                        >
+                          Show all
+                        </button>
+                      )}
+                    </div>
+                    <div className="board-filter-status-list" role="menu" aria-label="Columns">
+                      {OPTIONAL_LIST_COLUMNS.map(([colId, colLabel]) => {
+                        const isChecked = visibleColumns.has(colId);
+                        return (
+                          <button
+                            key={colId}
+                            type="button"
+                            role="menuitemcheckbox"
+                            aria-checked={isChecked}
+                            className={`board-filter-status-item ${isChecked ? "active" : ""}`}
+                            onClick={() => toggleListColumn(colId)}
+                          >
+                            <span className={`board-filter-checkbox ${isChecked ? "checked" : ""}`}>
+                              {isChecked && <Icon name="check" />}
+                            </span>
+                            <span className="board-filter-status-name">{colLabel}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             {ticketView === "board" && (
-              <div className="board-grouping-switch" role="group" aria-label="Regroupement des tickets">
+              <div className="board-grouping-switch" role="group" aria-label="Ticket grouping">
                 <button
                   type="button"
                   className="grouping-toggle"
                   aria-pressed={grouping === "stage"}
-                  title="Par étape du workflow"
-                  aria-label="Par étape du workflow"
+                  title="By workflow stage"
+                  aria-label="By workflow stage"
                   onClick={() => {
                     setGrouping("stage");
                     savePreference("boardGrouping", "stage");
@@ -1609,8 +1788,8 @@ function ProjectPane({
                   type="button"
                   className="grouping-toggle"
                   aria-pressed={grouping === "tracker"}
-                  title="Par statut tracker"
-                  aria-label="Par statut tracker"
+                  title="By tracker status"
+                  aria-label="By tracker status"
                   onClick={() => {
                     setGrouping("tracker");
                     savePreference("boardGrouping", "tracker");
@@ -1619,7 +1798,7 @@ function ProjectPane({
                   <Icon name="kanban" />
                 </button>
                 <select
-                  aria-label="Regrouper les tickets"
+                  aria-label="Group tickets"
                   className="sr-only"
                   tabIndex={-1}
                   value={grouping}
@@ -1629,44 +1808,45 @@ function ProjectPane({
                     savePreference("boardGrouping", value);
                   }}
                 >
-                  <option value="stage">Par étape du workflow</option>
-                  <option value="tracker">Par statut tracker</option>
+                  <option value="stage">By workflow stage</option>
+                  <option value="tracker">By tracker status</option>
                 </select>
               </div>
             )}
-            {ticketView==="board"&&<button type="button" className="board-density" aria-label="Cartes compactes" title="Basculer la densité des cartes" aria-pressed={compactCards} onClick={()=>setCompactCards(value=>{const next=!value;savePreference("boardCards",next?"compact":"full");return next;})}>{compactCards?"Compact":"Détaillé"}</button>}
-            <span className="badge" title="Statuts du tracker · lecture seule">{count} ticket{count>1?"s":""}</span><span className="sr-only">Statuts du tracker · lecture seule</span>
-            <button type="button" className="board-new-ticket" aria-label="Nouveau ticket" title="Nouveau ticket" disabled={!monitor.fresh||!monitor.snapshot?.status.capabilities?.includes("task-page")} onClick={()=>{if(project)navigate(project,"ticket-editor");}}><Icon name="plus"/></button>
-            {selectedTasks.length>0&&<div className="board-batch-controls"><span className="board-selection-count">{selectedTasks.length} sélectionné{selectedTasks.length>1?"s":""}</span><button type="button" onClick={()=>{setSelectedTaskIds([]);setBatchConfirm(false);}}>Effacer la sélection</button><button type="button" disabled={selectedTasks.length<2||launching||selectedTasks.some(task=>taskStage(task,context?.board)==="finished")||!context?.skills.some(skill=>skill.id==="pickup_issues")} onClick={()=>setBatchConfirm(true)}>Préparer un lot</button></div>}
+            {ticketView==="board"&&<button type="button" className="board-density" aria-label="Compact cards" title="Toggle card density" aria-pressed={compactCards} onClick={()=>setCompactCards(value=>{const next=!value;savePreference("boardCards",next?"compact":"full");return next;})}>{compactCards?"Compact":"Detailed"}</button>}
+            <span className="badge" title="Tracker statuses · read-only">{count} ticket{count>1?"s":""}</span><span className="sr-only">Tracker statuses · read-only</span>
+            <button type="button" className="board-new-ticket" aria-label="New ticket" title="New ticket" disabled={!monitor.fresh||!monitor.snapshot?.status.capabilities?.includes("task-page")} onClick={()=>{if(project)navigate(project,"ticket-editor");}}><Icon name="plus"/></button>
+            {selectedTasks.length>0&&<div className="board-batch-controls"><span className="board-selection-count">{selectedTasks.length} selected</span><button type="button" onClick={()=>{setSelectedTaskIds([]);setBatchConfirm(false);}}>Clear selection</button><button type="button" disabled={selectedTasks.length<2||launching||selectedTasks.some(task=>taskStage(task,context?.board)==="finished")||!context?.skills.some(skill=>skill.id==="pickup_issues")} onClick={()=>setBatchConfirm(true)}>Prepare batch</button></div>}
           </div>}
           {launchError&&<p className="error" role="alert">{launchError}</p>}
-          {batchConfirm&&<section className="batch-confirm" aria-label="Préparer un lot"><strong>Lancer la chaîne sur {selectedTasks.length} tickets</strong><p>Les tickets sélectionnés seront traités ensemble dans un seul espace de travail. Vérifiez leur ordre avant le lancement.</p><ol>{selectedTasks.map(task=><li key={task.id}>{task.key||task.id} · {task.title}</li>)}</ol><button type="button" disabled={launching||selectedTasks.length<2} onClick={()=>void startBatch()}>{launching?"Lancement…":"Lancer le lot"}</button><button type="button" onClick={()=>setBatchConfirm(false)}>Annuler</button></section>}
+          {batchConfirm&&<section className="batch-confirm" aria-label="Prepare batch"><strong>Run chain on {selectedTasks.length} tickets</strong><p>Selected tickets will be processed together in a single workspace. Check their order before launching.</p><ol>{selectedTasks.map(task=><li key={task.id}>{task.key||task.id} · {task.title}</li>)}</ol><button type="button" disabled={launching||selectedTasks.length<2} onClick={()=>void startBatch()}>{launching?"Launching…":"Launch batch"}</button><button type="button" onClick={()=>setBatchConfirm(false)}>Cancel</button></section>}
           {busy && (
             <p className="hint" role="status">
-              Actualisation des tickets…
+              Refreshing tickets…
             </p>
           )}
-          {boardContextPending && !busy && <p className="hint" role="status">Chargement de la configuration du projet…</p>}
-          {currentContextError && <div className="error" role="alert">Configuration du tableau indisponible : {currentContextError} <button onClick={()=>setContextRefresh(value=>value+1)}>Réessayer</button></div>}
-          {ticketView==="list"&&!localOnlyProject?<div className="ticket-list" role="region" aria-label="Liste des tickets" tabIndex={0}><table><thead><tr><th aria-label="Sélection"/>{([["key","Clé"],["title","Titre"],["issueType","Type"],["stage","Statut"],["priority","Priorité"],["sprint","Sprint"],["assignee","Assigné"]] as const).map(([field,label])=>{const active=tableSort.field===field;return <th key={field} scope="col" aria-sort={active?(tableSort.ascending?"ascending":"descending"):"none"}><button type="button" className="sort-header" onClick={()=>setTableSort(current=>nextSort(current,field))}>{label}{active&&<span className="sort-arrow" aria-hidden="true">{tableSort.ascending?"▲":"▼"}</span>}</button></th>;})}<th>Moteur</th><th>PR</th><th>Actions</th></tr></thead><tbody>{sortedTasks.slice(0,visibleListCount).map(task=>{
+          {boardContextPending && !busy && <p className="hint" role="status">Loading project configuration…</p>}
+          {currentContextError && <div className="error" role="alert">Board configuration unavailable: {currentContextError} <button onClick={()=>setContextRefresh(value=>value+1)}>Retry</button></div>}
+          {ticketView==="list"&&!localOnlyProject?<div className="ticket-list" role="region" aria-label="Ticket list" tabIndex={0}><table><thead><tr><th data-col="select" aria-label="Selection"/>{([["key","Key"],["title","Title"],["parent","Macro"],["issueType","Type"],["stage","Status"],["priority","Priority"],["sprint","Sprint"],["assignee","Assignee"]] as const).filter(([field])=>field==="key"||field==="title"||visibleColumns.has(field)).map(([field,label])=>{const active=tableSort.field===field;return <th key={field} data-col={field} scope="col" aria-sort={active?(tableSort.ascending?"ascending":"descending"):"none"}><button type="button" className="sort-header" onClick={()=>setTableSort(current=>nextSort(current,field))}>{label}{active&&<span className="sort-arrow" aria-hidden="true">{tableSort.ascending?"▲":"▼"}</span>}</button></th>;})}{visibleColumns.has("engine")&&<th data-col="engine">Engine</th>}{visibleColumns.has("pr")&&<th data-col="pr">PR</th>}<th data-col="actions">Actions</th></tr></thead><tbody>{sortedTasks.slice(0,visibleListCount).map(task=>{
             const next=context?nextSkill(task,context):undefined;
             const taskRun=activeTaskRuns.get(task.id);
             const active=taskRun&&isActive(taskRun);
             const isFinished=taskStage(task,context?.board)==="finished";
             const runDisabled=launching||!monitor.fresh||isFinished||!!active||!next?.skillId||!context?.configured;
-            const actionLabel=active?"En cours":isFinished?"Terminé":next?.skillId?next.label:"Lancer";
-            const runTitle=active?"Une exécution est en cours sur ce ticket":isFinished?"Ce ticket est terminé":!context?.configured?"Configurez le dépôt local du projet pour lancer une skill":next?.skillId?`Lancer : ${next.label}`:(next?.reason||"Aucune action disponible");
+            const actionLabel=active?"Running":isFinished?"Finished":next?.skillId?next.label:"Launch";
+            const runTitle=active?"An execution is running on this ticket":isFinished?"This ticket is finished":!context?.configured?"Configure the project's local repository to launch a skill":next?.skillId?`Launch: ${next.label}`:(next?.reason||"No action available");
             return <tr key={task.id}>
-              <td><input type="checkbox" aria-label={`Sélectionner ${task.key||task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={()=>toggleTask(task.id)}/></td>
-              <td><button type="button" className="task-key-link" title={`Ouvrir le ticket ${task.key||task.id}`} aria-label={`Ouvrir le ticket ${task.key||task.id}`} onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.key||task.id}</button></td>
-              <td><button type="button" className="task-open" onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button>{task.parentKey&&<small className="epic-chip" style={epicStyle(task)} title={task.parentTitle}>{task.parentKey}</small>}</td>
-              <td>{task.issueType||"—"}</td>
-              <td>{task.trackerStatus||"—"}</td>
-              <td><span className={`priority priority-${task.priority||"none"}`}>{task.priority||"—"}</span></td>
-              <td>{task.sprint||"—"}</td>
-              <td>{task.assignee||"Non assigné"}</td>
-              <td>{context?.aiProvider?<span className="engine-mark" title={context.aiProvider==="codex"?"Codex":context.aiProvider==="claude"?"Claude Code":context.aiProvider}>{engineMark(context.aiProvider)}</span>:"—"}</td>
-              <td className="ticket-pr-cell">{(()=>{
+              <td data-col="select"><input type="checkbox" aria-label={`Select ${task.key||task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={()=>toggleTask(task.id)}/></td>
+              <td data-col="key"><button type="button" className="task-key-link" title={`Open ticket ${task.key||task.id}`} aria-label={`Open ticket ${task.key||task.id}`} onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.key||task.id}</button></td>
+              <td data-col="title"><button type="button" className="task-open" onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button></td>
+              {visibleColumns.has("parent")&&<td data-col="parent">{task.parentKey?<small className="epic-chip" style={epicStyle(task)} title={task.parentTitle}>{task.parentKey}</small>:"—"}</td>}
+              {visibleColumns.has("issueType")&&<td data-col="issueType">{task.issueType||"—"}</td>}
+              {visibleColumns.has("stage")&&<td data-col="stage">{task.trackerStatus||"—"}</td>}
+              {visibleColumns.has("priority")&&<td data-col="priority"><span className={`priority priority-${task.priority||"none"}`}>{task.priority||"—"}</span></td>}
+              {visibleColumns.has("sprint")&&<td data-col="sprint">{task.sprint||"—"}</td>}
+              {visibleColumns.has("assignee")&&<td data-col="assignee">{task.assignee||"Unassigned"}</td>}
+              {visibleColumns.has("engine")&&<td data-col="engine">{context?.aiProvider?<span className="engine-mark" title={context.aiProvider==="codex"?"Codex":context.aiProvider==="claude"?"Claude Code":context.aiProvider}>{engineMark(context.aiProvider)}</span>:"—"}</td>}
+              {visibleColumns.has("pr")&&<td data-col="pr" className="ticket-pr-cell">{(()=>{
                 const prLinks = taskPullRequests(task);
                 const primaryPr = prLinks[0] || (task.prUrl && /^https?:\/\//.test(task.prUrl) ? { url: task.prUrl } : undefined);
                 if (!primaryPr) return "—";
@@ -1674,23 +1854,23 @@ function ProjectPane({
                   <button
                     type="button"
                     className="task-pr-link"
-                    title={`Ouvrir ${pullRequestLabel(primaryPr)} · ${pullRequestStateLabel(primaryPr)}`}
-                    aria-label={`Ouvrir la PR de ${task.key||task.title}`}
-                    onClick={()=>void openExternalLink(primaryPr.url).catch(()=>setLaunchError("Impossible d’ouvrir la PR."))}
+                    title={`Open ${pullRequestLabel(primaryPr)} · ${pullRequestStateLabel(primaryPr)}`}
+                    aria-label={`Open PR for ${task.key||task.title}`}
+                    onClick={()=>void openExternalLink(primaryPr.url).catch(()=>setLaunchError("Unable to open PR."))}
                   >
                     <Icon name="pr" size={14}/>
                     {prLinks.length > 1 && <small className="pr-count">{prLinks.length}</small>}
                   </button>
                 );
-              })()}</td>
-              <td className="ticket-actions-cell">
+              })()}</td>}
+              <td data-col="actions" className="ticket-actions-cell">
                 <div className="ticket-actions">
                   <button
                     type="button"
                     className="ticket-run"
                     disabled={runDisabled}
                     title={runTitle}
-                    aria-label={`Lancer ${next?.label||"l’action"} pour ${task.key||task.title}`}
+                    aria-label={`Launch ${next?.label||"action"} for ${task.key||task.title}`}
                     onClick={()=>{if(next?.skillId)void startSkill(task,next.skillId);}}
                   >
                     {actionLabel}
@@ -1699,7 +1879,7 @@ function ProjectPane({
                 </div>
               </td>
             </tr>;
-          })}</tbody></table>{sortedTasks.length>visibleListCount&&<button type="button" className="board-show-more" onClick={()=>setVisibleListCount(value=>value+80)}>Afficher les 80 suivants · {visibleListCount} sur {sortedTasks.length}</button>}</div>:<div className="board" role="region" aria-label="Colonnes de tickets, défilement horizontal" tabIndex={0}>
+          })}</tbody></table>{sortedTasks.length>visibleListCount&&<button type="button" className="board-show-more" onClick={()=>setVisibleListCount(value=>value+80)}>Show next 80 · {visibleListCount} of {sortedTasks.length}</button>}</div>:<div className="board" role="region" aria-label="Ticket columns, horizontal scroll" tabIndex={0}>
             {columns.map((column) => (
               <section className="column" data-stage={column.stage} key={column.name}>
                 <h2>
@@ -1711,21 +1891,21 @@ function ProjectPane({
                   const taskRun = activeTaskRuns.get(task.id);
                   return <article className={`task ${compactCards?"compact":""} ${epicStyle(task)?"has-epic-color":""}`} style={epicStyle(task)} key={task.id}>
                     <div className="task-meta">
-                      <label><input type="checkbox" aria-label={`Sélectionner ${task.key||task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={()=>toggleTask(task.id)}/>{task.key || task.id}</label>
+                      <label><input type="checkbox" aria-label={`Select ${task.key||task.title}`} checked={selectedTaskIds.includes(task.id)} onChange={()=>toggleTask(task.id)}/>{task.key || task.id}</label>
                       {taskMenu(task)}
                     </div>
                     <h3><button className="task-open" title={task.title} onClick={()=>{if(project)navigate(project,"task",undefined,task.id);}}>{task.title}</button></h3>
                     {task.parentKey&&<span className="epic-chip" style={epicStyle(task)} title={task.parentTitle}>{task.parentKey}</span>}
-                    {task.issueType&&<span className="issue-type-chip" title={`Type : ${task.issueType}`}>{task.issueType}</span>}
-                    {task.sprint&&<span className="sprint-chip" title={`Sprint : ${task.sprint}`}>{task.sprint}</span>}
+                    {task.issueType&&<span className="issue-type-chip" title={`Type: ${task.issueType}`}>{task.issueType}</span>}
+                    {task.sprint&&<span className="sprint-chip" title={`Sprint: ${task.sprint}`}>{task.sprint}</span>}
                     {task.priority&&<span className={`priority priority-${task.priority}`}>{task.priority}</span>}
                     {taskRun && isActive(taskRun) && <p className="task-run-state" role="status">{skillLabels[taskRun.skill] || taskRun.skill} · {statusLabel(taskRun)}</p>}
                     <footer>
-                      <span>{task.assignee || "Non assigné"}</span>
+                      <span>{task.assignee || "Unassigned"}</span>
                       {project && (
                         <button
-                          title="Ouvrir le workflow du ticket"
-                          aria-label={`Ouvrir le workflow de ${task.key || task.title}`}
+                          title="Open ticket workflow"
+                          aria-label={`Open workflow for ${task.key || task.title}`}
                           className="icon-button"
                           onClick={() =>
                             navigate(project, "task", undefined, task.id)
@@ -1739,25 +1919,63 @@ function ProjectPane({
                 })}
                 {column.tasks.length > (visibleByColumn[column.name] ?? 40) && <button
                   className="board-show-more"
-                  aria-label={`Afficher les tickets suivants dans ${column.name}`}
+                  aria-label={`Show more tickets in ${column.name}`}
                   onClick={()=>setVisibleByColumn(previous=>({...previous,[column.name]:(previous[column.name]??40)+40}))}
-                >Afficher {Math.min(40,column.tasks.length-(visibleByColumn[column.name]??40))} suivants · {Math.min(visibleByColumn[column.name]??40,column.tasks.length)} sur {column.tasks.length}</button>}
+                >Show next {Math.min(40,column.tasks.length-(visibleByColumn[column.name]??40))} · {Math.min(visibleByColumn[column.name]??40,column.tasks.length)} of {column.tasks.length}</button>}
               </section>
             ))}
           </div>}
           {!busy && !error && !currentContextError && !boardContextPending && !count && (
             <div className="empty">
               <Icon name="board" />
-              <h2>{localOnlyProject ? project?.path ? "Votre projet local est prêt" : "Choisissez un dossier pour commencer" : "Aucun ticket distant"}</h2>
-              <p>{localOnlyProject ? project?.path ? "Aucun tracker n’est associé. Lancez un prompt pour travailler dans votre dossier local." : "Lancez un prompt libre dans ce projet, sans configurer de tracker." : query ? "Essayez une autre recherche ou vérifiez la synchronisation du projet." : project?.path ? "Le tracker ne remonte aucun ticket. Vous pouvez lancer un prompt dans le dossier local associé." : "Vérifiez la synchronisation et le périmètre du tracker."}</p>
+              <h2>{localOnlyProject ? project?.path ? "Your local project is ready" : "Choose a folder to get started" : "No remote tickets"}</h2>
+              <p>{localOnlyProject ? project?.path ? "No tracker is attached. Start a prompt to work in your local folder." : "Start a free prompt in this project without configuring a tracker." : query ? "Try another search or check project sync." : project?.path ? "The tracker returned no tickets. You can start a prompt in the mapped local folder." : "Check the tracker sync and scope."}</p>
               {localOnlyProject && project && !project.path && <ProjectFolderSetup variant="board" project={project} onMapped={path=>onFolderMapped(project.id,path)} />}
             </div>
           )}
         </div>
       ) : selection.view === "prompt" ? (
-        selection.runId || project?.path?.trim() ? <Suspense fallback={<p>Ouverture du prompt…</p>}>
-          <ProjectPrompt key={`${selection.projectId}:${selection.runId??"new"}`} agentAvailable={monitor.fresh && !!monitor.snapshot?.status.connected} directory={workingDirectory} folders={currentRun?.folders} run={currentRun} task={tasks.find(task=>task.id===currentRun?.taskId)} board={context?.board} onOpenQueue={project?()=>navigate(project,"executions"):undefined} onOpenTask={currentRun?.taskId&&project?()=>navigate(project,"task",undefined,currentRun.taskId):undefined} onArchive={currentRun?()=>onArchiveConversation(currentRun.id):undefined} onStopped={()=>void monitor.refresh()} onFoldersChanged={()=>void monitor.refresh()} onTitleChanged={()=>void monitor.refresh()} projectId={selection.projectId} runId={selection.runId} onCreated={id => { if (project) navigate(project, "prompt", id); }} />
-        </Suspense> : project ? <ProjectFolderSetup project={project} onMapped={path=>onFolderMapped(project.id,path)} /> : <p>Chargement du projet…</p>
+        selection.runId || project?.path?.trim() ? <Suspense fallback={<p>Opening prompt…</p>}>
+          <ProjectPrompt
+            key={`${selection.projectId}:${selection.runId??"new"}`}
+            projectName={project?.name || "Project"}
+            agentAvailable={monitor.fresh && !!monitor.snapshot?.status.connected}
+            directory={workingDirectory}
+            folders={currentRun?.folders}
+            run={currentRun}
+            task={tasks.find(task=>task.id===currentRun?.taskId)}
+            board={context?.board}
+            projectContext={context}
+            taskRuns={currentRun?.taskId ? projectRuns(monitor.snapshot?.runs ?? [], selection.projectId).filter(r => r.taskId === currentRun.taskId) : undefined}
+            canEditTask={Boolean(monitor.fresh && monitor.snapshot?.status.capabilities?.includes("task-page"))}
+            knownSprints={availableSprints.sprints}
+            knownAssignees={availableAssignees.people}
+            onTaskSaved={saved => {
+              onTaskChanged(saved);
+              void refresh();
+            }}
+            onSelectRun={nextRunId => {
+              if (!project || !nextRunId) return;
+              const target = monitor.snapshot?.runs.find(item => item.id === nextRunId);
+              if (target?.conversation) navigate(project, "prompt", target.id);
+              else navigate(project, "executions", nextRunId);
+            }}
+            onLaunchSkill={currentRun?.taskId ? skillId => {
+              const targetTask = tasks.find(t => t.id === currentRun.taskId);
+              if (targetTask) void startSkill(targetTask, skillId);
+            } : undefined}
+            onEditTask={currentRun?.taskId && project && monitor.snapshot?.status.capabilities?.includes("task-page") ? () => navigate(project, "ticket-editor", undefined, currentRun.taskId) : undefined}
+            onOpenQueue={project?()=>navigate(project,"executions"):undefined}
+            onOpenTask={currentRun?.taskId&&project?()=>void openTaskInTracker(project.id,currentRun.taskId,tasks.find(task=>task.id===currentRun?.taskId),setLaunchError):undefined}
+            onArchive={currentRun?()=>onArchiveConversation(currentRun.id):undefined}
+            onStopped={()=>void monitor.refresh()}
+            onFoldersChanged={()=>void monitor.refresh()}
+            onTitleChanged={()=>void monitor.refresh()}
+            projectId={selection.projectId}
+            runId={selection.runId}
+            onCreated={id => { if (project) navigate(project, "prompt", id); }}
+          />
+        </Suspense> : project ? <ProjectFolderSetup project={project} onMapped={path=>onFolderMapped(project.id,path)} /> : <p>Loading project…</p>
       ) : (
         <Supervisor
           projectId={selection.projectId}
@@ -1799,25 +2017,25 @@ function RunNavigation({run,task,selected,onClick,onOpenTask}:{run:Run;task?:Tas
  if(run.conversation)return <ConversationNavigation run={run} task={task} selected={selected} onClick={onClick} onOpenTask={onOpenTask} />;
  return <button className={`sidebar-run ${selected ? "selected" : ""}`} title={statusLabel(run)} onClick={onClick}>
   <span className={`dot ${isActive(run) ? "live" : ""}`} />
-  {run.taskKey && <span role="button" tabIndex={0} className="sidebar-task-key" title={`Ouvrir le ticket ${run.taskKey}`} aria-label={`Ouvrir le ticket ${run.taskKey}`} onClick={e=>{e.stopPropagation();onOpenTask?.();}} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.stopPropagation();onOpenTask?.();}}}>{run.taskKey}</span>}
-  <span>{run.taskKey || run.skill || "Exécution"}</span>
+  {run.taskKey && <span role="button" tabIndex={0} className="sidebar-task-key" title={`Open ticket ${run.taskKey}`} aria-label={`Open ticket ${run.taskKey}`} onClick={e=>{e.stopPropagation();onOpenTask?.();}} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.stopPropagation();onOpenTask?.();}}}>{run.taskKey}</span>}
+  <span>{run.taskKey || run.skill || "Execution"}</span>
  </button>;
 }
 function ConversationPrAction({task,taskKey,onError}:{task?:Task;taskKey?:string;onError:()=>void}){
  const links=taskPullRequests(task);
  if(!links.length)return null;
  const current=links[links.length-1];
- return <button className="conversation-pr-action" type="button" aria-label={`Ouvrir la PR/MR de ${task?.key||taskKey||task?.title||"ce ticket"}`} title={`${links.length>1?`${links.length} PR/MR · `:""}${pullRequestLabel(current)} · ${pullRequestStateLabel(current)}`} onClick={()=>void openExternalLink(current.url).catch(onError)}><Icon name="branch"/>{links.length>1&&<small>{links.length}</small>}</button>;
+ return <button className="conversation-pr-action" type="button" aria-label={`Open PR/MR for ${task?.key||taskKey||task?.title||"this ticket"}`} title={`${links.length>1?`${links.length} PR/MR · `:""}${pullRequestLabel(current)} · ${pullRequestStateLabel(current)}`} onClick={()=>void openExternalLink(current.url).catch(onError)}><Icon name="branch"/>{links.length>1&&<small>{links.length}</small>}</button>;
 }
 function ConversationNavigation({run,task,selected,onClick,onOpenTask}:{run:Run;task?:Task;selected:boolean;onClick:()=>void;onOpenTask?:()=>void}){
  // Subscribe to already loaded transcripts; navigation never fetches histories.
  const {snapshot,loaded,error}=useConversation(run.id);
  const title=useMemo(()=>conversationTitle(snapshot,run,task),[snapshot.events,snapshot.title,run,task]);
  const provider=run.provider==="claude"?"Claude Code":run.provider==="codex"?"Codex":run.engineName||"Assistant";
- const activity=!isActive(run)?statusLabel(run):error?"Suivi interrompu":loaded&&snapshot.id===run.id?snapshot.approvals?.length?"Votre intervention est requise":snapshot.busy?"En cours":snapshot.readOnly?"Lecture seule":"Prête":statusLabel(run);
+ const activity=!isActive(run)?statusLabel(run):error?"Tracking interrupted":loaded&&snapshot.id===run.id?snapshot.approvals?.length?"Action required":snapshot.busy?"Running":snapshot.readOnly?"Read-only":"Ready":statusLabel(run);
  return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={`${run.taskKey?`${run.taskKey} · `:""}${title} · ${provider}${run.model ? ` · ${run.model}` : ""} · ${task?.trackerStatus?`${task.trackerStatus} · `:""}${activity}`}>
   <span className={`conversation-indicator ${snapshot.approvals?.length?"needs-input":loaded&&snapshot.busy?"live":isActive(run)?"session":"idle"}`} />
-  {run.taskKey && <span role="button" tabIndex={0} className="sidebar-task-key" title={`Ouvrir le ticket ${run.taskKey}`} aria-label={`Ouvrir le ticket ${run.taskKey}`} onClick={e=>{e.stopPropagation();onOpenTask?.();}} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.stopPropagation();onOpenTask?.();}}}>{run.taskKey}</span>}
+  {run.taskKey && <span role="button" tabIndex={0} className="sidebar-task-key" title={`Open ticket ${run.taskKey}`} aria-label={`Open ticket ${run.taskKey}`} onClick={e=>{e.stopPropagation();onOpenTask?.();}} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.stopPropagation();onOpenTask?.();}}}>{run.taskKey}</span>}
   <span className="conversation-navigation-text"><span>{title}</span></span>
  </button>;
 }

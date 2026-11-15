@@ -271,7 +271,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if connectionID != "" && source.desktop.ConnectionID != "" && source.desktop.ConnectionID != connectionID {
-			http.Error(w, "Cette exécution appartient à une autre connexion du desktop.", http.StatusNotFound)
+			http.Error(w, "This execution belongs to another desktop connection.", http.StatusNotFound)
 			return
 		}
 		model := ""
@@ -281,7 +281,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		if source.desktop.Provider == "agy" {
 			defaultMode = defaultAgyMode
 		}
-		run, err := d.newConversationLocked(source.desktop.ProjectID, source.desktop.Directory, model, defaultMode, "Cette conversation est indépendante de l’exécution sélectionnée et utilise le même dossier.", source.desktop.Provider)
+		run, err := d.newConversationLocked(source.desktop.ProjectID, source.desktop.Directory, model, defaultMode, "This conversation is independent of the selected execution and uses the same folder.", source.desktop.Provider)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
@@ -300,7 +300,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if connectionID != "" && run.desktop.ConnectionID != "" && run.desktop.ConnectionID != connectionID {
-		http.Error(w, "Cette conversation appartient à une autre connexion du desktop.", http.StatusNotFound)
+		http.Error(w, "This conversation belongs to another desktop connection.", http.StatusNotFound)
 		return
 	}
 	if r.Method == http.MethodGet {
@@ -309,7 +309,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		persistenceFailed := run.journal.err() != nil
 		response := map[string]any{"provider": run.desktop.Provider, "id": id, "version": version, "busy": false, "readOnly": run.restored || run.canceled || run.conversation == nil || unboundConnection || persistenceFailed, "title": run.desktop.Title, "canRename": run.desktop.TaskID == "" && d.store != nil, "connectionId": run.desktop.ConnectionID, "canAdoptConnection": unboundConnection && !persistenceFailed && !run.canceled && run.desktop.TaskID == "" && run.conversation != nil && d.store != nil}
 		if run.journal.err() != nil {
-			response["persistenceError"] = "La sauvegarde locale est indisponible. Les dernières sorties risquent d’être perdues."
+			response["persistenceError"] = "Local storage is unavailable. Recent output may be lost."
 		}
 		// Desktop polls a conversation several times a second and sends the
 		// version it already shows: the events go only when they changed.
@@ -348,19 +348,19 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 	}
 	if connectionID != "" && run.desktop.ConnectionID == "" {
 		if !input.AdoptConnection || run.canceled || run.desktop.TaskID != "" || run.conversation == nil || d.store == nil || run.journal.err() != nil {
-			http.Error(w, "Associez d’abord cet historique à la connexion sélectionnée.", http.StatusConflict)
+			http.Error(w, "Associate this history with the selected connection first.", http.StatusConflict)
 			return
 		}
 		run.desktop.ConnectionID = connectionID
 		d.updateConversationJournalLocked(run)
 		if run.journal == nil {
 			run.desktop.ConnectionID = ""
-			http.Error(w, "Impossible d’enregistrer l’identité de cette conversation.", http.StatusInternalServerError)
+			http.Error(w, "Could not save this conversation's identity.", http.StatusInternalServerError)
 			return
 		}
 		run.journal.checkpoint()
 		if err := run.journal.err(); err != nil {
-			http.Error(w, "Impossible d’enregistrer l’identité de cette conversation.", http.StatusInternalServerError)
+			http.Error(w, "Could not save this conversation's identity.", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -369,7 +369,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if input.AdoptConnection {
-		http.Error(w, "Cette conversation est déjà associée à une autre connexion.", http.StatusConflict)
+		http.Error(w, "This conversation is already associated with another connection.", http.StatusConflict)
 		return
 	}
 	if input.CheckMCP {
@@ -553,15 +553,15 @@ func startConversationLocked(run *controlledRun, model, mode, origin string, pro
 	if run.desktop.Provider == "codex" {
 		run.conversation.mode = "workspace-write"
 		run.conversation.commands = []conversationSlash{}
-		conversationWrite(run.trace, "notice", "Conversation Codex", "Codex utilise son bac à sable et demande une approbation si nécessaire. "+origin)
+		conversationWrite(run.trace, "notice", "Codex conversation", "Codex uses its sandbox and asks for approval when needed. "+origin)
 		return
 	}
 	if run.desktop.Provider == "agy" {
 		run.conversation.mode = providerConversationMode("agy", mode)
-		conversationWrite(run.trace, "notice", "Conversation Antigravity", "Les modifications du dossier sont autorisées par défaut ; choisissez l’approbation automatique des outils dans la zone de saisie si une réponse doit lancer des commandes ou des outils externes. "+origin)
+		conversationWrite(run.trace, "notice", "Antigravity conversation", "Folder edits are allowed by default; choose auto-approve all tools in the composer if a reply needs to run commands or external tools. "+origin)
 		return
 	}
-	conversationWrite(run.trace, "notice", "Conversation Claude Code", "Les outils autorisés par Sectile sont disponibles ; Claude Code demande votre accord pour les autres actions selon vos règles et le mode choisi. "+origin)
+	conversationWrite(run.trace, "notice", "Claude Code conversation", "Tools allowed by Sectile are available; Claude Code asks for your approval for other actions according to your rules and the selected mode. "+origin)
 }
 
 // claudeConversationCommand is one turn's Claude. Each of dirs is one
@@ -688,7 +688,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	// Claude may read, they never decide whether it answers.
 	folders, env, err := d.conversationFolders(projectID, directory)
 	if err != nil {
-		conversationWrite(run.trace, "notice", "Les dossiers joints n’ont pas pu être lus pour ce message", err.Error())
+		conversationWrite(run.trace, "notice", "Attached folders could not be read for this message", err.Error())
 	}
 	dirs := folderMapDirs(folders)
 	// Each turn is a new Claude: it reads the project's values as they are
@@ -842,7 +842,7 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 					conversationWrite(run.trace, "command_output", result, "")
 				}
 				if len(frame.Denials) > 0 {
-					conversationWrite(run.trace, "notice", "Certains appels d’outils ont été refusés.", "")
+					conversationWrite(run.trace, "notice", "Some tool calls were denied.", "")
 				}
 			}
 			return
@@ -915,18 +915,18 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 	run.conversation.input = nil
 	if pending := len(run.conversation.approvals); pending > 0 {
 		run.conversation.approvals = nil
-		conversationWrite(run.trace, "notice", "La réponse s’est terminée avant la validation des appels d’outils", "")
+		conversationWrite(run.trace, "notice", "The answer ended before tool calls were approved", "")
 	}
 	markApprovalWaitLocked(run)
 	preserveConversationDraft(run)
 	if interrupted && !run.canceled {
-		conversationWrite(run.trace, "notice", "Interrompu", "Claude Code a arrêté cette réponse. Envoyez un message pour poursuivre la conversation.")
+		conversationWrite(run.trace, "notice", "Interrupted", "Claude Code stopped this answer. Send a message to continue the conversation.")
 	} else if run.canceled {
 		run.desktop.Status = conversationStoppedStatus(run)
 		if !run.resumeAfterShutdown || run.pausedTurnOnShutdown {
-			notice := "Conversation arrêtée"
+			notice := "Conversation stopped"
 			if run.resumeAfterShutdown {
-				notice = "Conversation suspendue pour le redémarrage de l’agent"
+				notice = "Conversation suspended for agent restart"
 			}
 			conversationWrite(run.trace, "notice", notice, "")
 		}
@@ -934,11 +934,11 @@ func (d *agentDaemon) conversationTurn(run *controlledRun, prompt string) {
 		d.updateConversationJournalLocked(run)
 		run.once.Do(func() { close(run.exited) })
 	} else if err != nil {
-		conversationWrite(run.trace, "error", fmt.Sprintf("Échec de Claude Code : %v", err), "")
+		conversationWrite(run.trace, "error", fmt.Sprintf("Claude Code failed: %v", err), "")
 	} else if !resultSeen {
-		conversationWrite(run.trace, "error", "Claude Code s’est arrêté sans résultat final.", "")
+		conversationWrite(run.trace, "error", "Claude Code stopped without a final result.", "")
 	} else if !resultFailed {
-		conversationWrite(run.trace, "notice", "Prêt pour votre prochain message", "")
+		conversationWrite(run.trace, "notice", "Ready for your next message", "")
 	}
 	run.conversation.busy = false
 	run.conversation.partial = ""

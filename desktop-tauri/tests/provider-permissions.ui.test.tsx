@@ -7,11 +7,11 @@ afterEach(()=>{cleanup();vi.resetAllMocks();});
 test("permission defaults change only through explicit saving",async()=>{
  vi.mocked(saveProviderPermissions).mockResolvedValue({mode:"plan"});const reload=vi.fn(async()=>{});
  render(<ProviderPermissions provider="claude" view={{provider:"claude",complete:false,steps:{},permissions:{mode:"acceptEdits"}}} onSaved={reload}/>);
- fireEvent.click(screen.getByText("Autorisations des conversations"));
+ fireEvent.click(screen.getByText("Conversation permissions"));
  expect(saveProviderPermissions).not.toHaveBeenCalled();
- fireEvent.change(screen.getByLabelText("Mode Claude par défaut"),{target:{value:"plan"}});
+ fireEvent.change(screen.getByLabelText("Default Claude mode"),{target:{value:"plan"}});
  expect(saveProviderPermissions).not.toHaveBeenCalled();
- fireEvent.click(screen.getByRole("button",{name:"Enregistrer les autorisations Sectile"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save Sectile permissions"}));
  await waitFor(()=>expect(saveProviderPermissions).toHaveBeenCalledExactlyOnceWith({provider:"claude",mode:"plan"}));
- expect(await screen.findByText(/Préférence enregistrée/)).toBeTruthy();expect(reload).toHaveBeenCalledTimes(1);
+ expect(await screen.findByText(/Preference saved/)).toBeTruthy();expect(reload).toHaveBeenCalledTimes(1);
 });

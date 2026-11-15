@@ -50,7 +50,7 @@ func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispa
 	// fast first tool must not outrun the ordinary five-second checkpoint.
 	run := d.registerHeadlessRun(taskRef, payload, config, workDir, branch, provider, model, commandReadsReasoning(fullLine))
 	if err := d.checkpointRun(payload.RunID, run); err != nil {
-		failure := fmt.Errorf("Sauvegarde locale de l’exécution impossible avant le démarrage : %w", err)
+		failure := fmt.Errorf("Could not save execution locally before starting: %w", err)
 		d.finishHeadlessRun(taskRef, payload.RunID, run, "failed", failure.Error())
 		return failure
 	}
@@ -273,9 +273,8 @@ const permissionDenialsShown = 10
 
 // permissionDenialLines names, for the run's activity, each tool call Claude
 // Code refused in a headless run, as its result message lists them, and where
-// it can be allowed (#700). The activity of a run speaks French. A command
-// the sandbox blocked without a refusal shows only as that command's own
-// error.
+// it can be allowed (#700). A command the sandbox blocked without a refusal
+// shows only as that command's own error.
 func permissionDenialLines(line string) []string {
 	var frame struct {
 		Denials []struct {
@@ -289,12 +288,12 @@ func permissionDenialLines(line string) []string {
 	var lines []string
 	for i, denial := range frame.Denials {
 		if i == permissionDenialsShown {
-			lines = append(lines, fmt.Sprintf("… et %d autres refus de Claude Code", len(frame.Denials)-permissionDenialsShown))
+			lines = append(lines, fmt.Sprintf("… and %d more Claude Code denials", len(frame.Denials)-permissionDenialsShown))
 			break
 		}
 		call := strings.TrimSpace(denial.Tool)
 		if call == "" {
-			call = "outil inconnu"
+			call = "unknown tool"
 		}
 		for _, key := range []string{"command", "url", "file_path", "path", "pattern"} {
 			if target, _ := denial.Input[key].(string); strings.TrimSpace(target) != "" {
@@ -307,7 +306,7 @@ func permissionDenialLines(line string) []string {
 				break
 			}
 		}
-		lines = append(lines, "Refusé par Claude Code : "+call+" · autorisez-le dans les réglages Claude du projet")
+		lines = append(lines, "Denied by Claude Code: "+call+" · allow it in the project's Claude settings")
 	}
 	return lines
 }

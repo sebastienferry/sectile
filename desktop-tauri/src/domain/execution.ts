@@ -37,7 +37,7 @@ export interface Snapshot {
 }
 
 export function executionConnectionLabel(runtimeMode?: Snapshot["status"]["runtimeMode"]) {
-  return runtimeMode === "fleet" ? "Agent local · backend Fleet" : "Exécution locale";
+  return runtimeMode === "fleet" ? "Local agent · Fleet backend" : "Local runtime";
 }
 export interface AgentProfile {
   id: string;
@@ -119,26 +119,26 @@ export function projectRuns(runs: Run[], projectId: string) {
     );
 }
 export function statusLabel(run: Run) {
-  if (run.authenticationRequired) return "Connexion au fournisseur requise";
-  if (run.cancelRequested && isActive(run)) return "Arrêt demandé…";
+  if (run.authenticationRequired) return "Provider sign-in required";
+  if (run.cancelRequested && isActive(run)) return "Stopping…";
   if (run.waitingSince && !run.waitingSince.startsWith("0001") && isActive(run))
-    return "Votre intervention est requise";
+    return "Action required";
   // A conversation process stays available between turns. Its turn state comes
   // from the conversation snapshot, not the longer-lived agent process state.
-  if (run.conversation && run.status === "running") return "Session active";
+  if (run.conversation && run.status === "running") return "Active session";
   return (
     (
       {
-        queued: "En file",
-        preparing: "Préparation",
-        running: "En cours",
-        pending: "En attente",
-        waiting: "En attente",
-        completed: "Terminé",
-        finished: "Terminé",
-        failed: "Échec",
-        canceled: "Arrêté",
-        stopped: "Arrêté",
+        queued: "Queued",
+        preparing: "Preparing",
+        running: "Running",
+        pending: "Pending",
+        waiting: "Waiting",
+        completed: "Completed",
+        finished: "Completed",
+        failed: "Failed",
+        canceled: "Stopped",
+        stopped: "Stopped",
       } as Record<string, string>
     )[run.status] ?? run.status
   );

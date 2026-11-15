@@ -258,7 +258,7 @@ func TestMacroWorktreeUsesAPlainFolderInPlace(t *testing.T) {
 		if err != nil {
 			t.Fatalf("a plain folder must be accepted: %v", err)
 		}
-		if ws.Path != dir || ws.Branch != "" || ws.Worktree || !strings.Contains(ws.Warning, "pas un dépôt Git") {
+		if ws.Path != dir || ws.Branch != "" || ws.Worktree || !strings.Contains(ws.Warning, "not a Git repository") {
 			t.Fatalf("unexpected workspace %+v", ws)
 		}
 	}

@@ -22,41 +22,41 @@ export function ProjectFolderSetup({ project, onMapped, variant = "prompt" }: {
       const path = await invoke<string | null>("choose_project_folder", { projectId: project.id });
       if (path) {
         onMapped(path);
-        setNotice("Dossier associé au projet.");
+        setNotice("Folder mapped to project.");
       }
     } catch {
-      setError("Impossible d’associer ce dossier. Vérifiez le dossier et la connexion de l’agent, puis réessayez.");
+      setError("Unable to map this folder. Check the folder and agent connection, then try again.");
     } finally {
       choosing.current = false;
       setPending(false);
     }
   }
   if (variant === "board") return <div className="board-folder-action">
-    <button className="primary" disabled={pending} onClick={() => void chooseFolder()}><Icon name="folder" />{pending ? "Association en cours…" : "Choisir un dossier"}</button>
-    {pending && <p role="status">Choisissez un dossier dans la fenêtre de sélection.</p>}
+    <button className="primary" disabled={pending} onClick={() => void chooseFolder()}><Icon name="folder" />{pending ? "Mapping…" : "Choose folder"}</button>
+    {pending && <p role="status">Choose a folder in the picker dialog.</p>}
     {error && <p role="alert" className="error">{error}</p>}
   </div>;
-  if (variant === "settings") return <section className="project-folder-settings" aria-label="Dossier du projet">
+  if (variant === "settings") return <section className="project-folder-settings" aria-label="Project folder">
     <div className="project-folder-settings-heading">
-      <h2>Dossier local</h2>
-      <button disabled={pending} onClick={() => void chooseFolder()}><Icon name="folder" />{pending ? "Association en cours…" : project.path ? "Changer de dossier" : "Choisir un dossier"}</button>
+      <h2>Local folder</h2>
+      <button disabled={pending} onClick={() => void chooseFolder()}><Icon name="folder" />{pending ? "Mapping…" : project.path ? "Change folder" : "Choose folder"}</button>
     </div>
-    {project.path ? <p className="project-folder-path" title={project.path}><Icon name="folder" /><code>{project.path}</code></p> : <p className="muted">Aucun dossier associé à ce projet.</p>}
-    <p className="muted project-folder-hint">Utilisé pour les nouveaux prompts ; les conversations existantes gardent leur dossier.</p>
-    {pending && <p role="status">Choisissez un dossier dans la fenêtre de sélection.</p>}
+    {project.path ? <p className="project-folder-path" title={project.path}><Icon name="folder" /><code>{project.path}</code></p> : <p className="muted">No folder mapped to this project.</p>}
+    <p className="muted project-folder-hint">Used for new prompts; existing conversations keep their folder.</p>
+    {pending && <p role="status">Choose a folder in the picker dialog.</p>}
     {notice && <p role="status">{notice}</p>}
     {error && <p role="alert" className="error">{error}</p>}
   </section>;
   return <section className="project-prompt prompt-start folder-prompt-setup">
     <div className="prompt-intro">
       <span className="prompt-symbol"><Icon name="folder" /></span>
-      <span className="eyebrow">DANS CE PROJET</span>
-      <h2>Où voulez-vous travailler ?</h2>
-      <p>Choisissez le dossier local de {project.name} pour commencer une conversation.<br />Un dossier simple suffit, sans Git ni tracker.</p>
+      <span className="eyebrow">IN THIS PROJECT</span>
+      <h2>Where would you like to work?</h2>
+      <p>Choose the local folder for {project.name} to start a conversation.<br />A plain folder is enough, with no Git or tracker required.</p>
     </div>
-    <button className="primary" disabled={pending} onClick={() => void chooseFolder()}><Icon name="folder" />{pending ? "Association en cours…" : "Choisir un dossier"}</button>
-    <p className="muted">Le dossier sera associé à ce projet sur votre poste.</p>
-    {pending && <p role="status">Choisissez un dossier dans la fenêtre de sélection.</p>}
+    <button className="primary" disabled={pending} onClick={() => void chooseFolder()}><Icon name="folder" />{pending ? "Mapping…" : "Choose folder"}</button>
+    <p className="muted">The folder will be mapped to this project on your workstation.</p>
+    {pending && <p role="status">Choose a folder in the picker dialog.</p>}
     {error && <p role="alert" className="error">{error}</p>}
   </section>;
 }

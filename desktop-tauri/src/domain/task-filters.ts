@@ -6,6 +6,7 @@ export interface TaskFilters {
   query?: string;
   priority?: string;
   status?: string;
+  statuses?: string[];
   assignee?: string;
   parent?: string;
   sprint?: string;
@@ -29,13 +30,23 @@ export function matchesTaskFilters(
       return false;
     }
   }
-  if (filters.status?.trim()) {
-    const target = filters.status.trim().toLowerCase();
-    const stage = taskStage(task, board);
-    const matchesTracker = (task.trackerStatus ?? "").toLowerCase() === target;
-    const matchesStage = stage?.toLowerCase() === target;
-    const matchesRawStatus = (task.status ?? "").toLowerCase() === target;
-    if (!matchesTracker && !matchesStage && !matchesRawStatus) {
+  const statusTargets = (
+    filters.statuses && filters.statuses.length > 0
+      ? filters.statuses
+      : filters.status?.trim()
+        ? filters.status.split(",")
+        : []
+  )
+    .map(value => value.trim().toLowerCase())
+    .filter(Boolean);
+  if (statusTargets.length > 0) {
+    const stage = taskStage(task, board)?.toLowerCase() ?? "";
+    const trackerStatus = (task.trackerStatus ?? "").toLowerCase();
+    const rawStatus = (task.status ?? "").toLowerCase();
+    const matchesAny = statusTargets.some(
+      target => trackerStatus === target || stage === target || rawStatus === target,
+    );
+    if (!matchesAny) {
       return false;
     }
   }
@@ -59,7 +70,7 @@ export function matchesTaskFilters(
   }
   if (filters.sprint?.trim()) {
     const target = filters.sprint.trim().toLowerCase();
-    if (target === "__none__" || target === "sans sprint") {
+    if (target === "__none__" || target === "no sprint" || target === "sans sprint") {
       if (task.sprint?.trim()) return false;
     } else {
       if (!(task.sprint ?? "").trim().toLowerCase().includes(target)) {
@@ -69,7 +80,7 @@ export function matchesTaskFilters(
   }
   if (filters.issueType?.trim()) {
     const target = filters.issueType.trim().toLowerCase();
-    if (target === "__none__" || target === "sans type") {
+    if (target === "__none__" || target === "no type" || target === "sans type") {
       if (task.issueType?.trim()) return false;
     } else {
       if ((task.issueType ?? "").trim().toLowerCase() !== target) {

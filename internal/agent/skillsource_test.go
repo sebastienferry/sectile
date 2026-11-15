@@ -256,10 +256,10 @@ func TestMalformedInstalledPluginsReadsAsNotInstalled(t *testing.T) {
 }
 
 // The failure says what was looked for, and only mentions the plugin to a
-// Claude user (D8). It is in French: it is shown on the run.
+// Claude user (D8). It is shown on the run.
 func TestMissingSkillMessage(t *testing.T) {
 	claude := errSkillNotInstalled{Directory: "code-issue", Provider: "claude"}.Error()
-	for _, want := range []string{"« code-issue »", "claude", "plugin `sectile`", "sectile-agent init --provider claude", "Initialize"} {
+	for _, want := range []string{`"code-issue"`, "claude", "`sectile` plugin", "sectile-agent init --provider claude", "Initialize"} {
 		if !strings.Contains(claude, want) {
 			t.Errorf("claude message lacks %q: %s", want, claude)
 		}

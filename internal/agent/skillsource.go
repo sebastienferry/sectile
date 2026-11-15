@@ -61,13 +61,13 @@ type errSkillNotInstalled struct {
 
 func (e errSkillNotInstalled) Error() string {
 	if e.Provider == "claude" {
-		return fmt.Sprintf("Skill « %s » introuvable pour %s : aucune copie directe, aucun plugin Sectile installé et activé. "+
-			"Installez le plugin `sectile` dans Claude, lancez `sectile-agent init --provider %s`, "+
-			"ou utilisez « Initialize » dans les réglages du projet de l'application de bureau.", e.Directory, e.Provider, e.Provider)
+		return fmt.Sprintf("Skill %q not found for %s: no direct copy and no Sectile plugin installed and enabled. "+
+			"Install the `sectile` plugin in Claude, run `sectile-agent init --provider %s`, "+
+			"or use \"Initialize\" in the desktop app's project settings.", e.Directory, e.Provider, e.Provider)
 	}
-	return fmt.Sprintf("Skill « %s » introuvable pour %s : aucune copie directe. "+
-		"Lancez `sectile-agent init --provider %s`, "+
-		"ou utilisez « Initialize » dans les réglages du projet de l'application de bureau.", e.Directory, e.Provider, e.Provider)
+	return fmt.Sprintf("Skill %q not found for %s: no direct copy. "+
+		"Run `sectile-agent init --provider %s`, "+
+		"or use \"Initialize\" in the desktop app's project settings.", e.Directory, e.Provider, e.Provider)
 }
 
 // chooseSkill picks what a dispatch runs for one skill. It only reads: the

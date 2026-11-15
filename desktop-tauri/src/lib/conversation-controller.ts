@@ -73,7 +73,7 @@ export class ConversationController {
     return true;
   }
   async control(input: Exclude<ConversationAction, { action: "message" }>) {
-    if (this.controlling) throw new Error("Une action est déjà en cours.");
+    if (this.controlling) throw new Error("An action is already in progress.");
     this.controlling = true;
     this.revision++;
     clearTimeout(this.timer);

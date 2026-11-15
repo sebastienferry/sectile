@@ -94,23 +94,23 @@ func (d *agentDaemon) desktopConversationTitle(w http.ResponseWriter, r *http.Re
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2048))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&input) != nil {
-		http.Error(w, "Nom de conversation invalide", 400)
+		http.Error(w, "Invalid conversation title", 400)
 		return
 	}
 	input.Title = strings.TrimSpace(input.Title)
 	if input.Title == "" || utf8.RuneCountInString(input.Title) > maxConversationTitle || strings.IndexFunc(input.Title, unicode.IsControl) >= 0 {
-		http.Error(w, "Choisissez un nom de 1 à 80 caractères sur une seule ligne", 400)
+		http.Error(w, "Choose a single-line title between 1 and 80 characters", 400)
 		return
 	}
 	d.queue.mu.Lock()
 	defer d.queue.mu.Unlock()
 	run := d.queue.runs[input.ID]
 	if run == nil || !run.desktop.Conversation || run.desktop.TaskID != "" {
-		http.Error(w, "Conversation de projet introuvable", 404)
+		http.Error(w, "Project conversation not found", 404)
 		return
 	}
 	if d.store == nil {
-		http.Error(w, "Stockage local de l’historique indisponible", 503)
+		http.Error(w, "Local history storage unavailable", 503)
 		return
 	}
 	previousTitle := run.desktop.Title
@@ -124,7 +124,7 @@ func (d *agentDaemon) desktopConversationTitle(w http.ResponseWriter, r *http.Re
 	if run.journal != nil {
 		d.updateConversationJournalLocked(run)
 		if run.journal.err() != nil {
-			http.Error(w, "Impossible d’enregistrer le nom localement", 503)
+			http.Error(w, "Could not save title locally", 503)
 			return
 		}
 	} else {
@@ -136,13 +136,13 @@ func (d *agentDaemon) desktopConversationTitle(w http.ResponseWriter, r *http.Re
 			err = json.Unmarshal(raw, &record)
 		}
 		if err != nil || record.Run.ID != input.ID || record.Version != runStoreVersion {
-			http.Error(w, "Conversation enregistrée indisponible", 503)
+			http.Error(w, "Saved conversation unavailable", 503)
 			return
 		}
 		d.store.recoverConversationJournal(&record)
 		record.Run.Title = input.Title
 		if err := d.store.save(record); err != nil {
-			http.Error(w, fmt.Sprintf("Impossible d’enregistrer le nom : %v", err), 503)
+			http.Error(w, fmt.Sprintf("Could not save title: %v", err), 503)
 			return
 		}
 	}

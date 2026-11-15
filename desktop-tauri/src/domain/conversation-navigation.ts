@@ -1,9 +1,51 @@
 import type { Task } from "./board.ts";
-import type { Run } from "./execution.ts";
+import { isActive, type Run } from "./execution.ts";
 import { stageLabels, stages, taskStage } from "./workflow.ts";
 import type { BoardMapping } from "../lib/workspace.ts";
 
 export type ConversationGrouping = "recent" | "created" | "id" | "stage" | "tracker";
+
+function stateRank(run: Run): number {
+  if ((run.status === "running" || run.status === "preparing") && !run.cancelRequested) return 0;
+  if (isActive(run)) return 1;
+  return 2;
+}
+
+function compareTicketRuns(a: Run, b: Run): number {
+  const rank = stateRank(a) - stateRank(b);
+  if (rank !== 0) return rank;
+  const timeA = Date.parse(a.createdAt);
+  const timeB = Date.parse(b.createdAt);
+  if (Number.isFinite(timeA) && Number.isFinite(timeB) && timeA !== timeB) {
+    return timeB - timeA;
+  }
+  return 0;
+}
+
+export function conversationTicketGroupKey(run: Run): string {
+  const taskId = run.taskId?.trim();
+  if (taskId) return `task:${run.projectId}:${taskId}`;
+  const taskKey = run.taskKey?.trim();
+  if (taskKey) return `taskKey:${run.projectId}:${taskKey}`;
+  return `free:${run.id}`;
+}
+
+export function deduplicateTicketConversations(runs: Run[]): Run[] {
+  const groups = new Map<string, Run[]>();
+  for (const run of runs) {
+    if (!run.conversation) continue;
+    const key = conversationTicketGroupKey(run);
+    const existing = groups.get(key);
+    if (existing) existing.push(run);
+    else groups.set(key, [run]);
+  }
+  const deduplicated: Run[] = [];
+  for (const groupRuns of groups.values()) {
+    const representative = [...groupRuns].sort(compareTicketRuns)[0];
+    if (representative) deduplicated.push(representative);
+  }
+  return deduplicated;
+}
 
 export function conversationGroups(
   runs: Run[],
@@ -11,7 +53,7 @@ export function conversationGroups(
   grouping: ConversationGrouping,
   board?: BoardMapping,
 ): { label: string; runs: Run[] }[] {
-  const conversations = runs.filter(run => run.conversation);
+  const conversations = deduplicateTicketConversations(runs);
   if (grouping === "recent") return [{ label: "", runs: conversations }];
   if (grouping === "created") {
     const sorted = [...conversations].sort((a, b) => {
@@ -37,9 +79,9 @@ export function conversationGroups(
   for (const run of conversations) {
     const task = byTask.get(run.taskId);
     const stage = task ? taskStage(task, board) : undefined;
-    const label = !run.taskId ? "" : !task ? "Ticket indisponible" :
-      grouping === "stage" ? stage ? stageLabels[stage] : "Étape inconnue" :
-      task.trackerStatus?.trim() || "Statut distant indisponible";
+    const label = !run.taskId ? "" : !task ? "Ticket unavailable" :
+      grouping === "stage" ? stage ? stageLabels[stage] : "Unknown stage" :
+      task.trackerStatus?.trim() || "Remote status unavailable";
     const group = groups.get(label);
     if (group) group.push(run);
     else groups.set(label, [run]);
@@ -121,6 +163,6 @@ export function conversationTitle(
   if (run?.prompt?.trim()) {
     return run.prompt.trim().split("\n")[0].slice(0, 100);
   }
-  return "Conversation du projet";
+  return "Project conversation";
 }
 

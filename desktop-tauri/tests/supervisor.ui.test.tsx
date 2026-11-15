@@ -92,7 +92,7 @@ test("launch sends the chosen task and blocks duplicate submissions while pendin
     target: { value: "t2" },
   });
   const button = screen.getByRole("button", {
-    name: "Démarrer la tâche",
+    name: "Start task",
   }) as HTMLButtonElement;
   await waitFor(() => expect(button.disabled).toBe(false));
   fireEvent.click(button);
@@ -105,11 +105,11 @@ test("launch sends the chosen task and blocks duplicate submissions while pendin
     mode: "",
   });
   expect(
-    (screen.getByRole("button", { name: "Lancement…" }) as HTMLButtonElement)
+    (screen.getByRole("button", { name: "Launching…" }) as HTMLButtonElement)
       .disabled,
   ).toBe(true);
   await act(async () => finish());
-  await screen.findByText(/Demande acceptée/);
+  await screen.findByText(/Request accepted/);
 });
 test("stop waits for agent acknowledgement and displays refusal", async () => {
   let reject!: (reason: string) => void;
@@ -120,12 +120,12 @@ test("stop waits for agent acknowledgement and displays refusal", async () => {
       }),
   );
   mount("executions");
-  fireEvent.click(await screen.findByRole("button", { name: "Arrêter" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Stop" }));
   expect(api.stopRun).toHaveBeenCalledWith("r1");
-  expect(screen.queryByText(/Arrêt confirmé/)).toBeNull();
+  expect(screen.queryByText(/Stop confirmed/)).toBeNull();
   await act(async () => reject("Exit not confirmed"));
   await screen.findByText("Exit not confirmed");
-  expect(screen.queryByText(/Arrêt confirmé/)).toBeNull();
+  expect(screen.queryByText(/Stop confirmed/)).toBeNull();
 });
 test("the execution queue names free and ticket conversations by their work", async () => {
   vi.mocked(api.executionSnapshot).mockResolvedValue({
@@ -137,9 +137,9 @@ test("the execution queue names free and ticket conversations by their work", as
   });
   mount("executions");
   const free = await screen.findByTitle("Inspect API errors");
-  expect(free.textContent).toContain("Codex · Session active");
-  expect(screen.getByTitle("APP-2 · Fix search").textContent).toContain("Claude Code · clarify · Session active");
-  expect(screen.queryByText("Console libre")).toBeNull();
+  expect(free.textContent).toContain("Codex · Active session");
+  expect(screen.getByTitle("APP-2 · Fix search").textContent).toContain("Claude Code · clarify · Active session");
+  expect(screen.queryByText("Free console")).toBeNull();
 });
 test("the execution queue sorts by descending date and filters by text and archived state", async () => {
   vi.mocked(api.executionSnapshot).mockResolvedValue({
@@ -154,16 +154,16 @@ test("the execution queue sorts by descending date and filters by text and archi
   const items = Array.from(document.querySelectorAll(".execution-list .run-select strong")).map(node => node.textContent);
   expect(items).toEqual(["Newer archived chat", "Older active chat"]);
 
-  fireEvent.click(screen.getByRole("button", { name: "Archivées" }));
+  fireEvent.click(screen.getByRole("button", { name: "Archived" }));
   expect(screen.getByTitle("Newer archived chat")).toBeTruthy();
   expect(screen.queryByTitle("Older active chat")).toBeNull();
 
-  fireEvent.click(screen.getByRole("button", { name: "Non archivées" }));
+  fireEvent.click(screen.getByRole("button", { name: "Unarchived" }));
   expect(screen.queryByTitle("Newer archived chat")).toBeNull();
   expect(screen.getByTitle("Older active chat")).toBeTruthy();
 
-  fireEvent.click(screen.getByRole("button", { name: "Toutes" }));
-  fireEvent.change(screen.getByRole("textbox", { name: "Filtrer les exécutions" }), { target: { value: "Newer" } });
+  fireEvent.click(screen.getByRole("button", { name: "All" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Filter executions" }), { target: { value: "Newer" } });
   expect(screen.getByTitle("Newer archived chat")).toBeTruthy();
   expect(screen.queryByTitle("Older active chat")).toBeNull();
 });
@@ -177,13 +177,13 @@ test("orchestration submits only the selected saved agent and reports skips", as
   });
   mount("orchestration");
   const button = await screen.findByRole("button", {
-    name: "Lancer cet agent",
+    name: "Launch this agent",
   });
   await waitFor(() =>
     expect((button as HTMLButtonElement).disabled).toBe(false),
   );
   fireEvent.click(button);
-  await screen.findByText("APP-4 : Capacity full");
+  await screen.findByText("APP-4: Capacity full");
   expect(api.runOrchestration).toHaveBeenCalledWith("p", "agent");
 });
 test("polling failure retains visible history but disables stop", async () => {
@@ -193,7 +193,7 @@ test("polling failure retains visible history but disables stop", async () => {
     await Promise.resolve();
   });
   expect(
-    (screen.getByRole("button", { name: "Arrêter" }) as HTMLButtonElement)
+    (screen.getByRole("button", { name: "Stop" }) as HTMLButtonElement)
       .disabled,
   ).toBe(false);
   vi.mocked(api.executionSnapshot).mockRejectedValue("Offline");
@@ -202,10 +202,10 @@ test("polling failure retains visible history but disables stop", async () => {
   });
   expect(screen.getByText("APP-1")).toBeTruthy();
   expect(
-    (screen.getByRole("button", { name: "Arrêter" }) as HTMLButtonElement)
+    (screen.getByRole("button", { name: "Stop" }) as HTMLButtonElement)
       .disabled,
   ).toBe(true);
-  expect(screen.getByText(/données affichées sont anciennes/)).toBeTruthy();
+  expect(screen.getByText(/Displayed data is stale/i)).toBeTruthy();
 });
 test("unmount stops polling", async () => {
   vi.useFakeTimers();

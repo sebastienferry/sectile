@@ -22,7 +22,7 @@ func TestMissingContractRouteIsReportedAsMismatch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "Route API non trouvée: " + r.URL.Path})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "API route not found: " + r.URL.Path})
 	}))
 	defer srv.Close()
 	d := &agentDaemon{link: serverLink{serverURL: srv.URL, token: "token"}}
@@ -106,7 +106,7 @@ func TestStandingMismatchIsAnnouncedOnce(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "Route API non trouvée: " + r.URL.Path})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "API route not found: " + r.URL.Path})
 	}))
 	defer srv.Close()
 	// The logger is global: a PTY reader left by an earlier test may still
@@ -151,7 +151,7 @@ func TestUpdatedServerClearsTheMismatch(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		if !updated {
 			w.WriteHeader(http.StatusNotFound)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "Route API non trouvée: " + r.URL.Path})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "API route not found: " + r.URL.Path})
 			return
 		}
 		_ = json.NewEncoder(w).Encode(agentconfig.Projects{SchemaVersion: agentconfig.Version})

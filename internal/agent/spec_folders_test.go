@@ -131,13 +131,13 @@ func TestTaskSpecWorktreeEdgeCases(t *testing.T) {
 
 	plain := t.TempDir()
 	got, err := ensureTaskSpecWorktree(ctx, plain, code, code, "feat/7", "#7", true)
-	if err != nil || got.Path != plain || got.Branch != "" || got.Worktree || !got.Distinct || !strings.Contains(got.Warning, "n'est pas un dépôt Git") {
+	if err != nil || got.Path != plain || got.Branch != "" || got.Worktree || !got.Distinct || !strings.Contains(got.Warning, "is not a Git repository") {
 		t.Fatalf("a plain folder is written in place: %+v %v", got, err)
 	}
 
 	specs, _ := specRepoWithRemote(t)
 	got, err = ensureTaskSpecWorktree(ctx, specs, code, code, "feat/7", "#7", false)
-	if err != nil || got.Path != specs || got.Branch != "feat/7" || got.Worktree || !strings.Contains(got.Warning, "worktrees désactivés") {
+	if err != nil || got.Path != specs || got.Branch != "feat/7" || got.Worktree || !strings.Contains(got.Warning, "worktrees disabled") {
 		t.Fatalf("worktrees off returns the checkout: %+v %v", got, err)
 	}
 	if entries, _ := os.ReadDir(filepath.Join(specs, ".tasks")); len(entries) != 0 {
@@ -147,7 +147,7 @@ func TestTaskSpecWorktreeEdgeCases(t *testing.T) {
 	if _, err := ensureTaskSpecWorktree(ctx, specs, code, code, "", "#7", true); err == nil || !strings.Contains(err.Error(), "#7") {
 		t.Fatalf("a task without a branch cannot name its specifications branch: %v", err)
 	}
-	if _, err := ensureTaskSpecWorktree(ctx, specs, code, code, "main", "#7", true); err == nil || !strings.Contains(err.Error(), "branche par défaut") {
+	if _, err := ensureTaskSpecWorktree(ctx, specs, code, code, "main", "#7", true); err == nil || !strings.Contains(err.Error(), "default branch") {
 		t.Fatalf("the default branch is refused: %v", err)
 	}
 
@@ -155,7 +155,7 @@ func TestTaskSpecWorktreeEdgeCases(t *testing.T) {
 	gitTest(t, noRemote, "init", "-q", "-b", "main")
 	gitTest(t, noRemote, "commit", "-q", "--allow-empty", "-m", "init")
 	got, err = ensureTaskSpecWorktree(ctx, noRemote, code, code, "feat/7", "#7", true)
-	if err != nil || !got.Worktree || !strings.Contains(got.Warning, "pas de distant origin") {
+	if err != nil || !got.Worktree || !strings.Contains(got.Warning, "no origin remote") {
 		t.Fatalf("without a remote the base is local and the warning says so: %+v %v", got, err)
 	}
 }

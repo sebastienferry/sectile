@@ -12,7 +12,7 @@ test("conversation navigation groups linked tickets by workflow stage without in
     "stage",
   );
   assert.deepEqual(groups.map(group=>[group.label,group.runs.map(item=>item.id)]),[
-    ["",["free"]],["À clarifier",["new"]],["Revu",["reviewed"]],["Étape inconnue",["unknown"]],
+    ["",["free"]],["To clarify",["new"]],["Reviewed",["reviewed"]],["Unknown stage",["unknown"]],
   ]);
 });
 
@@ -68,4 +68,41 @@ test("conversationTitle formats ticket conversations with task title and skill l
     conversationTitle({ title: "G2 - Golden path - Pub/Sub - Create - Clarify" }, clarifyRun, undefined),
     "G2 - Golden path - Pub/Sub - Create - Clarify",
   );
+});
+
+test("conversationGroups deduplicates multiple conversations on the same ticket into a single row led by the active or newest run", () => {
+  const olderFinished: Run = {
+    id: "run-old",
+    projectId: "p",
+    taskId: "jira-PE-2186",
+    taskKey: "PE-2186",
+    skill: "clarify",
+    status: "stopped",
+    createdAt: "2026-11-05T10:00:00Z",
+    conversation: true,
+  };
+  const newerActive: Run = {
+    id: "run-new",
+    projectId: "p",
+    taskId: "jira-PE-2186",
+    taskKey: "PE-2186",
+    skill: "clarify",
+    status: "running",
+    createdAt: "2026-11-15T07:20:00Z",
+    conversation: true,
+  };
+  const freeRun: Run = {
+    id: "run-free",
+    projectId: "p",
+    taskId: "",
+    taskKey: "",
+    skill: "",
+    status: "running",
+    createdAt: "2026-11-14T12:00:00Z",
+    conversation: true,
+  };
+
+  const groups = conversationGroups([olderFinished, newerActive, freeRun], [], "recent");
+  assert.equal(groups.length, 1);
+  assert.deepEqual(groups[0].runs.map(r => r.id), ["run-new", "run-free"]);
 });

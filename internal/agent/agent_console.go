@@ -22,7 +22,7 @@ func desktopConnectionID(r *http.Request) (string, error) {
 	}
 	parsed, err := uuid.Parse(value)
 	if err != nil {
-		return "", fmt.Errorf("Identité de connexion du desktop invalide")
+		return "", fmt.Errorf("Invalid desktop connection identity")
 	}
 	return parsed.String(), nil
 }
@@ -148,7 +148,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 			mode = d.workstationAgyConversationMode()
 		}
 		d.queue.mu.Lock()
-		run, err := d.newConversationLocked(input.ProjectID, root, conversationModel(config), mode, conversationOrigin(config, "Elle s’exécute dans le dépôt local de ce projet."), provider)
+		run, err := d.newConversationLocked(input.ProjectID, root, conversationModel(config), mode, conversationOrigin(config, "It runs in this project's local repository."), provider)
 		if err != nil {
 			d.queue.mu.Unlock()
 			http.Error(w, err.Error(), http.StatusConflict)

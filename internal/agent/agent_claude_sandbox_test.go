@@ -271,7 +271,7 @@ func TestConversationCommandCarriesTheSettings(t *testing.T) {
 	}
 }
 
-// A headless run names what Claude Code refused in its activity, in French,
+// A headless run names what Claude Code refused in its activity,
 // and where it can be allowed (#700).
 func TestAHeadlessRunNamesWhatClaudeRefused(t *testing.T) {
 	record := func(result string) string {
@@ -281,8 +281,8 @@ func TestAHeadlessRunNamesWhatClaudeRefused(t *testing.T) {
 	}
 	got := record(`{"type":"result","is_error":false,"result":"Done.","permission_denials":[{"tool_name":"Bash","tool_use_id":"t1","tool_input":{"command":"git push origin main"}},{"tool_name":"WebFetch","tool_use_id":"t2","tool_input":{"url":"https://blocked.example/x"}}]}`)
 	want := "Done.\n" +
-		"Refusé par Claude Code : Bash(git push origin main) · autorisez-le dans les réglages Claude du projet\n" +
-		"Refusé par Claude Code : WebFetch(https://blocked.example/x) · autorisez-le dans les réglages Claude du projet\n"
+		"Denied by Claude Code: Bash(git push origin main) · allow it in the project's Claude settings\n" +
+		"Denied by Claude Code: WebFetch(https://blocked.example/x) · allow it in the project's Claude settings\n"
 	if got != want {
 		t.Fatalf("activity = %q", got)
 	}
@@ -297,10 +297,10 @@ func TestHeadlessRefusalsAreBounded(t *testing.T) {
 		denials[i] = `{"tool_name":"Bash","tool_input":{"command":"step ` + string(rune('a'+i)) + `"}}`
 	}
 	lines := permissionDenialLines(`{"type":"result","permission_denials":[` + strings.Join(denials, ",") + `]}`)
-	if len(lines) != 11 || !strings.Contains(lines[9], "step j") || lines[10] != "… et 2 autres refus de Claude Code" {
+	if len(lines) != 11 || !strings.Contains(lines[9], "step j") || lines[10] != "… and 2 more Claude Code denials" {
 		t.Fatalf("lines = %q", lines)
 	}
-	if lines := permissionDenialLines(`{"type":"result","permission_denials":[{"tool_name":"Read","tool_input":{}}]}`); len(lines) != 1 || !strings.HasPrefix(lines[0], "Refusé par Claude Code : Read ·") {
+	if lines := permissionDenialLines(`{"type":"result","permission_denials":[{"tool_name":"Read","tool_input":{}}]}`); len(lines) != 1 || !strings.HasPrefix(lines[0], "Denied by Claude Code: Read ·") {
 		t.Fatalf("a refusal without a target = %q", lines)
 	}
 }

@@ -17,16 +17,16 @@ function conversationModeLabel(mode?: string): string {
     case "plan":
       return "Plan";
     case "read-only":
-      return "Lecture seule";
+      return "Read-only";
     case "acceptEdits":
-      return "Accepter les modifications";
+      return "Accept edits";
     case "auto":
       return "Auto (YOLO)";
     case "default":
     case "execute":
     case "workspace-write":
     default:
-      return "Exécution";
+      return "Execution";
   }
 }
 
@@ -96,38 +96,38 @@ export function TurnSettings({
   const isAlertMode = effectiveMode === "execute" || effectiveMode === "default" || effectiveMode === "acceptEdits" || effectiveMode === "auto" || effectiveMode === "workspace-write";
   const modelSelectValue = value.model === undefined ? "" : models.includes(value.model) ? value.model : "__custom__";
   const defaultModelLabel = snapshot?.model || defaultModel || (engineChoices?.find(item => item.key === selectedEngineKey)?.label) || (activeProvider === "codex" ? "Codex" : "Claude Code");
-  const modelDisplayLabel = modelSelectValue === "__custom__" ? (value.model || "Personnalisé…") : (modelSelectValue || defaultModelLabel);
-  const modeDisplayLabel = value.mode ? conversationModeLabel(value.mode) : (snapshot?.mode ? currentMode : "Mode auto");
+  const modelDisplayLabel = modelSelectValue === "__custom__" ? (value.model || "Custom…") : (modelSelectValue || defaultModelLabel);
+  const modeDisplayLabel = value.mode ? conversationModeLabel(value.mode) : (snapshot?.mode ? currentMode : "Auto mode");
   const modeOptions: { val: ConversationMode; label: string }[] = activeProvider === "codex"
     ? [
         { val: "plan", label: "Plan" },
-        { val: "read-only", label: "Lecture seule" },
-        { val: "execute", label: "Exécution" },
+        { val: "read-only", label: "Read-only" },
+        { val: "execute", label: "Execution" },
       ]
     : [
         { val: "plan", label: "Plan" },
-        { val: "execute", label: "Exécution (demander)" },
-        { val: "acceptEdits", label: "Accepter les modifications" },
+        { val: "execute", label: "Execution (ask)" },
+        { val: "acceptEdits", label: "Accept edits" },
         { val: "auto", label: "Auto (YOLO)" },
       ];
   if (!compact) {
     return <fieldset className="turn-settings" disabled={disabled}>
-      <legend>Prochain message</legend>
-      <label><span>Modèle</span><select aria-label="Modèle" title="Choisir le modèle du prochain message" value={modelSelectValue} onChange={event => onChange({ ...value, model: event.target.value === "__custom__" ? "" : event.target.value || undefined })}>
-        <option value="">{snapshot?.model ? `Conserver : ${snapshot.model}` : "Configuration du projet / fournisseur"}</option>
+      <legend>Next message</legend>
+      <label><span>Model</span><select aria-label="Model" title="Choose the model for the next message" value={modelSelectValue} onChange={event => onChange({ ...value, model: event.target.value === "__custom__" ? "" : event.target.value || undefined })}>
+        <option value="">{snapshot?.model ? `Keep: ${snapshot.model}` : "Project / provider configuration"}</option>
         {models.map(model => <option value={model} key={model}>{model}</option>)}
-        <option value="__custom__">Identifiant personnalisé…</option>
+        <option value="__custom__">Custom identifier…</option>
       </select></label>
-      {value.model !== undefined && !models.includes(value.model) && <label htmlFor={id}>Identifiant du modèle<input id={id} required pattern={String.raw`[A-Za-z0-9][A-Za-z0-9._:@\/\-]*`} maxLength={256} value={value.model} placeholder="Identifiant accepté par votre CLI" onChange={event => onChange({ ...value, model: event.target.value })} /></label>}
-      <label><span>Mode</span><select aria-label="Mode de conversation" title="Choisir le mode du prochain message" value={value.mode ?? ""} onChange={event => onChange({ ...value, mode: event.target.value ? event.target.value as ConversationMode : undefined })}>
-        <option value="">{snapshot?.mode ? `Conserver : ${currentMode}` : "Configuration actuelle"}</option>
-        {modeOptions.map(option => <option key={option.val} value={option.val}>{option.val === "execute" ? "Exécution" : option.label}</option>)}
+      {value.model !== undefined && !models.includes(value.model) && <label htmlFor={id}>Model identifier<input id={id} required pattern={String.raw`[A-Za-z0-9][A-Za-z0-9._:@\/\-]*`} maxLength={256} value={value.model} placeholder="Identifier accepted by your CLI" onChange={event => onChange({ ...value, model: event.target.value })} /></label>}
+      <label><span>Mode</span><select aria-label="Conversation mode" title="Choose the mode for the next message" value={value.mode ?? ""} onChange={event => onChange({ ...value, mode: event.target.value ? event.target.value as ConversationMode : undefined })}>
+        <option value="">{snapshot?.mode ? `Keep: ${currentMode}` : "Current configuration"}</option>
+        {modeOptions.map(option => <option key={option.val} value={option.val}>{option.val === "execute" ? "Execution" : option.label}</option>)}
       </select></label>
-      <p className="muted turn-settings-hint">Choix appliqués à l’envoi. {value.mode === "execute" ? provider === "claude" ? "Claude demandera les autorisations nécessaires." : "Codex pourra modifier le dossier avec son sandbox et ses demandes d’autorisation." : value.mode === "auto" ? "Claude approuvera automatiquement les outils autorisés par son classificateur." : "Les permissions restent gérées par l’agent."}{unavailable && " Catalogue indisponible : vous pouvez saisir un identifiant ou conserver le modèle actuel."}</p>
+      <p className="muted turn-settings-hint">Choices apply on send. {value.mode === "execute" ? provider === "claude" ? "Claude will ask for required permissions." : "Codex can modify the folder using its sandbox and permission requests." : value.mode === "auto" ? "Claude will automatically approve tools allowed by its classifier." : "Permissions remain managed by the agent."}{unavailable && " Catalogue unavailable: you can enter an identifier or keep the current model."}</p>
     </fieldset>;
   }
   return <fieldset ref={rootRef} className="turn-settings compact" disabled={disabled}>
-    <legend className="sr-only">Prochain message</legend>
+    <legend className="sr-only">Next message</legend>
     <div className="composer-chip-anchor composer-chip-anchor--model">
       <button
         type="button"
@@ -141,16 +141,16 @@ export function TurnSettings({
         <span className="composer-chip-secondary">{effort}</span>
         <span className="composer-chip-chevron" aria-hidden="true"><Icon name="chevronDown" /></span>
       </button>
-      <label className="sr-only">Modèle<select tabIndex={-1} aria-label="Modèle" title="Choisir le modèle du prochain message" value={modelSelectValue} onChange={event => onChange({ ...value, model: event.target.value === "__custom__" ? "" : event.target.value || undefined })}>
-        <option value="">{snapshot?.model ? snapshot.model : "Modèle auto"}</option>
+      <label className="sr-only">Model<select tabIndex={-1} aria-label="Model" title="Choose the model for the next message" value={modelSelectValue} onChange={event => onChange({ ...value, model: event.target.value === "__custom__" ? "" : event.target.value || undefined })}>
+        <option value="">{snapshot?.model ? snapshot.model : "Auto model"}</option>
         {models.map(model => <option value={model} key={model}>{model}</option>)}
-        <option value="__custom__">Identifiant personnalisé…</option>
+        <option value="__custom__">Custom identifier…</option>
       </select></label>
       {openMenu === "model" && (
-        <div className="composer-popover composer-model-popover" role="dialog" aria-label="Modèle et effort">
+        <div className="composer-popover composer-model-popover" role="dialog" aria-label="Model and effort">
           {engineChoices && engineChoices.length > 0 && onSelectEngine && (
             <div className="composer-popover-section">
-              <div className="composer-popover-heading">Moteur</div>
+              <div className="composer-popover-heading">Engine</div>
               {engineChoices.map(choice => {
                 const selected = choice.key === selectedEngineKey;
                 return (
@@ -171,7 +171,7 @@ export function TurnSettings({
             </div>
           )}
           <div className="composer-popover-section">
-            {engineChoices && engineChoices.length > 0 && <div className="composer-popover-heading">Modèle</div>}
+            {engineChoices && engineChoices.length > 0 && <div className="composer-popover-heading">Model</div>}
             <button
               type="button"
               className={`composer-popover-option ${modelSelectValue === "" ? "is-selected" : ""}`}
@@ -180,7 +180,7 @@ export function TurnSettings({
               <span className={`composer-popover-option-icon composer-provider-icon-${activeProvider}`} aria-hidden="true">
                 <ProviderMark provider={activeProvider} />
               </span>
-              <span className="composer-popover-option-label">{snapshot?.model || defaultModel || "Modèle auto"}</span>
+              <span className="composer-popover-option-label">{snapshot?.model || defaultModel || "Auto model"}</span>
               {modelSelectValue === "" && <span className="composer-popover-option-check" aria-hidden="true"><Icon name="check" /></span>}
             </button>
             {models.filter(model => model !== (snapshot?.model || defaultModel)).map(model => {
@@ -205,7 +205,7 @@ export function TurnSettings({
               className={`composer-popover-option ${modelSelectValue === "__custom__" ? "is-selected" : ""}`}
               onClick={() => onChange({ ...value, model: modelSelectValue === "__custom__" ? value.model : "" })}
             >
-              <span className="composer-popover-option-label">Identifiant personnalisé…</span>
+              <span className="composer-popover-option-label">Custom identifier…</span>
               {modelSelectValue === "__custom__" && <span className="composer-popover-option-check" aria-hidden="true"><Icon name="check" /></span>}
             </button>
           </div>
@@ -240,7 +240,7 @@ export function TurnSettings({
         </div>
       )}
     </div>
-    {value.model !== undefined && !models.includes(value.model) && <label htmlFor={id} className="turn-settings-custom">Identifiant du modèle<input id={id} required pattern={String.raw`[A-Za-z0-9][A-Za-z0-9._:@\/\-]*`} maxLength={256} value={value.model} placeholder="Identifiant accepté par votre CLI" onChange={event => onChange({ ...value, model: event.target.value })} /></label>}
+    {value.model !== undefined && !models.includes(value.model) && <label htmlFor={id} className="turn-settings-custom">Model identifier<input id={id} required pattern={String.raw`[A-Za-z0-9][A-Za-z0-9._:@\/\-]*`} maxLength={256} value={value.model} placeholder="Identifier accepted by your CLI" onChange={event => onChange({ ...value, model: event.target.value })} /></label>}
     <div className="composer-chip-anchor composer-chip-anchor--mode">
       <button
         type="button"
@@ -253,14 +253,14 @@ export function TurnSettings({
         <span className="composer-chip-primary">{modeDisplayLabel}</span>
         <span className="composer-chip-chevron" aria-hidden="true"><Icon name="chevronDown" /></span>
       </button>
-      <label className="sr-only">Mode<select tabIndex={-1} aria-label="Mode de conversation" title="Choisir le mode du prochain message" value={value.mode ?? ""} onChange={event => onChange({ ...value, mode: event.target.value ? event.target.value as ConversationMode : undefined })}>
-        <option value="">{snapshot?.mode ? currentMode : "Mode auto"}</option>
-        {modeOptions.map(option => <option key={option.val} value={option.val}>{option.val === "execute" ? "Exécution" : option.label}</option>)}
+      <label className="sr-only">Mode<select tabIndex={-1} aria-label="Conversation mode" title="Choose the mode for the next message" value={value.mode ?? ""} onChange={event => onChange({ ...value, mode: event.target.value ? event.target.value as ConversationMode : undefined })}>
+        <option value="">{snapshot?.mode ? currentMode : "Auto mode"}</option>
+        {modeOptions.map(option => <option key={option.val} value={option.val}>{option.val === "execute" ? "Execution" : option.label}</option>)}
       </select></label>
       {openMenu === "mode" && (
-        <div className="composer-popover composer-mode-popover" role="menu" aria-label="Mode de conversation">
+        <div className="composer-popover composer-mode-popover" role="menu" aria-label="Conversation mode">
           {[
-            { val: "", label: snapshot?.mode ? `Conserver (${currentMode})` : "Mode du poste" },
+            { val: "", label: snapshot?.mode ? `Keep (${currentMode})` : "Workstation mode" },
             ...modeOptions,
           ].map(item => {
             const selected = (value.mode ?? "") === item.val;
@@ -284,6 +284,6 @@ export function TurnSettings({
         </div>
       )}
     </div>
-    <p className="muted turn-settings-hint" hidden={!unavailable}>Choix appliqués à l’envoi. {value.mode === "execute" ? provider === "claude" ? "Claude demandera les autorisations nécessaires." : "Codex pourra modifier le dossier avec son sandbox et ses demandes d’autorisation." : "Les permissions restent gérées par l’agent."}{unavailable && " Catalogue indisponible : vous pouvez saisir un identifiant ou conserver le modèle actuel."}</p>
+    <p className="muted turn-settings-hint" hidden={!unavailable}>Choices apply on send. {value.mode === "execute" ? provider === "claude" ? "Claude will ask for required permissions." : "Codex can modify the folder using its sandbox and permission requests." : "Permissions remain managed by the agent."}{unavailable && " Catalogue unavailable: you can enter an identifier or keep the current model."}</p>
   </fieldset>;
 }

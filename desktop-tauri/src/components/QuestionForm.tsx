@@ -46,19 +46,19 @@ export function QuestionForm({ approval, disabled, onAnswer, onSkip }: {
       setValues({}); setSubmitted(true);
     } catch {
       // Do not echo provider errors or submitted values: answers can be secret.
-      setError("Réponse non confirmée. Actualisez le suivi avant de réessayer.");
+      setError("Answer not confirmed. Refresh status before trying again.");
       if (questions?.some(question => question.isSecret)) setValues({});
     } finally { sending.current = false; setPending(false); }
   }
-  return <section className="prompt-approval question-card" aria-label="Questions de l’agent">
-    <h3>Votre réponse est attendue</h3>
-    {!questions && <p role="alert">Le format de cette question n’est pas pris en charge. Vous pouvez passer la demande.</p>}
+  return <section className="prompt-approval question-card" aria-label="Agent questions">
+    <h3>Your answer is needed</h3>
+    {!questions && <p role="alert">This question format is not supported. You can skip the request.</p>}
     <form onSubmit={event => { event.preventDefault(); void send(); }}>
       {questions?.map((question, index) => {
         const value = values[index] ?? { selected: [], custom: "" };
         return <fieldset key={question.question} disabled={locked}>
           <legend>{question.header && <small>{question.header} · </small>}{question.question}</legend>
-          {question.multiSelect && !question.isSecret && <p className="muted">Plusieurs choix possibles.</p>}
+          {question.multiSelect && !question.isSecret && <p className="muted">Multiple choices allowed.</p>}
           {!question.isSecret && question.options.map(option => <label className="question-option" key={option.label}>
             <input type={question.multiSelect ? "checkbox" : "radio"} name={`${prefix}-${index}`} checked={value.selected.includes(option.label)} onChange={event => {
               const selected = question.multiSelect ? event.target.checked ? [...value.selected, option.label] : value.selected.filter(label => label !== option.label) : [option.label];
@@ -66,18 +66,18 @@ export function QuestionForm({ approval, disabled, onAnswer, onSkip }: {
             }} />
             <span><strong>{option.label}</strong>{option.description && <small>{option.description}</small>}</span>
           </label>)}
-          <label className="question-free"><span>{question.options.length && !question.isSecret ? "Autre réponse" : "Votre réponse"}</span>
-            <input aria-label={`Réponse libre : ${question.question}`} type={question.isSecret ? "password" : "text"} autoComplete="off" maxLength={16000} value={value.custom} onChange={event => {
+          <label className="question-free"><span>{question.options.length && !question.isSecret ? "Other answer" : "Your answer"}</span>
+            <input aria-label={`Free response: ${question.question}`} type={question.isSecret ? "password" : "text"} autoComplete="off" maxLength={16000} value={value.custom} onChange={event => {
               setValues(previous => ({ ...previous, [index]: { selected: question.multiSelect && !question.isSecret ? value.selected : [], custom: event.target.value } }));
             }} />
           </label>
         </fieldset>;
       })}
-      {size > 16384 && <p role="alert">Les réponses dépassent la limite de 16 Ko.</p>}
+      {size > 16384 && <p role="alert">Answers exceed the 16 KB limit.</p>}
       {error && <p role="alert">{error}</p>}
       <div className="question-actions">
-        <button type="button" disabled={locked} onClick={() => void send(true)}>Passer la demande</button>
-        <button className="primary" type="submit" disabled={locked || !valid}>{pending ? "Envoi…" : submitted ? "Réponse envoyée" : "Envoyer les réponses"}</button>
+        <button type="button" disabled={locked} onClick={() => void send(true)}>Skip request</button>
+        <button className="primary" type="submit" disabled={locked || !valid}>{pending ? "Sending…" : submitted ? "Answer sent" : "Send answers"}</button>
       </div>
     </form>
   </section>;

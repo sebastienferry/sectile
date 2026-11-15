@@ -17,7 +17,7 @@ export function ModeOnboarding({ onConfigured }: ModeOnboardingProps) {
   async function startLocal() {
     if (pending) return;
     setPending(true);
-    setPendingMessage("Démarrage du compagnon local…");
+    setPendingMessage("Starting local companion…");
     setError("");
     try {
       await api.enableLocalRuntime();
@@ -34,7 +34,7 @@ export function ModeOnboarding({ onConfigured }: ModeOnboardingProps) {
     e.preventDefault();
     if (pending) return;
     setPending(true);
-    setPendingMessage("Jumelage avec le backend Fleet…");
+    setPendingMessage("Pairing with Fleet backend…");
     setError("");
     try {
       await api.pairFleetAgent(fleetUrl, fleetCode);
@@ -51,7 +51,7 @@ export function ModeOnboarding({ onConfigured }: ModeOnboardingProps) {
   async function handleAttachFleet() {
     if (pending) return;
     setPending(true);
-    setPendingMessage("Association de l’agent Fleet existant…");
+    setPendingMessage("Attaching existing Fleet agent…");
     setError("");
     try {
       await api.attachFleetAgent();
@@ -69,9 +69,9 @@ export function ModeOnboarding({ onConfigured }: ModeOnboardingProps) {
       <div className="onboarding-card-wrapper">
         <header className="onboarding-header">
           <span className="brand-mark">S</span>
-          <h1>Bienvenue dans Sectile Desktop</h1>
+          <h1>Welcome to Sectile Desktop</h1>
           <p className="onboarding-lead">
-            Choisissez votre mode de fonctionnement pour commencer. Vous pourrez en changer à tout moment dans les réglages.
+            Choose your operating mode to get started. You can switch modes at any time in settings.
           </p>
         </header>
 
@@ -95,12 +95,12 @@ export function ModeOnboarding({ onConfigured }: ModeOnboardingProps) {
               <div className="onboarding-icon-badge">
                 <Icon name="monitor" />
               </div>
-              <span className="onboarding-pill">100% Autonome</span>
+              <span className="onboarding-pill">100% Standalone</span>
             </div>
-            <h2>Compagnon Local</h2>
+            <h2>Local Companion</h2>
             <p>
-              Exécutez vos tâches et gérez vos tickets en toute autonomie sur votre poste.
-              Un serveur local SQLite embarqué est démarré automatiquement, sans besoin d’infrastructure distante.
+              Run tasks and manage tickets independently on your workstation.
+              An embedded local SQLite server starts automatically, with no remote infrastructure needed.
             </p>
             <div className="onboarding-card-action">
               <button
@@ -109,7 +109,7 @@ export function ModeOnboarding({ onConfigured }: ModeOnboardingProps) {
                 disabled={pending}
                 onClick={() => void startLocal()}
               >
-                Démarrer en mode Compagnon
+                Start in Companion mode
               </button>
             </div>
           </section>
@@ -120,12 +120,12 @@ export function ModeOnboarding({ onConfigured }: ModeOnboardingProps) {
               <div className="onboarding-icon-badge">
                 <Icon name="link" />
               </div>
-              <span className="onboarding-pill">Équipe & Centralisé</span>
+              <span className="onboarding-pill">Team & Centralized</span>
             </div>
-            <h2>Agent Fleet</h2>
+            <h2>Fleet Agent</h2>
             <p>
-              Connectez ce poste à votre serveur Sectile d’équipe.
-              Les projets et l’orchestration sont centralisés, tandis que l’exécution s’effectue localement sur votre machine.
+              Connect this workstation to your team Sectile server.
+              Projects and orchestration are centralized, while execution runs locally on your machine.
             </p>
             <div className="onboarding-card-action">
               {!showFleetForm ? (
@@ -135,13 +135,13 @@ export function ModeOnboarding({ onConfigured }: ModeOnboardingProps) {
                   disabled={pending}
                   onClick={() => setShowFleetForm(true)}
                 >
-                  Configurer le mode Fleet
+                  Configure Fleet mode
                 </button>
               ) : (
                 <form className="onboarding-fleet-form" onSubmit={e => void handleFleetPair(e)}>
                   <fieldset disabled={pending}>
                     <label>
-                      Adresse du serveur Fleet
+                      Fleet server URL
                       <input
                         type="url"
                         required
@@ -152,7 +152,7 @@ export function ModeOnboarding({ onConfigured }: ModeOnboardingProps) {
                       />
                     </label>
                     <label>
-                      Code de jumelage
+                      Pairing code
                       <input
                         type="password"
                         required
@@ -164,7 +164,7 @@ export function ModeOnboarding({ onConfigured }: ModeOnboardingProps) {
                     </label>
                     <div className="onboarding-form-actions">
                       <button className="primary" type="submit">
-                        Associer à Fleet
+                        Pair with Fleet
                       </button>
                       <button
                         type="button"
@@ -174,21 +174,21 @@ export function ModeOnboarding({ onConfigured }: ModeOnboardingProps) {
                           setError("");
                         }}
                       >
-                        Annuler
+                        Cancel
                       </button>
                     </div>
                   </fieldset>
                   <details className="onboarding-existing-agent">
-                    <summary>J’ai déjà un agent sur ce poste</summary>
+                    <summary>I already have an agent on this workstation</summary>
                     <p className="muted">
-                      Tauri peut reprendre cet agent sans modifier son installation d’origine.
+                      Tauri can attach to this agent without modifying its original installation.
                     </p>
                     <button
                       type="button"
                       disabled={pending}
                       onClick={() => void handleAttachFleet()}
                     >
-                      Associer l’agent Fleet existant
+                      Attach existing Fleet agent
                     </button>
                   </details>
                 </form>

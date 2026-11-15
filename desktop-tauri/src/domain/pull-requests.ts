@@ -10,8 +10,8 @@ export function taskPullRequests(task?: Task): PullRequestLink[] {
 }
 
 export function pullRequestStateLabel(link: PullRequestLink): string {
-  if (link.missingToken) return "état indisponible · connexion forge requise";
-  return ({ open: "ouverte", conflicting: "en conflit", merged: "fusionnée", closed: "fermée" } as Record<string, string>)[link.state ?? ""] ?? "état inconnu";
+  if (link.missingToken) return "state unavailable · forge connection required";
+  return ({ open: "open", conflicting: "conflicting", merged: "merged", closed: "closed" } as Record<string, string>)[link.state ?? ""] ?? "unknown state";
 }
 
 export function pullRequestLabel(link: PullRequestLink): string {

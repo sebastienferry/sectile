@@ -234,7 +234,7 @@ func (d *agentDaemon) setupRead(r *http.Request, settings agentconfig.Settings, 
 		if valid {
 			status = "success"
 		}
-		view.Steps["mcp"] = setupStep{Status: status, Scope: "session", Message: "Connexion isolée du compagnon ; les inscriptions utilisateur restent inchangées.", Configuration: &setupMCPView{Target: "companion", Transport: "stdio", Present: true, Valid: valid}, Fingerprint: setupDigest([]any{companionMCPURL(), valid})}
+		view.Steps["mcp"] = setupStep{Status: status, Scope: "session", Message: "Isolated companion connection; user registrations remain unchanged.", Configuration: &setupMCPView{Target: "companion", Transport: "stdio", Present: true, Valid: valid}, Fingerprint: setupDigest([]any{companionMCPURL(), valid})}
 	} else {
 		mcp := setupStep{Status: "pending", Scope: "provider"}
 		entry, found, err := agentconfig.RegisteredMCPEntry(provider)
@@ -298,17 +298,17 @@ func (d *agentDaemon) desktopSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	provider := r.URL.Query().Get("provider")
 	if !setupProvider(provider) {
-		http.Error(w, "Fournisseur non pris en charge", 400)
+		http.Error(w, "Unsupported provider", 400)
 		return
 	}
 	if !d.prepareMu.TryLock() {
-		http.Error(w, "Une préparation est en cours. Réessayez.", 409)
+		http.Error(w, "Preparation is in progress. Try again.", 409)
 		return
 	}
 	defer d.prepareMu.Unlock()
 	settings, err := d.readSettings()
 	if err != nil {
-		http.Error(w, "Impossible de lire la configuration locale", 500)
+		http.Error(w, "Could not read local configuration", 500)
 		return
 	}
 	view := d.setupRead(r, settings, provider)
@@ -319,16 +319,16 @@ func (d *agentDaemon) desktopSetup(w http.ResponseWriter, r *http.Request) {
 			Fingerprint string `json:"fingerprint"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&input); err != nil {
-			http.Error(w, "Décision invalide", 400)
+			http.Error(w, "Invalid decision", 400)
 			return
 		}
 		if !(input.Step == "permissions" && input.Decision == "retained" || (input.Step == "skills" || input.Step == "sdd") && input.Decision == "skipped") {
-			http.Error(w, "Décision invalide", 400)
+			http.Error(w, "Invalid decision", 400)
 			return
 		}
 		current := view.Steps[input.Step]
 		if input.Fingerprint == "" || input.Fingerprint != current.Fingerprint || current.Status == "unknown" {
-			http.Error(w, "La configuration a changé. Actualisez avant de confirmer.", 409)
+			http.Error(w, "Configuration has changed. Refresh before confirming.", 409)
 			return
 		}
 		_, err = d.updateSettings(func(settings *agentconfig.Settings) error {
@@ -355,12 +355,12 @@ func (d *agentDaemon) desktopSetup(w http.ResponseWriter, r *http.Request) {
 			return nil
 		})
 		if err != nil {
-			http.Error(w, "Impossible de conserver la décision. Actualisez et réessayez.", 409)
+			http.Error(w, "Could not save decision. Refresh and try again.", 409)
 			return
 		}
 		settings, err = d.readSettings()
 		if err != nil {
-			http.Error(w, "Impossible de relire la configuration", 500)
+			http.Error(w, "Could not reload configuration", 500)
 			return
 		}
 		view = d.setupRead(r, settings, provider)

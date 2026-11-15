@@ -33,7 +33,7 @@ func TestDesktopArchiveWorkspaceRelaysToTheServer(t *testing.T) {
 		default:
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(`{"error":"Route non trouvée"}`))
+			_, _ = w.Write([]byte(`{"error":"Route not found"}`))
 		}
 	}))
 	defer srv.Close()

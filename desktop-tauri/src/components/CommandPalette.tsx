@@ -67,26 +67,26 @@ export function CommandPalette({
     const result: Entry[] = [];
     if (targetProject) {
       result.push(
-        { group: "action", label: "Nouveau ticket", detail: `Créer un ticket (+ lancement) · ${targetProject.name}`, run: () => onNavigate(targetProject, "ticket-editor") },
-        { group: "action", label: "Lancer une tâche", detail: `Démarrer une skill sur un ticket · ${targetProject.name}`, run: () => onNavigate(targetProject, "launch") },
-        { group: "action", label: "Nouveau prompt", detail: `${shortcutModifier}N · ${targetProject.name}`, run: () => onNavigate(targetProject, "prompt") },
-        { group: "action", label: "Tableau du projet", detail: `Voir les tickets par étape · ${targetProject.name}`, run: () => onNavigate(targetProject, "board") },
-        { group: "action", label: "File des exécutions", detail: `Toutes les exécutions · ${targetProject.name}`, run: () => onNavigate(targetProject, "executions") },
+        { group: "action", label: "New ticket", detail: `Create a ticket (+ launch) · ${targetProject.name}`, run: () => onNavigate(targetProject, "ticket-editor") },
+        { group: "action", label: "Launch task", detail: `Start a skill on a ticket · ${targetProject.name}`, run: () => onNavigate(targetProject, "launch") },
+        { group: "action", label: "New prompt", detail: `${shortcutModifier}N · ${targetProject.name}`, run: () => onNavigate(targetProject, "prompt") },
+        { group: "action", label: "Project board", detail: `View tickets by stage · ${targetProject.name}`, run: () => onNavigate(targetProject, "board") },
+        { group: "action", label: "Execution queue", detail: `All executions · ${targetProject.name}`, run: () => onNavigate(targetProject, "executions") },
       );
       if (targetProject.orchestratorEnabled) {
-        result.push({ group: "action", label: "Ouvrir l’orchestration", detail: targetProject.name, run: () => onNavigate(targetProject, "orchestration") });
+        result.push({ group: "action", label: "Open orchestration", detail: targetProject.name, run: () => onNavigate(targetProject, "orchestration") });
       }
     }
     result.push(
-      { group: "action", label: "Ouvrir un dossier", detail: "Créer ou retrouver un projet local", run: onOpenFolder },
-      { group: "action", label: "Paramètres", detail: `${shortcutModifier}, · Configuration du poste`, run: onOpenSettings },
+      { group: "action", label: "Open folder", detail: "Create or find a local project", run: onOpenFolder },
+      { group: "action", label: "Settings", detail: `${shortcutModifier}, · Workstation setup`, run: onOpenSettings },
     );
     if (sidebarActionLabel) result.push({ group: "action", label: sidebarActionLabel, detail: `${shortcutModifier}B`, run: onToggleSidebar });
     for (const project of projects) {
-      result.push({ group: "project", label: project.name, detail: "Ouvrir le tableau", run: () => onNavigate(project, "board") });
+      result.push({ group: "project", label: project.name, detail: "Open board", run: () => onNavigate(project, "board") });
       if (project.id !== targetProject?.id) {
-        result.push({ group: "project", label: `${project.name} · Nouveau ticket`, detail: "Créer un ticket dans ce projet", run: () => onNavigate(project, "ticket-editor") });
-        result.push({ group: "project", label: `${project.name} · Nouveau prompt`, detail: "Démarrer une conversation", run: () => onNavigate(project, "prompt") });
+        result.push({ group: "project", label: `${project.name} · New ticket`, detail: "Create a ticket in this project", run: () => onNavigate(project, "ticket-editor") });
+        result.push({ group: "project", label: `${project.name} · New prompt`, detail: "Start a conversation", run: () => onNavigate(project, "prompt") });
       }
     }
     for (const run of [...runs].reverse()) {
@@ -94,7 +94,7 @@ export function CommandPalette({
       if (!project) continue;
       result.push({
         group: "execution",
-        label: run.conversation ? run.title || run.prompt?.trim().split("\n")[0] || "Conversation" : run.taskKey || run.skill || "Exécution",
+        label: run.conversation ? run.title || run.prompt?.trim().split("\n")[0] || "Conversation" : run.taskKey || run.skill || "Execution",
         detail: [project.name, run.provider, run.conversation ? "Conversation" : statusLabel(run)].filter(Boolean).join(" · "),
         run: () => onNavigate(project, run.conversation ? "prompt" : "executions", run.id),
       });
@@ -131,7 +131,7 @@ export function CommandPalette({
   return <dialog
     ref={dialog}
     className="command-palette"
-    aria-label="Navigation rapide"
+    aria-label="Quick navigation"
     onCancel={event => { event.preventDefault(); onOpenChange(false); }}
     onClose={() => onOpenChange(false)}
     onClick={event => { if (event.target === dialog.current) onOpenChange(false); }}
@@ -141,12 +141,12 @@ export function CommandPalette({
       <input
         ref={input}
         role="combobox"
-        aria-label="Rechercher une action, un projet ou une exécution"
+        aria-label="Search for an action, project, or execution"
         aria-controls="command-palette-results"
         aria-activedescendant={shown[active] ? `command-palette-option-${active}` : undefined}
         aria-expanded="true"
         aria-autocomplete="list"
-        placeholder="Rechercher une action, un projet ou une exécution…"
+        placeholder="Search for an action, project, or execution…"
         value={query}
         onChange={event => { setQuery(event.target.value); setActive(0); }}
         onKeyDown={event => {
@@ -161,11 +161,11 @@ export function CommandPalette({
       />
       <kbd>Esc</kbd>
     </label>
-    <ul id="command-palette-results" role="listbox" aria-label="Résultats">
+    <ul id="command-palette-results" role="listbox" aria-label="Results">
       {(["action", "project", "execution"] as const).map(group => {
         const items = shown.filter(entry => entry.group === group);
         if (!items.length) return null;
-        const label = group === "action" ? "Actions" : group === "project" ? "Projets" : "Exécutions";
+        const label = group === "action" ? "Actions" : group === "project" ? "Projects" : "Executions";
         return <li className="command-palette-group" role="presentation" key={group}>
           <span>{label}</span>
           <ul role="presentation">
@@ -187,7 +187,7 @@ export function CommandPalette({
           </ul>
         </li>;
       })}
-      {!shown.length && <li className="command-palette-empty" role="presentation">Aucun résultat</li>}
+      {!shown.length && <li className="command-palette-empty" role="presentation">No results</li>}
     </ul>
   </dialog>;
 }

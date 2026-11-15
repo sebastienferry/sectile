@@ -160,4 +160,16 @@ func TestFirstConversationProfileKeepsImplicitWorkstationDefault(t *testing.T) {
 	if after.DefaultEngine().Provider != before.DefaultEngine().Provider || after.ProjectEngine("p").Provider != "codex" {
 		t.Fatal("first project profile replaced the workstation default")
 	}
+	var view struct {
+		Profiles []conversationProfile `json:"profiles"`
+	}
+	if err := json.Unmarshal(got.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	for _, profile := range view.Profiles {
+		body, _ := json.Marshal(map[string]string{"action": "delete", "id": profile.ID})
+		if del := disconnectRequest(d, "POST", "/desktop/conversation-profiles", string(body)); del.Code != 200 {
+			t.Fatalf("workstation delete %s failed: %d %s", profile.ID, del.Code, del.Body.String())
+		}
+	}
 }

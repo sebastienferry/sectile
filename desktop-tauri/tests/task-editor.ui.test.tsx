@@ -16,10 +16,10 @@ test("creating a ticket sends its selected tracker and fields to Go once", async
   fireEvent.change(screen.getByLabelText("Tracker"),{target:{value:"fe"}});
   await screen.findByRole("option",{name:"Bug"});
   fireEvent.change(screen.getByLabelText("Type"),{target:{value:"Bug"}});
-  fireEvent.change(screen.getByLabelText("Priorité"),{target:{value:"high"}});
-  fireEvent.change(screen.getByLabelText("Titre"),{target:{value:" Fix layout "}});
+  fireEvent.change(screen.getByLabelText("Priority"),{target:{value:"high"}});
+  fireEvent.change(screen.getByLabelText("Title"),{target:{value:" Fix layout "}});
   fireEvent.change(screen.getByLabelText(/Description/),{target:{value:"Expected behavior"}});
-  fireEvent.click(screen.getByRole("button",{name:"Créer le ticket"}));
+  fireEvent.click(screen.getByRole("button",{name:"Create ticket"}));
   await waitFor(()=>expect(api.createTask).toHaveBeenCalledExactlyOnceWith("p",{title:"Fix layout",description:"Expected behavior",priority:"high",issueType:"Bug",trackerId:"fe"}));
   expect(saved).toHaveBeenCalledWith(expect.objectContaining({id:"remote-1",title:"Fix layout"}));
 });
@@ -32,11 +32,11 @@ test("editing a ticket reloads server state and sends only changed fields", asyn
   const saved=vi.fn();
   render(<TaskEditor projectId="p" projectName="Project" taskId="t" available onClose={vi.fn()} onSaved={saved}/>);
   await screen.findByDisplayValue("Original");
-  expect((screen.getByRole("button",{name:"Enregistrer"}) as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText("Titre"),{target:{value:"Changed"}});
+  expect((screen.getByRole("button",{name:"Save"}) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText("Title"),{target:{value:"Changed"}});
   fireEvent.change(screen.getByLabelText("Sprint"),{target:{value:"Sprint 42"}});
-  fireEvent.change(screen.getByLabelText("Assigné"),{target:{value:"Alice"}});
-  fireEvent.click(screen.getByRole("button",{name:"Enregistrer"}));
+  fireEvent.change(screen.getByLabelText("Assignee"),{target:{value:"Alice"}});
+  fireEvent.click(screen.getByRole("button",{name:"Save"}));
   await waitFor(()=>expect(api.updateTask).toHaveBeenCalledExactlyOnceWith("p","t",{title:"Changed",sprint:"Sprint 42",assignee:"Alice"}));
   await waitFor(()=>expect(api.getTask).toHaveBeenCalledTimes(2));
   expect(saved).toHaveBeenCalledWith(expect.objectContaining({id:"t"}));
@@ -45,9 +45,9 @@ test("editing a ticket reloads server state and sends only changed fields", asyn
 test("a project without a remote tracker cannot create a local ticket copy", async () => {
   vi.mocked(api.taskTrackers).mockResolvedValue({trackers:[]});
   render(<TaskEditor projectId="p" projectName="Local" available onClose={vi.fn()} onSaved={vi.fn()}/>);
-  await screen.findByText(/n’a pas de tracker connecté/);
-  fireEvent.change(screen.getByLabelText("Titre"),{target:{value:"Untracked"}});
-  expect((screen.getByRole("button",{name:"Créer le ticket"}) as HTMLButtonElement).disabled).toBe(true);
+  await screen.findByText(/has no connected tracker/);
+  fireEvent.change(screen.getByLabelText("Title"),{target:{value:"Untracked"}});
+  expect((screen.getByRole("button",{name:"Create ticket"}) as HTMLButtonElement).disabled).toBe(true);
   expect(api.createTask).not.toHaveBeenCalled();
 });
 
@@ -59,9 +59,9 @@ test("editing PR/MR links keeps existing metadata and sends their new order", as
   vi.mocked(api.updateTask).mockResolvedValue(loaded);
   render(<TaskEditor projectId="p" projectName="Project" taskId="t" available onClose={vi.fn()} onSaved={vi.fn()}/>);
   await screen.findByDisplayValue("Review");
-  fireEvent.click(screen.getByText("Liens PR/MR · 2"));
-  fireEvent.click(screen.getByRole("button",{name:"Descendre https://gitlab.example/g/p/-/merge_requests/1"}));
-  fireEvent.click(screen.getByRole("button",{name:"Enregistrer"}));
+  fireEvent.click(screen.getByText("PR/MR links · 2"));
+  fireEvent.click(screen.getByRole("button",{name:"Move down https://gitlab.example/g/p/-/merge_requests/1"}));
+  fireEvent.click(screen.getByRole("button",{name:"Save"}));
   await waitFor(() => expect(api.updateTask).toHaveBeenCalledExactlyOnceWith("p","t",{prLinks:[loaded.prLinks[1],loaded.prLinks[0]]}));
 });
 
@@ -71,9 +71,9 @@ test("invalid and duplicate PR/MR links are rejected without changing the ticket
   vi.mocked(api.getTask).mockResolvedValue({id:"t",title:"Review",priority:"medium",trackerId:"be",status:"reviewed",prLinks:[{url:"https://gitlab.example/g/p/-/merge_requests/1"}]});
   render(<TaskEditor projectId="p" projectName="Project" taskId="t" available onClose={vi.fn()} onSaved={vi.fn()}/>);
   await screen.findByDisplayValue("Review");
-  fireEvent.click(screen.getByText("Liens PR/MR · 1"));
-  fireEvent.change(screen.getByRole("textbox",{name:"URL PR/MR"}),{target:{value:"https://token@gitlab.example/g/p/-/merge_requests/2"}});
-  fireEvent.click(screen.getByRole("button",{name:"Ajouter un lien"}));
-  expect(screen.getByRole("alert").textContent).toMatch(/invalide/);
+  fireEvent.click(screen.getByText("PR/MR links · 1"));
+  fireEvent.change(screen.getByRole("textbox",{name:"PR/MR URL"}),{target:{value:"https://token@gitlab.example/g/p/-/merge_requests/2"}});
+  fireEvent.click(screen.getByRole("button",{name:"Add link"}));
+  expect(screen.getByRole("alert").textContent).toMatch(/invalid/i);
   expect(api.updateTask).not.toHaveBeenCalled();
 });

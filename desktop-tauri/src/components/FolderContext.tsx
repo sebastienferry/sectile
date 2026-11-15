@@ -6,7 +6,7 @@ import {projectContext,projectRepositories,type ProjectContext,type ProjectRepos
 import { Icon } from "./Icon";
 
 const folderName=(path:string)=>path.replace(/[\\/]+$/," ").trim().split(/[\\/]/).pop()||path;
-const roleNames:Record<string,string>={primary:"Travail",changed:"Modifié",context:"Contexte",spec:"Spécifications",local:"Attaché au projet"};
+const roleNames:Record<string,string>={primary:"Working",changed:"Modified",context:"Context",spec:"Specifications",local:"Attached to project"};
 function useFolders(projectId:string){
  const [folders,setFolders]=useState<AttachedFolder[]>([]);
  const [context,setContext]=useState<ProjectContext>();
@@ -40,31 +40,31 @@ export function PromptFolders({projectId,runId,directory,folders:runFolders,read
   window.addEventListener("keydown",onKeyDown);
   return()=>{document.removeEventListener("mousedown",onPointerDown);window.removeEventListener("keydown",onKeyDown);};
  },[]);
- const configured=[...repositories.filter(r=>!r.code&&r.path).map(r=>({path:r.path,name:r.identity,role:"context",attached:false})),...([context?.specPath,context?.issueSpecPath].filter(Boolean) as string[]).map(path=>({path,name:"Spécifications",role:"spec",attached:false}))];
+ const configured=[...repositories.filter(r=>!r.code&&r.path).map(r=>({path:r.path,name:r.identity,role:"context",attached:false})),...([context?.specPath,context?.issueSpecPath].filter(Boolean) as string[]).map(path=>({path,name:"Specifications",role:"spec",attached:false}))];
  const listed=[...(runFolders??[]).filter(f=>f.path!==directory),...configured,...folders.map(f=>({path:f.path,name:folderName(f.path),role:"local",attached:true}))].filter((f,index,all)=>f.path!==directory&&all.findIndex(other=>other.path===f.path)===index);
- const allEntries=[...(directory?[{path:directory,label:"Travail"}]:[]),...listed.map(f=>({path:f.path,label:f.attached?"Attaché au projet":roleNames[f.role]||f.role}))];
+ const allEntries=[...(directory?[{path:directory,label:"Working"}]:[]),...listed.map(f=>({path:f.path,label:f.attached?"Attached to project":roleNames[f.role]||f.role}))];
  async function copyFolderPath(path:string){
   try{
    await navigator.clipboard.writeText(path);
    setCopiedPath(path);
    setTimeout(()=>setCopiedPath(current=>current===path?"":current),1800);
   }catch{
-   setError("Impossible de copier le chemin du dossier.");
+   setError("Unable to copy folder path.");
   }
  }
  async function openInFinder(path:string){
   try{
    await invoke("open_folder_at",{path});
   }catch{
-   setError("Impossible d’ouvrir le dossier dans le Finder.");
+   setError("Unable to open folder in Finder.");
   }
  }
- async function add(){if(acting.current)return;acting.current=true;setPending(true);onPendingChange?.(true);setError("");setNotice("");try{const result=await attachFolder(projectId,runId);if(result){await refresh();onChanged?.();setNotice(result.mappedAs?`Dépôt associé au projet : ${result.mappedAs}. Disponible au prochain message.`:runId?"Dossier ajouté au projet · disponible dès le prochain message.":"Dossier ajouté au projet · disponible au lancement du prompt.");}}catch{setError("Impossible d’ajouter ce dossier. Il est peut-être déjà associé ou indisponible. Vérifiez les dossiers du projet puis réessayez.");}finally{acting.current=false;setPending(false);onPendingChange?.(false);}}
- return <section className={`prompt-folders${compact?" compact":""}`} aria-label="Contexte de travail">
- <div className="prompt-context-toolbar">{!compact&&<span className="working-directory" title={directory}><Icon name="folder"/><span>{directory||"Dossier de travail en cours de chargement…"}</span></span>}
+ async function add(){if(acting.current)return;acting.current=true;setPending(true);onPendingChange?.(true);setError("");setNotice("");try{const result=await attachFolder(projectId,runId);if(result){await refresh();onChanged?.();setNotice(result.mappedAs?`Repository mapped to project: ${result.mappedAs}. Available on next message.`:runId?"Folder added to project · available on next message.":"Folder added to project · available when prompt launches.");}}catch{setError("Unable to add this folder. It may already be mapped or unavailable. Check project folders and try again.");}finally{acting.current=false;setPending(false);onPendingChange?.(false);}}
+ return <section className={`prompt-folders${compact?" compact":""}`} aria-label="Working context">
+ <div className="prompt-context-toolbar">{!compact&&<span className="working-directory" title={directory}><Icon name="folder"/><span>{directory||"Loading working folder…"}</span></span>}
  <details ref={detailsRef}>
-  <summary title="Voir et gérer les dossiers de ce projet">
-   <Icon name="folder"/> <span className={compact?"sr-only":undefined}>Dossiers · </span><span>{allEntries.length}</span>
+  <summary title="View and manage folders for this project">
+   <Icon name="folder"/> <span className={compact?"sr-only":undefined}>Folders · </span><span>{allEntries.length}</span>
   </summary>
   <div className="prompt-folders-popover">
    <ul>
@@ -73,8 +73,8 @@ export function PromptFolders({projectId,runId,directory,folders:runFolders,read
       <button
        type="button"
        className="prompt-folder-copy"
-       title={`Cliquer pour copier : ${entry.path}`}
-       aria-label={`Copier le chemin ${entry.path}`}
+       title={`Click to copy: ${entry.path}`}
+       aria-label={`Copy path ${entry.path}`}
        onClick={()=>void copyFolderPath(entry.path)}
       >
        <strong>{entry.label}</strong>
@@ -86,8 +86,8 @@ export function PromptFolders({projectId,runId,directory,folders:runFolders,read
       <button
        type="button"
        className="prompt-folder-finder"
-       title="Ouvrir dans le Finder"
-       aria-label={`Ouvrir ${entry.path} dans le Finder`}
+       title="Open in Finder"
+       aria-label={`Open ${entry.path} in Finder`}
        onClick={()=>void openInFinder(entry.path)}
       >
        <Icon name="external"/>
@@ -100,23 +100,24 @@ export function PromptFolders({projectId,runId,directory,folders:runFolders,read
      <button
       type="button"
       className="prompt-folders-add"
-      aria-label={pending?"Ajout…":"Ajouter un dossier"}
-      title="Partager un dossier supplémentaire avec les conversations du projet"
+      aria-label={pending?"Adding…":"Add folder"}
+      title="Share an additional folder with project conversations"
       disabled={pending}
       onClick={()=>void add()}
      >
       <Icon name="plus"/>
-      <span>{pending?"Ajout…":"Ajouter un dossier"}</span>
+      <span>{pending?"Adding…":"Add folder"}</span>
      </button>
     </div>
    )}
-   <p>Les dossiers attachés sont partagés par toutes les conversations de ce projet. Leur retrait se fait dans sa configuration.</p>
-   {unavailable&&<p>Dossiers du projet indisponibles. <button type="button" onClick={()=>void refresh()}>Réessayer les dossiers</button></p>}
+   <p>Attached folders are shared across all conversations in this project. Remove them in project settings.</p>
+   {unavailable&&<p>Project folders unavailable. <button type="button" onClick={()=>void refresh()}>Retry folders</button></p>}
+   {compact&&error&&<p role="alert" className="error">{error}</p>}
   </div>
  </details>
  </div>
- {!compact&&listed.length>0&&<div className="prompt-context-folders" aria-label="Dossiers supplémentaires utilisés par l’agent">{listed.map(folder=><span key={folder.path} title={folder.path}><Icon name="folder"/><span>{folderName(folder.path)}</span></span>)}</div>}
- {notice&&<p role="status">{notice}</p>}{error&&<p role="alert" className="error">{error}</p>}
+ {!compact&&listed.length>0&&<div className="prompt-context-folders" aria-label="Additional folders used by the agent">{listed.map(folder=><span key={folder.path} title={folder.path}><Icon name="folder"/><span>{folderName(folder.path)}</span></span>)}</div>}
+ {!compact&&notice&&<p role="status">{notice}</p>}{!compact&&error&&<p role="alert" className="error">{error}</p>}
  </section>;
 }
 
@@ -125,12 +126,12 @@ export function AttachedFolderSettings({projectId,onChanged}:{projectId:string;o
  const [pending,setPending]=useState(false);
  const [error,setError]=useState("");
  const acting=useRef(false);
- async function change(action:()=>Promise<unknown>){if(acting.current)return;acting.current=true;setPending(true);setError("");try{await action();await refresh();onChanged?.();}catch{setError("Impossible de modifier les dossiers associés. Vérifiez leur disponibilité et réessayez.");}finally{acting.current=false;setPending(false);}}
- return <section className="attached-folder-settings" aria-label="Dossiers attachés au projet"><h3>Dossiers attachés</h3><p className="muted">Accessibles aux agents en complément du dossier de travail. Détacher retire l’association du projet, sans supprimer les fichiers.</p>
- {unavailable&&<p role="status">Dossiers indisponibles. <button onClick={()=>void refresh()}>Réessayer</button></p>}
- {!folders.length&&!unavailable&&<p>Aucun dossier supplémentaire.</p>}
- <ul>{folders.map(folder=><li key={folder.path}><div><strong>{folderName(folder.path)}</strong><code>{folder.path}</code><small>{folder.kind==="missing"?"Dossier introuvable":folder.kind==="git"?"Dépôt Git":"Dossier local"}{folder.duplicate&&` · Doublon de ${folder.duplicate}`}</small></div><button disabled={pending} aria-label={`Détacher ${folder.path}`} onClick={()=>void change(()=>detachFolder(projectId,folder.path))}>Détacher</button></li>)}</ul>
- <button disabled={pending} onClick={()=>void change(()=>attachFolder(projectId))}><Icon name="plus"/>Ajouter un dossier au projet</button>
+ async function change(action:()=>Promise<unknown>){if(acting.current)return;acting.current=true;setPending(true);setError("");try{await action();await refresh();onChanged?.();}catch{setError("Unable to update attached folders. Check their availability and try again.");}finally{acting.current=false;setPending(false);}}
+ return <section className="attached-folder-settings" aria-label="Folders attached to project"><h3>Attached folders</h3><p className="muted">Accessible to agents alongside the working folder. Detaching removes the project association without deleting files.</p>
+ {unavailable&&<p role="status">Folders unavailable. <button onClick={()=>void refresh()}>Retry</button></p>}
+ {!folders.length&&!unavailable&&<p>No additional folders.</p>}
+ <ul>{folders.map(folder=><li key={folder.path}><div><strong>{folderName(folder.path)}</strong><code>{folder.path}</code><small>{folder.kind==="missing"?"Folder not found":folder.kind==="git"?"Git repository":"Local folder"}{folder.duplicate&&` · Duplicate of ${folder.duplicate}`}</small></div><button disabled={pending} aria-label={`Detach ${folder.path}`} onClick={()=>void change(()=>detachFolder(projectId,folder.path))}>Detach</button></li>)}</ul>
+ <button disabled={pending} onClick={()=>void change(()=>attachFolder(projectId))}><Icon name="plus"/>Add folder to project</button>
  {error&&<p role="alert" className="error">{error}</p>}
  </section>;
 }

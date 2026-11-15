@@ -33,10 +33,10 @@ test("next skill respects PR creation policy, PR presence, availability and proj
 });
 test("process exit never substitutes for server-confirmed skill completion or stage validation",()=>{
  const run={id:"r",taskId:"t",skill:"implement",status:"completed"};
- assert.match(skillResultLabel(run),/non confirmé/);
- assert.match(skillResultLabel(run,{activity:{id:"different",taskId:"t",skillId:"implement",status:"completed"}}),/non confirmé/);
+ assert.match(skillResultLabel(run),/unconfirmed/);
+ assert.match(skillResultLabel(run,{activity:{id:"different",taskId:"t",skillId:"implement",status:"completed"}}),/unconfirmed/);
  assert.match(skillResultLabel(run,{activity:{id:"r",taskId:"t",skillId:"implement",status:"completed"},task:{status:"to_implement"}}),/validation/);
- assert.match(skillResultLabel(run,{activity:{id:"r",taskId:"t",skillId:"implement",status:"completed"},task:{status:"to_test"}}),/résultat confirmé/);
+ assert.match(skillResultLabel(run,{activity:{id:"r",taskId:"t",skillId:"implement",status:"completed"},task:{status:"to_test"}}),/result confirmed/);
 });
 test("engineMark shortens providers into compact monograms",()=>{
  assert.equal(engineMark("codex"),"Cx");

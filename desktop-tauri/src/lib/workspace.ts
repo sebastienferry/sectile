@@ -16,7 +16,33 @@ export const saveOrchestration=(projectId:string,input:OrchestrationSettings)=>i
 export const saveWorkflowPolicy=(projectId:string,input:{fullChainStopStage:string;prCreationStage:string;defaultSkillMode:string})=>invoke("save_workflow_policy",{projectId,input});
 export const renameProject=(projectId:string,name:string)=>invoke<void>("rename_project",{projectId,name});
 
-export interface RunDiff {directory:string;branch:string;isClean:boolean;complete:boolean;filesChanged:number;additions:number;deletions:number;warnings?:{code:string;message:string}[];files:{path:string;oldPath?:string;status:string;kind:string;patch:string;omittedReason?:string}[]}
+export interface RunDiffFile {
+  path: string;
+  oldPath?: string;
+  status: string;
+  kind: string;
+  additions?: number;
+  deletions?: number;
+  patch: string;
+  omittedReason?: string;
+  document?: {
+    side: "new" | "old";
+    content?: string;
+    omittedReason?: string;
+  };
+}
+export interface RunDiff {
+  directory: string;
+  branch: string;
+  isClean: boolean;
+  complete: boolean;
+  countsPartial?: boolean;
+  filesChanged: number;
+  additions: number;
+  deletions: number;
+  warnings?: { code: string; message: string }[];
+  files: RunDiffFile[];
+}
 export const runDiff=(runId:string,folder?:string)=>invoke<RunDiff>("run_diff",{runId,folder});
 export const openRunEditor=(runId:string,folder?:string)=>invoke("open_run_editor",{runId,folder});
 export const openExternalLink=(url:string)=>invoke("open_external_link",{url});

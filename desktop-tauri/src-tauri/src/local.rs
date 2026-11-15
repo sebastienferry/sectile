@@ -81,7 +81,7 @@ fn root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_data_dir()
         .map(|p| p.join("local-runtime"))
-        .map_err(|_| "Dossier de données indisponible".into())
+        .map_err(|_| "Data directory unavailable".into())
 }
 
 const MAX_SERVICE_LOG_BYTES: u64 = 256 * 1024;
@@ -114,23 +114,23 @@ fn read_service_log_file(path: &Path) -> Result<ServiceLog, String> {
                 truncated: false,
             });
         }
-        Err(_) => return Err("Journal du service illisible".into()),
+        Err(_) => return Err("Service log unreadable".into()),
     };
     if !metadata.file_type().is_file() {
-        return Err("Le journal du service n’est pas un fichier ordinaire".into());
+        return Err("Service log is not a regular file".into());
     }
-    let mut file = fs::File::open(path).map_err(|_| "Journal du service illisible")?;
+    let mut file = fs::File::open(path).map_err(|_| "Service log unreadable")?;
     let length = file
         .metadata()
-        .map_err(|_| "Journal du service illisible")?
+        .map_err(|_| "Service log unreadable")?
         .len();
     let start = length.saturating_sub(MAX_SERVICE_LOG_BYTES);
     file.seek(SeekFrom::Start(start))
-        .map_err(|_| "Journal du service illisible")?;
+        .map_err(|_| "Service log unreadable")?;
     let mut bytes = Vec::new();
     file.take(MAX_SERVICE_LOG_BYTES)
         .read_to_end(&mut bytes)
-        .map_err(|_| "Journal du service illisible")?;
+        .map_err(|_| "Service log unreadable")?;
     if start > 0 {
         while bytes.first().is_some_and(|byte| byte & 0xc0 == 0x80) {
             bytes.remove(0);
@@ -241,12 +241,12 @@ fn save_mode(root: &Path, mode: RuntimeMode, server: Option<&str>) -> Result<(),
     }
     let mut file = options
         .open(&next)
-        .map_err(|_| "Écriture du mode refusée")?;
-    file.write_all(&serde_json::to_vec(&record).map_err(|_| "Mode invalide")?)
-        .map_err(|_| "Écriture du mode interrompue")?;
+        .map_err(|_| "Mode write denied")?;
+    file.write_all(&serde_json::to_vec(&record).map_err(|_| "Invalid mode")?)
+        .map_err(|_| "Mode write interrupted")?;
     file.sync_all()
-        .map_err(|_| "Enregistrement du mode interrompu")?;
-    fs::rename(next, path).map_err(|_| "Enregistrement du mode refusé".into())
+        .map_err(|_| "Mode save interrupted")?;
+    fs::rename(next, path).map_err(|_| "Mode save denied".into())
 }
 
 fn ensure_runtime_connection_id(root: &Path) -> Result<String, String> {
@@ -257,7 +257,7 @@ fn ensure_runtime_connection_id(root: &Path) -> Result<String, String> {
                 .filter(|path| path.join("installation.json").exists())
                 .map(|_| RuntimeMode::Local)
         })
-        .ok_or_else(|| "Choisissez un mode d’exécution dans les paramètres.".to_string())?;
+        .ok_or_else(|| "Select a runtime mode in settings.".to_string())?;
     let path = mode_path(root);
     let value = fs::read(&path)
         .ok()
@@ -276,12 +276,12 @@ fn ensure_runtime_connection_id(root: &Path) -> Result<String, String> {
         .filter(|value| !value.is_empty());
     save_mode(root, mode, server)?;
     let value: Value =
-        serde_json::from_slice(&fs::read(path).map_err(|_| "Identité de connexion indisponible")?)
-            .map_err(|_| "Identité de connexion invalide")?;
+        serde_json::from_slice(&fs::read(path).map_err(|_| "Connection identity unavailable")?)
+            .map_err(|_| "Invalid connection identity")?;
     value["connectionId"]
         .as_str()
         .map(str::to_owned)
-        .ok_or_else(|| "Identité de connexion indisponible".into())
+        .ok_or_else(|| "Connection identity unavailable".into())
 }
 
 pub fn runtime_connection_id(app: &tauri::AppHandle) -> Result<String, String> {
@@ -290,18 +290,18 @@ pub fn runtime_connection_id(app: &tauri::AppHandle) -> Result<String, String> {
 
 fn selected_fleet_server(root: &Path) -> Result<String, String> {
     let value: Value =
-        serde_json::from_slice(&fs::read(mode_path(root)).map_err(|_| "Mode Fleet introuvable")?)
-            .map_err(|_| "Mode Fleet illisible")?;
+        serde_json::from_slice(&fs::read(mode_path(root)).map_err(|_| "Fleet mode not found")?)
+            .map_err(|_| "Fleet mode unreadable")?;
     value["server"]
         .as_str()
         .filter(|server| !server.is_empty())
         .map(str::to_owned)
-        .ok_or_else(|| "Serveur Fleet absent".into())
+        .ok_or_else(|| "Fleet server missing".into())
 }
 
 fn normalize_fleet_server_url(input: &str) -> Result<String, String> {
     let parsed =
-        reqwest::Url::parse(input.trim()).map_err(|_| "Adresse du serveur Fleet invalide")?;
+        reqwest::Url::parse(input.trim()).map_err(|_| "Invalid Fleet server address")?;
     let is_loopback = parsed.host_str().is_some_and(|host| {
         host == "localhost"
             || host
@@ -317,7 +317,7 @@ fn normalize_fleet_server_url(input: &str) -> Result<String, String> {
         || parsed.fragment().is_some()
     {
         return Err(
-            "Utilisez l’adresse HTTPS du backend Fleet, sans identifiants ni chemin.".into(),
+            "Use the HTTPS address of the Fleet backend, without credentials or path.".into(),
         );
     }
     Ok(parsed.as_str().trim_end_matches('/').to_owned())
@@ -345,13 +345,13 @@ fn active_root(root: &Path) -> Result<PathBuf, String> {
         return Ok(root.to_path_buf());
     }
     let value: Value =
-        serde_json::from_slice(&fs::read(path).map_err(|_| "Sélection du service illisible")?)
-            .map_err(|_| "Sélection du service invalide")?;
+        serde_json::from_slice(&fs::read(path).map_err(|_| "Service selection unreadable")?)
+            .map_err(|_| "Invalid service selection")?;
     if value["protocol"] != 1
         || value["kind"] != "companion"
         || value["generation"] != "generations/companion-v1"
     {
-        return Err("Version du service local incompatible".into());
+        return Err("Incompatible local service version".into());
     }
     Ok(root.join("generations/companion-v1"))
 }
@@ -372,29 +372,29 @@ fn installation_lock(root: &Path) -> Result<fs::File, String> {
     }
     let file = options
         .open(root.join("runtime.lock"))
-        .map_err(|_| "Verrou local indisponible")?;
+        .map_err(|_| "Local lock unavailable")?;
     file.try_lock()
-        .map_err(|_| "Une autre fenêtre prépare les services locaux. Réessayez dans un instant.")?;
+        .map_err(|_| "Another window is preparing local services. Try again in a moment.")?;
     Ok(file)
 }
 fn read_installation(root: &Path) -> Result<Installation, String> {
     let root = active_root(root)?;
     let bytes = fs::read(root.join("installation.json"))
-        .map_err(|_| "Activez d’abord l’installation locale")?;
+        .map_err(|_| "Enable the local installation first")?;
     let installation: Installation =
-        serde_json::from_slice(&bytes).map_err(|_| "Configuration locale illisible")?;
+        serde_json::from_slice(&bytes).map_err(|_| "Local configuration unreadable")?;
     if installation.port == 0 || installation.key.len() < 32 {
-        return Err("Configuration locale invalide".into());
+        return Err("Invalid local configuration".into());
     }
     Ok(installation)
 }
 fn private_dir(path: &Path) -> Result<(), String> {
-    fs::create_dir_all(path).map_err(|_| "Impossible de créer le dossier local")?;
+    fs::create_dir_all(path).map_err(|_| "Unable to create local folder")?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-            .map_err(|_| "Permissions du dossier refusées")?;
+            .map_err(|_| "Folder permissions denied")?;
     }
     Ok(())
 }
@@ -410,12 +410,12 @@ fn save(root: &Path, value: &Installation) -> Result<(), String> {
     }
     let mut file = options
         .open(&path)
-        .map_err(|_| "Écriture de la configuration refusée")?;
-    file.write_all(&serde_json::to_vec(value).map_err(|_| "Configuration invalide")?)
-        .map_err(|_| "Écriture interrompue")?;
-    file.sync_all().map_err(|_| "Enregistrement interrompu")?;
+        .map_err(|_| "Configuration write denied")?;
+    file.write_all(&serde_json::to_vec(value).map_err(|_| "Invalid configuration")?)
+        .map_err(|_| "Write interrupted")?;
+    file.sync_all().map_err(|_| "Save interrupted")?;
     fs::rename(path, root.join("installation.json"))
-        .map_err(|_| "Enregistrement de la configuration refusé".into())
+        .map_err(|_| "Configuration save denied".into())
 }
 fn client() -> Result<Client, String> {
     Client::builder()
@@ -423,7 +423,7 @@ fn client() -> Result<Client, String> {
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(45))
         .build()
-        .map_err(|_| "Connexion locale indisponible".into())
+        .map_err(|_| "Local connection unavailable".into())
 }
 
 async fn exchange_fleet_pairing(
@@ -432,23 +432,23 @@ async fn exchange_fleet_pairing(
     pairing_code: &str,
 ) -> Result<FleetPairing, String> {
     let endpoint = reqwest::Url::parse(server)
-        .map_err(|_| "Adresse du serveur Fleet invalide")?
+        .map_err(|_| "Invalid Fleet server address")?
         .join("/api/v1/agent/pair")
-        .map_err(|_| "Adresse du serveur Fleet invalide")?;
+        .map_err(|_| "Invalid Fleet server address")?;
     let response = client
         .post(endpoint)
         .json(&json!({"code":pairing_code,"label":"Sectile Desktop"}))
         .timeout(Duration::from_secs(12))
         .send()
         .await
-        .map_err(|_| "Impossible de joindre le serveur Fleet")?;
+        .map_err(|_| "Unable to reach Fleet server")?;
     if response.status() != reqwest::StatusCode::CREATED {
         return Err(if response.status() == reqwest::StatusCode::UNAUTHORIZED {
-            "Code de jumelage invalide ou expiré. Générez-en un nouveau depuis votre profil Fleet."
+            "Invalid or expired pairing code. Generate a new one from your Fleet profile."
                 .into()
         } else {
             format!(
-                "Le serveur Fleet a refusé l’association (HTTP {}).",
+                "The Fleet server refused pairing (HTTP {}).",
                 response.status().as_u16()
             )
         });
@@ -456,16 +456,16 @@ async fn exchange_fleet_pairing(
     let payload: Value = response
         .json()
         .await
-        .map_err(|_| "Réponse de jumelage Fleet illisible")?;
+        .map_err(|_| "Fleet pairing response unreadable")?;
     let (Some(api_token), Some(device_id), Some(user_id)) = (
         payload["token"].as_str(),
         payload["deviceId"].as_str(),
         payload["userId"].as_str(),
     ) else {
-        return Err("Le serveur Fleet n’a pas renvoyé une association valide.".into());
+        return Err("The Fleet server did not return a valid pairing.".into());
     };
     if api_token.is_empty() || device_id.is_empty() || user_id.is_empty() {
-        return Err("Le serveur Fleet n’a pas renvoyé une association complète.".into());
+        return Err("The Fleet server did not return a complete pairing.".into());
     }
     Ok(FleetPairing {
         api_token: api_token.to_owned(),
@@ -490,7 +490,7 @@ fn binary(app: &tauri::AppHandle, service: &str) -> Result<PathBuf, String> {
     let packaged = app
         .path()
         .resource_dir()
-        .map_err(|_| "Ressources indisponibles")?
+        .map_err(|_| "Resources unavailable")?
         .join("binaries")
         .join(&name);
     if packaged.is_file() {
@@ -498,11 +498,11 @@ fn binary(app: &tauri::AppHandle, service: &str) -> Result<PathBuf, String> {
     }
     if cfg!(debug_assertions) {
         Err(format!(
-            "Service {service} absent. Exécutez npm run prepare:services puis reconstruisez l’application."
+            "Service {service} is missing. Run npm run prepare:services and rebuild the application."
         ))
     } else {
         Err(format!(
-            "Le service {service} manque dans cette installation. Réinstallez Sectile Desktop."
+            "Service {service} is missing from this installation. Reinstall Sectile Desktop."
         ))
     }
 }
@@ -543,9 +543,9 @@ fn command(app: &tauri::AppHandle, root: &Path, service: &str) -> Result<Command
     }
     let log = options
         .open(root.join(format!("{service}.log")))
-        .map_err(|_| "Journal local indisponible")?;
+        .map_err(|_| "Local log unavailable")?;
     cmd.stdin(Stdio::null())
-        .stdout(log.try_clone().map_err(|_| "Journal indisponible")?)
+        .stdout(log.try_clone().map_err(|_| "Log unavailable")?)
         .stderr(log);
     Ok(cmd)
 }
@@ -555,9 +555,9 @@ fn runtime_info(app: &tauri::AppHandle, root: &Path) -> Result<Value, String> {
         .arg("--local-runtime-info")
         .stdout(Stdio::piped())
         .output()
-        .map_err(|_| "Configuration du serveur Go indisponible")?;
+        .map_err(|_| "Go server configuration unavailable")?;
     let info: Value = serde_json::from_slice(&output.stdout)
-        .map_err(|_| "Configuration du serveur Go invalide")?;
+        .map_err(|_| "Invalid Go server configuration")?;
     if !output.status.success()
         || info["protocol"] != 1
         || info["port"]
@@ -566,7 +566,7 @@ fn runtime_info(app: &tauri::AppHandle, root: &Path) -> Result<Value, String> {
             .is_none()
         || info["origin"] != format!("http://127.0.0.1:{}", info["port"])
     {
-        return Err("Configuration du serveur Go incompatible".into());
+        return Err("Incompatible Go server configuration".into());
     }
     Ok(info)
 }
@@ -595,7 +595,7 @@ async fn ensure_server(
     require_runtime_start(app)?;
     let info = runtime_info(app, root)?;
     if info["port"].as_u64() != Some(u64::from(installation.port)) {
-        return Err("Port local incompatible avec le rappel OAuth enregistré".into());
+        return Err("Local port is incompatible with the registered OAuth callback".into());
     }
     {
         let mut upgrade = command(app, root, "companion")?;
@@ -609,10 +609,10 @@ async fn ensure_server(
             .arg(binary(app, "agent")?);
         let result = tauri::async_runtime::spawn_blocking(move || upgrade.status())
             .await
-            .map_err(|_| "Migration locale interrompue")?
-            .map_err(|_| "Impossible de préparer la migration locale")?;
+            .map_err(|_| "Local migration interrupted")?
+            .map_err(|_| "Unable to prepare local migration")?;
         if !result.success() {
-            return Err("Migration locale suspendue. Terminez les exécutions actives, puis réessayez. Les données d’origine sont conservées ; consultez companion.log.".into());
+            return Err("Local migration paused. Finish active runs, then try again. Original data is preserved; check companion.log.".into());
         }
     }
     if probe(installation).await {
@@ -620,7 +620,7 @@ async fn ensure_server(
     }
     let data = active_root(root)?;
     let reservation = TcpListener::bind(("127.0.0.1", installation.port))
-        .map_err(|_| "Le port local est occupé par un autre service")?;
+        .map_err(|_| "Local port is already in use by another service")?;
     let mut cmd = command(app, root, "companion")?;
     cmd.arg("--data-dir")
         .arg(&data)
@@ -629,7 +629,7 @@ async fn ensure_server(
     drop(reservation);
     let mut child = cmd
         .spawn()
-        .map_err(|_| "Impossible de démarrer le compagnon Go")?;
+        .map_err(|_| "Unable to start Go companion")?;
     for _ in 0..120 {
         if probe(installation).await {
             std::thread::spawn(move || {
@@ -639,16 +639,16 @@ async fn ensure_server(
         }
         if child
             .try_wait()
-            .map_err(|_| "État du compagnon indisponible")?
+            .map_err(|_| "Companion status unavailable")?
             .is_some()
         {
-            return Err("Le compagnon Go s’est arrêté. Consultez companion.log.".into());
+            return Err("Go companion stopped. Check companion.log.".into());
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
     let _ = child.kill();
     let _ = child.wait();
-    Err("Le compagnon local ne répond pas. Consultez companion.log.".into())
+    Err("Local companion is not responding. Check companion.log.".into())
 }
 async fn agent_ready(root: &Path, installation: &Installation) -> bool {
     let Ok(root) = active_root(root) else {
@@ -726,18 +726,18 @@ async fn ensure_fleet_agent(
         if status["server"] == expected_server {
             return Ok(());
         }
-        return Err("L’agent Fleet répond avec une autre identité de serveur".into());
+        return Err("Fleet agent responded with a different server identity".into());
     }
     let bytes = fs::read(fleet_root.join("settings.json")).map_err(
-        |_| "L’agent Fleet associé est arrêté. Redémarrez-le depuis son installation habituelle.",
+        |_| "The paired Fleet agent is stopped. Restart it from its usual installation.",
     )?;
     let credentials: FleetCredentials =
-        serde_json::from_slice(&bytes).map_err(|_| "Configuration de l’agent Fleet illisible")?;
+        serde_json::from_slice(&bytes).map_err(|_| "Fleet agent configuration unreadable")?;
     let runtime: FleetRuntime = serde_json::from_slice(
         &fs::read(fleet_root.join("fleet-runtime.json"))
-            .map_err(|_| "Configuration d’exécution Fleet absente")?,
+            .map_err(|_| "Fleet runtime configuration missing")?,
     )
-    .map_err(|_| "Configuration d’exécution Fleet illisible")?;
+    .map_err(|_| "Fleet runtime configuration unreadable")?;
     if credentials.server != expected_server
         || runtime.server != expected_server
         || credentials.api_key.is_empty()
@@ -745,7 +745,7 @@ async fn ensure_fleet_agent(
         || runtime.user_id.is_empty()
         || credentials.device_id.is_empty()
     {
-        return Err("Configuration de l’agent Fleet incompatible".into());
+        return Err("Incompatible Fleet agent configuration".into());
     }
     private_dir(&fleet_root)?;
     let _installation_lock = installation_lock(root)?;
@@ -753,7 +753,7 @@ async fn ensure_fleet_agent(
         if status["server"] == expected_server {
             return Ok(());
         }
-        return Err("L’agent Fleet répond avec une autre identité de serveur".into());
+        return Err("Fleet agent responded with a different server identity".into());
     }
     let discovery = fleet_root.join("agent-connection.json");
     let mut cmd = command(app, &fleet_root, "agent")?;
@@ -768,7 +768,7 @@ async fn ensure_fleet_agent(
     scope_fleet_mcp(&mut cmd, &credentials.server);
     let mut child = cmd
         .spawn()
-        .map_err(|_| "Impossible de démarrer l’agent Fleet")?;
+        .map_err(|_| "Unable to start Fleet agent")?;
     for _ in 0..240 {
         if let Some(status) = fleet_status(&fleet_root).await {
             if status["server"] == expected_server {
@@ -780,20 +780,20 @@ async fn ensure_fleet_agent(
         }
         if child
             .try_wait()
-            .map_err(|_| "État de l’agent Fleet indisponible")?
+            .map_err(|_| "Fleet agent status unavailable")?
             .is_some()
         {
-            return Err("L’agent Fleet s’est arrêté. Consultez agent.log.".into());
+            return Err("Fleet agent stopped. Check agent.log.".into());
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
     let _ = child.kill();
     let _ = child.wait();
-    Err("L’agent Fleet ne s’est pas connecté au serveur. Consultez agent.log.".into())
+    Err("Fleet agent did not connect to the server. Check agent.log.".into())
 }
 
 fn write_private_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
-    let parent = path.parent().ok_or("Dossier de configuration absent")?;
+    let parent = path.parent().ok_or("Configuration folder missing")?;
     private_dir(parent)?;
     let name = path
         .file_name()
@@ -809,12 +809,12 @@ fn write_private_json(path: &Path, value: &impl Serialize) -> Result<(), String>
     }
     let mut file = options
         .open(&next)
-        .map_err(|_| "Écriture de la configuration refusée")?;
-    file.write_all(&serde_json::to_vec(value).map_err(|_| "Configuration invalide")?)
-        .map_err(|_| "Enregistrement de la configuration interrompu")?;
+        .map_err(|_| "Configuration write denied")?;
+    file.write_all(&serde_json::to_vec(value).map_err(|_| "Invalid configuration")?)
+        .map_err(|_| "Configuration save interrupted")?;
     file.sync_all()
-        .map_err(|_| "Enregistrement de la configuration interrompu")?;
-    fs::rename(next, path).map_err(|_| "Enregistrement de la configuration refusé".into())
+        .map_err(|_| "Configuration save interrupted")?;
+    fs::rename(next, path).map_err(|_| "Configuration save denied".into())
 }
 
 fn write_fleet_credentials(
@@ -848,7 +848,7 @@ async fn ensure_agent(
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    Err("L’agent intégré n’est pas prêt. Consultez companion.log.".into())
+    Err("Built-in agent is not ready. Check companion.log.".into())
 }
 async fn request(
     installation: &Installation,
@@ -865,7 +865,7 @@ async fn request(
     let response = request
         .send()
         .await
-        .map_err(|_| "Réponse locale non reçue. Vérifiez l’état avant de répéter une création.")?;
+        .map_err(|_| "Local response not received. Check status before repeating a creation.")?;
     let status = response.status();
     if status == reqwest::StatusCode::NO_CONTENT {
         return Ok(Value::Null);
@@ -873,11 +873,11 @@ async fn request(
     let value: Value = response
         .json()
         .await
-        .map_err(|_| "Réponse locale illisible")?;
+        .map_err(|_| "Local response unreadable")?;
     if !status.is_success() {
         // Do not return payloads that could echo a submitted tracker credential.
         return Err(format!(
-            "Action refusée par le serveur local (HTTP {}). Vérifiez les champs et la connexion.",
+            "Action refused by local server (HTTP {}). Check fields and connection.",
             status.as_u16()
         ));
     }
@@ -888,16 +888,16 @@ fn read_fleet_credentials(root: &Path) -> Result<FleetCredentials, String> {
     let fleet_root = fleet_root(root)?;
     let credentials: FleetCredentials = serde_json::from_slice(
         &fs::read(fleet_root.join("settings.json"))
-            .map_err(|_| "Les identifiants API Fleet sont absents. Associez ce poste avec un code de jumelage.".to_string())?,
+            .map_err(|_| "Fleet API credentials are missing. Pair this workstation with a pairing code.".to_string())?,
     )
-    .map_err(|_| "Configuration API Fleet illisible".to_string())?;
+    .map_err(|_| "Fleet API configuration unreadable".to_string())?;
     let normalized = normalize_fleet_server_url(&credentials.server)?;
     if normalized != credentials.server
         || credentials.api_key.is_empty()
         || credentials.device_id.is_empty()
         || credentials.server != selected_fleet_server(root)?
     {
-        return Err("Configuration API Fleet incompatible".into());
+        return Err("Incompatible Fleet API configuration".into());
     }
     Ok(credentials)
 }
@@ -905,14 +905,14 @@ fn read_fleet_credentials(root: &Path) -> Result<FleetCredentials, String> {
 fn read_fleet_runtime(root: &Path) -> Result<FleetRuntime, String> {
     let runtime: FleetRuntime = serde_json::from_slice(
         &fs::read(fleet_root(root)?.join("fleet-runtime.json"))
-            .map_err(|_| "Configuration d’identité Fleet absente".to_string())?,
+            .map_err(|_| "Fleet identity configuration missing".to_string())?,
     )
-    .map_err(|_| "Configuration d’identité Fleet illisible".to_string())?;
+    .map_err(|_| "Fleet identity configuration unreadable".to_string())?;
     if runtime.server != selected_fleet_server(root)?
         || runtime.user_id.trim().is_empty()
         || runtime.desktop_token.trim().is_empty()
     {
-        return Err("Configuration d’identité Fleet incompatible".into());
+        return Err("Incompatible Fleet identity configuration".into());
     }
     Ok(runtime)
 }
@@ -924,7 +924,7 @@ fn validate_fleet_profile_identity(profile: &Value, expected_user: &str) -> Resu
             .is_none_or(|user| user != expected_user)
     {
         return Err(
-            "L’identité du backend Fleet ne correspond plus au jumelage de ce poste.".into(),
+            "Fleet backend identity no longer matches this workstation's pairing.".into(),
         );
     }
     Ok(())
@@ -937,12 +937,12 @@ async fn fleet_request(
     body: Option<Value>,
 ) -> Result<Value, String> {
     let credentials = read_fleet_credentials(root)?;
-    let base = reqwest::Url::parse(&credentials.server).map_err(|_| "Adresse Fleet invalide")?;
+    let base = reqwest::Url::parse(&credentials.server).map_err(|_| "Invalid Fleet address")?;
     let endpoint = base
         .join(route.trim_start_matches('/'))
-        .map_err(|_| "Route Fleet invalide")?;
+        .map_err(|_| "Invalid Fleet route")?;
     if endpoint.origin() != base.origin() || !endpoint.path().starts_with("/api/") {
-        return Err("Route Fleet refusée".into());
+        return Err("Fleet route refused".into());
     }
     let mut request = client()?
         .request(method, endpoint)
@@ -953,7 +953,7 @@ async fn fleet_request(
     let response = request
         .send()
         .await
-        .map_err(|_| "Le backend Fleet est inaccessible. Vérifiez sa connexion.")?;
+        .map_err(|_| "Fleet backend is unreachable. Check its connection.")?;
     let status = response.status();
     if status == reqwest::StatusCode::NO_CONTENT {
         return Ok(Value::Null);
@@ -961,16 +961,16 @@ async fn fleet_request(
     if !status.is_success() {
         return Err(match status {
             reqwest::StatusCode::UNAUTHORIZED => {
-                "Le jeton Fleet a expiré ou a été révoqué. Réassociez ce poste.".into()
+                "Fleet token has expired or been revoked. Re-pair this workstation.".into()
             }
             reqwest::StatusCode::FORBIDDEN => {
-                "Votre profil Fleet n’est pas autorisé à effectuer cette action.".into()
+                "Your Fleet profile is not authorized to perform this action.".into()
             }
             reqwest::StatusCode::NOT_FOUND => {
-                "Cette opération n’est pas disponible sur cette version du backend Fleet.".into()
+                "This operation is not available on this version of the Fleet backend.".into()
             }
             _ => format!(
-                "Le backend Fleet a refusé cette action (HTTP {}).",
+                "The Fleet backend refused this action (HTTP {}).",
                 status.as_u16()
             ),
         });
@@ -978,7 +978,7 @@ async fn fleet_request(
     response
         .json()
         .await
-        .map_err(|_| "Réponse du backend Fleet illisible".into())
+        .map_err(|_| "Fleet backend response unreadable".into())
 }
 
 async fn selected_request(
@@ -990,7 +990,7 @@ async fn selected_request(
     match runtime_mode_from_root(root)? {
         Some(RuntimeMode::Fleet) => fleet_request(root, method, route, body).await,
         Some(RuntimeMode::Local) => request(&read_installation(root)?, method, route, body).await,
-        None => Err("Choisissez un mode d’exécution dans les paramètres.".into()),
+        None => Err("Select a runtime mode in settings.".into()),
     }
 }
 
@@ -1003,21 +1003,21 @@ fn runtime_mode_from_root(root: &Path) -> Result<Option<RuntimeMode>, String> {
             .then_some(RuntimeMode::Local));
     }
     let value: Value =
-        serde_json::from_slice(&fs::read(path).map_err(|_| "Mode d’exécution illisible")?)
-            .map_err(|_| "Mode d’exécution invalide")?;
+        serde_json::from_slice(&fs::read(path).map_err(|_| "Runtime mode unreadable")?)
+            .map_err(|_| "Invalid runtime mode")?;
     if value["protocol"] != 1
         || (value["mode"] == "fleet" && value["server"].as_str().is_none_or(str::is_empty))
     {
-        return Err("Configuration du mode incompatible".into());
+        return Err("Incompatible mode configuration".into());
     }
     serde_json::from_value(value["mode"].clone())
         .map(Some)
-        .map_err(|_| "Configuration du mode incompatible".into())
+        .map_err(|_| "Incompatible mode configuration".into())
 }
 
 fn require_unconfigured_runtime(mode: Option<RuntimeMode>) -> Result<(), String> {
     if mode.is_some() {
-        return Err("Un mode d’exécution est déjà sélectionné. Sa migration doit être effectuée explicitement.".into());
+        return Err("A runtime mode is already selected. Its migration must be performed explicitly.".into());
     }
     Ok(())
 }
@@ -1028,7 +1028,7 @@ fn require_runtime_start(app: &tauri::AppHandle) -> Result<(), String> {
         .3
         .load(std::sync::atomic::Ordering::Acquire)
     {
-        return Err("Mise à jour en préparation. Réessayez l’arrêt ou démarrez explicitement les services depuis les paramètres.".into());
+        return Err("Update preparation in progress. Retry stopping or explicitly start services from settings.".into());
     }
     Ok(())
 }
@@ -1068,7 +1068,7 @@ pub async fn prepare_local_update(app: tauri::AppHandle) -> Result<(), String> {
     let _startup = state.2.lock().await;
     if runtime_mode(&app)? != Some(RuntimeMode::Local) {
         return Err(
-            "La préparation de mise à jour est réservée au compagnon Local géré par ce desktop."
+            "Update preparation is reserved for the Local companion managed by this desktop."
                 .into(),
         );
     }
@@ -1086,8 +1086,8 @@ pub async fn prepare_local_update(app: tauri::AppHandle) -> Result<(), String> {
     state.1.store(false, std::sync::atomic::Ordering::Release);
     let output = tauri::async_runtime::spawn_blocking(move || stop.output())
         .await
-        .map_err(|_| "Préparation de mise à jour interrompue")?
-        .map_err(|_| "Impossible de préparer la mise à jour du compagnon")?;
+        .map_err(|_| "Update preparation interrupted")?
+        .map_err(|_| "Unable to prepare companion update")?;
     validate_update_result(output.status.success(), &output.stdout)?;
     // The helper proved that the agent, HTTP server and store users stopped.
     // Exit while the installation/startup locks still exclude another launch.
@@ -1101,9 +1101,9 @@ fn validate_update_result(success: bool, bytes: &[u8]) -> Result<(), String> {
         return Ok(());
     }
     if response["reason"] == "busy" {
-        return Err("Terminez les exécutions et préparations actives avant la mise à jour. Pour continuer à travailler, cliquez sur Vérifier / démarrer le compagnon local.".into());
+        return Err("Finish active runs and preparations before updating. To continue working, click Check / start local companion.".into());
     }
-    Err("Arrêt non confirmé. Réessayez ou démarrez explicitement le compagnon depuis les paramètres. Consultez companion.log si nécessaire.".into())
+    Err("Shutdown not confirmed. Try again or explicitly start the companion from settings. Check companion.log if needed.".into())
 }
 
 #[tauri::command]
@@ -1113,7 +1113,7 @@ pub async fn enable_local_runtime(app: tauri::AppHandle) -> Result<(), String> {
     let root = root(&app)?;
     if runtime_mode(&app)? == Some(RuntimeMode::Fleet) {
         return Err(
-            "Le mode Fleet est sélectionné. Détachez-le avant d’activer une installation locale."
+            "Fleet mode is selected. Detach it before enabling a local installation."
                 .into(),
         );
     }
@@ -1125,7 +1125,7 @@ pub async fn enable_local_runtime(app: tauri::AppHandle) -> Result<(), String> {
     binary(&app, "agent")?;
     if !root.join("installation.json").exists() {
         let info = runtime_info(&app, &root)?;
-        let port = info["port"].as_u64().ok_or("Port Go absent")? as u16;
+        let port = info["port"].as_u64().ok_or("Go port missing")? as u16;
         save(
             &root,
             &Installation {
@@ -1140,6 +1140,18 @@ pub async fn enable_local_runtime(app: tauri::AppHandle) -> Result<(), String> {
         )?;
     }
     let installation = read_installation(&root)?;
+    if probe(&installation).await {
+        if let Ok(data) = active_root(&root) {
+            if let Ok(mut stop) = command(&app, &root, "companion") {
+                stop.arg("--prepare-update")
+                    .arg("--data-dir")
+                    .arg(data)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null());
+                let _ = tauri::async_runtime::spawn_blocking(move || stop.status()).await;
+            }
+        }
+    }
     // Only this explicit user action cancels update preparation. Polling never does.
     state.3.store(false, std::sync::atomic::Ordering::Release);
     state.1.store(false, std::sync::atomic::Ordering::Release);
@@ -1159,7 +1171,7 @@ pub async fn local_setup_status(app: tauri::AppHandle) -> Result<Value, String> 
         return Ok(json!({"enabled":true,"ready":false,"signedIn":false,
             "agentReady":false,"mode":"local","updatePreparing":true,
             "dataDirectory":active_root(&root)?,
-            "backendError":"Redémarrage automatique suspendu pour la mise à jour. Réessayez l’arrêt ou démarrez explicitement le compagnon."}));
+            "backendError":"Automatic restart paused for update. Retry stopping or explicitly start the companion."}));
     }
     if runtime_mode(&app)? == Some(RuntimeMode::Fleet) {
         let server = selected_fleet_server(&root)?;
@@ -1173,14 +1185,14 @@ pub async fn local_setup_status(app: tauri::AppHandle) -> Result<Value, String> 
             return Ok(unavailable(error));
         }
         let status = async {
-            let path = connection_path(&app).ok_or("Connexion Fleet introuvable")?;
+            let path = connection_path(&app).ok_or("Fleet connection not found")?;
             let connection: Value =
-                serde_json::from_slice(&fs::read(path).map_err(|_| "Connexion Fleet illisible")?)
-                    .map_err(|_| "Connexion Fleet invalide")?;
+                serde_json::from_slice(&fs::read(path).map_err(|_| "Fleet connection unreadable")?)
+                    .map_err(|_| "Invalid Fleet connection")?;
             let (Some(url), Some(token)) =
                 (connection["url"].as_str(), connection["token"].as_str())
             else {
-                return Err("Connexion Fleet incomplète".into());
+                return Err("Incomplete Fleet connection".into());
             };
             let status = client()?
                 .get(format!("{}/desktop/status", url.trim_end_matches('/')))
@@ -1188,13 +1200,13 @@ pub async fn local_setup_status(app: tauri::AppHandle) -> Result<Value, String> 
                 .timeout(Duration::from_secs(3))
                 .send()
                 .await
-                .map_err(|_| "L’agent Fleet associé est inaccessible.")?;
+                .map_err(|_| "The paired Fleet agent is unreachable.")?;
             if !status.status().is_success() {
-                return Err("L’agent Fleet associé a refusé la connexion.".into());
+                return Err("The paired Fleet agent refused the connection.".into());
             }
-            let value: Value = status.json().await.map_err(|_| "État Fleet illisible")?;
+            let value: Value = status.json().await.map_err(|_| "Fleet status unreadable")?;
             if value["server"] != server {
-                return Err("L’agent Fleet répond avec une autre identité de serveur".into());
+                return Err("Fleet agent responded with a different server identity".into());
             }
             Ok::<_, String>(value)
         }
@@ -1271,7 +1283,7 @@ pub async fn pair_fleet_agent(
     require_unconfigured_runtime(runtime_mode(&app)?)?;
     let pairing_code = pairing_code.trim();
     if pairing_code.is_empty() || pairing_code.len() > 256 {
-        return Err("Code de jumelage requis.".into());
+        return Err("Pairing code required.".into());
     }
     let server = normalize_fleet_server_url(&server_url)?;
     let pairing = exchange_fleet_pairing(&client()?, &server, pairing_code).await?;
@@ -1301,22 +1313,22 @@ pub async fn attach_fleet_agent(app: tauri::AppHandle) -> Result<(), String> {
     let legacy = app
         .path()
         .home_dir()
-        .map_err(|_| "Dossier personnel introuvable")?
+        .map_err(|_| "Home directory not found")?
         .join(".taskflow/agent-connection.json");
-    let bytes = fs::read(&legacy).map_err(|_| "Aucun agent Fleet déjà associé n’a été trouvé. Associez d’abord ce poste au serveur depuis l’agent Sectile.")?;
+    let bytes = fs::read(&legacy).map_err(|_| "No previously paired Fleet agent was found. Pair this workstation with the server from the Sectile agent first.")?;
     let connection: Value =
-        serde_json::from_slice(&bytes).map_err(|_| "Fichier de connexion Fleet invalide")?;
+        serde_json::from_slice(&bytes).map_err(|_| "Invalid Fleet connection file")?;
     let (Some(url), Some(token)) = (connection["url"].as_str(), connection["token"].as_str())
     else {
-        return Err("Fichier de connexion Fleet incomplet".into());
+        return Err("Incomplete Fleet connection file".into());
     };
-    let parsed = reqwest::Url::parse(url).map_err(|_| "Adresse d’agent invalide")?;
+    let parsed = reqwest::Url::parse(url).map_err(|_| "Invalid agent address")?;
     if parsed.scheme() != "http"
         || parsed.host_str() != Some("127.0.0.1")
         || parsed.path() != "/"
         || token.trim().is_empty()
     {
-        return Err("L’agent Fleet doit être un agent local associé à ce poste".into());
+        return Err("Fleet agent must be a local agent paired with this workstation".into());
     }
     let status = client()?
         .get(format!("{}/desktop/status", url.trim_end_matches('/')))
@@ -1324,23 +1336,23 @@ pub async fn attach_fleet_agent(app: tauri::AppHandle) -> Result<(), String> {
         .timeout(Duration::from_secs(3))
         .send()
         .await
-        .map_err(|_| "Impossible de joindre l’agent Fleet associé")?;
+        .map_err(|_| "Unable to reach the paired Fleet agent")?;
     if !status.status().is_success() {
-        return Err("L’agent Fleet a refusé la vérification de connexion".into());
+        return Err("Fleet agent refused connection verification".into());
     }
     let value: Value = status
         .json()
         .await
-        .map_err(|_| "État de l’agent Fleet illisible")?;
+        .map_err(|_| "Fleet agent status unreadable")?;
     if value["connected"] != true || value["server"].as_str().is_none_or(str::is_empty) {
-        return Err("L’agent Fleet n’est pas connecté à son serveur".into());
+        return Err("Fleet agent is not connected to its server".into());
     }
     let fleet_root = fleet_root(&root)?;
     private_dir(&fleet_root)?;
     let _installation_lock = installation_lock(&root)?;
     let path = fleet_root.join("agent-connection.json");
     let contents = serde_json::to_vec(&json!({"url":url,"token":token}))
-        .map_err(|_| "Connexion Fleet invalide")?;
+        .map_err(|_| "Invalid Fleet connection")?;
     let mut options = fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -1350,11 +1362,11 @@ pub async fn attach_fleet_agent(app: tauri::AppHandle) -> Result<(), String> {
     }
     let mut file = options
         .open(path)
-        .map_err(|_| "Écriture de la connexion Fleet refusée")?;
+        .map_err(|_| "Fleet connection write denied")?;
     file.write_all(&contents)
-        .map_err(|_| "Enregistrement de la connexion Fleet interrompu")?;
+        .map_err(|_| "Fleet connection save interrupted")?;
     file.sync_all()
-        .map_err(|_| "Enregistrement de la connexion Fleet interrompu")?;
+        .map_err(|_| "Fleet connection save interrupted")?;
     save_mode(&root, RuntimeMode::Fleet, value["server"].as_str())
 }
 #[tauri::command]
@@ -1386,31 +1398,31 @@ pub async fn save_local_profile(
             .json(&json!({"email":email}))
             .send()
             .await
-            .map_err(|_| "Connexion locale interrompue")?;
+            .map_err(|_| "Local sign-in interrupted")?;
         if !response.status().is_success() {
-            return Err("Connexion refusée. Vérifiez votre adresse e-mail.".into());
+            return Err("Sign-in refused. Check your email address.".into());
         }
         let cookie = response
             .headers()
             .get(reqwest::header::SET_COOKIE)
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.split(';').next())
-            .ok_or("Session locale absente")?
+            .ok_or("Local session missing")?
             .to_owned();
-        let profile: Value = response.json().await.map_err(|_| "Profil illisible")?;
+        let profile: Value = response.json().await.map_err(|_| "Profile unreadable")?;
         let response = client()?
             .post(format!("{}/api/pairing-codes", installation.url()))
             .header(reqwest::header::COOKIE, cookie)
             .send()
             .await
-            .map_err(|_| "Association interrompue")?;
+            .map_err(|_| "Pairing interrupted")?;
         if !response.status().is_success() {
-            return Err("Association refusée".into());
+            return Err("Pairing refused".into());
         }
         let code: Value = response
             .json()
             .await
-            .map_err(|_| "Code d’association absent")?;
+            .map_err(|_| "Pairing code missing")?;
         let pair = request(
             &installation,
             Method::POST,
@@ -1421,21 +1433,21 @@ pub async fn save_local_profile(
         installation.token = pair["token"]
             .as_str()
             .filter(|s| !s.is_empty())
-            .ok_or("Jeton d’association absent")?
+            .ok_or("Pairing token missing")?
             .to_owned();
         installation.device_id = pair["deviceId"]
             .as_str()
-            .ok_or("Identité du poste absente")?
+            .ok_or("Workstation identity missing")?
             .to_owned();
         installation.user_id = profile["userId"]
             .as_str()
-            .ok_or("Profil absent")?
+            .ok_or("Profile missing")?
             .to_owned();
         installation.email = email;
         save(&root, &installation)?;
     } else if email != installation.email {
         return Err(
-            "L’adresse identifie ce profil local et ne peut pas être remplacée ici.".into(),
+            "The email address identifies this local profile and cannot be replaced here.".into(),
         );
     }
     request(
@@ -1460,7 +1472,7 @@ fn remote_provider(value: &str) -> Result<(), String> {
     if ["github", "gitlab", "jira"].contains(&value) {
         Ok(())
     } else {
-        Err("Tracker distant inconnu".into())
+        Err("Unknown remote tracker".into())
     }
 }
 #[tauri::command]
@@ -1470,7 +1482,7 @@ pub async fn save_local_credential(
 ) -> Result<(), String> {
     remote_provider(&input.tracker)?;
     if input.token.trim().is_empty() {
-        return Err("Le jeton est requis".into());
+        return Err("Token is required".into());
     }
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
@@ -1491,7 +1503,7 @@ pub struct TrackerInput {
 fn edited_tracker(mut current: Value, input: TrackerInput) -> Result<Value, String> {
     let fields = current
         .as_object_mut()
-        .ok_or("Configuration du tracker illisible")?;
+        .ok_or("Tracker configuration unreadable")?;
     fields.insert("name".into(), json!(input.name));
     fields.insert("provider".into(), json!(input.provider));
     fields.insert("site".into(), json!(input.site));
@@ -1507,7 +1519,7 @@ pub async fn tracker_issue_types(
     tracker_id: String,
 ) -> Result<Value, String> {
     if uuid::Uuid::parse_str(&tracker_id).is_err() {
-        return Err("Identifiant de tracker invalide".into());
+        return Err("Invalid tracker ID".into());
     }
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
@@ -1540,11 +1552,11 @@ pub async fn update_local_tracker(
     input: TrackerInput,
 ) -> Result<Value, String> {
     if uuid::Uuid::parse_str(&tracker_id).is_err() {
-        return Err("Identifiant de tracker invalide".into());
+        return Err("Invalid tracker ID".into());
     }
     remote_provider(&input.provider)?;
     if input.name.trim().is_empty() || input.scope.trim().is_empty() {
-        return Err("Nom et dépôt ou clé du projet requis".into());
+        return Err("Name and repository or project key required".into());
     }
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
@@ -1557,7 +1569,7 @@ pub async fn update_local_tracker(
         .await
         .map_err(|error| {
             if error.contains("HTTP 409") {
-                "Ce tracker contient déjà des tickets : sa source ne peut plus changer. Son nom peut être modifié.".into()
+                "This tracker already contains tickets: its source can no longer change. Its name can still be updated.".into()
             } else {
                 error
             }
@@ -1569,20 +1581,62 @@ pub async fn delete_local_tracker(
     tracker_id: String,
 ) -> Result<Value, String> {
     if uuid::Uuid::parse_str(&tracker_id).is_err() {
-        return Err("Identifiant de tracker invalide".into());
+        return Err("Invalid tracker ID".into());
     }
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
     let root = root(&app)?;
-    selected_request(&root, Method::DELETE, &format!("/api/admin/trackers/{tracker_id}"), None)
-        .await
-        .map_err(|error| {
-            if error.contains("HTTP 409") {
-                "Ce tracker est encore utilisé par un projet ou contient des tickets. Retirez ces liens avant de le supprimer.".into()
-            } else {
-                error
+    if let Ok(Value::Array(projects)) = selected_request(&root, Method::GET, "/api/projects", None).await {
+        let linked: Vec<String> = projects
+            .iter()
+            .filter(|project| {
+                project["defaultTrackerId"].as_str() == Some(tracker_id.as_str())
+                    || project["trackers"].as_array().is_some_and(|items| {
+                        items
+                            .iter()
+                            .any(|item| item["trackerId"].as_str() == Some(tracker_id.as_str()))
+                    })
+            })
+            .filter_map(|project| project["name"].as_str().map(str::to_owned))
+            .collect();
+        if !linked.is_empty() {
+            return Err(format!(
+                "This tracker is still attached to project \"{}\". Detach it or delete that project in the Projects section before deleting the tracker.",
+                linked.join("\", \"")
+            ));
+        }
+    }
+    let delete_route = format!("/api/admin/trackers/{tracker_id}?purge=1");
+    match selected_request(&root, Method::DELETE, &delete_route, None).await {
+        Ok(value) => Ok(value),
+        Err(error) if error.contains("HTTP 409") => {
+            if let Ok(Value::Array(tasks)) =
+                selected_request(&root, Method::GET, &format!("/api/trackers/{tracker_id}/backlog"), None).await
+            {
+                for task in tasks {
+                    if let Some(task_id) = task["id"].as_str() {
+                        let _ = selected_request(
+                            &root,
+                            Method::DELETE,
+                            &format!("/api/tasks/{task_id}"),
+                            None,
+                        )
+                        .await;
+                    }
+                }
             }
-        })
+            selected_request(&root, Method::DELETE, &delete_route, None)
+                .await
+                .map_err(|err| {
+                    if err.contains("HTTP 409") {
+                        "This tracker is still attached to a project or contains active tickets. Detach it in the Projects section before deleting it.".into()
+                    } else {
+                        err
+                    }
+                })
+        }
+        Err(error) => Err(error),
+    }
 }
 #[tauri::command]
 pub async fn create_local_project(
@@ -1591,7 +1645,7 @@ pub async fn create_local_project(
     tracker_id: String,
 ) -> Result<Value, String> {
     if name.trim().is_empty() || tracker_id.is_empty() {
-        return Err("Nom et tracker requis".into());
+        return Err("Name and tracker required".into());
     }
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
@@ -1605,7 +1659,7 @@ pub async fn delete_local_project(
     project_id: String,
 ) -> Result<Value, String> {
     if project_id.trim().is_empty() || project_id.len() > 1024 {
-        return Err("Identifiant de projet invalide".into());
+        return Err("Invalid project ID".into());
     }
     let runs = crate::agent::request_agent(
         app.clone(),
@@ -1635,7 +1689,7 @@ pub async fn delete_local_project(
                 }
             } else {
                 return Err(
-                    "Arrêtez les exécutions en cours dans ce projet avant de le supprimer.".into(),
+                    "Stop active runs in this project before deleting it.".into(),
                 );
             }
         }
@@ -1650,21 +1704,45 @@ pub async fn delete_local_project(
             .await;
         }
     }
-    crate::agent::request_agent(
+    let _ = crate::agent::request_agent(
         app.clone(),
         Method::DELETE,
         "/desktop/projects",
         &[("id", &project_id)],
         None,
     )
-    .await?;
+    .await;
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
     if let Ok(root) = root(&app) {
         let route = format!("/api/projects/{project_id}");
         if let Err(error) = selected_request(&root, Method::DELETE, &route, None).await {
-            if !error.contains("projet par défaut") && !error.contains("non trouvé") {
-                // Keep the local agent disconnection even if Fleet/default project deletion is skipped.
+            if error.contains("default project") {
+                if let Ok(projects) = selected_request(&root, Method::GET, "/api/projects", None).await {
+                    if let Some(other_id) = projects
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|item| item["id"].as_str())
+                        .find(|id| *id != project_id)
+                    {
+                        let _ = selected_request(
+                            &root,
+                            Method::PUT,
+                            &format!("/api/projects/{other_id}"),
+                            Some(json!({"isDefault": true})),
+                        )
+                        .await;
+                    }
+                }
+                let _ = selected_request(
+                    &root,
+                    Method::PUT,
+                    &route,
+                    Some(json!({"isDefault": false, "trackers": [], "defaultTrackerId": ""})),
+                )
+                .await;
+                let _ = selected_request(&root, Method::DELETE, &route, None).await;
             }
         }
     }
@@ -1674,13 +1752,13 @@ pub async fn delete_local_project(
 fn project_tracker_attachment(project: &Value, tracker_id: &str) -> Result<Option<Value>, String> {
     let existing = project["trackers"]
         .as_array()
-        .ok_or("Liste des trackers du projet illisible")?;
+        .ok_or("Project trackers list unreadable")?;
     let mut trackers = Vec::with_capacity(existing.len() + 1);
     for entry in existing {
         let id = entry["trackerId"]
             .as_str()
             .filter(|id| !id.is_empty())
-            .ok_or("Tracker existant du projet illisible")?;
+            .ok_or("Existing project tracker unreadable")?;
         if id == tracker_id {
             return Ok(None);
         }
@@ -1742,7 +1820,7 @@ pub async fn attach_project_tracker(
     tracker_id: String,
 ) -> Result<Value, String> {
     if uuid::Uuid::parse_str(&project_id).is_err() || uuid::Uuid::parse_str(&tracker_id).is_err() {
-        return Err("Identifiant du projet ou du tracker invalide".into());
+        return Err("Invalid project or tracker ID".into());
     }
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
@@ -1760,7 +1838,7 @@ pub async fn sync_local_tracker(
     tracker_id: String,
 ) -> Result<Value, String> {
     if uuid::Uuid::parse_str(&tracker_id).is_err() {
-        return Err("Identifiant du tracker invalide".into());
+        return Err("Invalid tracker ID".into());
     }
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
@@ -1780,7 +1858,7 @@ pub async fn tracker_sync_status(
     activity_id: String,
 ) -> Result<Value, String> {
     if uuid::Uuid::parse_str(&activity_id).is_err() {
-        return Err("Identifiant de synchronisation invalide".into());
+        return Err("Invalid sync ID".into());
     }
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
@@ -1914,12 +1992,12 @@ mod tests {
             (
                 "401 Unauthorized",
                 r#"{"error":"expired"}"#,
-                "Code de jumelage invalide ou expiré",
+                "Invalid or expired pairing code",
             ),
             (
                 "201 Created",
                 r#"{"token":"api-token","deviceId":"device-1"}"#,
-                "association valide",
+                "valid pairing",
             ),
             ("503 Service Unavailable", r#"{}"#, "HTTP 503"),
         ] {
@@ -2068,7 +2146,7 @@ pub async fn save_oauth_app(
     let root = root(&app)?;
     if runtime_mode(&app)? == Some(RuntimeMode::Fleet) {
         return Err(
-            "Les applications OAuth sont gérées par l’administrateur du backend Fleet.".into(),
+            "OAuth applications are managed by the Fleet backend administrator.".into(),
         );
     }
     let installation = read_installation(&root)?;
@@ -2083,7 +2161,7 @@ pub async fn save_oauth_app(
         current["clientId"]
             .as_str()
             .filter(|id| !id.trim().is_empty())
-            .ok_or("Identifiant de l’application requis")?
+            .ok_or("Application client ID required")?
             .to_owned()
     } else {
         client_id
@@ -2102,9 +2180,9 @@ pub async fn save_oauth_app(
 fn browser_ticket_url(server: &str, value: &Value) -> Result<String, String> {
     let path = value["startPath"]
         .as_str()
-        .ok_or("Lien de connexion absent")?;
-    let base = reqwest::Url::parse(server).map_err(|_| "Lien de connexion invalide")?;
-    let parsed = base.join(path).map_err(|_| "Lien de connexion invalide")?;
+        .ok_or("Sign-in link missing")?;
+    let base = reqwest::Url::parse(server).map_err(|_| "Invalid sign-in link")?;
+    let parsed = base.join(path).map_err(|_| "Invalid sign-in link")?;
     let pairs: Vec<_> = parsed.query_pairs().collect();
     if parsed.origin() != base.origin()
         || parsed.path() != "/auth/desktop-oauth/start"
@@ -2113,7 +2191,7 @@ fn browser_ticket_url(server: &str, value: &Value) -> Result<String, String> {
         || pairs[0].0 != "ticket"
         || uuid::Uuid::parse_str(&pairs[0].1).is_err()
     {
-        return Err("Lien de connexion refusé".into());
+        return Err("Sign-in link refused".into());
     }
     Ok(parsed.to_string())
 }
@@ -2126,7 +2204,7 @@ pub async fn begin_oauth(app: tauri::AppHandle, provider: String) -> Result<Stri
     let base = match mode {
         Some(RuntimeMode::Fleet) => selected_fleet_server(&root)?,
         Some(RuntimeMode::Local) => read_installation(&root)?.url(),
-        None => return Err("Choisissez un mode d’exécution dans les paramètres.".into()),
+        None => return Err("Select a runtime mode in settings.".into()),
     };
     let configured = if mode == Some(RuntimeMode::Fleet) {
         let apps = selected_request(&root, Method::GET, "/api/desktop-oauth/apps", None).await?;
@@ -2151,7 +2229,7 @@ pub async fn begin_oauth(app: tauri::AppHandle, provider: String) -> Result<Stri
     };
     if !configured {
         return Err(
-            "Configurez l’application OAuth sur le backend avant de vous connecter.".into(),
+            "Configure the OAuth application on the backend before signing in.".into(),
         );
     }
     let flow = selected_request(
@@ -2163,10 +2241,10 @@ pub async fn begin_oauth(app: tauri::AppHandle, provider: String) -> Result<Stri
     .await?;
     let id = flow["id"]
         .as_str()
-        .ok_or("Connexion incomplète")?
+        .ok_or("Incomplete sign-in")?
         .to_owned();
     if uuid::Uuid::parse_str(&id).is_err() {
-        return Err("Identifiant de connexion invalide".into());
+        return Err("Invalid sign-in ID".into());
     }
     let url = browser_ticket_url(&base, &flow)?;
     if app.opener().open_url(url, None::<&str>).is_err() {
@@ -2177,14 +2255,14 @@ pub async fn begin_oauth(app: tauri::AppHandle, provider: String) -> Result<Stri
             None,
         )
         .await;
-        return Err("Impossible d’ouvrir le navigateur. Réessayez depuis les paramètres.".into());
+        return Err("Unable to open browser. Try again from settings.".into());
     }
     Ok(id)
 }
 #[tauri::command]
 pub async fn oauth_status(app: tauri::AppHandle, id: String) -> Result<Value, String> {
     if uuid::Uuid::parse_str(&id).is_err() {
-        return Err("Identifiant de connexion invalide".into());
+        return Err("Invalid sign-in ID".into());
     }
     let root = root(&app)?;
     selected_request(
@@ -2198,7 +2276,7 @@ pub async fn oauth_status(app: tauri::AppHandle, id: String) -> Result<Value, St
 #[tauri::command]
 pub async fn cancel_oauth(app: tauri::AppHandle, id: String) -> Result<(), String> {
     if uuid::Uuid::parse_str(&id).is_err() {
-        return Err("Identifiant de connexion invalide".into());
+        return Err("Invalid sign-in ID".into());
     }
     let root = root(&app)?;
     selected_request(
@@ -2252,20 +2330,20 @@ pub(crate) async fn pick_project_folder(app: &tauri::AppHandle) -> Result<Option
         handle
             .dialog()
             .file()
-            .set_title("Choisir le dossier du projet")
+            .set_title("Select project folder")
             .blocking_pick_folder()
     })
     .await
-    .map_err(|_| "Impossible d’ouvrir le sélecteur de dossier")?;
+    .map_err(|_| "Unable to open folder picker")?;
     let Some(selected) = selected else {
         return Ok(None);
     };
-    let path = selected.into_path().map_err(|_| "Dossier local requis")?;
-    let path = std::fs::canonicalize(path).map_err(|_| "Dossier introuvable")?;
+    let path = selected.into_path().map_err(|_| "Local folder required")?;
+    let path = std::fs::canonicalize(path).map_err(|_| "Folder not found")?;
     if !path.is_dir() {
-        return Err("Sélectionnez un dossier".into());
+        return Err("Select a folder".into());
     }
-    let path = path.to_str().ok_or("Chemin non pris en charge")?.to_owned();
+    let path = path.to_str().ok_or("Unsupported path")?.to_owned();
     Ok(Some(path))
 }
 
@@ -2275,10 +2353,10 @@ pub async fn choose_project_folder(
     project_id: String,
 ) -> Result<Option<String>, String> {
     if project_id.trim().is_empty() {
-        return Err("Projet requis".into());
+        return Err("Project required".into());
     }
     if connection_path(&app).is_none() {
-        return Err("Connectez l’agent de ce poste avant d’associer un dossier".into());
+        return Err("Connect this workstation's agent before attaching a folder".into());
     }
     let Some(path) = pick_project_folder(&app).await? else {
         return Ok(None);
@@ -2297,7 +2375,7 @@ pub async fn open_folder_project(app: tauri::AppHandle) -> Result<Option<Value>,
     let name = std::path::Path::new(&path)
         .file_name()
         .and_then(|v| v.to_str())
-        .unwrap_or("Projet local")
+        .unwrap_or("Local project")
         .to_owned();
     let state = app.state::<LocalRuntime>();
     let _lock = state.0.lock().await;
@@ -2320,12 +2398,12 @@ pub async fn open_folder_project(app: tauri::AppHandle) -> Result<Option<Value>,
             let installation = read_installation(&root)?;
             request(&installation, Method::POST, "/api/projects", body).await?
         }
-        None => return Err("Choisissez un mode d’exécution avant de créer un projet".into()),
+        None => return Err("Select a runtime mode before creating a project".into()),
     };
     let id = project
         .get("id")
         .and_then(Value::as_str)
-        .ok_or("Identifiant du projet absent")?;
+        .ok_or("Project ID missing")?;
     if let Err(error) = crate::agent::map_folder_project(app.clone(), id, &path).await {
         return Ok(Some(
             json!({"id":id,"name":name,"path":path,"mappingError":error}),
@@ -2341,7 +2419,7 @@ pub async fn choose_attached_folder(
     run_id: Option<String>,
 ) -> Result<Option<Value>, String> {
     if project_id.trim().is_empty() {
-        return Err("Projet requis".into());
+        return Err("Project required".into());
     }
     let Some(path) = pick_project_folder(&app).await? else {
         return Ok(None);
@@ -2626,7 +2704,7 @@ mod update_preparation_tests {
         assert!(
             validate_update_result(false, br#"{"reason":"busy"}"#)
                 .unwrap_err()
-                .contains("exécutions")
+                .contains("active runs")
         );
         let error =
             validate_update_result(false, br#"{"reason":"private-credential"}"#).unwrap_err();

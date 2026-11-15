@@ -9,9 +9,12 @@ import { statusLabel } from "../domain/execution";
 import { isActive } from "../domain/execution";
 import { stopRun } from "../lib/agent";
 import type { Task } from "../domain/board";
-import { skillLabels, stageLabels, taskStage } from "../domain/workflow";
-import type { BoardMapping } from "../lib/workspace";
+import { nextSkill, skillLabels, stageLabels, stages, taskStage } from "../domain/workflow";
+import type { BoardMapping, ProjectContext } from "../lib/workspace";
 import { Icon } from "./Icon";
+import { Markdown } from "./Markdown";
+import { RunReview } from "./RunReview";
+import { TaskEditor } from "./TaskEditor";
 import { TurnSettings } from "./TurnSettings";
 import { QuestionForm } from "./QuestionForm";
 import { ConversationTranscript } from "./ConversationTranscript";
@@ -24,14 +27,23 @@ function sendOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
  if(event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {event.preventDefault();event.currentTarget.form?.requestSubmit();}
 }
 interface ProjectPromptProps {
-  projectId:string; runId?:string; directory?:string; folders?:Run["folders"];
+  projectId:string; projectName?:string; runId?:string; directory?:string; folders?:Run["folders"];
   agentAvailable?:boolean;
   run?:Run; task?:Task; board?:BoardMapping;
+  projectContext?:ProjectContext;
+  taskRuns?:Run[];
+  canEditTask?:boolean;
+  knownSprints?:string[];
+  knownAssignees?:string[];
+  onTaskSaved?:(task:Task)=>void;
+  onSelectRun?:(runId:string)=>void;
+  onLaunchSkill?:(skillId:string)=>void;
+  onEditTask?:()=>void;
   onCreated:(id:string)=>void; onTitleChanged?:()=>void; onFoldersChanged?:()=>void;
   onOpenQueue?:()=>void; onOpenTask?:()=>void;
   onArchive?:()=>void; onStopped?:()=>void;
 }
-export default function ProjectPrompt({ projectId, runId, agentAvailable=true, onCreated, onTitleChanged, directory, folders, onFoldersChanged, run, task, board, onOpenQueue, onOpenTask, onArchive, onStopped }: ProjectPromptProps) {
+export default function ProjectPrompt({ projectId, projectName, runId, agentAvailable=true, onCreated, onTitleChanged, directory, folders, onFoldersChanged, run, task, board, projectContext, taskRuns, canEditTask, knownSprints, knownAssignees, onTaskSaved, onSelectRun, onLaunchSkill, onEditTask, onOpenQueue, onOpenTask, onArchive, onStopped }: ProjectPromptProps) {
   const [provider, setProvider] = useState("claude");
   const [options, setOptions] = useState<TurnOptions>({});
   const [draft, setDraft] = useState("");
@@ -88,9 +100,9 @@ export default function ProjectPrompt({ projectId, runId, agentAvailable=true, o
       setOptions({});
     }
   }
-  if (runId) return <Conversation id={runId} projectId={projectId} agentAvailable={agentAvailable} directory={directory} folders={folders} run={run} task={task} board={board} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onArchive={onArchive} onStopped={onStopped} onFoldersChanged={onFoldersChanged} onTitleChanged={onTitleChanged} />;
+  if (runId) return <Conversation id={runId} projectId={projectId} projectName={projectName} agentAvailable={agentAvailable} directory={directory} folders={folders} run={run} task={task} board={board} projectContext={projectContext} taskRuns={taskRuns} canEditTask={canEditTask} knownSprints={knownSprints} knownAssignees={knownAssignees} onTaskSaved={onTaskSaved} onSelectRun={onSelectRun} onLaunchSkill={onLaunchSkill} onEditTask={onEditTask} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onArchive={onArchive} onStopped={onStopped} onFoldersChanged={onFoldersChanged} onTitleChanged={onTitleChanged} />;
   return <section className="project-prompt prompt-start prompt-new">
-    <div className="prompt-intro"><h2>Nouveau prompt</h2></div>
+    <div className="prompt-intro"><h2>New prompt</h2></div>
     <form className="composer" onSubmit={async e => {
       e.preventDefault(); if (!agentAvailable || busy || attaching || !draft.trim()) return;
       setBusy(true); setError("");
@@ -101,18 +113,12 @@ export default function ProjectPrompt({ projectId, runId, agentAvailable=true, o
       } catch (cause) { setError(String(cause)); }
       finally { setBusy(false); }
     }}>
-      <div className="composer-nav-row">
-        <div className="composer-nav-actions">
-          <PromptFolders compact projectId={projectId} directory={directory} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
-          <button type="button" className="composer-nav-btn" aria-label="Terminal" disabled={!directory} title="Ouvrir le terminal dans le dossier de travail" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setError("Impossible d’ouvrir le terminal dans ce dossier."))}><Icon name="terminal"/><span className="sr-only">Terminal</span></button>
-        </div>
-      </div>
       <div className="composer-box">
-        <textarea autoFocus aria-label="Prompt libre" value={draft} disabled={busy} maxLength={32000} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} placeholder="Demandez quelque chose à propos de ce projet…" rows={2} />
+        <textarea autoFocus aria-label="Free prompt" value={draft} disabled={busy} maxLength={32000} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} placeholder="Ask something about this project…" rows={2} />
         <div className="composer-footer"><div className="composer-options">
-          <label className="sr-only"><span className="sr-only">Profil ou moteur</span><select tabIndex={-1} aria-label="Profil ou moteur" title={selectedProfile?`${selectedProfile.provider==="codex"?"Codex":"Claude Code"} · ${selectedProfile.name}`:"Choisir un profil ou un moteur"} value={profileId?`profile:${profileId}`:`engine:${provider}`} disabled={busy} onChange={e => selectEngine(e.target.value)}>
-            {profiles?.profiles.length?<optgroup label="Profils du projet">{profiles.profiles.map(profile=><option key={profile.id} value={`profile:${profile.id}`}>{profile.provider==="codex"?"Codex":"Claude Code"} · {profile.name}</option>)}</optgroup>:null}
-            <optgroup label="Sans profil"><option value="engine:claude">Claude Code</option><option value="engine:codex">Codex</option></optgroup>
+          <label className="sr-only"><span className="sr-only">Profile or engine</span><select tabIndex={-1} aria-label="Profile or engine" title={selectedProfile?`${selectedProfile.provider==="codex"?"Codex":"Claude Code"} · ${selectedProfile.name}`:"Choose a profile or engine"} value={profileId?`profile:${profileId}`:`engine:${provider}`} disabled={busy} onChange={e => selectEngine(e.target.value)}>
+            {profiles?.profiles.length?<optgroup label="Project profiles">{profiles.profiles.map(profile=><option key={profile.id} value={`profile:${profile.id}`}>{profile.provider==="codex"?"Codex":"Claude Code"} · {profile.name}</option>)}</optgroup>:null}
+            <optgroup label="Without profile"><option value="engine:claude">Claude Code</option><option value="engine:codex">Codex</option></optgroup>
           </select></label>
           <TurnSettings
             compact
@@ -126,20 +132,24 @@ export default function ProjectPrompt({ projectId, runId, agentAvailable=true, o
             selectedEngineKey={profileId ? `profile:${profileId}` : `engine:${provider}`}
             onSelectEngine={selectEngine}
           />
-        </div><button className="send-button" aria-label="Envoyer" title="Envoyer · Entrée" disabled={!agentAvailable || busy || attaching || !draft.trim()}><Icon name="send" /></button></div>
+          <div className="composer-inline-tools">
+            <PromptFolders compact projectId={projectId} directory={directory} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
+            <button type="button" className="composer-nav-btn" aria-label="Terminal" disabled={!directory} title="Open terminal in working folder" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setError("Unable to open terminal in this folder."))}><Icon name="terminal"/><span className="sr-only">Terminal</span></button>
+          </div>
+        </div><button className="send-button" aria-label="Send" title="Send · Enter" disabled={!agentAvailable || busy || attaching || !draft.trim()}><Icon name="send" /></button></div>
       </div>
     </form>
-    {!agentAvailable&&<p role="status" className="composer-feedback">Agent indisponible. Le message pourra être envoyé après la reconnexion.</p>}
-    <div className="prompt-suggestions" aria-label="Idées de prompts">{[
-     ["Comprendre le projet", "Explique la structure de ce projet et les points importants pour commencer."],
-     ["Examiner un problème", "Aide-moi à comprendre et résoudre un problème dans ce projet : "],
-     ["Préparer un plan", "Propose un plan pour améliorer ce projet, sans modifier de fichiers pour le moment."],
-    ].map(([label,text])=><button key={label} onClick={()=>{customized.current=true;setDraft(text);if(label==="Préparer un plan")setOptions(previous=>({...previous,mode:"plan"}));}}>{label}<Icon name="chevron" /></button>)}</div>
-    <p className="composer-shortcut">Entrée pour envoyer · Maj + Entrée pour une nouvelle ligne</p>
+    {!agentAvailable&&<p role="status" className="composer-feedback">Agent unavailable. Your message can be sent after reconnecting.</p>}
+    <div className="prompt-suggestions" aria-label="Prompt ideas">{[
+     ["Understand the project", "Explain the structure of this project and key points to get started."],
+     ["Investigate an issue", "Help me understand and fix an issue in this project: "],
+     ["Prepare a plan", "Propose a plan to improve this project without modifying files for now."],
+    ].map(([label,text])=><button key={label} onClick={()=>{customized.current=true;setDraft(text);if(label==="Prepare a plan")setOptions(previous=>({...previous,mode:"plan"}));}}>{label}<Icon name="chevron" /></button>)}</div>
+    <p className="composer-shortcut">Enter to send · Shift + Enter for a new line</p>
     {error && <p role="alert" className="error">{error}</p>}
   </section>;
 }
-function Conversation({ id, projectId, agentAvailable, directory, folders, run, task, board, onOpenQueue, onOpenTask, onArchive, onStopped, onFoldersChanged, onTitleChanged }: { id:string;projectId:string;agentAvailable:boolean;directory?:string;folders?:Run["folders"];run?:Run;task?:Task;board?:BoardMapping;onOpenQueue?:()=>void;onOpenTask?:()=>void;onArchive?:()=>void;onStopped?:()=>void;onFoldersChanged?:()=>void;onTitleChanged?:()=>void }) {
+function Conversation({ id, projectId, projectName, agentAvailable, directory, folders, run, task, board, projectContext, taskRuns, canEditTask, knownSprints, knownAssignees, onTaskSaved, onSelectRun, onLaunchSkill, onOpenQueue, onOpenTask, onArchive, onStopped, onFoldersChanged, onTitleChanged }: { id:string;projectId:string;projectName?:string;agentAvailable:boolean;directory?:string;folders?:Run["folders"];run?:Run;task?:Task;board?:BoardMapping;projectContext?:ProjectContext;taskRuns?:Run[];canEditTask?:boolean;knownSprints?:string[];knownAssignees?:string[];onTaskSaved?:(task:Task)=>void;onSelectRun?:(runId:string)=>void;onLaunchSkill?:(skillId:string)=>void;onEditTask?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onArchive?:()=>void;onStopped?:()=>void;onFoldersChanged?:()=>void;onTitleChanged?:()=>void }) {
   const { controller, snapshot, loaded, pending, error } = useConversation(id);
   const [draft, setDraft] = useState("");
   const [actionError, setActionError] = useState("");
@@ -148,12 +158,26 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
   const [attaching,setAttaching]=useState(false);
   const [followRequest, setFollowRequest] = useState(0);
   const [options, setOptions] = useState<TurnOptions>({});
+  const [workflowOpen, setWorkflowOpen] = useState(false);
+  const [sidePane, setSidePane] = useState<"ticket" | "changes" | null>(null);
+  const [sidePaneExpanded, setSidePaneExpanded] = useState(true);
+  const [editingTicketInline, setEditingTicketInline] = useState(false);
+  const overflowMenuRef = useRef<HTMLDetailsElement | null>(null);
   const availableBefore = useRef(agentAvailable);
   useEffect(() => { void controller.refresh(); }, [controller]);
   useEffect(() => {
     if(agentAvailable && !availableBefore.current) void controller.refresh();
     availableBefore.current=agentAvailable;
   }, [agentAvailable,controller]);
+  useEffect(() => {
+    const onPointerDown = (e: MouseEvent) => {
+      if (overflowMenuRef.current && !overflowMenuRef.current.contains(e.target as Node)) {
+        overflowMenuRef.current.removeAttribute("open");
+      }
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    return () => window.removeEventListener("mousedown", onPointerDown);
+  }, []);
   const [renaming,setRenaming] = useState(false);
   const [title,setTitle] = useState("");
   const [savingTitle,setSavingTitle] = useState(false);
@@ -163,7 +187,7 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
   useEffect(()=>setPathCopyState(""),[directory]);
   const busy = pending || snapshot.busy;
   async function control(input: Exclude<ConversationAction, { action: "message" }>) {
-    if (acting) throw new Error("Une action est déjà en cours.");
+    if (acting) throw new Error("An action is already in progress.");
     setActing(true); setActionError("");
     try { await controller.control(input); }
     catch (error) { if (input.action !== "answer") setActionError(String(error)); throw error; }
@@ -173,42 +197,185 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
     if(stopping || !run || !isActive(run))return;
     setStopping(true);setActionError("");
     try {await stopRun(id);await controller.refresh();onStopped?.();}
-    catch {setActionError("Arrêt non confirmé. Actualisez le suivi avant de réessayer.");}
+    catch {setActionError("Stop not confirmed. Refresh status before trying again.");}
     finally {setStopping(false);}
   }
   const displayTitle = conversationTitle(snapshot, run, task);
   const taskKey = run?.taskKey || task?.key;
+  const sortedTaskRuns = taskRuns && taskRuns.length > 0
+    ? [...taskRuns].sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0))
+    : [];
+  const step = task && projectContext ? nextSkill(task, projectContext) : undefined;
+  const anyTaskRunActive = sortedTaskRuns.some(isActive) || (run ? isActive(run) : false);
+  const currentStage = task ? taskStage(task, board ?? projectContext?.board) : undefined;
   return <section className="project-prompt conversation-prompt">
     <header className="workspace-toolbar prompt-heading">
       <div className="workspace-toolbar-main">
         <h2 title={displayTitle} style={{cursor:snapshot.canRename?"pointer":"default"}} onClick={()=>{if(snapshot.canRename){setTitle(snapshot.title||displayTitle||"");setRenaming(true);}}}>
           <Icon name="chat" />
-          {taskKey && <span role={onOpenTask ? "button" : undefined} tabIndex={onOpenTask ? 0 : undefined} className="sidebar-task-key" title={onOpenTask ? `Ouvrir le ticket ${taskKey}` : undefined} aria-label={onOpenTask ? `Ouvrir le ticket ${taskKey}` : undefined} onClick={e=>{if(onOpenTask){e.stopPropagation();onOpenTask();}}} onKeyDown={e=>{if(onOpenTask && (e.key==="Enter"||e.key===" ")){e.preventDefault();e.stopPropagation();onOpenTask();}}}>{taskKey}</span>}
+          {taskKey && <span role={onOpenTask ? "button" : undefined} tabIndex={onOpenTask ? 0 : undefined} className="sidebar-task-key" title={onOpenTask ? `Open ticket ${taskKey}` : undefined} aria-label={onOpenTask ? `Open ticket ${taskKey}` : undefined} onClick={e=>{if(onOpenTask){e.stopPropagation();onOpenTask();}}} onKeyDown={e=>{if(onOpenTask && (e.key==="Enter"||e.key===" ")){e.preventDefault();e.stopPropagation();onOpenTask();}}}>{taskKey}</span>}
           <span>{displayTitle}</span>
         </h2>
         <div className="workspace-path">
-          <p title={directory}>{directory || "Espace de travail de la conversation"}</p>
-          {directory && <button type="button" className="copy-path" title="Copier le chemin du dossier de travail" aria-label="Copier le chemin du dossier de travail" onClick={()=>void navigator.clipboard.writeText(directory).then(()=>setPathCopyState("Copié"),()=>setPathCopyState("Copie impossible"))}>{pathCopyState||"Copier"}</button>}
+          <p title={directory}>{directory || "Conversation workspace"}</p>
+          {directory && <button type="button" className="copy-path" title="Copy working folder path" aria-label="Copy working folder path" onClick={()=>void navigator.clipboard.writeText(directory).then(()=>setPathCopyState("Copied"),()=>setPathCopyState("Copy failed"))}>{pathCopyState||"Copy"}</button>}
         </div>
       </div>
       <div className="toolbar-actions">
-        {snapshot.canAdoptConnection && <button disabled={!agentAvailable || acting || !!error} title="Cet historique n’est pas encore lié à la connexion sélectionnée." onClick={() => void control({ action: "adoptConnection" }).catch(() => {})}>Associer à cette connexion</button>}
-        {snapshot.canRename && <button type="button" className="icon-button" aria-label="Renommer la conversation" title="Renommer la conversation" onClick={()=>{setTitle(snapshot.title||displayTitle||"");setRenaming(true);}}><Icon name="edit" /></button>}
+        {run?.taskId && (
+          <div className="board-view-switch conversation-view-tabs" role="tablist" aria-label="Ticket views">
+            <button
+              type="button"
+              role="tab"
+              aria-label="Conversation"
+              title="Conversation"
+              aria-selected={sidePane === null}
+              aria-pressed={sidePane === null}
+              onClick={() => {
+                setSidePane(null);
+                setEditingTicketInline(false);
+              }}
+            >
+              <Icon name="chat" size={16} />
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-label="Ticket"
+              title="Ticket"
+              aria-selected={sidePane === "ticket"}
+              aria-pressed={sidePane === "ticket"}
+              onClick={() => {
+                setEditingTicketInline(false);
+                setSidePaneExpanded(true);
+                setSidePane("ticket");
+              }}
+            >
+              <Icon name="ticket" size={16} />
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-label="Changes"
+              title="Changes"
+              aria-selected={sidePane === "changes"}
+              aria-pressed={sidePane === "changes"}
+              onClick={() => {
+                setSidePaneExpanded(true);
+                setSidePane("changes");
+              }}
+            >
+              <Icon name="branch" size={16} />
+            </button>
+          </div>
+        )}
+        {run?.taskId && sortedTaskRuns.length > 0 && onSelectRun && (
+          <label className="conversation-run-history-label" title="Ticket execution history">
+            <span className="sr-only">Ticket execution history</span>
+            <select
+              aria-label="Ticket execution history"
+              className="conversation-run-history"
+              value={id}
+              onChange={e => onSelectRun(e.target.value)}
+            >
+              {sortedTaskRuns.map((item, index) => {
+                const runNumber = sortedTaskRuns.length - index;
+                const skillName = skillLabels[item.skill] || item.skill || "Conversation";
+                return (
+                  <option key={item.id} value={item.id}>
+                    #{runNumber} · {skillName} · {statusLabel(item)}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+        )}
+        {run?.taskId && step?.skillId && onLaunchSkill && !anyTaskRunActive && (
+          <button
+            type="button"
+            className="primary icon-button conversation-next-step-btn"
+            disabled={!agentAvailable}
+            aria-label={`Next step: ${step.label}`}
+            title={`Next step: ${step.label}`}
+            onClick={() => onLaunchSkill(step.skillId!)}
+          >
+            <Icon name="chevron" />
+          </button>
+        )}
+        {snapshot.canAdoptConnection && <button disabled={!agentAvailable || acting || !!error} title="This history is not linked to the selected connection yet." onClick={() => void control({ action: "adoptConnection" }).catch(() => {})}>Link to this connection</button>}
+        {snapshot.canRename && <button type="button" className="icon-button" aria-label="Rename conversation" title="Rename conversation" onClick={()=>{setTitle(snapshot.title||displayTitle||"");setRenaming(true);}}><Icon name="edit" /></button>}
         {run && isActive(run) ? (
-          <button type="button" className="icon-button stop-button" aria-label="Arrêter la discussion" title={stopping ? "Arrêt en cours…" : "Arrêter la discussion"} disabled={!agentAvailable || stopping || !!run.cancelRequested} onClick={() => void stopConversation()}><Icon name="stop" /></button>
+          <button type="button" className="icon-button stop-button" aria-label="Stop discussion" title={stopping ? "Stopping…" : "Stop discussion"} disabled={!agentAvailable || stopping || !!run.cancelRequested} onClick={() => void stopConversation()}><Icon name="stop" /></button>
         ) : onArchive ? (
-          <button type="button" className="icon-button" aria-label="Archiver la discussion" title="Archiver la discussion" onClick={onArchive}><Icon name="archive" /></button>
+          <button type="button" className="icon-button" aria-label="Archive discussion" title="Archive discussion" onClick={onArchive}><Icon name="archive" /></button>
         ) : null}
+        {run?.taskId && onLaunchSkill && projectContext?.skills && projectContext.skills.length > 0 && (
+          <details className="project-action-menu conversation-overflow-menu" ref={overflowMenuRef}>
+            <summary
+              className="icon-button"
+              aria-label="Ticket actions"
+              title="Ticket actions and related views"
+            >
+              <Icon name="more" />
+            </summary>
+            <div className="project-action-panel conversation-overflow-panel">
+              {step?.skillId && (
+                <button
+                  type="button"
+                  disabled={!agentAvailable || anyTaskRunActive}
+                  onClick={e => {
+                    e.currentTarget.closest("details")?.removeAttribute("open");
+                    onLaunchSkill(step.skillId!);
+                  }}
+                >
+                  <Icon name="sparkles" />
+                  <span>Run next step: {step.label}</span>
+                </button>
+              )}
+              {projectContext.skills.some(s => s.id === "pickup") && currentStage !== "finished" && (
+                <button
+                  type="button"
+                  disabled={!agentAvailable || anyTaskRunActive}
+                  onClick={e => {
+                    e.currentTarget.closest("details")?.removeAttribute("open");
+                    onLaunchSkill("pickup");
+                  }}
+                >
+                  <Icon name="agent" />
+                  <span>Run chain (Pickup)</span>
+                </button>
+              )}
+              {projectContext.skills
+                .filter(s => s.id !== step?.skillId && s.id !== "pickup" && s.id !== "pickup_issues")
+                .map(skill => (
+                  <button
+                    key={skill.id}
+                    type="button"
+                    disabled={!agentAvailable || anyTaskRunActive || currentStage === "finished"}
+                    onClick={e => {
+                      e.currentTarget.closest("details")?.removeAttribute("open");
+                      onLaunchSkill(skill.id);
+                    }}
+                  >
+                    <Icon name="terminal" />
+                    <span>Launch: {skillLabels[skill.id] || skill.id}</span>
+                  </button>
+                ))}
+            </div>
+          </details>
+        )}
       </div>
     </header>
-    {renaming&&<form className="conversation-rename" onSubmit={async e=>{e.preventDefault();if(savingTitle||!title.trim())return;setSavingTitle(true);setActionError("");try{await renameConversation(id,title.trim());await controller.refresh();onTitleChanged?.();setRenaming(false);}catch(cause){setActionError(String(cause));}finally{setSavingTitle(false);}}}><label>Nom de la conversation<input autoFocus required maxLength={80} value={title} onChange={e=>setTitle(e.target.value)}/></label><button type="button" disabled={savingTitle} onClick={()=>setRenaming(false)}>Annuler</button><button disabled={savingTitle||!title.trim()}>Enregistrer le nom</button></form>}
-    {snapshot.persistenceError && <p className="error" role="alert">{snapshot.persistenceError}</p>}
-    {linkError&&<p role="alert" className="error">{linkError}</p>}
-    <ConversationTranscript
-      snapshot={snapshot}
-      followRequest={followRequest}
-      onInterrupt={busy && !snapshot.readOnly && agentAvailable && !acting ? () => void control({ action: "interrupt" }).catch(() => {}) : undefined}
-    />
+    <div className={`conversation-body-split ${sidePane ? "has-side-pane" : ""} ${sidePane && sidePaneExpanded ? "side-pane-expanded" : ""}`}>
+      <div className="conversation-main-column">
+        {renaming&&<form className="conversation-rename" onSubmit={async e=>{e.preventDefault();if(savingTitle||!title.trim())return;setSavingTitle(true);setActionError("");try{await renameConversation(id,title.trim());await controller.refresh();onTitleChanged?.();setRenaming(false);}catch(cause){setActionError(String(cause));}finally{setSavingTitle(false);}}}><label>Conversation name<input autoFocus required maxLength={80} value={title} onChange={e=>setTitle(e.target.value)}/></label><button type="button" disabled={savingTitle} onClick={()=>setRenaming(false)}>Cancel</button><button disabled={savingTitle||!title.trim()}>Save name</button></form>}
+        {snapshot.persistenceError && <p className="error" role="alert">{snapshot.persistenceError}</p>}
+        {linkError&&<p role="alert" className="error">{linkError}</p>}
+        <ConversationTranscript
+          snapshot={snapshot}
+          followRequest={followRequest}
+          onInterrupt={busy && !snapshot.readOnly && agentAvailable && !acting ? () => void control({ action: "interrupt" }).catch(() => {}) : undefined}
+        />
     <div className="conversation-controls">
     <div className="conversation-interactions">
     {snapshot.approvals?.map(approval => {
@@ -220,24 +387,24 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
         ? approval.choices.map(choice => ({
             decision: choice.decision,
             label: choice.decision === "allow"
-              ? "Autoriser une fois"
+              ? "Allow once"
               : choice.decision === "always"
-              ? "Toujours autoriser"
+              ? "Always allow"
               : choice.decision === "deny"
-              ? "Refuser"
+              ? "Deny"
               : choice.label,
           }))
         : [
-            { decision: "allow", label: "Autoriser une fois" },
-            ...(hasSuggestions ? [{ decision: "always" as const, label: "Toujours autoriser" }] : []),
-            { decision: "deny", label: "Refuser" },
+            { decision: "allow", label: "Allow once" },
+            ...(hasSuggestions ? [{ decision: "always" as const, label: "Always allow" }] : []),
+            { decision: "deny", label: "Deny" },
           ];
       return <section className="prompt-approval" key={approval.id}>
-        <strong>Autorisation requise · {approval.tool}</strong><p>{approval.description || approval.reason}</p>
+        <strong>Permission required · {approval.tool}</strong><p>{approval.description || approval.reason}</p>
         <pre>{JSON.stringify(approval.input, null, 2)}</pre>
         {hasSuggestions && (
           <details className="prompt-approval-suggestions">
-            <summary>Toujours autoriser : règle proposée pour ce projet</summary>
+            <summary>Always allow: proposed rule for this project</summary>
             <pre>{JSON.stringify(approval.suggestions?.map(update => ({
               ...update,
               destination: (update?.type === "addRules" && update?.behavior === "allow") || update?.type === "addDirectories"
@@ -259,26 +426,51 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
         </div>
       </section>;
     })}
-    {agentAvailable && (error || actionError) && <p role="alert" className="error">{error || actionError} Vérifiez le suivi avant de renvoyer un message. <button type="button" aria-label="Actualiser le suivi" onClick={() => void controller.refresh()}>Réessayer</button></p>}
+    {agentAvailable && (error || actionError) && <p role="alert" className="error">{error || actionError} Check status before resending a message. <button type="button" aria-label="Refresh status" onClick={() => void controller.refresh()}>Retry</button></p>}
     </div>
+    {workflowOpen && (
+      <section className="conversation-workflow-box" aria-label="Ticket workflow">
+        <div className="conversation-workflow-box-header">
+          <div>
+            <span className="eyebrow">TICKET WORKFLOW · {taskKey || run?.taskId}</span>
+            <p className="workflow-meta">
+              Tracker status: {task?.trackerStatus || "Unavailable"} · Assignee: {task?.assignee || "Unassigned"}
+              {task?.sprint ? ` · Sprint: ${task.sprint}` : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Close workflow"
+            title="Close workflow"
+            onClick={() => setWorkflowOpen(false)}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+        <ol className="workflow-progress" aria-label="Workflow stages">
+          {stages.map(s => (
+            <li key={s} aria-current={(step?.stage ?? currentStage) === s ? "step" : undefined}>
+              {stageLabels[s]}
+            </li>
+          ))}
+        </ol>
+      </section>
+    )}
     {snapshot.readOnly ? <>
-      <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} agentAvailable={agentAvailable} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onOpenPr={url=>void openExternalLink(url).catch(()=>setLinkError("Impossible d’ouvrir la PR/MR."))}/>
-      <div className="conversation-readonly-footer" aria-label="Options de l’historique">
+      <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} agentAvailable={agentAvailable} workflowOpen={workflowOpen} onToggleWorkflow={() => setWorkflowOpen(prev => !prev)} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} />
+      <div className="conversation-readonly-footer" aria-label="History options">
         <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly onChanged={onFoldersChanged}/>
-        <button type="button" className="composer-action" disabled={!directory} title="Ouvrir le terminal dans le dossier de travail" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Impossible d’ouvrir le terminal dans ce dossier."))}><Icon name="terminal"/>Terminal</button>
+        <button type="button" className="composer-action" disabled={!directory} title="Open terminal in working folder" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Unable to open terminal in this folder."))}><Icon name="terminal"/>Terminal</button>
+        {run?.taskId && <TaskPrStatus task={task} onOpenPr={url=>void openExternalLink(url).catch(()=>setLinkError("Unable to open PR/MR."))} />}
       </div>
     </> : <form className="composer" onSubmit={e => { e.preventDefault(); if (agentAvailable && loaded && !busy && !attaching && !snapshot.readOnly && !error && draft.trim()) { void controller.send(draft, false, options); setDraft(""); setFollowRequest(value => value + 1); } }}>
       <div className="composer-nav-row">
-        <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} agentAvailable={agentAvailable} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onOpenPr={url=>void openExternalLink(url).catch(()=>setLinkError("Impossible d’ouvrir la PR/MR."))}/>
-        <div className="composer-nav-actions">
-          <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly={!loaded||snapshot.readOnly} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
-          <button type="button" className="composer-nav-btn" aria-label="Terminal" disabled={!directory} title="Ouvrir le terminal dans le dossier de travail" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Impossible d’ouvrir le terminal dans ce dossier."))}><Icon name="terminal"/><span className="sr-only">Terminal</span></button>
-          <button type="button" className={`composer-nav-btn mcp-action mcp-${snapshot.sectileMcp?.status??"unknown"}`} disabled={!agentAvailable||!loaded||acting||snapshot.checkingMcp||snapshot.readOnly} aria-label="Vérifier le MCP de cette conversation" title={`${snapshot.sectileMcp?.source==="transport"?"Transport MCP du compagnon":"MCP du moteur"} · ${snapshot.checkingMcp?"Vérification en cours…":({connected:"Connecté",missing:"Non enregistré",failed:"Échec de connexion","needs-auth":"Connexion requise",pending:"Connexion en cours",unknown:"État non vérifié"} as Record<string,string>)[snapshot.sectileMcp?.status??"unknown"]||"État non vérifié"}`} onClick={()=>void control({action:"checkMcp"}).then(()=>{const current=controller.getSnapshot().snapshot;setMcpFeedback(current.provider==="codex"&&!current.checkingMcp&&current.sectileMcp?.status==="unknown"?"Codex vérifiera le MCP au prochain message, après la reconnexion de sa session.":"");}).catch(()=>{})}><span className="mcp-dot"/>MCP</button>
-        </div>
+        <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} agentAvailable={agentAvailable} workflowOpen={workflowOpen} onToggleWorkflow={() => setWorkflowOpen(prev => !prev)} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} />
       </div>
       <div className="composer-box">
         <textarea
-          aria-label="Message suivant"
+          aria-label="Next message"
           rows={2}
           maxLength={32000}
           value={draft}
@@ -292,42 +484,193 @@ function Conversation({ id, projectId, agentAvailable, directory, folders, run, 
             sendOnEnter(e);
           }}
           disabled={!!snapshot.readOnly}
-          placeholder="Posez une question ou décrivez une modification…"
+          placeholder="Ask a question or describe a change…"
         />
         <div className="composer-footer"><TurnSettings compact showProviderMark provider={snapshot.provider} snapshot={snapshot} value={options} onChange={setOptions} disabled={!loaded || busy || !!snapshot.readOnly || !!error || acting} />
+        <div className="composer-inline-tools">
+          <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly={!loaded||snapshot.readOnly} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
+          <button type="button" className="composer-nav-btn" aria-label="Terminal" disabled={!directory} title="Open terminal in working folder" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Unable to open terminal in this folder."))}><Icon name="terminal"/><span className="sr-only">Terminal</span></button>
+          <button type="button" className={`composer-nav-btn mcp-action mcp-${snapshot.sectileMcp?.status??"unknown"}`} disabled={!agentAvailable||!loaded||acting||snapshot.checkingMcp||snapshot.readOnly} aria-label="Check MCP for this conversation" title={`${snapshot.sectileMcp?.source==="transport"?"Companion MCP transport":"Engine MCP"} · ${snapshot.checkingMcp?"Checking…":({connected:"Connected",missing:"Not registered",failed:"Connection failed","needs-auth":"Sign-in required",pending:"Connecting",unknown:"Status unverified"} as Record<string,string>)[snapshot.sectileMcp?.status??"unknown"]||"Status unverified"}`} onClick={()=>void control({action:"checkMcp"}).then(()=>{const current=controller.getSnapshot().snapshot;setMcpFeedback(current.provider==="codex"&&!current.checkingMcp&&current.sectileMcp?.status==="unknown"?"Codex will check MCP on the next message, after its session reconnects.":"");}).catch(()=>{})}><span className="mcp-dot"/>MCP</button>
+          {run?.taskId && <TaskPrStatus task={task} onOpenPr={url=>void openExternalLink(url).catch(()=>setLinkError("Unable to open PR/MR."))} />}
+        </div>
         {busy && !snapshot.readOnly && (
           <button
             type="button"
             className="send-button interrupt-button"
-            aria-label="Interrompre"
-            title="Annuler l’exécution en cours · Échap"
+            aria-label="Interrupt"
+            title="Cancel current execution · Esc"
             disabled={!agentAvailable || acting}
             onClick={() => void control({ action: "interrupt" }).catch(() => {})}
           >
             <Icon name="stopSquare" />
           </button>
         )}
-        <button className={`send-button ${busy && !snapshot.readOnly ? "sr-only" : ""}`} aria-label="Envoyer" title="Envoyer · Entrée" disabled={!agentAvailable || !loaded || busy || attaching || !!snapshot.readOnly || !!error || !draft.trim()}><Icon name="send" /></button></div>
+        <button className={`send-button ${busy && !snapshot.readOnly ? "sr-only" : ""}`} aria-label="Send" title="Send · Enter" disabled={!agentAvailable || !loaded || busy || attaching || !!snapshot.readOnly || !!error || !draft.trim()}><Icon name="send" /></button></div>
       </div>
       {mcpFeedback&&snapshot.sectileMcp?.status==="unknown"&&<p className="composer-feedback" role="status">{mcpFeedback}</p>}
     </form>}
     </div>
+      </div>
+      {sidePane === "ticket" && (
+        <aside className="conversation-side-pane" aria-label="Ticket panel">
+          <div className="side-pane-toolbar">
+            <div className="side-pane-toolbar-left">
+              <span className="eyebrow">TICKET · {taskKey || run?.taskId}</span>
+              {onOpenTask && (
+                <button
+                  type="button"
+                  className="changes-toolbar-btn"
+                  title="Open ticket in external tracker"
+                  onClick={onOpenTask}
+                >
+                  <Icon name="external" size={14} />
+                  <span>Open in tracker</span>
+                </button>
+              )}
+            </div>
+            <div className="side-pane-toolbar-right">
+              <button
+                type="button"
+                className="changes-toolbar-btn"
+                aria-pressed={editingTicketInline}
+                onClick={() => setEditingTicketInline(prev => !prev)}
+              >
+                <Icon name="edit" />
+                <span>{editingTicketInline ? "Ticket preview" : "Edit ticket"}</span>
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={sidePaneExpanded ? "Collapse to split view" : "Expand to full screen"}
+                title={sidePaneExpanded ? "Collapse to split view" : "Expand to full screen"}
+                onClick={() => setSidePaneExpanded(prev => !prev)}
+              >
+                <Icon name={sidePaneExpanded ? "collapse" : "expand"} />
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close ticket panel"
+                title="Close ticket panel"
+                onClick={() => {
+                  setSidePane(null);
+                  setSidePaneExpanded(false);
+                  setEditingTicketInline(false);
+                }}
+              >
+                <Icon name="close" />
+              </button>
+            </div>
+          </div>
+          <div className="side-pane-body">
+            {editingTicketInline && run?.taskId ? (
+              <TaskEditor
+                projectId={projectId}
+                projectName={projectName || "Project"}
+                taskId={run.taskId}
+                available={canEditTask ?? true}
+                knownSprints={knownSprints}
+                knownAssignees={knownAssignees}
+                onClose={() => setEditingTicketInline(false)}
+                onSaved={saved => {
+                  onTaskSaved?.(saved);
+                  setEditingTicketInline(false);
+                }}
+              />
+            ) : (
+              <div className="ticket-split-detail">
+                <div className="ticket-split-detail-header">
+                  <h3>{task?.title || displayTitle}</h3>
+                  <div className="ticket-split-meta-pills">
+                    <span>Status: <strong>{task?.trackerStatus || "Unavailable"}</strong></span>
+                    {task?.issueType && <span>Type: <strong>{task.issueType}</strong></span>}
+                    {task?.priority && <span>Priority: <strong>{task.priority}</strong></span>}
+                    <span>Assignee: <strong>{task?.assignee || "Unassigned"}</strong></span>
+                    {task?.sprint && <span>Sprint: <strong>{task.sprint}</strong></span>}
+                  </div>
+                </div>
+                <div className="ticket-split-detail-description">
+                  {task?.description ? (
+                    <Markdown text={task.description} />
+                  ) : (
+                    <p className="muted">No description provided for this ticket.</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </aside>
+      )}
+      {sidePane === "changes" && run && (
+        <aside className="conversation-side-pane conversation-side-pane-changes" aria-label="Changes review panel">
+          <RunReview
+            key={run.id}
+            run={run}
+            fullPage
+            expanded={sidePaneExpanded}
+            onToggleExpand={() => setSidePaneExpanded(prev => !prev)}
+            onClose={() => {
+              setSidePane(null);
+              setSidePaneExpanded(false);
+            }}
+          />
+        </aside>
+      )}
+    </div>
   </section>;
 }
-function ConversationStatus({snapshot,run,task,board,busy,error,agentAvailable,onOpenQueue,onOpenTask,onOpenPr}:{snapshot:ConversationSnapshot;run?:Run;task?:Task;board?:BoardMapping;busy:boolean;error:boolean;agentAvailable:boolean;onOpenQueue?:()=>void;onOpenTask?:()=>void;onOpenPr:(url:string)=>void}) {
+function ConversationStatus({snapshot,run,task,board,busy,error,agentAvailable,workflowOpen,onToggleWorkflow,onOpenQueue,onOpenTask}:{snapshot:ConversationSnapshot;run?:Run;task?:Task;board?:BoardMapping;busy:boolean;error:boolean;agentAvailable:boolean;workflowOpen?:boolean;onToggleWorkflow?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void}) {
   const stage=task?taskStage(task,board):undefined;
-  const links=taskPullRequests(task);
-  const activity=!agentAvailable?"Agent indisponible":error?"Suivi interrompu":snapshot.approvals?.length?"Votre réponse attendue":busy?"Réponse en cours":snapshot.readOnly?"Historique en lecture seule":"Prêt à répondre";
-  const execution=!agentAvailable?"Suivi indisponible":run?busy&&run.conversation?"Réponse en cours":statusLabel(run):"Chargement";
-  return <div className="conversation-status-strip" aria-label="Suivi de la conversation">
+  const activity=!agentAvailable?"Agent unavailable":error?"Status interrupted":snapshot.approvals?.length?"Your answer needed":busy?"Responding":snapshot.readOnly?"Read-only history":"Ready to respond";
+  const execution=!agentAvailable?"Status unavailable":run?busy&&run.conversation?"Responding":statusLabel(run):"Loading";
+  return <div className="conversation-status-strip" aria-label="Conversation status">
     <span className={`conversation-status-activity ${agentAvailable&&busy?"live":""}`}><span className="conversation-status-dot"/>{activity}</span>
-    <details className="conversation-execution-menu"><summary>Exécution : {execution}</summary><div className="conversation-execution-panel">
-      {onOpenQueue&&<button type="button" onClick={onOpenQueue}>Voir la file des exécutions</button>}
-      {onOpenTask&&<button type="button" onClick={onOpenTask}>Ouvrir le workflow du ticket</button>}
+    <details className="conversation-execution-menu"><summary>Execution: {execution}</summary><div className="conversation-execution-panel">
+      {onOpenQueue&&<button type="button" onClick={onOpenQueue}>View execution queue</button>}
+      {onOpenTask&&<button type="button" onClick={onOpenTask}>Open ticket in tracker</button>}
     </div></details>
-    {run?.skill&&<span>Skill : {skillLabels[run.skill]||run.skill}</span>}
-    {run?.taskId&&<span>Ticket : <strong>{task?.key||run.taskKey||run.taskId}</strong> · {task?.trackerStatus||"statut indisponible"}</span>}
-    {run?.taskId&&(links.length>1?<details className="conversation-pr-menu"><summary>PR/MR : {links.length} liées</summary><div className="conversation-pr-panel">{links.map(link=><button type="button" key={link.url} onClick={()=>onOpenPr(link.url)}><Icon name="branch"/>{pullRequestLabel(link)} · {pullRequestStateLabel(link)}</button>)}</div></details>:<span>PR/MR : {links.length?<button type="button" className="conversation-pr-link" onClick={()=>onOpenPr(links[0].url)}><Icon name="branch"/>{pullRequestLabel(links[0])} · {pullRequestStateLabel(links[0])}</button>:"aucune"}</span>)}
-    {run?.taskId&&<span>Étape : {stage?stageLabels[stage]:"inconnue"}</span>}
+    {run?.taskId && onToggleWorkflow && (
+      <button
+        type="button"
+        className="conversation-workflow-toggle"
+        aria-pressed={workflowOpen}
+        onClick={onToggleWorkflow}
+      >
+        <Icon name="layers" size={13} />
+        <span>Workflow{stage ? ` · ${stageLabels[stage]}` : ""}</span>
+      </button>
+    )}
   </div>;
+}
+
+function TaskPrStatus({ task, onOpenPr }: { task?: Task; onOpenPr: (url: string) => void }) {
+  const links = taskPullRequests(task);
+  if (links.length > 1) {
+    return (
+      <details className="conversation-pr-menu">
+        <summary>PR/MR: {links.length} linked</summary>
+        <div className="conversation-pr-panel">
+          {links.map(link => (
+            <button type="button" key={link.url} onClick={() => onOpenPr(link.url)}>
+              <Icon name="branch" />
+              {pullRequestLabel(link)} · {pullRequestStateLabel(link)}
+            </button>
+          ))}
+        </div>
+      </details>
+    );
+  }
+  return (
+    <span className="composer-pr-status">
+      PR/MR:{" "}
+      {links.length ? (
+        <button type="button" className="conversation-pr-link" onClick={() => onOpenPr(links[0].url)}>
+          <Icon name="branch" />
+          {pullRequestLabel(links[0])} · {pullRequestStateLabel(links[0])}
+        </button>
+      ) : (
+        "none"
+      )}
+    </span>
+  );
 }

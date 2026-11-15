@@ -62,6 +62,10 @@ test("matchesTaskFilters filters by status (tracker status and workflow stage)",
   // workflow stage (status to_implement maps to stage specified)
   assert.equal(matchesTaskFilters(tasks[0], { status: "specified" }), true);
   assert.equal(matchesTaskFilters(tasks[2], { status: "new" }), true);
+  // multiple statuses (OR semantics)
+  assert.equal(matchesTaskFilters(tasks[0], { statuses: ["in progress", "new"] }), true);
+  assert.equal(matchesTaskFilters(tasks[2], { statuses: ["in progress", "new"] }), true);
+  assert.equal(matchesTaskFilters(tasks[1], { statuses: ["in progress", "new"] }), false);
 });
 
 test("matchesTaskFilters filters by assignee (including unassigned)", () => {

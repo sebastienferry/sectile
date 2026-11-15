@@ -3,10 +3,10 @@ import { decodeEvents, type ConversationEvent, type ConversationSnapshot } from 
 import { Markdown } from "./Markdown";
 
 const approvalLabels: Record<string, string> = {
-  allow: "Demande autorisée une fois.",
-  deny: "Demande refusée.",
-  always: "Autorisation mémorisée.",
-  answer: "Réponse envoyée.",
+  allow: "Request allowed once.",
+  deny: "Request denied.",
+  always: "Permission saved.",
+  answer: "Answer sent.",
 };
 function isTurnReadyNotice(event: ConversationEvent): boolean {
   return (
@@ -14,9 +14,35 @@ function isTurnReadyNotice(event: ConversationEvent): boolean {
     (event.text === "Prêt pour votre prochain message" || event.text === "Ready for your next message")
   );
 }
+function isSessionIntroNotice(event: ConversationEvent): boolean {
+  return (
+    event.kind === "notice" &&
+    /^Conversation\s+(Claude Code|Codex|Antigravity)$/i.test(event.text.trim())
+  );
+}
+const INJECTED_USER_TRAILERS = [
+  /^Remote execution runId:\s*[0-9a-f-]+\./i,
+  /^Sandbox:\s*a Bash call runs outside/i,
+  /^Preserve accepted artifacts\./i,
+  /^Specification artefacts are dropped/i,
+  /^Folders of this task \(never search for them/i,
+  /^Work in the primary worktree:/i,
+];
+export function cleanUserEventText(text: string): string {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map(part => part.trim())
+    .filter(part => part.length > 0 && !INJECTED_USER_TRAILERS.some(pattern => pattern.test(part)));
+  const cleaned = (paragraphs.length > 0 ? paragraphs.join("\n\n") : text.trim()).replace(
+    /^(\/[a-z-]+)\s+(?:jira|gh|gl|azdo)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-([A-Za-z0-9_-]+)/i,
+    "$1 $2",
+  );
+  return cleaned;
+}
 function eventText(event: ConversationEvent): string {
-  if (isTurnReadyNotice(event)) return "Réponse terminée";
+  if (isTurnReadyNotice(event)) return "Response completed";
   if (event.kind === "approval") return approvalLabels[event.text] ?? event.text;
+  if (event.kind === "user") return cleanUserEventText(event.text);
   return event.text;
 }
 
@@ -45,11 +71,11 @@ function Tools({ tools, busy, onInterrupt }: { tools: ToolEntry[]; busy: boolean
   const complete = tools.filter(tool => tool.result).length;
   const errors = tools.filter(tool => tool.result?.error).length;
   const running = busy && complete < tools.length;
-  return <details className="tool-group"><summary>{tools.length === 1 ? `Outil · ${tools[0].call?.tool || tools[0].call?.text || "Résultat"}` : `${tools.length} appels d’outils`}<span className="tool-group-status">{errors ? `${errors} en erreur` : complete === tools.length ? "Terminé" : busy ? "En cours…" : "Résultat non reçu"}{running && onInterrupt && <button type="button" className="tool-cancel-button" aria-label="Annuler la commande en cours" onClick={e => { e.preventDefault(); e.stopPropagation(); onInterrupt(); }}>Annuler</button>}</span></summary>
-    {tools.map(({ key, call, result }) => <section className="tool-entry" key={key}><strong>{call?.tool || call?.text || "Résultat d’outil"}</strong>
+  return <details className="tool-group"><summary>{tools.length === 1 ? `Tool · ${tools[0].call?.tool || tools[0].call?.text || "Result"}` : `${tools.length} tool calls`}<span className="tool-group-status">{errors ? `${errors} failed` : complete === tools.length ? "Completed" : busy ? "Running…" : "Result not received"}{running && onInterrupt && <button type="button" className="tool-cancel-button" aria-label="Cancel running command" onClick={e => { e.preventDefault(); e.stopPropagation(); onInterrupt(); }}>Cancel</button>}</span></summary>
+    {tools.map(({ key, call, result }) => <section className="tool-entry" key={key}><strong>{call?.tool || call?.text || "Tool result"}</strong>
       {call && <pre>{call.detail || (call.input ? JSON.stringify(call.input, null, 2) : call.text)}</pre>}
-      {result && <div className={result.error ? "tool-result tool-failed" : "tool-result"}><small>{result.error ? "Erreur" : "Résultat"}</small><pre>{result.text || "Aucune sortie"}</pre></div>}
-      {!result && <p className="muted">{busy ? "En attente du résultat…" : "Résultat non reçu (interruption ou historique incomplet)"}</p>}
+      {result && <div className={result.error ? "tool-result tool-failed" : "tool-result"}><small>{result.error ? "Error" : "Result"}</small><pre>{result.text || "No output"}</pre></div>}
+      {!result && <p className="muted">{busy ? "Waiting for result…" : "Result not received (interrupted or incomplete history)"}</p>}
     </section>)}
   </details>;
 }
@@ -62,7 +88,9 @@ export function ConversationTranscript({ snapshot, followRequest = 0, onInterrup
   const rows = useMemo(
     () =>
       transcriptRows(
-        decodeEvents(snapshot).filter(event => snapshot.readOnly || !isTurnReadyNotice(event)),
+        decodeEvents(snapshot).filter(
+          event => !isSessionIntroNotice(event) && (snapshot.readOnly || !isTurnReadyNotice(event)),
+        ),
       ),
     [snapshot.events, snapshot.readOnly],
   );
@@ -81,16 +109,16 @@ export function ConversationTranscript({ snapshot, followRequest = 0, onInterrup
     observer.observe(content.current);
     return () => observer.disconnect();
   }, []);
-  return <div className="transcript-shell"><div ref={viewport} className="prompt-transcript" aria-label="Historique de conversation" onScroll={() => {
+  return <div className="transcript-shell"><div ref={viewport} className="prompt-transcript" aria-label="Conversation history" onScroll={() => {
     const element = viewport.current!;
     following.current = element.scrollHeight - element.clientHeight - element.scrollTop < 48;
     setPaused(!following.current);
   }}><div ref={content} className="prompt-transcript-content">
     {rows.map(row => "tools" in row ? <Tools key={row.key} tools={row.tools} busy={snapshot.busy} onInterrupt={onInterrupt} /> : <article className={`prompt-event prompt-${row.event.kind}`} key={row.key}>
-      <strong>{row.event.interrupted ? "Assistant · réponse interrompue" : ({ user: "Vous", assistant: "Assistant", error: "Erreur", thinking: "Réflexion", approval: "Autorisation" } as Record<string, string>)[row.event.kind] ?? "Activité"}</strong>
+      <strong>{row.event.interrupted ? "Assistant · response interrupted" : ({ user: "You", assistant: "Assistant", error: "Error", thinking: "Thinking", approval: "Permission" } as Record<string, string>)[row.event.kind] ?? "Activity"}</strong>
       {row.event.kind === "assistant" ? <Markdown text={row.event.text} /> : <p>{eventText(row.event)}</p>}
-      {row.event.detail && <details><summary>Détails</summary><pre>{row.event.detail}</pre></details>}
+      {row.event.detail && <details><summary>Details</summary><pre>{row.event.detail}</pre></details>}
     </article>)}
     {snapshot.partial && <article className="prompt-event"><strong>Assistant</strong><Markdown text={snapshot.partial} /></article>}
-  </div></div>{paused && <button className="back-to-bottom" onClick={toBottom}>Aller en bas ↓</button>}</div>;
+  </div></div>{paused && <button className="back-to-bottom" onClick={toBottom}>Jump to bottom ↓</button>}</div>;
 }

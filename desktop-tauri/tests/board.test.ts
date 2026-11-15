@@ -24,7 +24,7 @@ test("board only includes remote tracker tasks and preserves remote statuses", (
   const columns = trackerColumns(tasks);
   assert.deepEqual(
     columns.map((c) => c.name),
-    ["In review", "Statut distant indisponible"],
+    ["In review", "Remote status unavailable"],
   );
   assert.equal(columns.flatMap((c) => c.tasks).length, 2);
   assert.equal(trackerColumns(tasks, "app-1")[0].tasks[0].id, "1");

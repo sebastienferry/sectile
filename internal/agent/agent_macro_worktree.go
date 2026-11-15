@@ -46,16 +46,16 @@ func ensureMacroWorktree(ctx context.Context, specRepo, macroKey, title string, 
 	specRepo = strings.TrimSpace(specRepo)
 	key := strings.ToUpper(strings.TrimSpace(macroKey))
 	if specRepo == "" {
-		return macroWorkspace{}, fmt.Errorf("aucun dossier des spécifications configuré pour ce projet")
+		return macroWorkspace{}, fmt.Errorf("no specifications folder configured for this project")
 	}
 	if _, err := safeWorktreeName(key); err != nil {
-		return macroWorkspace{}, fmt.Errorf("clé de macro invalide : %q", macroKey)
+		return macroWorkspace{}, fmt.Errorf("invalid macro key: %q", macroKey)
 	}
 	name, err := safeWorktreeName(macroKey)
 	if err != nil {
-		return macroWorkspace{}, fmt.Errorf("clé de macro invalide : %q", macroKey)
+		return macroWorkspace{}, fmt.Errorf("invalid macro key: %q", macroKey)
 	}
-	return ensureSpecWorktree(ctx, specRepo, name, "la macro "+key, useWorktrees, func(defaultBranch string) (string, error) {
+	return ensureSpecWorktree(ctx, specRepo, name, "macro "+key, useWorktrees, func(defaultBranch string) (string, error) {
 		branch, err := existingMacroBranch(ctx, specRepo, key, defaultBranch)
 		if err != nil || branch != "" {
 			return branch, err
@@ -66,18 +66,18 @@ func ensureMacroWorktree(ctx context.Context, specRepo, macroKey, title string, 
 
 // ensureSpecWorktree prepares the checkout a specification is written in,
 // inside a specifications folder, for a macro or for a task (#736): owner names
-// it in the messages ("la macro M-1", "la tâche #47"), name is the
+// it in the messages ("macro M-1", "task #47"), name is the
 // filesystem-safe directory of its worktree, and branchFor picks its branch
 // once the default branch is known.
 func ensureSpecWorktree(ctx context.Context, specRepo, name, owner string, useWorktrees bool, branchFor func(defaultBranch string) (string, error)) (macroWorkspace, error) {
 	if info, err := os.Stat(specRepo); err != nil || !info.IsDir() {
-		return macroWorkspace{}, fmt.Errorf("le dossier des spécifications %s est introuvable", specRepo)
+		return macroWorkspace{}, fmt.Errorf("specifications folder %s not found", specRepo)
 	}
 	if _, err := gitLocal(ctx, specRepo, "rev-parse", "--git-dir"); err != nil {
 		// A plain folder is written in place: there is no branch to be on and
 		// nothing to commit, and saying so keeps the skill from trying.
 		return macroWorkspace{Path: specRepo, Branch: "", Worktree: false,
-			Warning: specRepo + " n'est pas un dépôt Git : la spécification est écrite directement dans ce dossier, sans branche, sans commit ni push"}, nil
+			Warning: specRepo + " is not a Git repository: the specification is written directly in this folder, with no branch, commit, or push"}, nil
 	}
 	unlock := lockMacroRepository(specRepo)
 	defer unlock()
@@ -90,7 +90,7 @@ func ensureSpecWorktree(ctx context.Context, specRepo, name, owner string, useWo
 		}
 	}
 	if !hasOrigin {
-		warnings = append(warnings, "pas de distant origin : la base est la branche par défaut locale")
+		warnings = append(warnings, "no origin remote: base is the local default branch")
 	} else {
 		// A remote that hangs (a VPN down, a credential prompt) must not hold
 		// the launch: past the bound, the base is what is known locally.
@@ -98,7 +98,7 @@ func ensureSpecWorktree(ctx context.Context, specRepo, name, owner string, useWo
 		_, err := gitLocal(fetchCtx, specRepo, "fetch", "--quiet", "--prune", "origin")
 		cancel()
 		if err != nil {
-			warnings = append(warnings, "fetch impossible, la base peut être périmée : "+err.Error())
+			warnings = append(warnings, "fetch failed, base may be stale: "+err.Error())
 		}
 	}
 
@@ -108,7 +108,7 @@ func ensureSpecWorktree(ctx context.Context, specRepo, name, owner string, useWo
 		return macroWorkspace{}, err
 	}
 	if branch == defaultBranch {
-		return macroWorkspace{}, fmt.Errorf("la branche de %s ne peut pas être la branche par défaut %s", owner, defaultBranch)
+		return macroWorkspace{}, fmt.Errorf("branch for %s cannot be the default branch %s", owner, defaultBranch)
 	}
 	if _, err := gitLocal(ctx, specRepo, "check-ref-format", "--branch", branch); err != nil {
 		return macroWorkspace{}, err
@@ -116,7 +116,7 @@ func ensureSpecWorktree(ctx context.Context, specRepo, name, owner string, useWo
 	warning := strings.Join(warnings, " ; ")
 
 	if !useWorktrees {
-		note := "worktrees désactivés : le checkout est utilisé directement"
+		note := "worktrees disabled: using the checkout directly"
 		if warning != "" {
 			note = warning + " ; " + note
 		}
@@ -154,7 +154,7 @@ func ensureSpecWorktree(ctx context.Context, specRepo, name, owner string, useWo
 			start = "refs/remotes/origin/" + branch
 		}
 		if start == "" {
-			return macroWorkspace{}, fmt.Errorf("aucune branche par défaut dans %s pour démarrer la branche %s", specRepo, branch)
+			return macroWorkspace{}, fmt.Errorf("no default branch in %s to start branch %s", specRepo, branch)
 		}
 		args = []string{"worktree", "add", "-b", branch, target, start}
 	}
@@ -231,7 +231,7 @@ func clearStaleMacroPath(ctx context.Context, repo, target, owner string) error 
 		return err
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("%s existe et n'est pas un dossier : déplacez-le pour créer le worktree de %s", target, owner)
+		return fmt.Errorf("%s exists and is not a directory: move it to create the worktree for %s", target, owner)
 	}
 	if _, err := gitLocal(ctx, repo, "worktree", "prune"); err != nil {
 		return err
@@ -239,14 +239,14 @@ func clearStaleMacroPath(ctx context.Context, repo, target, owner string) error 
 	if top, err := gitLocal(ctx, target, "rev-parse", "--show-toplevel"); err == nil && sameDirectory(top, target) {
 		// A valid worktree on another branch: leave it, and say so.
 		occupant, _ := gitLocal(ctx, target, "branch", "--show-current")
-		return fmt.Errorf("%s est déjà un worktree, sur la branche %q : retirez-le pour y placer %s", target, occupant, owner)
+		return fmt.Errorf("%s is already a worktree on branch %q: remove it to place %s there", target, occupant, owner)
 	}
 	entries, err := os.ReadDir(target)
 	if err != nil {
 		return err
 	}
 	if len(entries) > 0 {
-		return fmt.Errorf("%s n'est pas un worktree valide et n'est pas vide : déplacez son contenu pour recréer le worktree de %s", target, owner)
+		return fmt.Errorf("%s is not a valid worktree and is not empty: move its contents to recreate the worktree for %s", target, owner)
 	}
 	return os.Remove(target)
 }

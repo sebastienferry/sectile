@@ -9,14 +9,14 @@ import { useAppearance, useFontSize, type Appearance, type FontSize } from "../l
 
 type SettingsSection = "engines" | "profile" | "connections" | "projects" | "services" | "appearance";
 const sections = [
- {id:"engines", label:"Moteurs IA", icon:"agent", description:"Connectez Claude Code ou Codex pour travailler dans vos projets."},
- {id:"profile", label:"Profil", icon:"user", description:"Votre identité pour les actions effectuées depuis ce poste."},
- {id:"connections", label:"Comptes et trackers", icon:"link", description:"Connectez vos comptes et choisissez les sources de vos tickets."},
- {id:"projects", label:"Projets", icon:"folder", description:"Partez d’un dossier local ou associez un projet à un tracker."},
- {id:"appearance", label:"Apparence", icon:"sun", description:"Thème de couleurs et taille de police de l’application."},
- {id:"services", label:"Services locaux", icon:"monitor", description:"État de votre installation et outils de diagnostic."},
+ {id:"engines", label:"AI engines", icon:"agent", description:"Connect Claude Code or Codex to work in your projects."},
+ {id:"profile", label:"Profile", icon:"user", description:"Your identity for actions performed from this workstation."},
+ {id:"connections", label:"Accounts and trackers", icon:"link", description:"Connect your accounts and choose your ticket sources."},
+ {id:"projects", label:"Projects", icon:"folder", description:"Start from a local folder or link a project to a tracker."},
+ {id:"appearance", label:"Appearance", icon:"sun", description:"Color theme and font size for the application."},
+ {id:"services", label:"Local services", icon:"monitor", description:"Installation status and diagnostic tools."},
 ] as const;
-export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, initialSection, hasActiveExecutions }: { onChanged: () => void; onOpenFolder?: () => void; onConfigureProject?: (id:string) => void; initialSection?: SettingsSection; hasActiveExecutions?: boolean }) {
+export function LocalSettings({ onChanged, onClose, onOpenFolder, onConfigureProject, initialSection, hasActiveExecutions }: { onChanged: () => void; onClose?: () => void; onOpenFolder?: () => void; onConfigureProject?: (id:string) => void; initialSection?: SettingsSection; hasActiveExecutions?: boolean }) {
  const [section, setSection] = useState<SettingsSection>(initialSection??"engines");
  const [appearance, setAppearance] = useAppearance();
  const [fontSize, setFontSize] = useFontSize();
@@ -25,7 +25,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
  const trackerList = useRef<HTMLUListElement>(null);
   const [setup, setSetup] = useState<api.LocalSetup | null>(null);
   const [pending, setPending] = useState(false);
-  const [pendingMessage, setPendingMessage] = useState("Enregistrement en cours…");
+  const [pendingMessage, setPendingMessage] = useState("Saving…");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [email, setEmail] = useState("");
@@ -46,6 +46,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
   const [availableIssueTypes, setAvailableIssueTypes] = useState<string[]>([]);
   const [loadingIssueTypes, setLoadingIssueTypes] = useState(false);
   const [deletingTrackerId, setDeletingTrackerId] = useState<string | null>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState("");
   const [trackerId, setTrackerId] = useState("");
   const [projectId, setProjectId] = useState("");
@@ -104,7 +105,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
     hydrateProfile = false,
   ) {
     if (busy.current) return;
-    busy.current = true; setPendingMessage("Enregistrement en cours…"); setPending(true); setError(""); setNotice("");
+    busy.current = true; setPendingMessage("Saving…"); setPending(true); setError(""); setNotice("");
     try {
       const result = await action();
       if (isCancelled?.(result)) return;
@@ -126,12 +127,12 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
   async function prepareUpdate() {
     if (busy.current) return;
     busy.current = true; setPending(true); setError(""); setNotice("");
-    setPendingMessage("Arrêt du compagnon et sauvegarde des données avant fermeture…");
+    setPendingMessage("Stopping companion and saving data before closing…");
     try {
       // Native code fences automatic startup and exits after store release.
       // Do not refresh status here: that could undo an acknowledged shutdown.
       await api.prepareLocalUpdate();
-      if (mounted.current) setNotice("Services arrêtés. Fermeture du desktop pour la mise à jour…");
+      if (mounted.current) setNotice("Services stopped. Closing desktop for update…");
     } catch (cause) {
       busy.current = false;
       if (mounted.current) { setError(String(cause)); setPending(false); }
@@ -142,7 +143,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
   }
   async function refreshStatus() {
     if (busy.current) return;
-    busy.current = true; setPendingMessage("Actualisation en cours…"); setPending(true); setError(""); setNotice("");
+    busy.current = true; setPendingMessage("Refreshing…"); setPending(true); setError(""); setNotice("");
     try {
       const next = await refresh();
       if (mounted.current) {
@@ -150,7 +151,7 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
           setEmail(next.profile?.email ?? "");
           setDisplayName(next.profile?.displayName ?? "");
         }
-        setNotice("État actualisé.");
+        setNotice("Status refreshed.");
       }
       onChanged();
     }
@@ -183,139 +184,151 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
     return () => { current = false; if (timer) clearTimeout(timer); };
   }, [ready, section]);
   const fleetMode = setup?.mode === "fleet";
-  const sectionLabel = (item: typeof sections[number]) => item.id === "services" && fleetMode ? "Connexion et services" : item.label;
+  const visibleSections = sections.filter(item => !(item.id === "profile" && setup?.mode === "local" && setup.signedIn));
+  const sectionLabel = (item: typeof sections[number]) => item.id === "services" && fleetMode ? "Connection and services" : item.label;
   const activeSection = sections.find(item => item.id === section);
   const personalAccess = <>
     <form className="personal-access-form" onSubmit={e => submit(e, async () => {
       try { await api.saveLocalCredential({ tracker: credentialProvider, siteUrl: trackerApiSite(credentialProvider, credentialSite), email: trackerEmail, token }); }
       finally { setToken(""); }
-    }, "Accès personnel enregistré. Lancez une synchronisation pour vérifier l’accès aux tickets.")}>
+    }, "Personal access saved. Run a sync to verify ticket access.")}>
       <fieldset disabled={pending}>
-        <label>Fournisseur<select value={credentialProvider} onChange={e => { setCredentialProvider(e.target.value); setCredentialSite(e.target.value === "gitlab" ? "https://gitlab.com" : ""); setToken(""); }}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
-        {credentialProvider !== "github" && <label>URL du site ou de l’API<input type="url" required placeholder={credentialProvider === "jira" ? "https://votre-site.atlassian.net" : "https://gitlab.com"} value={credentialSite} onChange={e => setCredentialSite(e.target.value)} /></label>}
-        {credentialProvider === "jira" && <label>E-mail du compte<input type="email" required value={trackerEmail} onChange={e => setTrackerEmail(e.target.value)} /></label>}
-        <label>Jeton personnel<input type="password" required autoComplete="off" value={token} onChange={e => setToken(e.target.value)} /></label>
-        <p className="muted">Le jeton est chiffré par {fleetMode ? "le backend Fleet" : "le serveur local"}. L’enregistrement remplace l’accès personnel de ce fournisseur.</p>
-        <button type="submit">Enregistrer l’accès</button>
+        <label>Provider<select value={credentialProvider} onChange={e => { setCredentialProvider(e.target.value); setCredentialSite(e.target.value === "gitlab" ? "https://gitlab.com" : ""); setToken(""); }}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
+        {credentialProvider !== "github" && <label>Site or API URL<input type="url" required placeholder={credentialProvider === "jira" ? "https://your-site.atlassian.net" : "https://gitlab.com"} value={credentialSite} onChange={e => setCredentialSite(e.target.value)} /></label>}
+        {credentialProvider === "jira" && <label>Account email<input type="email" required value={trackerEmail} onChange={e => setTrackerEmail(e.target.value)} /></label>}
+        <label>Personal access token<input type="password" required autoComplete="off" value={token} onChange={e => setToken(e.target.value)} /></label>
+        <p className="muted">The token is encrypted by {fleetMode ? "the Fleet backend" : "the local server"}. Saving replaces the personal access token for this provider.</p>
+        <button type="submit">Save access</button>
       </fieldset>
     </form>
-    <ul className="setup-list">{setup?.credentials?.credentials.map(c => <li key={c.tracker}><span>{c.tracker} <small>{c.kind === "oauth" ? "OAuth" : "Jeton"} · {c.disconnected ? "Connexion interrompue" : c.account || "Accès enregistré · compte non confirmé"}{c.siteUrl && ` · ${c.siteUrl}`}</small></span></li>)}</ul>
+    <ul className="setup-list">{setup?.credentials?.credentials.map(c => <li key={c.tracker}><span>{c.tracker} <small>{c.kind === "oauth" ? "OAuth" : "Token"} · {c.disconnected ? "Connection interrupted" : c.account || "Access saved · account unconfirmed"}{c.siteUrl && ` · ${c.siteUrl}`}</small></span></li>)}</ul>
   </>;
   return <section className={`settings local-settings settings-${section}`}>
-    <header className="settings-heading"><span className="eyebrow">{fleetMode ? "VOTRE ESPACE FLEET" : setup?.mode === "local" ? "VOTRE ESPACE LOCAL" : "CONNEXION À SECTILE"}</span><h1>{section === "engines" ? "Moteurs IA" : fleetMode ? "Configuration Fleet" : "Configuration du poste"}</h1>
-    <p>{section === "engines" ? "Connectez Claude Code et Codex pour travailler dans vos projets." : fleetMode ? "Gérez votre profil et vos comptes sur le backend connecté. Les services d’exécution restent sur ce poste." : setup?.mode === "local" ? "Connectez vos outils et configurez vos projets sur ce poste." : "Choisissez le mode Local ou associez ce poste à un backend Fleet."}</p></header>
+    <header className="settings-heading">
+      <div className="settings-heading-top">
+        <span className="eyebrow">{fleetMode ? "YOUR FLEET WORKSPACE" : setup?.mode === "local" ? "YOUR LOCAL WORKSPACE" : "CONNECT TO SECTILE"}</span>
+        {onClose && (
+          <button type="button" className="settings-close-btn" onClick={onClose}>
+            <Icon name="close" size={14} />
+            <span>Exit settings</span>
+          </button>
+        )}
+      </div>
+      <h1>{section === "engines" ? "AI engines" : fleetMode ? "Fleet configuration" : "Workstation configuration"}</h1>
+      <p>{section === "engines" ? "Connect Claude Code and Codex to work in your projects." : fleetMode ? "Manage your profile and accounts on the connected backend. Execution services remain on this workstation." : setup?.mode === "local" ? "Connect your tools and configure your projects on this workstation." : "Choose Local mode or pair this workstation with a Fleet backend."}</p>
+    </header>
     {error && <p role="alert" className="error">{error}</p>}
     {notice && <p role="status" className="notice">{notice}</p>}
     {pending && <p role="status">{pendingMessage}</p>}
-    {!setup && !error && <p>Lecture de la configuration…</p>}
+    {!setup && !error && <p>Reading configuration…</p>}
     <div className="settings-layout">
-    <nav className="settings-navigation" aria-label="Sections des paramètres">
-     {sections.map(item => <button key={item.id} aria-current={section === item.id ? "page" : undefined} disabled={(item.id === "profile" && (!setup?.ready || setup.mode === "fleet" && setup.apiSetupAvailable === false)) || (["connections","projects"].includes(item.id) && !ready)} onClick={() => {navigated.current=true;setSection(item.id);}}><Icon name={item.icon} />{sectionLabel(item)}{section === item.id && <Icon name="chevron" />}</button>)}
-     <p>{setup?.mode === "fleet" ? "Les comptes et projets sont conservés sur le backend Fleet." : "Configuration conservée sur ce poste."}</p>
+    <nav className="settings-navigation" aria-label="Settings sections">
+     {visibleSections.map(item => <button key={item.id} aria-current={section === item.id ? "page" : undefined} disabled={(item.id === "profile" && (!setup?.ready || setup.mode === "fleet" && setup.apiSetupAvailable === false)) || (["connections","projects"].includes(item.id) && !ready)} onClick={() => {navigated.current=true;setSection(item.id);}}><Icon name={item.icon} />{sectionLabel(item)}{section === item.id && <Icon name="chevron" />}</button>)}
+     <p>{setup?.mode === "fleet" ? "Accounts and projects are stored on the Fleet backend." : "Configuration stored on this workstation."}</p>
     </nav>
     <div className="settings-content">
-    {section !== "engines" && <header className="settings-section-heading"><h2>{activeSection ? sectionLabel(activeSection) : ""}</h2><p>{section === "services" && fleetMode ? "État de la connexion et de l’agent Fleet associé à ce poste." : activeSection?.description}</p></header>}
-    <div hidden={section !== "engines"}>{setup?.agentReady ? <ProviderSettings key={`${setup.mode}:${setup.fleetServer??""}`} projects={setup.projects??[]} /> : <article><p>Connectez un agent Local ou Fleet pour vérifier vos moteurs IA.</p><button onClick={()=>setSection("services")}>Configurer la connexion</button></article>}</div>
+    {section !== "engines" && <header className="settings-section-heading"><h2>{activeSection ? sectionLabel(activeSection) : ""}</h2><p>{section === "services" && fleetMode ? "Connection status and Fleet agent attached to this workstation." : activeSection?.description}</p></header>}
+    <div hidden={section !== "engines"}>{setup?.agentReady ? <ProviderSettings key={`${setup.mode}:${setup.fleetServer??""}`} projects={setup.projects??[]} showProfiles /> : <article><p>Connect a Local or Fleet agent to check your AI engines.</p><button onClick={()=>setSection("services")}>Configure connection</button></article>}</div>
     <div hidden={section !== "appearance"}>
       <article>
-        <h2>Thème et typographie</h2>
+        <h2>Theme and typography</h2>
         <fieldset>
-          <label>Thème de couleurs
-            <select aria-label="Thème de couleurs" value={appearance} onChange={e => setAppearance(e.target.value as Appearance)}>
-              <option value="system">Automatique (Système)</option>
-              <option value="dark">Sombre</option>
-              <option value="light">Clair</option>
+          <label>Color theme
+            <select aria-label="Color theme" value={appearance} onChange={e => setAppearance(e.target.value as Appearance)}>
+              <option value="system">Automatic (System)</option>
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
             </select>
           </label>
-          <label>Taille de police
-            <select aria-label="Taille de police" value={fontSize} onChange={e => setFontSize(e.target.value as FontSize)}>
-              <option value="compact">Compacte (13 px)</option>
-              <option value="default">Normale (14 px)</option>
-              <option value="large">Grande (15 px)</option>
-              <option value="xlarge">Très grande (16 px)</option>
+          <label>Font size
+            <select aria-label="Font size" value={fontSize} onChange={e => setFontSize(e.target.value as FontSize)}>
+              <option value="compact">Compact (13 px)</option>
+              <option value="default">Normal (14 px)</option>
+              <option value="large">Large (15 px)</option>
+              <option value="xlarge">Extra large (16 px)</option>
             </select>
           </label>
-          <p className="muted">L’interface utilise une échelle unifiée à trois niveaux (secondaire, courant et titre) qui s’adapte immédiatement à votre réglage.</p>
+          <p className="muted">The interface uses a unified three-tier scale (secondary, body, and heading) that adapts immediately to your setting.</p>
         </fieldset>
       </article>
     </div>
     <div hidden={section !== "services"}><article>
-      <h2>{fleetMode ? "Agent Fleet" : "Services locaux"}</h2>
+      <h2>{fleetMode ? "Fleet Agent" : "Local services"}</h2>
       <div className="mode-badge">
         <Icon name={setup?.mode === "fleet" ? "link" : "monitor"} />
-        <span>Mode actif : {setup?.mode === "fleet" ? "Agent Fleet" : setup?.mode === "local" ? "Compagnon Local" : "Non configuré"}</span>
+        <span>Active mode: {setup?.mode === "fleet" ? "Fleet Agent" : setup?.mode === "local" ? "Local Companion" : "Unconfigured"}</span>
       </div>
-      <p>{setup?.mode === "fleet" ? `Mode Fleet · ${setup.agentReady ? "agent connecté" : "agent déconnecté"}${setup.fleetServer ? ` · ${setup.fleetServer}` : ""}` : !setup ? "Lecture de la configuration du poste…" : !setup.enabled ? "Choisissez un mode pour connecter ce desktop à Sectile." : setup.ready ? `Mode Local · compagnon prêt · ${setup.agentReady ? "exécution prête" : "en attente du profil"}` : "Le compagnon local ne répond pas."}</p>
+      <p>{setup?.mode === "fleet" ? `Fleet mode · ${setup.agentReady ? "agent connected" : "agent disconnected"}${setup.fleetServer ? ` · ${setup.fleetServer}` : ""}` : !setup ? "Reading workstation configuration…" : !setup.enabled ? "Choose a mode to connect this desktop to Sectile." : setup.ready ? `Local mode · companion ready · ${setup.agentReady ? "execution ready" : "waiting for profile"}` : "The local companion is not responding."}</p>
       {setup?.backendError && <p role="alert" className="error">{setup.backendError}</p>}
-      {setup?.mode === "fleet" && setup.apiSetupAvailable === false && <p className="muted">Cet agent a été attaché sans identifiant API du poste. Configurez les comptes et projets sur le backend Fleet.</p>}
+      {setup?.mode === "fleet" && setup.apiSetupAvailable === false && <p className="muted">This agent was attached without a workstation API credential. Configure accounts and projects on the Fleet backend.</p>}
       {setup?.dataDirectory && <p className="muted runtime-path">{setup.dataDirectory}</p>}
-      <p className="muted">{setup?.mode === "fleet" ? setup.apiSetupAvailable === false ? "Cet agent Fleet est géré par son installation d’origine." : "L’agent Fleet démarre automatiquement sur ce poste et continue en arrière-plan lorsque vous fermez le desktop." : "Le compagnon démarre automatiquement. Il continue en arrière-plan lorsque vous fermez le desktop, pour laisser les tâches se terminer."}</p>
-      {setup && setup.mode !== "fleet" && <button disabled={pending} onClick={() => void perform(api.enableLocalRuntime, "Compagnon local démarré et mode Local sélectionné.")}>{setup.enabled ? "Vérifier / démarrer le compagnon local" : "Démarrer en mode Local"}</button>}
-      {setup?.mode === "local" && (setup.agentReady || setup.updatePreparing) && <details className="update-preparation"><summary>Mettre à jour l’application</summary>
-        <p>Terminez les tâches et fermez les autres instances de Tauri. Cette action arrête le compagnon et ferme ce desktop avant le remplacement de l’application. Vos données sont conservées. Aucun téléchargement n’est lancé.</p>
-        <button disabled={pending} onClick={() => void prepareUpdate()}>Arrêter et quitter pour mettre à jour</button>
+      <p className="muted">{setup?.mode === "fleet" ? setup.apiSetupAvailable === false ? "This Fleet agent is managed by its original installation." : "The Fleet agent starts automatically on this workstation and continues in the background when you close the desktop." : "The companion starts automatically. It continues in the background when you close the desktop so running tasks can finish."}</p>
+      {setup && setup.mode !== "fleet" && <button disabled={pending} onClick={() => void perform(api.enableLocalRuntime, "Local companion started and Local mode selected.")}>{setup.enabled ? "Check / start local companion" : "Start in Local mode"}</button>}
+      {setup?.mode === "local" && (setup.agentReady || setup.updatePreparing) && <details className="update-preparation"><summary>Update application</summary>
+        <p>Finish active tasks and close other Tauri instances. This stops the companion and closes this desktop before replacing the application. Your data is preserved. No download is started.</p>
+        <button disabled={pending} onClick={() => void prepareUpdate()}>Stop and quit to update</button>
       </details>}
       {setup?.mode === "local" && (
         <details className="mode-switch-card">
-          <summary>Basculer vers le mode Fleet (Agent d’équipe)</summary>
-          <p className="muted">Associez ce poste avec un code à usage unique depuis votre profil sur le backend Fleet. Le jeton durable reste dans le stockage privé natif et n’est jamais affiché.</p>
+          <summary>Switch to Fleet mode (Team Agent)</summary>
+          <p className="muted">Pair this workstation with a one-time code from your profile on the Fleet backend. The long-lived token remains in private native storage and is never displayed.</p>
           <form onSubmit={e => submit(e, async () => {
-            if (hasActiveExecutions && typeof window !== "undefined" && !window.confirm("Des exécutions sont actuellement en cours sur ce poste. Voulez-vous vraiment changer de mode ?")) return;
+            if (hasActiveExecutions && typeof window !== "undefined" && !window.confirm("Executions are currently running on this workstation. Do you really want to switch modes?")) return;
             try { await api.pairFleetAgent(fleetUrl, fleetCode); } finally { setFleetCode(""); }
-          }, "Poste associé au backend Fleet.", true)}>
+          }, "Workstation paired with Fleet backend.", true)}>
             <fieldset disabled={pending}>
-              <label>Adresse du backend Fleet<input type="url" required placeholder="https://sectile.example.com" value={fleetUrl} onChange={e => setFleetUrl(e.target.value)} autoComplete="url" /></label>
-              <label>Code de jumelage<input type="password" required autoComplete="off" value={fleetCode} onChange={e => setFleetCode(e.target.value)} /></label>
-              <button className="primary" type="submit">Associer ce poste à Fleet</button>
+              <label>Fleet backend URL<input type="url" required placeholder="https://sectile.example.com" value={fleetUrl} onChange={e => setFleetUrl(e.target.value)} autoComplete="url" /></label>
+              <label>Pairing code<input type="password" required autoComplete="off" value={fleetCode} onChange={e => setFleetCode(e.target.value)} /></label>
+              <button className="primary" type="submit">Pair this workstation with Fleet</button>
             </fieldset>
           </form>
-          <details><summary>J’ai déjà associé un agent sur ce poste</summary><p className="muted">Tauri peut reprendre explicitement l’agent existant sans modifier son installation partagée.</p><button disabled={pending} onClick={() => {
-            if (hasActiveExecutions && typeof window !== "undefined" && !window.confirm("Des exécutions sont actuellement en cours sur ce poste. Voulez-vous vraiment changer de mode ?")) return;
-            void perform(api.attachFleetAgent, "Agent Fleet associé à ce desktop.", undefined, true);
-          }}>Associer l’agent Fleet existant</button></details>
+          <details><summary>I already paired an agent on this workstation</summary><p className="muted">Tauri can explicitly attach to the existing agent without modifying its shared installation.</p><button disabled={pending} onClick={() => {
+            if (hasActiveExecutions && typeof window !== "undefined" && !window.confirm("Executions are currently running on this workstation. Do you really want to switch modes?")) return;
+            void perform(api.attachFleetAgent, "Fleet agent attached to this desktop.", undefined, true);
+          }}>Attach existing Fleet agent</button></details>
         </details>
       )}
       {setup?.mode === "fleet" && (
         <details className="mode-switch-card">
-          <summary>Basculer vers le mode Compagnon local</summary>
-          <p className="muted">Reprenez l’exécution et la gestion de vos tickets en 100% autonome sur ce poste avec votre base SQLite locale.</p>
+          <summary>Switch to Local Companion mode</summary>
+          <p className="muted">Resume 100% standalone task execution and ticket management on this workstation with your local SQLite database.</p>
           <button disabled={pending} onClick={() => {
-            if (hasActiveExecutions && typeof window !== "undefined" && !window.confirm("Des exécutions sont actuellement en cours sur ce poste. Voulez-vous vraiment changer de mode ?")) return;
-            void perform(api.enableLocalRuntime, "Compagnon local démarré et mode Local sélectionné.", undefined, true);
-          }}>Activer le mode Compagnon local</button>
+            if (hasActiveExecutions && typeof window !== "undefined" && !window.confirm("Executions are currently running on this workstation. Do you really want to switch modes?")) return;
+            void perform(api.enableLocalRuntime, "Local companion started and Local mode selected.", undefined, true);
+          }}>Enable Local Companion mode</button>
         </details>
       )}
-      {setup && (!setup.mode || setup.mode === "unconfigured") && <article><h3>Mode Fleet</h3>
-        <p className="muted">Associez ce poste avec un code à usage unique depuis votre profil sur le backend Fleet. Le jeton durable reste dans le stockage privé natif et n’est jamais affiché.</p>
-        <form onSubmit={e => submit(e, async () => { try { await api.pairFleetAgent(fleetUrl, fleetCode); } finally { setFleetCode(""); } }, "Poste associé au backend Fleet.", true)}>
+      {setup && (!setup.mode || setup.mode === "unconfigured") && <article><h3>Fleet mode</h3>
+        <p className="muted">Pair this workstation with a one-time code from your profile on the Fleet backend. The long-lived token remains in private native storage and is never displayed.</p>
+        <form onSubmit={e => submit(e, async () => { try { await api.pairFleetAgent(fleetUrl, fleetCode); } finally { setFleetCode(""); } }, "Workstation paired with Fleet backend.", true)}>
           <fieldset disabled={pending}>
-            <label>Adresse du backend Fleet<input type="url" required placeholder="https://sectile.example.com" value={fleetUrl} onChange={e => setFleetUrl(e.target.value)} autoComplete="url" /></label>
-            <label>Code de jumelage<input type="password" required autoComplete="off" value={fleetCode} onChange={e => setFleetCode(e.target.value)} /></label>
-            <button className="primary" type="submit">Associer ce poste à Fleet</button>
+            <label>Fleet backend URL<input type="url" required placeholder="https://sectile.example.com" value={fleetUrl} onChange={e => setFleetUrl(e.target.value)} autoComplete="url" /></label>
+            <label>Pairing code<input type="password" required autoComplete="off" value={fleetCode} onChange={e => setFleetCode(e.target.value)} /></label>
+            <button className="primary" type="submit">Pair this workstation with Fleet</button>
           </fieldset>
         </form>
-        <details><summary>J’ai déjà associé un agent sur ce poste</summary><p className="muted">Tauri peut reprendre explicitement l’agent existant sans modifier son installation partagée.</p><button disabled={pending} onClick={() => void perform(api.attachFleetAgent, "Agent Fleet associé à ce desktop.", undefined, true)}>Associer l’agent Fleet existant</button></details>
+        <details><summary>I already paired an agent on this workstation</summary><p className="muted">Tauri can explicitly attach to the existing agent without modifying its shared installation.</p><button disabled={pending} onClick={() => void perform(api.attachFleetAgent, "Fleet agent attached to this desktop.", undefined, true)}>Attach existing Fleet agent</button></details>
       </article>}
-      {setup?.mode === "fleet" && setup.apiSetupAvailable !== false && <p className="muted">Cette page configure votre profil et vos projets sur le backend Fleet sélectionné. L’agent d’exécution reste sur ce poste.</p>}
-      <button disabled={pending || (!setup && !error)} onClick={() => void refreshStatus()}>Actualiser</button>
+      {setup?.mode === "fleet" && setup.apiSetupAvailable !== false && <p className="muted">This page configures your profile and projects on the selected Fleet backend. The execution agent remains on this workstation.</p>}
+      <button disabled={pending || (!setup && !error)} onClick={() => void refreshStatus()}>Refresh</button>
     </article>
     {setup?.mode !== "fleet" && <ServiceLogPanel active={section === "services"} service="companion" />}
     {setup?.mode !== "local" && <ServiceLogPanel active={section === "services"} service="agent" />}
     </div>
     <div hidden={section !== "profile"}>{setup?.ready && setup.apiSetupAvailable !== false && (setup.mode !== "fleet" || setup.signedIn) && <article>
-      <h2>{fleetMode ? "Profil Fleet" : "Profil local"}</h2>
-      <form onSubmit={e => submit(e, () => api.saveLocalProfile(email, displayName), "Profil enregistré et agent associé.")}>
+      <h2>{fleetMode ? "Fleet profile" : "Local profile"}</h2>
+      <form onSubmit={e => submit(e, () => api.saveLocalProfile(email, displayName), "Profile saved and agent attached.")}>
         <fieldset disabled={pending}>
-          <label>Adresse e-mail<input type="email" required value={email} readOnly={setup.signedIn} onChange={e => setEmail(e.target.value)} autoComplete="email" /></label>
-          <label>Nom affiché<input required value={displayName} onChange={e => setDisplayName(e.target.value)} autoComplete="name" /></label>
-          <p className="muted">{fleetMode ? "Ce profil identifie vos actions avec votre compte sur le backend Fleet." : "Ce profil identifie vos actions sur ce poste. Il ne crée pas de compte chez un fournisseur."}</p>
-          <button className="primary" type="submit">Enregistrer le profil</button>
+          <label>Email address<input type="email" required value={email} readOnly={setup.signedIn} onChange={e => setEmail(e.target.value)} autoComplete="email" /></label>
+          <label>Display name<input required value={displayName} onChange={e => setDisplayName(e.target.value)} autoComplete="name" /></label>
+          <p className="muted">{fleetMode ? "This profile identifies your actions with your account on the Fleet backend." : "This profile identifies your actions on this workstation. It does not create an account with any provider."}</p>
+          <button className="primary" type="submit">Save profile</button>
         </fieldset>
       </form>
     </article>}</div>
     {ready && <>
       <div hidden={section !== "connections"}>
-        <div className="settings-subtabs" role="tablist" aria-label="Sous-sections des trackers et accès">
+        <div className="settings-subtabs" role="tablist" aria-label="Trackers and access subsections">
           <button
             id="tab-trackers"
             type="button"
@@ -336,34 +349,38 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
             className={`settings-subtab ${connectionsTab === "pat" ? "active" : ""}`}
             onClick={() => setConnectionsTab("pat")}
           >
-            Accès PAT
+            PAT access
           </button>
         </div>
         <div role="tabpanel" id="tabpanel-trackers" aria-labelledby="tab-trackers" className={`settings-tabpanel ${connectionsTab === "trackers" ? "active" : "is-hidden"}`}>
           <article ref={trackerManagement}>
-            <h2>Trackers configurés</h2>
+            <h2>Configured trackers</h2>
             {(!setup.trackers || setup.trackers.length === 0) ? (
-              <p className="muted">Aucun tracker configuré pour le moment.</p>
+              <p className="muted">No trackers configured yet.</p>
             ) : (
-              <ul ref={trackerList} className="setup-list tracker-list">{setup.trackers?.map(t => <li key={t.id}>
-                <div className="tracker-list-row"><span><strong>{t.name}</strong><small>{t.provider} · {t.scope}{t.site ? ` · ${t.site}` : ""}</small>{trackerSyncs[t.id]&&<TrackerSyncResult activityId={trackerSyncs[t.id].id} onFinished={()=>{setTrackerSyncs(previous=>({...previous,[t.id]:{...previous[t.id],active:false}}));void refresh();onChanged();}}/>}</span>
-                  <div className="tracker-list-actions"><button disabled={pending||trackerSyncs[t.id]?.active} onClick={() => void perform(async()=>{const active=await api.activeTrackerSyncs().catch(()=>[]);const existing=active.find(activity=>activity.trackerId===t.id);const result=existing?{activity:existing}:await api.syncLocalTracker(t.id);if(!result.activity?.id)throw new Error("Le backend n’a pas fourni de suivi pour cette synchronisation.");setTrackerSyncs(previous=>({...previous,[t.id]:{id:result.activity.id,active:true}}));}, "Synchronisation suivie. Son résultat apparaîtra sous le tracker.")}>Synchroniser</button>
-                    {(setup.mode !== "fleet" || setup.profile?.role === "admin") && <><button type="button" disabled={pending} onClick={() => {setDeletingTrackerId(null);setEditingTracker(editingTracker?.id === t.id ? null : {...t,site:t.site??""});}}>Modifier</button><button type="button" disabled={pending} onClick={() => {setEditingTracker(null);setDeletingTrackerId(deletingTrackerId === t.id ? null : t.id);}}>Supprimer</button></>}
+              <ul ref={trackerList} className="setup-list tracker-list">{setup.trackers?.map(t => {
+                const linkedProjects = (setup.projects ?? []).filter(p =>
+                  p.defaultTrackerId === t.id || p.trackers?.some(link => link.trackerId === t.id),
+                );
+                return <li key={t.id}>
+                <div className="tracker-list-row"><span><strong>{t.name}</strong><small>{t.provider} · {t.scope}{t.site ? ` · ${t.site}` : ""} · {linkedProjects.length > 0 ? `Used by: ${linkedProjects.map(p => p.name).join(", ")}` : "No linked project"}{t.ticketCount ? ` · ${t.ticketCount} cached ticket(s)` : ""}</small>{trackerSyncs[t.id]&&<TrackerSyncResult activityId={trackerSyncs[t.id].id} onFinished={()=>{setTrackerSyncs(previous=>({...previous,[t.id]:{...previous[t.id],active:false}}));void refresh();onChanged();}}/>}</span>
+                  <div className="tracker-list-actions"><button disabled={pending||trackerSyncs[t.id]?.active} onClick={() => void perform(async()=>{const active=await api.activeTrackerSyncs().catch(()=>[]);const existing=active.find(activity=>activity.trackerId===t.id);const result=existing?{activity:existing}:await api.syncLocalTracker(t.id);if(!result.activity?.id)throw new Error("The backend did not provide tracking for this sync.");setTrackerSyncs(previous=>({...previous,[t.id]:{id:result.activity.id,active:true}}));}, "Sync tracked. Its result will appear below the tracker.")}>Sync</button>
+                    {(setup.mode !== "fleet" || setup.profile?.role === "admin") && <><button type="button" disabled={pending} onClick={() => {setDeletingTrackerId(null);setEditingTracker(editingTracker?.id === t.id ? null : {...t,site:t.site??""});}}>Edit</button><button type="button" disabled={pending} onClick={() => {setEditingTracker(null);setDeletingTrackerId(deletingTrackerId === t.id ? null : t.id);}}>Delete</button></>}
                   </div></div>
-                {editingTracker?.id === t.id && <form className="tracker-editor" onSubmit={e => submit(e, async () => {const payload = editingTracker.provider === "jira" && availableIssueTypes.length > 0 ? {name:editingTracker.name,provider:editingTracker.provider,site:trackerApiSite(editingTracker.provider,editingTracker.site),scope:editingTracker.scope,issueTypes:editingIssueTypes} : {name:editingTracker.name,provider:editingTracker.provider,site:trackerApiSite(editingTracker.provider,editingTracker.site),scope:editingTracker.scope};await api.updateLocalTracker(t.id,payload);setEditingTracker(null);}, "Tracker modifié.")}>
-                  <fieldset disabled={pending}><label>Nom du tracker à modifier<input required value={editingTracker.name} onChange={e=>setEditingTracker({...editingTracker,name:e.target.value})}/></label>
-                    <label>Fournisseur du tracker à modifier<select value={editingTracker.provider} onChange={e=>setEditingTracker({...editingTracker,provider:e.target.value,site:e.target.value==="github"?"https://api.github.com":""})}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
-                    <label>Adresse du tracker à modifier<input type="url" required={editingTracker.provider==="jira"} value={editingTracker.site} onChange={e=>setEditingTracker({...editingTracker,site:e.target.value})}/></label>
-                    <label>Dépôt ou clé à modifier<input required value={editingTracker.scope} onChange={e=>setEditingTracker({...editingTracker,scope:e.target.value})}/></label>
+                {editingTracker?.id === t.id && <form className="tracker-editor" onSubmit={e => submit(e, async () => {const payload = editingTracker.provider === "jira" && availableIssueTypes.length > 0 ? {name:editingTracker.name,provider:editingTracker.provider,site:trackerApiSite(editingTracker.provider,editingTracker.site),scope:editingTracker.scope,issueTypes:editingIssueTypes} : {name:editingTracker.name,provider:editingTracker.provider,site:trackerApiSite(editingTracker.provider,editingTracker.site),scope:editingTracker.scope};await api.updateLocalTracker(t.id,payload);setEditingTracker(null);}, "Tracker updated.")}>
+                  <fieldset disabled={pending}><label>Tracker name to edit<input required value={editingTracker.name} onChange={e=>setEditingTracker({...editingTracker,name:e.target.value})}/></label>
+                    <label>Tracker provider to edit<select value={editingTracker.provider} onChange={e=>setEditingTracker({...editingTracker,provider:e.target.value,site:e.target.value==="github"?"https://api.github.com":""})}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
+                    <label>Tracker URL to edit<input type="url" required={editingTracker.provider==="jira"} value={editingTracker.site} onChange={e=>setEditingTracker({...editingTracker,site:e.target.value})}/></label>
+                    <label>Repository or key to edit<input required value={editingTracker.scope} onChange={e=>setEditingTracker({...editingTracker,scope:e.target.value})}/></label>
                     {editingTracker.provider === "jira" && (
                       <div className="tracker-issue-types-field">
-                        <span>Types de tickets importés</span>
+                        <span>Imported ticket types</span>
                         {loadingIssueTypes ? (
-                          <p className="muted">Lecture des types du projet…</p>
+                          <p className="muted">Reading project types…</p>
                         ) : availableIssueTypes.length === 0 ? (
-                          <p className="muted">Types indisponibles : le tracker n’a pas répondu.</p>
+                          <p className="muted">Types unavailable: the tracker did not respond.</p>
                         ) : (
-                          <div className="issue-type-pills" role="group" aria-label="Types de tickets importés">
+                          <div className="issue-type-pills" role="group" aria-label="Imported ticket types">
                             {availableIssueTypes.map(type => {
                               const isDefault = type === "Task" || type === "Story";
                               const isActive = editingIssueTypes.length === 0 ? isDefault : editingIssueTypes.includes(type);
@@ -390,67 +407,90 @@ export function LocalSettings({ onChanged, onOpenFolder, onConfigureProject, ini
                             })}
                           </div>
                         )}
-                        <small className="muted">Rien de sélectionné vaut Task et Story. Cochez Bug (ou vos types personnalisés) puis lancez une synchronisation pour les importer.</small>
+                        <small className="muted">Nothing selected defaults to Task and Story. Check Bug (or your custom types) then run a sync to import them.</small>
                       </div>
                     )}
-                    <p className="muted">Si le tracker contient déjà des tickets, seul son nom (et ses types importés) peut changer.</p>
-                    <div className="tracker-list-actions"><button className="primary" type="submit">Enregistrer les modifications</button><button type="button" onClick={()=>setEditingTracker(null)}>Annuler</button></div>
+                    <p className="muted">If the tracker already contains tickets, only its name (and its imported types) can change.</p>
+                    <div className="tracker-list-actions"><button className="primary" type="submit">Save changes</button><button type="button" onClick={()=>setEditingTracker(null)}>Cancel</button></div>
                   </fieldset>
                 </form>}
-                {deletingTrackerId === t.id && <div className="tracker-delete-confirm"><p>Supprimer « {t.name} » ? Seul un tracker sans projet associé et sans ticket peut être supprimé.</p><div className="tracker-list-actions"><button type="button" disabled={pending} onClick={()=>void perform(async()=>{await api.deleteLocalTracker(t.id);setDeletingTrackerId(null);},"Tracker supprimé.")}>Confirmer la suppression</button><button type="button" disabled={pending} onClick={()=>setDeletingTrackerId(null)}>Annuler</button></div></div>}
-              </li>)}</ul>
+                {deletingTrackerId === t.id && (
+                  <div className="tracker-delete-confirm">
+                    {linkedProjects.length > 0 ? (
+                      <p>
+                        Cannot delete “{t.name}” while it is linked to project “{linkedProjects.map(p => p.name).join("”, “")}”.
+                        Unlink it or delete that project first in the Projects section.
+                      </p>
+                    ) : (
+                      <p>
+                        Delete “{t.name}”? No project uses this tracker
+                        {t.ticketCount ? ` (${t.ticketCount} locally cached ticket(s) will also be removed)` : ""}.
+                      </p>
+                    )}
+                    <div className="tracker-list-actions">
+                      {linkedProjects.length > 0 && (
+                        <button type="button" onClick={() => { setDeletingTrackerId(null); setSection("projects"); }}>
+                          View linked projects
+                        </button>
+                      )}
+                      <button type="button" disabled={pending} onClick={()=>void perform(async()=>{await api.deleteLocalTracker(t.id);setDeletingTrackerId(null);},"Tracker deleted.")}>Confirm deletion</button>
+                      <button type="button" disabled={pending} onClick={()=>setDeletingTrackerId(null)}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </li>;})}</ul>
             )}
           </article>
           <article>
-            <h2>Ajouter un tracker</h2>
+            <h2>Add tracker</h2>
             {setup.mode !== "fleet" || setup.profile?.role === "admin" ? <form onSubmit={e => submit(e, async () => {
               await api.createLocalTracker({ name: trackerName, provider: sourceProvider, site: trackerApiSite(sourceProvider, sourceSite), scope });
               setTrackerName("");
               setScope("");
               if (sourceProvider === "github") setSourceSite("https://api.github.com");
-            }, "Tracker ajouté.")}>
+            }, "Tracker added.")}>
               <fieldset disabled={pending}>
-                <label>Fournisseur de la source<select value={sourceProvider} onChange={e => {
+                <label>Source provider<select value={sourceProvider} onChange={e => {
                   const next = e.target.value;
                   setSourceProvider(next);
                   setSourceSite(next === "github" ? "https://api.github.com" : next === "gitlab" ? "https://gitlab.com" : "");
                 }}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="jira">Jira</option></select></label>
-                <label>Adresse de la source<input type="url" required={sourceProvider==="jira"} placeholder={sourceProvider==="jira"?"https://votre-site.atlassian.net":"https://api.github.com"} value={sourceSite} onChange={e=>setSourceSite(e.target.value)} /></label>
-                <label>Nom du tracker<input required value={trackerName} onChange={e => setTrackerName(e.target.value)} /></label>
-                <label>Dépôt ou clé du projet<input required placeholder={sourceProvider === "jira" ? "PROJET" : "organisation/depot"} value={scope} onChange={e => setScope(e.target.value)} /></label>
-                <button type="submit">Ajouter le tracker</button>
+                <label>Source URL<input type="url" required={sourceProvider==="jira"} placeholder={sourceProvider==="jira"?"https://your-site.atlassian.net":"https://api.github.com"} value={sourceSite} onChange={e=>setSourceSite(e.target.value)} /></label>
+                <label>Tracker name<input required value={trackerName} onChange={e => setTrackerName(e.target.value)} /></label>
+                <label>Repository or project key<input required placeholder={sourceProvider === "jira" ? "PROJECT" : "organization/repo"} value={scope} onChange={e => setScope(e.target.value)} /></label>
+                <button type="submit">Add tracker</button>
               </fieldset>
-            </form> : <p className="muted">Les trackers sont partagés dans Fleet. Demandez à un administrateur du serveur d’enregistrer une nouvelle source.</p>}
+            </form> : <p className="muted">Trackers are shared in Fleet. Ask a server administrator to register a new source.</p>}
           </article>
         </div>
         <div role="tabpanel" id="tabpanel-pat" aria-labelledby="tab-pat" className={`settings-tabpanel ${connectionsTab === "pat" ? "active" : "is-hidden"}`}>
           {fleetMode ? <>
             <OAuthConnections serverManaged canManageTrackers={setup.profile?.role === "admin"} credentials={setup.credentials?.credentials} onConnected={() => { void refresh(); onChanged(); }} />
-            <article><details><summary>Accès manuel par jeton · option avancée</summary>{personalAccess}</details></article>
+            <article><details><summary>Manual token access · advanced option</summary>{personalAccess}</details></article>
           </> : <>
-            <article><h2>Accès personnel aux trackers</h2><p className="muted">Pour une nouvelle installation Local, enregistrez un jeton personnel du fournisseur. Vos tickets restent gérés par le compagnon sur ce poste.</p>{personalAccess}</article>
-            <details><summary>Connexion OAuth locale existante</summary><OAuthConnections credentials={setup.credentials?.credentials} onConnected={() => { void refresh(); onChanged(); }} /></details>
+            <article><h2>Personal tracker access</h2><p className="muted">For a new Local installation, save a personal access token from the provider. Your tickets remain managed by the companion on this workstation.</p>{personalAccess}</article>
+            <details><summary>Existing local OAuth connection</summary><OAuthConnections credentials={setup.credentials?.credentials} onConnected={() => { void refresh(); onChanged(); }} /></details>
           </>}
         </div>
       </div>
       <div hidden={section !== "projects"}>
-      {onConfigureProject && !!setup.projects?.length && <article><h2>Vos projets</h2><div className="profile-list">{setup.projects.map(project=><div className="profile-card" key={project.id}><strong>{project.name}</strong><button onClick={()=>onConfigureProject(project.id)}>Configurer {project.name}</button></div>)}</div></article>}
-      {onOpenFolder && <article className="folder-setup"><div className="settings-illustration"><Icon name="folder" /></div><h2>Commencer avec un dossier local</h2><p>Ouvrez un dossier et lancez votre premier prompt. Vous pourrez connecter un tracker plus tard.</p><button className="primary" onClick={onOpenFolder}><Icon name="plus" />Choisir un dossier local</button></article>}
+      {onConfigureProject && !!setup.projects?.length && <article><h2>Your projects</h2><div className="profile-list">{setup.projects.map(project=><div className="profile-card" key={project.id}><strong>{project.name}</strong><button onClick={()=>onConfigureProject(project.id)}>Configure {project.name}</button>{deletingProjectId === project.id ? <><button type="button" disabled={pending} onClick={()=>void perform(async()=>{await api.deleteLocalProject(project.id);setDeletingProjectId(null);},"Project deleted.")}>Confirm deletion</button><button type="button" disabled={pending} onClick={()=>setDeletingProjectId(null)}>Cancel</button></> : <button type="button" disabled={pending} onClick={()=>setDeletingProjectId(project.id)}>Delete {project.name}</button>}</div>)}</div></article>}
+      {onOpenFolder && <article className="folder-setup"><div className="settings-illustration"><Icon name="folder" /></div><h2>Start with a local folder</h2><p>Open a folder and launch your first prompt. You can connect a tracker later.</p><button className="primary" onClick={onOpenFolder}><Icon name="plus" />Choose a local folder</button></article>}
       {!!setup.projects?.length && <article><ProjectTrackerSetup setup={setup} onChanged={() => {void refresh();onChanged();}} /></article>}
       <article>
-        <h2>Créer un projet avec un tracker</h2>
-        <form onSubmit={e => submit(e, async () => { await api.createLocalProject(projectName, trackerId); setProjectName(""); }, "Projet créé. Associez maintenant son dépôt local.")}>
+        <h2>Create a project with a tracker</h2>
+        <form onSubmit={e => submit(e, async () => { await api.createLocalProject(projectName, trackerId); setProjectName(""); }, "Project created. Now map its local repository.")}>
           <fieldset disabled={pending}>
-            <label>Nom du projet<input required value={projectName} onChange={e => setProjectName(e.target.value)} /></label>
-            <label>Tracker<select required value={trackerId} onChange={e => setTrackerId(e.target.value)}><option value="">Choisir un tracker</option>{setup.trackers?.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
-            <button type="submit">Créer le projet</button>
+            <label>Project name<input required value={projectName} onChange={e => setProjectName(e.target.value)} /></label>
+            <label>Tracker<select required value={trackerId} onChange={e => setTrackerId(e.target.value)}><option value="">Choose a tracker</option>{setup.trackers?.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+            <button type="submit">Create project</button>
           </fieldset>
         </form>
         <div className="existing-project-folder">
-          <h3>Associer un dossier à un projet existant</h3>
+          <h3>Map a folder to an existing project</h3>
           <fieldset disabled={pending || !setup.agentReady}>
-            <label>Projet à associer<select required value={projectId} onChange={e => setProjectId(e.target.value)}><option value="">Choisir un projet</option>{setup.projects?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-            <button type="button" disabled={!projectId} onClick={() => void perform(() => api.chooseProjectFolder(projectId), "Dossier local associé au projet.", result => result === null)}>Choisir un dossier</button>
+            <label>Project to map<select required value={projectId} onChange={e => setProjectId(e.target.value)}><option value="">Choose a project</option>{setup.projects?.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+            <button type="button" disabled={!projectId} onClick={() => void perform(() => api.chooseProjectFolder(projectId), "Local folder mapped to project.", result => result === null)}>Choose folder</button>
           </fieldset>
         </div>
       </article></div>
@@ -473,14 +513,14 @@ function ServiceLogPanel({active,service}:{active:boolean;service:"companion"|"a
   return()=>{current=false;};
  },[active,service,refresh]);
  return <article className="service-log">
-  <div className="service-log-heading"><h2>{fleet?"Journal de l’agent Fleet":"Journal du compagnon local"}</h2><button type="button" disabled={loading} onClick={()=>setRefresh(value=>value+1)}>Actualiser le journal</button></div>
-  <p className="muted">{fleet?"Un agent Fleet attaché peut écrire dans le journal de son installation d’origine.":"Diagnostic du compagnon démarré par ce desktop."}</p>
+  <div className="service-log-heading"><h2>{fleet?"Fleet agent log":"Local companion log"}</h2><button type="button" disabled={loading} onClick={()=>setRefresh(value=>value+1)}>Refresh log</button></div>
+  <p className="muted">{fleet?"An attached Fleet agent may write to the log of its original installation.":"Diagnostics for the companion started by this desktop."}</p>
   {snapshot && <p className="service-log-path" title={snapshot.path}><code>{snapshot.path}</code></p>}
-  {loading && <p role="status">Lecture du journal…</p>}
-  {error && <p role="alert" className="error">Impossible de lire le journal : {error}</p>}
+  {loading && <p role="status">Reading log…</p>}
+  {error && <p role="alert" className="error">Unable to read log: {error}</p>}
   {!loading && !error && snapshot && <>
-   <p role="status">{snapshot.missing?"Aucun journal disponible pour ce service.":!snapshot.text?"Le journal est vide.":snapshot.truncated?"Affichage des 256 derniers Kio du journal.":"Journal actuel du service."}</p>
-   {!snapshot.missing && !!snapshot.text && <pre className="service-log-output" tabIndex={0} aria-label="Contenu du journal du service">{snapshot.text}</pre>}
+   <p role="status">{snapshot.missing?"No log available for this service.":!snapshot.text?"The log is empty.":snapshot.truncated?"Showing the last 256 KiB of the log.":"Current service log."}</p>
+   {!snapshot.missing && !!snapshot.text && <pre className="service-log-output" tabIndex={0} aria-label="Service log content">{snapshot.text}</pre>}
   </>}
  </article>;
 }
@@ -506,12 +546,12 @@ function TrackerSyncResult({activityId,onFinished}:{activityId:string;onFinished
   void read();
   return()=>{current=false;if(timer)clearTimeout(timer);};
  },[activityId,retry]);
- if(readError)return <small className="sync-error" role="alert">Suivi de synchronisation indisponible. <button type="button" onClick={()=>setRetry(value=>value+1)}>Réessayer le suivi</button></small>;
- if(activity?.status==="failed")return <small className="sync-error" role="alert">Synchronisation échouée{activity.error?` : ${activity.error}`:"."}</small>;
- if(activity?.status==="canceled")return <small role="status">Synchronisation annulée.</small>;
+ if(readError)return <small className="sync-error" role="alert">Sync tracking unavailable. <button type="button" onClick={()=>setRetry(value=>value+1)}>Retry tracking</button></small>;
+ if(activity?.status==="failed")return <small className="sync-error" role="alert">Sync failed{activity.error?`: ${activity.error}`:"."}</small>;
+ if(activity?.status==="canceled")return <small role="status">Sync canceled.</small>;
  if(activity?.status==="completed"){
   const count=/^(\d+) .* issues synchronized successfully$/.exec(activity.summary??"");
-  return <small role="status">{count?`${count[1]} ${count[1]==="1"?"ticket synchronisé":"tickets synchronisés"}.`:"Synchronisation terminée."}</small>;
+  return <small role="status">{count?`${count[1]} ${count[1]==="1"?"ticket synced":"tickets synced"}.`:"Sync completed."}</small>;
  }
- return <small role="status">Synchronisation en cours…</small>;
+ return <small role="status">Syncing…</small>;
 }

@@ -10,7 +10,7 @@ fn install_settings_menu(app: &mut tauri::App) -> tauri::Result<()> {
 
     let menu = Menu::default(app.handle())?;
     if let Some(MenuItemKind::Submenu(application_menu)) = menu.items()?.into_iter().next() {
-        let settings = MenuItem::with_id(app.handle(), "sectile-settings", "Paramètres…", true, Some("Cmd+,"))?;
+        let settings = MenuItem::with_id(app.handle(), "sectile-settings", "Settings…", true, Some("Cmd+,"))?;
         application_menu.insert(&settings, 2)?;
     }
     app.set_menu(menu)?;
@@ -143,5 +143,5 @@ pub fn run() {
             agent::unwatch_run
         ])
         .run(tauri::generate_context!())
-        .expect("Impossible de démarrer Sectile Tauri");
+        .expect("Unable to start Sectile Tauri");
 }

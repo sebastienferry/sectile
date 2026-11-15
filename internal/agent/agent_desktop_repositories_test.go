@@ -92,7 +92,7 @@ func TestAttachingAFolderAppliesToTheNextOperation(t *testing.T) {
 	d.link.deviceID = "laptop"
 	op := agentprotocol.Operation{ProjectID: "p", TaskID: "t", Action: "repository_worktree", Repository: "git@github.com:o/lib.git"}
 
-	if _, err := d.executeOperation(ctx, op); err == nil || !strings.Contains(err.Error(), "attachez") || !strings.Contains(err.Error(), "(laptop)") {
+	if _, err := d.executeOperation(ctx, op); err == nil || !strings.Contains(err.Error(), "attach its folder") || !strings.Contains(err.Error(), "(laptop)") {
 		t.Fatalf("before attaching: %v", err)
 	}
 	if w := do("POST", "/desktop/folders", map[string]any{"projectId": "p", "path": lib}); w.Code != 204 {
@@ -108,7 +108,7 @@ func TestAttachingAFolderAppliesToTheNextOperation(t *testing.T) {
 	if w := do("DELETE", "/desktop/folders?projectId=p&path="+url.QueryEscape(lib), nil); w.Code != 204 {
 		t.Fatalf("detach: %d %s", w.Code, w.Body.String())
 	}
-	if _, err := d.executeOperation(ctx, op); err == nil || !strings.Contains(err.Error(), "attachez") {
+	if _, err := d.executeOperation(ctx, op); err == nil || !strings.Contains(err.Error(), "attach its folder") {
 		t.Fatalf("after detaching: %v", err)
 	}
 }
