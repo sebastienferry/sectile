@@ -1,4 +1,4 @@
-export type WorkspaceShortcut = "none" | "settings" | "sidebar" | "prompt" | "folder";
+export type WorkspaceShortcut = "none" | "settings" | "sidebar" | "prompt" | "folder" | "task";
 
 interface ShortcutEvent {
   key: string;
@@ -22,8 +22,13 @@ interface ShortcutContext {
 
 export function workspaceShortcut(event: ShortcutEvent, context: ShortcutContext): WorkspaceShortcut {
   const modifier = context.mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-  if (!modifier || event.altKey || event.shiftKey || event.repeat || event.defaultPrevented || event.isComposing || context.modalOpen) return "none";
+  if (!modifier || event.altKey || event.repeat || event.defaultPrevented || event.isComposing || context.modalOpen) return "none";
   const key = event.key.toLowerCase();
+  if (event.shiftKey) {
+    if (key !== "n") return "none";
+    if (!context.mac && (context.terminalFocused || context.editableFocused)) return "none";
+    return context.hasProject ? "task" : "none";
+  }
   if (key === "," || key === "comma") return "settings";
   if (key !== "b" && key !== "n") return "none";
   if (!context.mac && (context.terminalFocused || context.editableFocused)) return "none";

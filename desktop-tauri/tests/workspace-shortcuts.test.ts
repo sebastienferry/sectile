@@ -11,19 +11,25 @@ const context = (overrides: Record<string, unknown> = {}) => ({
   settingsOpen: false, hasProject: true, ...overrides,
 });
 
-test("desktop shortcuts open settings, toggle projects and start a project prompt", () => {
+test("desktop shortcuts open settings, toggle projects and start a project prompt or new task", () => {
   assert.equal(workspaceShortcut(event(",", { metaKey: true }), context()), "settings");
   assert.equal(workspaceShortcut(event("Comma", { metaKey: true }), context()), "settings");
   assert.equal(workspaceShortcut(event("b", { metaKey: true }), context()), "sidebar");
   assert.equal(workspaceShortcut(event("n", { metaKey: true }), context()), "prompt");
   assert.equal(workspaceShortcut(event("n", { metaKey: true }), context({ hasProject: false })), "folder");
+  assert.equal(workspaceShortcut(event("n", { metaKey: true, shiftKey: true }), context()), "task");
+  assert.equal(workspaceShortcut(event("N", { metaKey: true, shiftKey: true }), context()), "task");
+  assert.equal(workspaceShortcut(event("n", { ctrlKey: true, shiftKey: true }), context({ mac: false })), "task");
+  assert.equal(workspaceShortcut(event("n", { metaKey: true, shiftKey: true }), context({ hasProject: false })), "none");
   assert.equal(workspaceShortcut(event("b", { metaKey: true }), context({ settingsOpen: true })), "none");
 });
 
 test("shortcuts leave terminal input, editable fields and dialogs alone", () => {
   assert.equal(workspaceShortcut(event("b", { ctrlKey: true }), context({ mac: false, terminalFocused: true })), "none");
   assert.equal(workspaceShortcut(event("n", { ctrlKey: true }), context({ mac: false, editableFocused: true })), "none");
+  assert.equal(workspaceShortcut(event("n", { ctrlKey: true, shiftKey: true }), context({ mac: false, editableFocused: true })), "none");
   assert.equal(workspaceShortcut(event(",", { metaKey: true }), context({ modalOpen: true })), "none");
+  assert.equal(workspaceShortcut(event("n", { metaKey: true, shiftKey: true }), context({ modalOpen: true })), "none");
   assert.equal(workspaceShortcut(event("n", { metaKey: true, repeat: true }), context()), "none");
   assert.equal(workspaceShortcut(event("b", { metaKey: true, isComposing: true }), context()), "none");
   assert.equal(workspaceShortcut(event("b", { ctrlKey: true }), context()), "none");

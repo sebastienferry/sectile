@@ -47,4 +47,7 @@ func TestBridgeClientCarriesExplicitDeviceSelection(t *testing.T) {
 	if got != "workstation-a" {
 		t.Fatalf("device header=%q", got)
 	}
+	if timeout := bridgeHTTPClient("secret", "").Timeout; timeout != 0 {
+		t.Fatalf("bridgeHTTPClient Timeout = %v, want 0 for long-lived SSE stream", timeout)
+	}
 }

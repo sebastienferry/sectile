@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -93,7 +95,10 @@ func providerConversationEfforts(run *controlledRun, chosen ...string) map[strin
 }
 
 func codexConversationCommand(directory string, env map[string]string) *exec.Cmd {
-	cmd := agentexec.Hidden(exec.Command("codex", append([]string{"app-server", "--listen", "stdio://"}, companionMCPArgs("codex")...)...))
+	// Expose request_user_input in workspace-write/default turns too so Codex
+	// can render Sectile's QuestionForm outside plan mode.
+	args := []string{"app-server", "--listen", "stdio://", "-c", "features.default_mode_request_user_input=true"}
+	cmd := agentexec.Hidden(exec.Command("codex", append(args, companionMCPArgs("codex")...)...))
 	cmd.Dir, cmd.Env = directory, commandEnv(env)
 	cmd.WaitDelay = headlessStopGrace
 	return cmd
@@ -405,12 +410,65 @@ func (d *agentDaemon) initializeCodexConversation(run *controlledRun, state *cod
 	return nil
 }
 
+// worktreeGitWritableRoots returns the worktree-specific git metadata and
+// shared object/ref/log subdirectories when dir is a linked git worktree.
+// Codex's workspaceWrite sandbox keeps .git itself read-only, so naming these
+// subdirectories in writableRoots lets git add/commit succeed inside the
+// sandbox without opening .git/hooks or .git/config.
+func worktreeGitWritableRoots(dir string) []string {
+	if strings.TrimSpace(dir) == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := gitLocal(ctx, dir, "rev-parse", "--git-dir", "--git-common-dir")
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) < 2 {
+		return nil
+	}
+	resolve := func(p string) string {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return ""
+		}
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(dir, p)
+		}
+		p = filepath.Clean(p)
+		if real, evalErr := filepath.EvalSymlinks(p); evalErr == nil {
+			return real
+		}
+		return p
+	}
+	gitDir := resolve(lines[0])
+	commonDir := resolve(lines[1])
+	if gitDir == "" || commonDir == "" || gitDir == commonDir {
+		return nil
+	}
+	var roots []string
+	for _, candidate := range []string{
+		gitDir,
+		filepath.Join(commonDir, "objects"),
+		filepath.Join(commonDir, "refs"),
+		filepath.Join(commonDir, "logs"),
+	} {
+		if info, statErr := os.Stat(candidate); statErr == nil && info.IsDir() {
+			roots = append(roots, candidate)
+		}
+	}
+	return roots
+}
+
 func (d *agentDaemon) startCodexTurn(run *controlledRun, state *codexConversation, message string) error {
 	reviewer := d.workstationCodexReviewer()
 	folders, _, err := d.conversationFolders(run.desktop.ProjectID, run.desktop.Directory)
 	if err != nil {
 		conversationWrite(run.trace, "notice", "Attached folders could not be read for this message", err.Error())
 	}
+	gitRoots := worktreeGitWritableRoots(run.desktop.Directory)
 	d.queue.mu.Lock()
 	c := run.conversation
 	dirs := append(folderMapDirs(folders), c.extraDirs...)
@@ -420,7 +478,9 @@ func (d *agentDaemon) startCodexTurn(run *controlledRun, state *codexConversatio
 	mode := providerConversationMode("codex", c.mode)
 	sandbox := map[string]any{"type": "readOnly", "networkAccess": false}
 	if mode == "workspace-write" {
-		sandbox = map[string]any{"type": "workspaceWrite", "writableRoots": append([]string{run.desktop.Directory}, dirs...), "networkAccess": false}
+		writable := append([]string{run.desktop.Directory}, dirs...)
+		writable = append(writable, gitRoots...)
+		sandbox = map[string]any{"type": "workspaceWrite", "writableRoots": writable, "networkAccess": false}
 	}
 	effort := c.effort
 	if effort == "" {
@@ -540,6 +600,33 @@ func (d *agentDaemon) codexNotification(run *controlledRun, state *codexConversa
 		return
 	}
 	if len(frame.ID) > 0 && string(frame.ID) != "null" {
+		if frame.Method == "mcpServer/elicitation/request" {
+			var p struct {
+				Server string `json:"serverName"`
+				Schema struct {
+					Properties map[string]mcpFormField `json:"properties"`
+				} `json:"requestedSchema"`
+			}
+			if json.Unmarshal(frame.Params, &p) == nil && (p.Server == companionMCPName || p.Server == sectileMCPName) {
+				content := map[string]any{}
+				for key, field := range p.Schema.Properties {
+					if field.Type == "boolean" {
+						content[key] = true
+					} else if len(field.Enum) > 0 {
+						choice := field.Enum[0]
+						for _, v := range field.Enum {
+							if v == "session" || v == "always" {
+								choice = v
+								break
+							}
+						}
+						content[key] = choice
+					}
+				}
+				_ = state.rpc.input.send(map[string]any{"id": frame.ID, "result": map[string]any{"action": "accept", "content": content}})
+				return
+			}
+		}
 		approval, ok := codexApproval(frame)
 		if !ok {
 			_ = state.rpc.input.send(map[string]any{"id": frame.ID, "error": map[string]any{"code": -32601, "message": "Sectile does not support this Codex request"}})

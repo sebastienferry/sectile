@@ -415,6 +415,8 @@ function Workspace() {
         navigate(selected, "prompt");
       } else if (action === "folder") {
         void openFolder();
+      } else if (action === "task" && selected) {
+        navigate(selected, "ticket-editor");
       }
     }
     window.addEventListener("keydown", onShortcut);
@@ -629,7 +631,7 @@ function Workspace() {
                           <Icon name="plus" />
                         </button>
                         <details className="project-action-menu">
-                          <summary aria-label={`Actions for ${project.name}`} title={`Actions for ${project.name}`}>•••</summary>
+                          <summary aria-label={`Actions for ${project.name}`} title={`Actions for ${project.name}`}><Icon name="moreHorizontal" /></summary>
                           <div className="project-action-panel">
                             <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"board");}}><Icon name="list" /><span>View tickets</span></button>
                             <button onClick={event=>{event.currentTarget.closest("details")?.removeAttribute("open");navigate(project,"board");}}><Icon name="kanban" /><span>Open board</span></button>
@@ -2032,9 +2034,10 @@ function ConversationNavigation({run,task,selected,onClick,onOpenTask}:{run:Run;
  const {snapshot,loaded,error}=useConversation(run.id);
  const title=useMemo(()=>conversationTitle(snapshot,run,task),[snapshot.events,snapshot.title,run,task]);
  const provider=run.provider==="claude"?"Claude Code":run.provider==="codex"?"Codex":run.engineName||"Assistant";
- const activity=!isActive(run)?statusLabel(run):error?"Tracking interrupted":loaded&&snapshot.id===run.id?snapshot.approvals?.length?"Action required":snapshot.busy?"Running":snapshot.readOnly?"Read-only":"Ready":statusLabel(run);
+ const needsInput=isActive(run)&&((loaded&&snapshot.id===run.id&&!!snapshot.approvals?.length)||(!!run.waitingSince&&!run.waitingSince.startsWith("0001"))||run.status==="waiting");
+ const activity=!isActive(run)?statusLabel(run):error?"Tracking interrupted":needsInput?"Action required":loaded&&snapshot.id===run.id?snapshot.busy?"Running":snapshot.readOnly?"Read-only":"Ready":statusLabel(run);
  return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={`${run.taskKey?`${run.taskKey} · `:""}${title} · ${provider}${run.model ? ` · ${run.model}` : ""} · ${task?.trackerStatus?`${task.trackerStatus} · `:""}${activity}`}>
-  <span className={`conversation-indicator ${snapshot.approvals?.length?"needs-input":loaded&&snapshot.busy?"live":isActive(run)?"session":"idle"}`} />
+  <span className={`conversation-indicator ${needsInput?"needs-input":loaded&&snapshot.busy?"live":isActive(run)?"session":"idle"}`} />
   {run.taskKey && <span role="button" tabIndex={0} className="sidebar-task-key" title={`Open ticket ${run.taskKey}`} aria-label={`Open ticket ${run.taskKey}`} onClick={e=>{e.stopPropagation();onOpenTask?.();}} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.stopPropagation();onOpenTask?.();}}}>{run.taskKey}</span>}
   <span className="conversation-navigation-text"><span>{title}</span></span>
  </button>;

@@ -392,8 +392,9 @@ body.resizing-sidebar {
   color: var(--text);
 }
 .project-action-menu { position:relative; flex-shrink:0; }
-.project-action-menu > summary { display:grid; place-items:center; width:24px; height:24px; color:var(--muted); cursor:pointer; list-style:none; border-radius:5px; font-size: var(--font-base); }
+.project-action-menu > summary { display:grid; place-items:center; width:24px; height:24px; color:var(--muted); cursor:pointer; list-style:none; border-radius:5px; }
 .project-action-menu > summary::-webkit-details-marker { display:none; }
+.project-action-menu > summary svg { width:14px; height:14px; }
 .project-action-menu > summary:hover,.project-action-menu[open] > summary { background:var(--hover); color:var(--text); }
 .project-action-panel { position:absolute; top:34px; right:0; z-index:40; width:236px; padding:6px; border:1px solid var(--border-strong); border-radius:10px; background:var(--surface); box-shadow:0 12px 28px var(--shadow); }
 .project-action-panel button { display:flex; align-items:center; gap:9px; width:100%; padding:7px 9px; border:0; border-radius:6px; background:transparent; text-align:left; justify-content:flex-start; font-size: var(--font-base); color:var(--text); }

@@ -27,7 +27,7 @@ existing Sectile Go server, workstation agent and MCP infrastructure.
 - Native setup for a local profile, personal tracker credentials, ticket sources and projects, including folder selection when associating an existing project.
 - AI engine settings use the Claude and OpenAI marks already used by Sectile Electron, with provider-specific colors.
 - Settings use their own navigation while configuring a new profile; the header returns to the first project once setup creates it.
-- Use Cmd/Ctrl+K for navigation, Cmd/Ctrl+, for Settings, Cmd/Ctrl+B for the project sidebar, and Cmd/Ctrl+N for a new prompt in the selected project. Drag the sidebar grip or focus it and use the arrow keys to resize it.
+- Use Cmd/Ctrl+K for navigation, Cmd/Ctrl+, for Settings, Cmd/Ctrl+B for the project sidebar, Cmd/Ctrl+N for a new prompt, and Cmd/Ctrl+Shift+N for a new ticket in the selected project. Drag the sidebar grip or focus it and use the arrow keys to resize it.
 - At narrow window widths, the sidebar can expand while leaving 500 pixels for the conversation; its saved width returns when the window is wider.
 - Native ticket-source editing and deletion for Local users and Fleet administrators; deletion is available only after the source is no longer linked to projects or tickets.
 - Explicit Local or Fleet runtime selection, with native one-time-code Fleet pairing and private workstation credentials.

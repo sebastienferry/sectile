@@ -15,6 +15,7 @@ vi.mock("../src/lib/agent", () => ({
   listProjects: vi.fn(), listTasks: vi.fn(), getTask: vi.fn(), executionSnapshot: vi.fn(),
   projectSkills: vi.fn(), getOrchestration: vi.fn(), launchTask: vi.fn(),
   stopRun: vi.fn(), runOrchestration: vi.fn(),
+  taskTrackers: vi.fn(), taskIssueTypes: vi.fn(), createTask: vi.fn(), updateTask: vi.fn(),
 }));
 vi.mock("../src/components/RunConsole", () => ({ RunConsole: () => <div>Live output</div> }));
 beforeEach(() => {
@@ -29,6 +30,8 @@ beforeEach(() => {
   vi.mocked(api.getTask).mockResolvedValue({id:"task",key:"APP-1",title:"Task",status:"to_clarify",source:"jira",trackerStatus:"Open"});
   vi.mocked(api.projectSkills).mockResolvedValue([{ id: "implement_issue" }]);
   vi.mocked(api.getOrchestration).mockResolvedValue({ orchestratorEnabled: false, agents: [] });
+  vi.mocked(api.taskTrackers).mockResolvedValue({ defaultTrackerId: "tr", trackers: [{ id: "tr", provider: "github", name: "Default" }] });
+  vi.mocked(api.taskIssueTypes).mockResolvedValue({ supported: true, issueTypes: ["Task"] });
   vi.mocked(api.executionSnapshot).mockResolvedValue({
     status: { connected: true, capabilities: [] },
     runs: [{ id: "r", projectId: "p", taskKey: "APP-1", skill: "implement_issue", status: "running", trace: true, createdAt: "2026-10-28" }],
@@ -727,6 +730,8 @@ test("keyboard navigation opens a prompt and settings while the sidebar width pe
  await screen.findByRole("navigation", { name: "Settings sections" });
  fireEvent.keyDown(window, { key: ",", ...modifier });
  await screen.findByText("Free prompt for p");
+ fireEvent.keyDown(window, { key: "N", shiftKey: true, ...modifier });
+ await screen.findByRole("button", { name: "Create ticket" });
 });
 test("narrow windows cap the visible sidebar without discarding the saved width",async()=>{
  localStorage.setItem("sectile-tauri.sidebarWidth","368");
@@ -1075,4 +1080,25 @@ test("project context menu renames the display name without changing the directo
  await waitFor(() => expect(invoke).toHaveBeenCalledWith("rename_project", { projectId: "p", name: "My Renamed Project" }));
  expect(await within(sidebar).findByRole("button", { name: "My Renamed Project" })).toBeTruthy();
  expect(screen.getByText("/work/example")).toBeTruthy();
+});
+
+test("sidebar conversation row shows needs-input indicator when run has waitingSince", async () => {
+ vi.mocked(api.executionSnapshot).mockResolvedValue({
+  status: { connected: true, capabilities: [] },
+  runs: [{
+   id: "conv-wait",
+   projectId: "p",
+   title: "Clarify 904",
+   skill: "clarify",
+   status: "running",
+   conversation: true,
+   waitingSince: "2026-11-15T20:00:00Z",
+   createdAt: "2026-11-15T19:55:00Z",
+  }],
+ });
+ render(<App />);
+ const sidebar = await screen.findByRole("complementary");
+ const rowButton = await within(sidebar).findByRole("button", { name: /Clarify 904/ });
+ expect(rowButton.getAttribute("title")).toContain("Action required");
+ expect(rowButton.querySelector(".conversation-indicator.needs-input")).not.toBeNull();
 });

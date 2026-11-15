@@ -66,8 +66,9 @@ export function CommandPalette({
     const targetProject = selected ?? projects[0];
     const result: Entry[] = [];
     if (targetProject) {
+      const shiftPrefix = shortcutModifier === "⌘" ? "⇧" : "Shift+";
       result.push(
-        { group: "action", label: "New ticket", detail: `Create a ticket (+ launch) · ${targetProject.name}`, run: () => onNavigate(targetProject, "ticket-editor") },
+        { group: "action", label: "New ticket", detail: `${shortcutModifier}${shiftPrefix}N · ${targetProject.name}`, run: () => onNavigate(targetProject, "ticket-editor") },
         { group: "action", label: "Launch task", detail: `Start a skill on a ticket · ${targetProject.name}`, run: () => onNavigate(targetProject, "launch") },
         { group: "action", label: "New prompt", detail: `${shortcutModifier}N · ${targetProject.name}`, run: () => onNavigate(targetProject, "prompt") },
         { group: "action", label: "Project board", detail: `View tickets by stage · ${targetProject.name}`, run: () => onNavigate(targetProject, "board") },

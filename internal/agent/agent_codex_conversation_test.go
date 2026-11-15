@@ -66,6 +66,8 @@ func TestCodexAppServerHelper(t *testing.T) {
 			case strings.Contains(message, "approval"):
 				notify("item/started", map[string]any{"threadId": thread, "turnId": turn, "item": map[string]any{"id": "command-1", "type": "commandExecution", "command": "git status", "cwd": "/repo", "status": "inProgress"}})
 				send(map[string]any{"id": 7, "method": "item/commandExecution/requestApproval", "params": map[string]any{"threadId": thread, "turnId": turn, "itemId": "command-1", "command": "git status", "availableDecisions": []string{"accept", "acceptForSession", "decline"}}})
+			case strings.Contains(message, "companion-mcp"):
+				send(map[string]any{"id": "mcp-call-1", "method": "mcpServer/elicitation/request", "params": map[string]any{"serverName": "sectile_companion", "mode": "form", "message": "Allow this call?", "requestedSchema": map[string]any{"type": "object", "properties": map[string]any{}}}})
 			case strings.Contains(message, "question"):
 				send(map[string]any{"id": "question-1", "method": "item/tool/requestUserInput", "params": map[string]any{"threadId": thread, "turnId": turn, "itemId": "question-tool", "questions": []any{map[string]any{"id": "q_1", "header": "Scope", "question": "Which scope?", "options": []any{map[string]string{"label": "Small", "description": "One file"}}}}}})
 			case message == "hold", message == "race":
@@ -96,6 +98,10 @@ func TestCodexAppServerHelper(t *testing.T) {
 				notify("item/completed", map[string]any{"threadId": thread, "turnId": turn, "item": map[string]any{"id": "command-1", "type": "commandExecution", "command": "git status", "status": "completed", "aggregatedOutput": "clean", "exitCode": 0}})
 				finish("completed")
 			} else if string(frame.ID) == `"question-1"` {
+				finish("completed")
+			} else if string(frame.ID) == `"mcp-call-1"` {
+				notify("item/agentMessage/delta", map[string]string{"threadId": thread, "turnId": turn, "itemId": "answer", "delta": "MCP allowed"})
+				notify("item/completed", map[string]any{"threadId": thread, "turnId": turn, "item": map[string]string{"id": "answer", "type": "agentMessage", "text": "MCP allowed"}})
 				finish("completed")
 			}
 		}
@@ -298,5 +304,86 @@ func TestCodexEventsBoundToolResultsAndIgnoreEncryptedReasoning(t *testing.T) {
 	}
 	if events := codexItemEvents(json.RawMessage(`{"type":"reasoning","encrypted_content":"private"}`), true); len(events) != 0 {
 		t.Fatal("encrypted reasoning was displayed")
+	}
+}
+
+func TestCodexConversationAutoApprovesCompanionMCP(t *testing.T) {
+	d, id, log := codexConversationFixture(t)
+	codexMessage(t, d, id, `{"message":"companion-mcp"}`)
+	waitCodex(t, d, id, func(c *providerConversation) bool { return !c.busy && len(c.approvals) == 0 })
+	if !strings.Contains(codexLog(t, log), `{"id":"mcp-call-1","result":{"action":"accept","content":{}}}`) {
+		t.Fatalf("companion MCP was not automatically approved: %s", codexLog(t, log))
+	}
+}
+
+func TestCodexConversationEnablesDefaultModeRequestUserInput(t *testing.T) {
+	cmd := codexConversationCommand(t.TempDir(), nil)
+	args := strings.Join(cmd.Args, " ")
+	if !strings.Contains(args, "-c features.default_mode_request_user_input=true") {
+		t.Fatalf("codexConversationCommand did not enable default_mode_request_user_input: %s", args)
+	}
+}
+
+func TestWorktreeGitWritableRootsIncludesWorktreeAndCommonSubdirs(t *testing.T) {
+	root := t.TempDir()
+	mainRepo := filepath.Join(root, "main")
+	worktree := filepath.Join(root, "wt")
+	if err := os.MkdirAll(mainRepo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitTest(t, mainRepo, "init")
+	gitTest(t, mainRepo, "config", "user.email", "test@example.com")
+	gitTest(t, mainRepo, "config", "user.name", "Test")
+	gitTest(t, mainRepo, "commit", "--allow-empty", "-m", "init")
+	gitTest(t, mainRepo, "worktree", "add", "-b", "feat/wt", worktree)
+
+	if got := worktreeGitWritableRoots(mainRepo); len(got) != 0 {
+		t.Fatalf("main repo should not add extra git roots, got %v", got)
+	}
+	roots := worktreeGitWritableRoots(worktree)
+	joined := strings.Join(roots, "\n")
+	if !strings.Contains(joined, filepath.Join(".git", "worktrees")) || !strings.Contains(joined, filepath.Join(".git", "objects")) || !strings.Contains(joined, filepath.Join(".git", "refs")) {
+		t.Fatalf("worktreeGitWritableRoots missing expected subdirs: %v", roots)
+	}
+	for _, r := range roots {
+		if strings.HasSuffix(r, string(filepath.Separator)+".git") || strings.Contains(r, "hooks") || strings.Contains(r, "config") {
+			t.Fatalf("worktreeGitWritableRoots must not grant write access to %q", r)
+		}
+	}
+}
+
+func TestCodexConversationTurnGrantsWorktreeGitMetadataInSandboxPolicy(t *testing.T) {
+	d, id, log := codexConversationFixture(t)
+	root := t.TempDir()
+	mainRepo := filepath.Join(root, "repo")
+	worktree := filepath.Join(root, "worktrees", "issue-904")
+	if err := os.MkdirAll(mainRepo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitTest(t, mainRepo, "init")
+	gitTest(t, mainRepo, "config", "user.email", "test@example.com")
+	gitTest(t, mainRepo, "config", "user.name", "Test")
+	gitTest(t, mainRepo, "commit", "--allow-empty", "-m", "init")
+	gitTest(t, mainRepo, "worktree", "add", "-b", "issue-904", worktree)
+
+	d.queue.mu.Lock()
+	d.queue.runs[id].desktop.Directory = worktree
+	d.queue.mu.Unlock()
+
+	codexMessage(t, d, id, `{"message":"commit","mode":"workspace-write"}`)
+	waitCodex(t, d, id, func(c *providerConversation) bool { return !c.busy })
+	text := codexLog(t, log)
+	if !strings.Contains(text, `"type":"workspaceWrite"`) {
+		t.Fatalf("expected workspaceWrite sandbox policy: %s", text)
+	}
+	for _, want := range []string{
+		filepath.Join(".git", "worktrees", "issue-904"),
+		filepath.Join(".git", "objects"),
+		filepath.Join(".git", "refs"),
+		filepath.Join(".git", "logs"),
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("turn/start sandboxPolicy missing %s: %s", want, text)
+		}
 	}
 }

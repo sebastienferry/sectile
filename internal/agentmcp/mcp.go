@@ -59,6 +59,9 @@ func (t runHeaderTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 // when the bridge runs inside a console the agent launched for a run.
 func bridgeHTTPClient(token, runID string) *http.Client {
 	client := agenthttp.Client(token)
+	// StreamableClientTransport keeps a long-lived GET SSE stream open for
+	// server-initiated pings; http.Client.Timeout would abort it every 2 minutes.
+	client.Timeout = 0
 	deviceID := strings.TrimSpace(os.Getenv("SECTILE_DEVICE_ID"))
 	if runID = strings.TrimSpace(runID); runID != "" || deviceID != "" {
 		client.Transport = runHeaderTransport{runID: runID, deviceID: deviceID, base: client.Transport}
