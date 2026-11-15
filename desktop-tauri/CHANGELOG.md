@@ -6,6 +6,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
+- Queue follow-up messages while the agent is responding: they are listed above the composer, can be copied or removed, and are sent one per turn in order. An interrupt, a turn error or a failed send pauses the queue until it is resumed; the queue is not kept when the app quits (#905).
 - Restore Electron header parity: macOS titlebar overlay integration with traffic lights, connection status indicator with browser link, agent action menu, and settings gear icon.
 - Configure Desktop operating mode (Local Companion vs Fleet Agent) through a dedicated first-launch onboarding screen, with seamless switching available in Settings.
 - Distinguish Claude Code and Codex with their provider colors in engine settings, and simplify the desktop header.

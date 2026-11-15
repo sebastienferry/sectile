@@ -399,6 +399,15 @@ opened or restored. Archive visibility is a preference on this desktop, while
 Go retains the transcript and run history. A stopped conversation labels its
 saved turn as completed and replaces the disabled composer with compact
 read-only folder and terminal controls.
+While the agent responds, the composer queues follow-up messages instead of
+sending them: press Enter or **Queue** beside **Interrupt**. Queued messages are
+listed above the composer, apart from the transcript, and each can be copied or
+removed before it leaves. They are sent one per turn, in order, once the
+conversation is idle with no pending approval or question, even while another
+conversation or view is open. An interrupt, a turn ending in an error or a failed
+send pauses the queue until **Resume**; a failed message is never retried on its
+own. A stopped conversation keeps its queue visible but never sends it. The queue
+lives in memory only and is lost when Sectile Desktop quits.
 Conversation headers keep long titles and discussion actions on one line;
 response state stays beside the composer. Click the project in the sidebar to
 return to its board. Ticket conversations show a PR/MR link in the sidebar and
