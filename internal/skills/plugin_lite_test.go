@@ -76,6 +76,7 @@ func TestLiteSkillsKeepTheStageOnJira(t *testing.T) {
 		content := skills.RenderLiteSkillContent(s)
 		for _, required := range []string{
 			"Sectile Lite plugin",
+			"Never call a Sectile MCP server's tools, even when one is connected",
 			"`transition_stage`: the stage change",
 			"`start_run`, `finish_run` and `report_waiting` have no equivalent",
 			"`sectile:clarified`",
