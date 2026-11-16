@@ -3,7 +3,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
-/* Layout: the Sectile web board, one toolbar over six tinted stage columns of compact ticket cards. */
+/* Layout: the Sectile web board, one toolbar over either six tinted stage columns of compact cards or a sortable ticket table. */
 :root {
   --bg: #f5f6f8;
   --surface: #ffffff;
@@ -178,6 +178,50 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 footer { margin-top: 14px; color: var(--muted); font-size: 11.5px; max-width: 90ch; }
 footer code { font-family: var(--font-mono); font-size: 11px; }
 
+/* View switch */
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; background: var(--surface); }
+.seg button { padding: 6px 8px; line-height: 0; border: 0; background: transparent; color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+
+/* Columns popover */
+#columns { width: min(240px, 100%); }
+.col-list { display: flex; flex-direction: column; gap: 2px; }
+
+/* List */
+.list-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
+.list th {
+  text-align: left; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap;
+  position: sticky; top: 0; background: var(--surface);
+}
+.list th button { background: none; border: 0; padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; }
+.list th button:hover, .list th.sorted button { color: var(--accent); }
+.list td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.list tr:last-child td { border-bottom: 0; }
+.list tbody tr:hover { background: var(--surface-2); }
+.list tr.watched { box-shadow: inset 3px 0 0 var(--accent); }
+.list td.k { white-space: nowrap; }
+.list td.k .key { color: var(--accent); }
+.list td.t { min-width: 260px; color: var(--fg); }
+.list td.c { white-space: nowrap; color: var(--fg-2); }
+.list td.dim { color: var(--muted); }
+.list .box { display: inline-block; width: 13px; height: 13px; border-radius: 3px; border: 1.5px solid var(--muted); vertical-align: -2px; }
+.list .box.inferred { border-style: dashed; }
+.stage { display: inline-flex; align-items: center; gap: 6px; }
+.list td.a { white-space: nowrap; text-align: right; }
+.list td.a .act { display: inline-flex; gap: 4px; align-items: center; }
+.step-btn {
+  padding: 4px 10px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--accent-soft); color: var(--accent); font-weight: 500;
+}
+.step-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.step-btn:disabled { opacity: .4; cursor: default; }
+.list .icon-btn { margin: 0; border-color: var(--border); }
+.empty-list { padding: 24px; text-align: center; color: var(--muted); }
+.cached { color: var(--muted); }
+
 @media (max-width: 760px) {
   .board { grid-template-columns: 1fr; overflow-x: visible; }
   .popover { left: 0; right: auto; width: 100%; }
@@ -185,14 +229,21 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
 </style>
 
 <div class="toolbar" id="toolbar">
+  <div class="seg" role="group" aria-label="View">
+    <button type="button" id="viewBoard" aria-pressed="true" title="Board view"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 4v12"/><path d="M12 4v8"/><path d="M18 4v14"/></svg></button>
+    <button type="button" id="viewList" aria-pressed="false" title="List view"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></button>
+  </div>
   <div class="search">
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
     <label for="search" hidden>Search tickets</label>
     <input id="search" placeholder="Search tickets..." autocomplete="off" spellcheck="false">
   </div>
   <button type="button" class="tb-btn" id="filtersBtn" aria-haspopup="dialog" aria-expanded="false">Filters <span class="badge" id="filtersBadge" hidden>0</span></button>
+  <button type="button" class="tb-btn" id="columnsBtn" aria-haspopup="dialog" aria-expanded="false" hidden>Columns <span class="badge" id="columnsBadge">0</span></button>
   <span class="pill" id="countPill">…</span>
   <button type="button" class="tb-btn" id="moreBtn" hidden>Load more</button>
+  <button type="button" class="tb-btn" id="linkBtn" title="Copy a link that opens this view with its filters">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>Link</button>
   <div class="presence" id="presence" hidden></div>
 
   <div class="popover" id="filters" role="dialog" aria-label="Filters" hidden>
@@ -207,15 +258,20 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
     <div class="pop-head"><span class="pop-title">Status</span><button type="button" class="link" id="allStatusBtn">All</button></div>
     <div class="status-list" id="statusList"></div>
   </div>
+
+  <div class="popover" id="columns" role="dialog" aria-label="Columns" hidden>
+    <div class="pop-head"><span class="pop-title">Columns</span><button type="button" class="link" id="colsResetBtn">Reset</button></div>
+    <div class="col-list" id="colList"></div>
+  </div>
 </div>
 
 <div id="notice"></div>
-<main class="board" id="board"></main>
+<main id="view"></main>
 <div class="menu" id="menu" role="menu" hidden></div>
 
 <footer>
-  Sectile Lite __PLUGIN_VERSION__. A ticket's column is its Sectile label (<code>#clarified</code>, <code>#specified</code>, <code>#implemented</code>, <code>#reviewed</code>, <code>#finished</code>); without one it is read from the Jira status (dashed box).
-  › runs the next step and » the steps up to review, handed to the Claude Code session open beside the board that runs <code>/sectile-lite:dispatch</code>; without one, the command is copied.
+  Sectile Lite __PLUGIN_VERSION__. A ticket's stage is its Sectile label (<code>#clarified</code>, <code>#specified</code>, <code>#implemented</code>, <code>#reviewed</code>, <code>#finished</code>); without one it is read from the Jira status (dashed box).
+  The next-step buttons hand the ticket to the Claude Code session open beside the board that runs <code>/sectile-lite:dispatch</code>; without one, the command is copied. Link copies a bookmark of this view and its filters.
 </footer>
 
 <script>
@@ -225,63 +281,111 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
   const SERVER = CONFIG.connector;
   const TOOL = "searchJiraIssuesUsingJql";
   const CLOUD = CONFIG.site;
+  // The page's own claude.ai link, which bookmarks extend with their #token. The page cannot read it itself.
+  const PAGE_URL = CONFIG.url || "";
   // The Sectile Lite plugin: its skills keep the stage as Sectile's #<stage> label, which this board reads.
   const PLUGIN = "sectile-lite";
   const DEFAULT_JQL = CONFIG.jql;
   // The Sprint field is a custom field whose id differs per Jira site; without it the filter falls back to open sprints only.
   const SPRINT_FIELD = CONFIG.sprintField || "";
-  const FIELDS = ["summary", "status", "assignee", "labels", "issuetype", "priority", "updated"].concat(SPRINT_FIELD ? [SPRINT_FIELD] : []);
+  const FIELDS = ["summary", "status", "assignee", "labels", "issuetype", "priority"].concat(SPRINT_FIELD ? [SPRINT_FIELD] : []);
   const PAGE_SIZE = 100;
-  const MAX_PAGES = 10;
+  const DEFAULT_PAGES = 5;
+  const MAX_PAGES = 20;
+  const CACHE_KEY = "sectile.board.cache";
 
   // The next step of each stage, as on the Sectile card.
   const STAGES = [
-    { id: "new", name: "To clarify", skill: "clarify-issue",
+    { id: "new", name: "To clarify", skill: "clarify-issue", verb: "Clarify",
       step: "Advance one step: clarify the requirements (clarify-issue)",
       auto: "Advance autonomously: Clarify, Specify, Code, Adjust" },
-    { id: "clarified", name: "Clarified", skill: "specify-issue",
+    { id: "clarified", name: "Clarified", skill: "specify-issue", verb: "Specify",
       step: "Advance one step: specify the technical solution (specify-issue)",
       auto: "Advance autonomously: Specify, Code, Adjust" },
-    { id: "specified", name: "Specified", skill: "implement-issue",
+    { id: "specified", name: "Specified", skill: "implement-issue", verb: "Code",
       step: "Advance one step: implement the code and tests (implement-issue)",
       auto: "Advance autonomously: Code, Adjust" },
-    { id: "implemented", name: "Implemented", skill: "adjust-issue",
+    { id: "implemented", name: "Implemented", skill: "adjust-issue", verb: "Adjust",
       step: "Adjust the existing pull request (adjust-issue)",
       auto: "Adjust the existing PR and stop for human review" },
-    { id: "reviewed", name: "Reviewed", skill: "handoff-issue",
+    { id: "reviewed", name: "Reviewed", skill: "handoff-issue", verb: "Handoff",
       step: "Advance one step: confirm the merge and close the ticket (handoff-issue)",
       auto: null },
-    { id: "finished", name: "Finished", skill: null, step: null, auto: null },
+    { id: "finished", name: "Finished", skill: null, verb: null, step: null, auto: null },
   ];
   const BY_ID = Object.fromEntries(STAGES.map(s => [s.id, s]));
+  const STAGE_RANK = Object.fromEntries(STAGES.map((s, i) => [s.id, i]));
   // Sectile's stage labels and their aliases (internal/trackerapi/mapping.go), read with their # prefix: the last one wins.
   const LABEL_STAGE = { new: "new", untouched: "new", clarified: "clarified", specified: "specified",
     implemented: "implemented", reviewed: "reviewed", finished: "finished", closed: "finished", done: "finished" };
+  const PRIORITY_RANK = ["blocker", "critical", "highest", "high", "major", "medium", "low", "minor", "lowest", "trivial"];
+
+  // The list's optional columns; key, title and actions always show.
+  const COLUMNS = [
+    { id: "stage", name: "Stage", on: true },
+    { id: "status", name: "Status", on: true },
+    { id: "priority", name: "Priority", on: true },
+    { id: "sprint", name: "Sprint", on: true },
+    { id: "assignee", name: "Assignee", on: true },
+    { id: "type", name: "Type", on: false },
+  ];
+  const DEFAULT_COLS = COLUMNS.filter(c => c.on).map(c => c.id);
 
   const $ = id => document.getElementById(id);
   const store = {
     get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
-    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
   };
 
-  const saved = store.get("sectile.board") || {};
-  const state = {
-    jql: saved.jql || DEFAULT_JQL,
-    sprint: saved.sprint || "",
-    assignee: saved.assignee || "",
-    type: saved.type || "",
-    priority: saved.priority || "",
-    stages: new Set(saved.stages || []),
-    search: "",
-  };
-  function persist() {
-    store.set("sectile.board", { jql: state.jql, sprint: state.sprint, assignee: state.assignee,
-      type: state.type, priority: state.priority, stages: [...state.stages] });
+  // ---- state, from the bookmark, then this viewer's last visit ----
+  function blankState() {
+    return { view: "board", jql: DEFAULT_JQL, sprint: "", assignee: "", type: "", priority: "", stages: [],
+      search: "", sort: { by: "stage", dir: 1 }, cols: DEFAULT_COLS.slice() };
+  }
+  function normalizeState(raw) {
+    const b = blankState();
+    if (!raw || typeof raw !== "object") return b;
+    const str = (v, d) => (typeof v === "string" ? v : d);
+    return {
+      view: raw.view === "list" ? "list" : "board",
+      jql: str(raw.jql, b.jql) || b.jql,
+      sprint: str(raw.sprint, ""), assignee: str(raw.assignee, ""), type: str(raw.type, ""), priority: str(raw.priority, ""),
+      stages: Array.isArray(raw.stages) ? raw.stages.filter(s => BY_ID[s]) : [],
+      search: str(raw.search, ""),
+      sort: raw.sort && typeof raw.sort.by === "string" ? { by: raw.sort.by, dir: raw.sort.dir === -1 ? -1 : 1 } : b.sort,
+      cols: Array.isArray(raw.cols) ? raw.cols.filter(c => COLUMNS.some(x => x.id === c)) : b.cols,
+    };
+  }
+  // A bookmark is the view and its filters as base64url JSON in a #v.<token> anchor, the only part of a link an artifact receives.
+  function encodeView(st) {
+    const json = JSON.stringify({ view: st.view, jql: st.jql === DEFAULT_JQL ? undefined : st.jql, sprint: st.sprint || undefined,
+      assignee: st.assignee || undefined, type: st.type || undefined, priority: st.priority || undefined,
+      stages: st.stages.length ? st.stages : undefined, search: st.search || undefined, sort: st.sort, cols: st.cols });
+    const bytes = new TextEncoder().encode(json);
+    let bin = "";
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return "v." + btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function decodeView(token) {
+    try {
+      const b64 = token.slice(2).replace(/-/g, "+").replace(/_/g, "/");
+      const bin = atob(b64 + "=".repeat((4 - b64.length % 4) % 4));
+      return JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0))));
+    } catch { return null; }
+  }
+  function stateFromHash() {
+    const h = decodeURIComponent((location.hash || "").replace(/^#/, ""));
+    if (h.startsWith("v.")) { const raw = decodeView(h); return raw ? normalizeState(raw) : null; }
+    if (h === "list" || h === "board") return { ...normalizeState(store.get("sectile.board")), view: h };
+    return null;
   }
 
+  let state = stateFromHash() || normalizeState(store.get("sectile.board"));
+  function persist() { store.set("sectile.board", state); }
+
   let mcp = null, room = null, unwatch = null, canSend = null;
-  let firstPage = null, extraPages = [], wantedPages = 1, generation = 0, loadingMore = false;
-  let issues = null, peers = [];
+  let firstPage = null, extraPages = [], wantedPages = DEFAULT_PAGES, generation = 0, loadingMore = false;
+  let issues = null, cachedAt = null, peers = [];
 
   function el(tag, attrs, ...kids) {
     const n = document.createElement(tag);
@@ -314,61 +418,99 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
     return (name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
   }
 
-  function stageOf(issue) {
-    let id = null;
-    for (const l of issue.fields?.labels || []) {
-      const s = LABEL_STAGE[String(l).replace(/^#/, "").toLowerCase()];
-      if (s && String(l).startsWith("#")) id = s;
-    }
-    if (id) return { id, inferred: false };
-    const st = issue.fields?.status;
-    const cat = st?.statusCategory?.key;
-    if (cat === "done") return { id: "finished", inferred: true };
-    if (/review|revue|validation|qa/i.test(st?.name || "")) return { id: "reviewed", inferred: true };
-    if (cat === "indeterminate") return { id: "implemented", inferred: true };
-    return { id: "new", inferred: true };
-  }
-  // The issue's sprints, from the connector's mapped custom fields or the raw field.
-  function sprintsOf(issue) {
+  // ---- tickets: Jira issues reduced to what the page shows, which is also what the local cache keeps ----
+  function sprintsOf(f) {
     if (!SPRINT_FIELD) return [];
-    const f = issue.fields || {};
     let v = f[SPRINT_FIELD];
     if (v == null && f.customFields) {
       for (const c of Object.values(f.customFields)) if (c && c.id === SPRINT_FIELD) { v = c.value; break; }
     }
-    return Array.isArray(v) ? v.filter(x => x && x.id != null) : [];
+    return Array.isArray(v) ? v.filter(x => x && x.id != null).map(x => ({ id: String(x.id), name: String(x.name || x.id), state: x.state || "", start: x.startDate || "" })) : [];
   }
+  function reduce(issue) {
+    const f = issue.fields || {};
+    return {
+      key: issue.key, url: issue.webUrl || `https://${CLOUD}/browse/${issue.key}`,
+      summary: f.summary || "", status: f.status?.name || "", cat: f.status?.statusCategory?.key || "",
+      assigneeId: f.assignee?.accountId || "", assignee: f.assignee?.displayName || "",
+      labels: Array.isArray(f.labels) ? f.labels.map(String) : [], type: f.issuetype?.name || "", priority: f.priority?.name || "",
+      sprints: sprintsOf(f),
+    };
+  }
+  function stageOf(t) {
+    let id = null;
+    for (const l of t.labels) {
+      const s = LABEL_STAGE[l.replace(/^#/, "").toLowerCase()];
+      if (s && l.startsWith("#")) id = s;
+    }
+    if (id) return { id, inferred: false };
+    if (t.cat === "done") return { id: "finished", inferred: true };
+    if (/review|revue|validation|qa/i.test(t.status)) return { id: "reviewed", inferred: true };
+    if (t.cat === "indeterminate") return { id: "implemented", inferred: true };
+    return { id: "new", inferred: true };
+  }
+  function sprintLabel(t) {
+    const active = t.sprints.find(x => x.state === "active");
+    const pick = active || t.sprints.slice().sort((a, b) => b.start.localeCompare(a.start))[0];
+    return pick ? pick.name : "";
+  }
+  function prioRank(name) { const i = PRIORITY_RANK.indexOf(String(name).toLowerCase()); return i < 0 ? 5 : i; }
   function prioTone(name) {
-    if (/blocker|critical|highest|high|major/i.test(name)) return "var(--p-high)";
-    if (/low|minor|trivial/i.test(name)) return "var(--p-low)";
-    return "var(--p-medium)";
+    const r = prioRank(name);
+    return r <= 4 ? "var(--p-high)" : r >= 6 ? "var(--p-low)" : "var(--p-medium)";
+  }
+
+  // ---- local cache: the last tickets of each query, so the page opens on them before Jira answers ----
+  function cacheRead() {
+    const c = store.get(CACHE_KEY);
+    return c && typeof c === "object" && c[state.jql] ? c[state.jql] : null;
+  }
+  let cacheTimer = null;
+  function cacheWrite() {
+    clearTimeout(cacheTimer);
+    cacheTimer = setTimeout(() => {
+      if (!issues) return;
+      const all = store.get(CACHE_KEY) || {};
+      all[state.jql] = { at: Date.now(), list: issues.list, more: issues.more };
+      // Keep the five most recent queries; drop the oldest when the browser refuses the size.
+      const keys = Object.keys(all).sort((a, b) => all[b].at - all[a].at);
+      for (const k of keys.slice(5)) delete all[k];
+      while (!store.set(CACHE_KEY, all) && Object.keys(all).length > 1) {
+        delete all[Object.keys(all).sort((a, b) => all[a].at - all[b].at)[0]];
+      }
+    }, 500);
   }
 
   // ---- filters ----
   const UNASSIGNED = "__none__";
-  function passesFields(issue) {
-    const f = issue.fields || {};
-    if (state.assignee) {
-      const id = f.assignee?.accountId || UNASSIGNED;
-      if (id !== state.assignee) return false;
-    }
-    if (state.type && f.issuetype?.name !== state.type) return false;
-    if (state.priority && f.priority?.name !== state.priority) return false;
+  function passesFields(t) {
+    if (state.assignee && (t.assigneeId || UNASSIGNED) !== state.assignee) return false;
+    if (state.type && t.type !== state.type) return false;
+    if (state.priority && t.priority !== state.priority) return false;
     if (SPRINT_FIELD && state.sprint) {
-      const sprints = sprintsOf(issue);
-      if (state.sprint === "none") { if (sprints.length) return false; }
-      else if (state.sprint === "open") { if (!sprints.some(x => x.state === "active")) return false; }
-      else if (!sprints.some(x => String(x.id) === state.sprint)) return false;
+      if (state.sprint === "none") { if (t.sprints.length) return false; }
+      else if (state.sprint === "open") { if (!t.sprints.some(x => x.state === "active")) return false; }
+      else if (!t.sprints.some(x => x.id === state.sprint)) return false;
     }
     if (state.search) {
       const q = state.search.toLowerCase();
-      if (![issue.key, f.summary, f.assignee?.displayName].some(v => (v || "").toLowerCase().includes(q))) return false;
+      if (![t.key, t.summary, t.assignee].some(v => v.toLowerCase().includes(q))) return false;
     }
     return true;
   }
+  function visibleTickets() {
+    const out = [];
+    for (const t of issues?.list || []) {
+      if (!passesFields(t)) continue;
+      const st = stageOf(t);
+      if (state.stages.length && !state.stages.includes(st.id)) continue;
+      out.push([t, st]);
+    }
+    return out;
+  }
   function activeFilterCount() {
     return [state.sprint, state.assignee, state.type, state.priority].filter(Boolean).length
-      + (state.stages.size ? 1 : 0) + (state.jql !== DEFAULT_JQL ? 1 : 0);
+      + (state.stages.length ? 1 : 0) + (state.jql !== DEFAULT_JQL ? 1 : 0);
   }
   function effectiveJql() {
     if (SPRINT_FIELD || state.sprint !== "open") return state.jql;
@@ -387,41 +529,36 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
   }
   function renderFilters() {
     const list = issues?.list || [];
-    const assignees = new Map();
+    const assignees = new Map(), types = new Set(), prios = new Set(), sprints = new Map();
     let unassigned = false;
-    const types = new Set(), prios = new Set();
-    for (const i of list) {
-      const f = i.fields || {};
-      if (f.assignee) assignees.set(f.assignee.accountId, f.assignee.displayName); else unassigned = true;
-      if (f.issuetype?.name) types.add(f.issuetype.name);
-      if (f.priority?.name) prios.add(f.priority.name);
+    for (const t of list) {
+      if (t.assigneeId) assignees.set(t.assigneeId, t.assignee); else unassigned = true;
+      if (t.type) types.add(t.type);
+      if (t.priority) prios.add(t.priority);
+      for (const x of t.sprints) sprints.set(x.id, x);
     }
     const people = [...assignees].sort((a, b) => a[1].localeCompare(b[1]));
     if (unassigned) people.push([UNASSIGNED, "Unassigned"]);
     fillSelect($("fAssignee"), "All assignees", people, state.assignee);
     fillSelect($("fType"), "All types", [...types].sort().map(t => [t, t]), state.type);
-    fillSelect($("fPriority"), "All priorities", [...prios].sort().map(p => [p, p]), state.priority);
+    fillSelect($("fPriority"), "All priorities", [...prios].sort((a, b) => prioRank(a) - prioRank(b)).map(p => [p, p]), state.priority);
     if (SPRINT_FIELD) {
-      const all = new Map();
-      for (const i of list) for (const x of sprintsOf(i)) all.set(String(x.id), x);
       const rank = { active: 0, future: 1, closed: 2 };
-      const sprints = [...all.values()].sort((a, b) => (rank[a.state] ?? 3) - (rank[b.state] ?? 3)
-        || String(b.startDate || "").localeCompare(String(a.startDate || "")) || a.name.localeCompare(b.name));
-      fillSelect($("fSprint"), "All sprints",
-        [["open", "Active sprints"], ["none", "No sprint"]].concat(sprints.map(x => [String(x.id), x.state === "active" ? `${x.name} (active)` : x.name])),
-        state.sprint);
+      const sorted = [...sprints.values()].sort((a, b) => (rank[a.state] ?? 3) - (rank[b.state] ?? 3) || b.start.localeCompare(a.start) || a.name.localeCompare(b.name));
+      fillSelect($("fSprint"), "All sprints", [["open", "Active sprints"], ["none", "No sprint"]]
+        .concat(sorted.map(x => [x.id, x.state === "active" ? `${x.name} (active)` : x.name])), state.sprint);
     } else {
       $("fSprint").value = state.sprint;
     }
     $("fJql").value = state.jql;
 
     const counts = Object.fromEntries(STAGES.map(s => [s.id, 0]));
-    for (const i of list) if (passesFields(i)) counts[stageOf(i).id]++;
+    for (const t of list) if (passesFields(t)) counts[stageOf(t).id]++;
     $("statusList").replaceChildren(...STAGES.map(s => {
-      const on = state.stages.has(s.id);
+      const on = state.stages.includes(s.id);
       return el("label", { class: "status-row" + (on ? " on" : "") },
         el("input", { type: "checkbox", checked: on, onchange: () => {
-          if (state.stages.has(s.id)) state.stages.delete(s.id); else state.stages.add(s.id);
+          state.stages = on ? state.stages.filter(x => x !== s.id) : state.stages.concat(s.id);
           persist(); render();
         } }),
         el("span", { text: s.name }),
@@ -431,16 +568,27 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
     $("filtersBadge").hidden = !n;
     $("filtersBadge").textContent = String(n);
     $("filtersBtn").classList.toggle("on", n > 0);
+
+    $("colList").replaceChildren(...COLUMNS.map(c => {
+      const on = state.cols.includes(c.id);
+      return el("label", { class: "status-row" + (on ? " on" : "") },
+        el("input", { type: "checkbox", checked: on, onchange: () => {
+          state.cols = on ? state.cols.filter(x => x !== c.id) : COLUMNS.map(x => x.id).filter(x => x === c.id || state.cols.includes(x));
+          persist(); render();
+        } }),
+        el("span", { text: c.name }), el("span"));
+    }));
+    $("columnsBadge").textContent = `${state.cols.length}/${COLUMNS.length}`;
   }
 
   // ---- launching ----
-  async function copyCommand(btn, text) {
+  async function copyText(btn, text, notice) {
     try {
       await navigator.clipboard.writeText(text);
       if (btn) flash(btn);
-      showNotice("warn", `Copied: ${text}. Paste it into a Claude Code session on the ticket's repository.`);
+      if (notice) showNotice("warn", notice);
     } catch {
-      showNotice("warn", `Copy refused by this browser. Command: ${text}`);
+      showNotice("warn", `Copy refused by this browser: ${text}`);
     }
   }
   function flash(btn) {
@@ -450,25 +598,22 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
     setTimeout(() => { btn.replaceChildren(...old); btn.classList.remove("done"); }, 1500);
   }
   // Must run synchronously inside the click: the platform proves the gesture from the call.
-  function launch(btn, issue, autonomous) {
-    const def = BY_ID[stageOf(issue).id];
+  function launch(btn, t, autonomous) {
+    const def = BY_ID[stageOf(t).id];
     const skill = autonomous ? "pickup-issue" : def.skill;
     if (!skill) return;
-    const cmd = `/${PLUGIN}:${skill} ${issue.key}`;
-    if (!room || !canSend) { copyCommand(btn, cmd); return; }
+    const cmd = `/${PLUGIN}:${skill} ${t.key}`;
+    const copied = `Copied: ${cmd}. Paste it into a Claude Code session on the ticket's repository.`;
+    if (!room || !canSend) { copyText(btn, cmd, copied); return; }
     const data = {
-      label: `${issue.key} · ${autonomous ? "autonomous" : skill}`,
-      ticket: issue.key,
-      title: (issue.fields?.summary || "").slice(0, 300),
-      url: issue.webUrl || `https://${CLOUD}/browse/${issue.key}`,
-      skill: `${PLUGIN}:${skill}`,
-      command: cmd,
-      autonomous: !!autonomous,
+      label: `${t.key} · ${autonomous ? "autonomous" : skill}`,
+      ticket: t.key, title: t.summary.slice(0, 300), url: t.url,
+      skill: `${PLUGIN}:${skill}`, command: cmd, autonomous: !!autonomous,
       instructions: `Hand this ticket to /${PLUGIN}:dispatch: it opens a dedicated Claude Code session, in its own worktree, that starts with the command above. Do not run the command in this conversation.`,
     };
     const opts = canSend === "available" ? { attachPresence: false } : { deliver: "send", attachPresence: false };
     room.sendToClaudeSession(data, opts).then(() => { if (btn) flash(btn); }).catch(err => {
-      if (err?.code === "claude_unavailable") { refreshCanSend(); copyCommand(btn, cmd); }
+      if (err?.code === "claude_unavailable") { refreshCanSend(); copyText(btn, cmd, copied); }
       else if (err?.code === "rate_limited") showNotice("warn", "Too many hand-offs in a row. Try again in a moment.");
       else showNotice("warn", `The hand-off to Claude failed. Paste the command into a Claude Code session: ${cmd}`);
     });
@@ -482,18 +627,18 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
     if (canSend !== before && issues) render();
   }
 
-  // ---- card menu ----
+  // ---- ticket menu ----
   const menu = $("menu");
-  function openMenu(btn, issue) {
-    const def = BY_ID[stageOf(issue).id];
-    const url = issue.webUrl || `https://${CLOUD}/browse/${issue.key}`;
+  function openMenu(btn, t) {
+    const def = BY_ID[stageOf(t).id];
     const item = (ic, text, onclick, disabled) =>
       el("button", { type: "button", role: "menuitem", disabled: !!disabled, onclick: e => { closeMenu(); onclick(e); } }, icon(ic), text);
     menu.replaceChildren(
-      item("step", def.skill ? `Next step: ${def.skill}` : "No next step", () => launch(btn, issue, false), !def.skill),
-      item("auto", def.auto || "Merge stays manual", () => launch(btn, issue, true), !def.auto),
-      item("copy", def.skill ? `Copy /${PLUGIN}:${def.skill}` : "Nothing to copy", () => copyCommand(null, `/${PLUGIN}:${def.skill} ${issue.key}`), !def.skill),
-      el("a", { href: url, target: "_blank", rel: "noopener", role: "menuitem", onclick: closeMenu }, icon("open"), "Open in Jira"));
+      item("step", def.skill ? `Next step: ${def.skill}` : "No next step", () => launch(btn, t, false), !def.skill),
+      item("auto", def.auto || "Merge stays manual", () => launch(btn, t, true), !def.auto),
+      item("copy", def.skill ? `Copy /${PLUGIN}:${def.skill}` : "Nothing to copy",
+        () => copyText(null, `/${PLUGIN}:${def.skill} ${t.key}`, `Copied: /${PLUGIN}:${def.skill} ${t.key}`), !def.skill),
+      el("a", { href: t.url, target: "_blank", rel: "noopener", role: "menuitem", onclick: closeMenu }, icon("open"), "Open in Jira"));
     menu.hidden = false;
     const r = btn.getBoundingClientRect();
     const w = menu.offsetWidth, h = menu.offsetHeight;
@@ -503,7 +648,7 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
   }
   function closeMenu() { menu.hidden = true; }
 
-  // ---- rendering ----
+  // ---- presence ----
   function watchedKeys() {
     const set = new Set();
     for (const p of peers) {
@@ -519,64 +664,126 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
     room.presence({ focus: key }).catch(() => {});
   }
 
-  function card(issue, stage, watched) {
-    const f = issue.fields || {};
+  // ---- board view ----
+  function card(t, stage, watched) {
     const def = BY_ID[stage.id];
-    const url = issue.webUrl || `https://${CLOUD}/browse/${issue.key}`;
-    const prio = f.priority?.name;
-    const node = el("article", { class: "card" + (watched ? " watched" : ""), tabindex: "0",
+    return el("article", { class: "card" + (watched ? " watched" : ""), tabindex: "0",
       title: watched ? "Someone else is looking at this ticket" : null,
-      onmouseenter: () => focusOn(issue.key), onfocusin: () => focusOn(issue.key) },
+      onmouseenter: () => focusOn(t.key), onfocusin: () => focusOn(t.key) },
       el("div", { class: "card-top" },
         el("span", { class: "box" + (stage.inferred ? " inferred" : ""),
-          title: stage.inferred ? `Stage read from the Jira status "${f.status?.name || ""}"` : `Jira status: ${f.status?.name || ""}` }),
-        el("a", { class: "key", href: url, target: "_blank", rel: "noopener", text: issue.key }),
-        el("button", { type: "button", class: "icon-btn", "aria-label": `Actions for ${issue.key}`, "aria-haspopup": "menu",
-          onclick: e => { e.stopPropagation(); openMenu(e.currentTarget, issue); } }, icon("dots"))),
-      el("p", { class: "title", text: f.summary || "(untitled)" }),
+          title: stage.inferred ? `Stage read from the Jira status "${t.status}"` : `Jira status: ${t.status}` }),
+        el("a", { class: "key", href: t.url, target: "_blank", rel: "noopener", text: t.key }),
+        el("button", { type: "button", class: "icon-btn", "aria-label": `Actions for ${t.key}`, "aria-haspopup": "menu",
+          onclick: e => { e.stopPropagation(); openMenu(e.currentTarget, t); } }, icon("dots"))),
+      el("p", { class: "title", text: t.summary || "(untitled)" }),
       el("div", { class: "meta" },
-        prio ? el("span", { class: "prio" }, el("span", { class: "dot", style: `background:${prioTone(prio)}` }), prio) : null),
+        t.priority ? el("span", { class: "prio" }, el("span", { class: "dot", style: `background:${prioTone(t.priority)}` }), t.priority) : null),
       el("div", { class: "card-foot" },
-        el("span", { class: "assignee", text: f.assignee?.displayName || "Unassigned" }),
+        el("span", { class: "assignee", text: t.assignee || "Unassigned" }),
         el("button", { type: "button", class: "icon-btn", disabled: !def.skill,
           title: def.step ? def.step + (canSend ? "" : " (copies the command)") : "Finished",
-          "aria-label": def.step || "Finished", onclick: e => launch(e.currentTarget, issue, false) }, icon("step"))));
-    return node;
+          "aria-label": def.step || "Finished", onclick: e => launch(e.currentTarget, t, false) }, icon("step"))));
+  }
+  function renderBoard(rows) {
+    const groups = Object.fromEntries(STAGES.map(s => [s.id, []]));
+    for (const r of rows) groups[r[1].id].push(r);
+    const watched = watchedKeys();
+    return el("div", { class: "board" }, STAGES.map(s =>
+      el("section", { class: "col", style: `--tone: var(--s-${s.id})`, "aria-label": s.name },
+        el("div", { class: "col-head" }, el("span", { class: "dot" }), el("span", { text: s.name }),
+          el("span", { class: "n", text: String(groups[s.id].length) })),
+        el("div", { class: "cards" }, groups[s.id].map(([t, st]) => card(t, st, watched.has(t.key)))))));
+  }
+
+  // ---- list view ----
+  const SORTERS = {
+    key: t => { const m = /^(.*?)-(\d+)$/.exec(t.key); return m ? [m[1], Number(m[2])] : [t.key, 0]; },
+    title: t => t.summary.toLowerCase(),
+    stage: (t, st) => STAGE_RANK[st.id],
+    status: t => t.status.toLowerCase(),
+    priority: t => prioRank(t.priority),
+    sprint: t => sprintLabel(t).toLowerCase(),
+    assignee: t => (t.assignee || "~").toLowerCase(),
+    type: t => t.type.toLowerCase(),
+  };
+  function compare(a, b) {
+    if (Array.isArray(a)) return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1];
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+  function renderList(rows) {
+    const by = SORTERS[state.sort.by] ? state.sort.by : "stage";
+    const dir = state.sort.dir;
+    const sorted = rows.map((r, i) => [r, i]).sort((x, y) =>
+      dir * compare(SORTERS[by](x[0][0], x[0][1]), SORTERS[by](y[0][0], y[0][1])) || x[1] - y[1]).map(x => x[0]);
+    const cols = COLUMNS.filter(c => state.cols.includes(c.id));
+    const watched = watchedKeys();
+    const head = (id, name) => el("th", { class: by === id ? "sorted" : null, "aria-sort": by === id ? (dir === 1 ? "ascending" : "descending") : null },
+      el("button", { type: "button", onclick: () => {
+        state.sort = { by: id, dir: state.sort.by === id ? -state.sort.dir : 1 };
+        persist(); render();
+      } }, name + (by === id ? (dir === 1 ? " ▲" : " ▼") : "")));
+    const cell = (c, t, st) => {
+      if (c.id === "stage") return el("td", { class: "c" }, el("span", { class: "stage", style: `--tone: var(--s-${st.id})` },
+        el("span", { class: "dot" }), BY_ID[st.id].name));
+      if (c.id === "status") return el("td", { class: "c dim", text: t.status || "-" });
+      if (c.id === "priority") return el("td", { class: "c" }, t.priority
+        ? el("span", { class: "prio" }, el("span", { class: "dot", style: `background:${prioTone(t.priority)}` }), t.priority) : "-");
+      if (c.id === "sprint") return el("td", { class: "c dim", text: sprintLabel(t) || "-" });
+      if (c.id === "assignee") return el("td", { class: "c dim", text: t.assignee || "Unassigned" });
+      return el("td", { class: "c dim", text: t.type || "-" });
+    };
+    const body = sorted.map(([t, st]) => {
+      const def = BY_ID[st.id];
+      return el("tr", { class: watched.has(t.key) ? "watched" : null, onmouseenter: () => focusOn(t.key) },
+        el("td", { class: "k" }, el("span", { class: "box" + (st.inferred ? " inferred" : ""),
+          title: st.inferred ? `Stage read from the Jira status "${t.status}"` : "Stage from its Sectile label" }), " ",
+          el("a", { class: "key", href: t.url, target: "_blank", rel: "noopener", text: t.key })),
+        el("td", { class: "t", text: t.summary || "(untitled)" }),
+        cols.map(c => cell(c, t, st)),
+        el("td", { class: "a" }, el("span", { class: "act" },
+          el("button", { type: "button", class: "step-btn", disabled: !def.skill,
+            title: def.step ? def.step + (canSend ? "" : " (copies the command)") : "Finished",
+            onclick: e => launch(e.currentTarget, t, false), text: def.verb || "Done" }),
+          el("button", { type: "button", class: "icon-btn", "aria-label": `Actions for ${t.key}`, "aria-haspopup": "menu",
+            onclick: e => { e.stopPropagation(); openMenu(e.currentTarget, t); } }, icon("dots")))));
+    });
+    return el("div", { class: "list-wrap" },
+      el("table", { class: "list" },
+        el("thead", {}, el("tr", {}, head("key", "Key"), head("title", "Title"), cols.map(c => head(c.id, c.name)), el("th", { style: "text-align:right" }, "Actions"))),
+        el("tbody", {}, body)),
+      sorted.length ? null : el("div", { class: "empty-list", text: issues ? "No ticket matches these filters." : "Loading tickets…" }));
   }
 
   function render() {
     renderFilters();
-    if (!issues) return;
-    const groups = Object.fromEntries(STAGES.map(s => [s.id, []]));
-    let shown = 0;
-    for (const issue of issues.list) {
-      if (!passesFields(issue)) continue;
-      const st = stageOf(issue);
-      if (state.stages.size && !state.stages.has(st.id)) continue;
-      groups[st.id].push([issue, st]);
-      shown++;
-    }
-    const watched = watchedKeys();
-    $("board").replaceChildren(...STAGES.map(s =>
-      el("section", { class: "col", style: `--tone: var(--s-${s.id})`, "aria-label": s.name },
-        el("div", { class: "col-head" }, el("span", { class: "dot" }), el("span", { text: s.name }),
-          el("span", { class: "n", text: String(groups[s.id].length) })),
-        el("div", { class: "cards" }, groups[s.id].map(([i, st]) => card(i, st, watched.has(i.key)))))));
-    renderCount(shown);
+    $("viewBoard").setAttribute("aria-pressed", String(state.view === "board"));
+    $("viewList").setAttribute("aria-pressed", String(state.view === "list"));
+    $("columnsBtn").hidden = state.view !== "list";
+    if (!issues) { renderSkeleton(); return; }
+    const rows = visibleTickets();
+    $("view").replaceChildren(state.view === "list" ? renderList(rows) : renderBoard(rows));
+    renderCount(rows.length);
   }
   function renderCount(shown) {
     const n = issues.list.length;
-    $("countPill").textContent = shown === n ? `${n} ticket${n === 1 ? "" : "s"}` : `${shown} of ${n} tickets`;
+    const pill = $("countPill");
+    pill.textContent = shown === n ? `${n} ticket${n === 1 ? "" : "s"}` : `${shown} of ${n} tickets`;
+    pill.title = cachedAt ? `From this browser's cache, ${new Date(cachedAt).toLocaleString()}; refreshing from Jira` : "";
+    pill.classList.toggle("cached", !!cachedAt);
     const more = issues.more && n < PAGE_SIZE * MAX_PAGES;
     $("moreBtn").hidden = !more && !loadingMore;
     $("moreBtn").disabled = loadingMore;
-    $("moreBtn").textContent = loadingMore ? "Loading…" : `Load ${PAGE_SIZE} more`;
+    $("moreBtn").textContent = loadingMore ? "Loading…" : `Load ${PAGE_SIZE * 5} more`;
   }
   function renderSkeleton() {
-    $("board").replaceChildren(...STAGES.map(s =>
-      el("section", { class: "col", style: `--tone: var(--s-${s.id})` },
-        el("div", { class: "col-head" }, el("span", { class: "dot" }), el("span", { text: s.name })),
-        el("div", { class: "cards" }, s.id === "new" ? [el("div", { class: "skeleton" }), el("div", { class: "skeleton" })] : []))));
+    if (state.view === "list") { $("view").replaceChildren(renderList([])); }
+    else {
+      $("view").replaceChildren(el("div", { class: "board" }, STAGES.map(s =>
+        el("section", { class: "col", style: `--tone: var(--s-${s.id})` },
+          el("div", { class: "col-head" }, el("span", { class: "dot" }), el("span", { text: s.name })),
+          el("div", { class: "cards" }, s.id === "new" ? [el("div", { class: "skeleton" }), el("div", { class: "skeleton" })] : [])))));
+    }
     $("countPill").textContent = "Loading…";
   }
 
@@ -586,15 +793,16 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
   }
   function handleError(err) {
     const code = err?.code || "upstream_error";
+    const keep = issues ? " The board shows the last tickets received." : "";
     switch (code) {
       case "needs_reauth":
-        issues = null; renderSkeleton();
+        issues = null; render();
         showNotice("crit", `Your ${SERVER} connection expired. Reconnect it in claude.ai, Settings, Connectors, then reload this page.`); break;
       case "server_not_connected": case "selection_required":
-        issues = null; renderSkeleton();
+        issues = null; render();
         showNotice("crit", `This board reads Jira through the "${SERVER}" connector. Add it in claude.ai, Settings, Connectors.`); break;
       case "not_in_manifest": case "blocked_by_policy":
-        issues = null; renderSkeleton();
+        issues = null; render();
         showNotice("crit", "Jira access is not allowed for this page. Turn it on from the artifact's Permissions menu."); break;
       case "approval_required":
         showNotice("warn", "This board needs your approval to read Jira with your account.", { label: "Allow and load", run: loadOnce }); break;
@@ -603,9 +811,9 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
       case "shape":
         showNotice("crit", "Jira answered in a format this board cannot read."); break;
       case "server_unavailable": case "rate_limited":
-        showNotice("warn", issues ? "Jira is not answering right now. The board shows the last tickets received." : "Jira is not answering right now. The next refresh will try again."); break;
+        showNotice("warn", `Jira is not answering right now.${keep || " The next refresh will try again."}`); break;
       default:
-        showNotice("warn", `Could not read Jira (${code}). The board shows the last tickets received.`, { label: "Retry", run: loadOnce });
+        showNotice("warn", `Could not read Jira (${code}).${keep}`, { label: "Retry", run: loadOnce });
     }
   }
 
@@ -617,26 +825,30 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
     const list = p?.issues?.nodes || p?.data?.issues?.nodes || (Array.isArray(p?.issues) ? p.issues : null);
     if (!Array.isArray(list)) throw Object.assign(new Error("unexpected"), { code: "shape" });
     const info = p?.issues?.pageInfo || p?.data?.issues?.pageInfo || {};
-    return { list, more: !!info.hasNextPage, cursor: info.endCursor || null };
+    return { list: list.map(reduce), more: !!info.hasNextPage, cursor: info.endCursor || null };
   }
   function combine() {
     const seen = new Set(), list = [];
-    for (const page of [firstPage, ...extraPages]) for (const i of page.list) if (!seen.has(i.key)) { seen.add(i.key); list.push(i); }
+    for (const page of [firstPage, ...extraPages]) for (const t of page.list) if (!seen.has(t.key)) { seen.add(t.key); list.push(t); }
+    // Until the later pages arrive, keep the cached tickets past the first page rather than shrinking the board.
+    if (cachedAt && issues && !extraPages.length && wantedPages > 1) {
+      for (const t of issues.list) if (!seen.has(t.key)) { seen.add(t.key); list.push(t); }
+    }
     const last = extraPages.length ? extraPages[extraPages.length - 1] : firstPage;
     issues = { list, more: last.more, cursor: last.cursor };
     render();
   }
-  // The first page is watched and refreshed every minute; the pages after it follow its cursor.
+  // The first page is watched and refreshed every minute; the pages after it follow its cursor, from a four-minute cache.
   async function fetchExtraPages() {
     const gen = ++generation;
-    if (!firstPage || wantedPages <= 1 || !firstPage.more) { extraPages = []; combine(); return; }
+    if (!firstPage || wantedPages <= 1 || !firstPage.more) { extraPages = []; cachedAt = null; combine(); cacheWrite(); return; }
     loadingMore = true;
-    renderCount(issues ? issues.list.length : 0);
+    if (issues) renderCount(visibleTickets().length);
     const pages = [];
     let cursor = firstPage.cursor;
     try {
       while (cursor && pages.length < wantedPages - 1) {
-        const r = await mcp.callTool(SERVER, TOOL, { ...input(), nextPageToken: cursor }, { cache: { staleTime: 30000, gcTime: 600000 } });
+        const r = await mcp.callTool(SERVER, TOOL, { ...input(), nextPageToken: cursor }, { cache: { staleTime: 240000, gcTime: 900000 } });
         if (gen !== generation) return;
         const page = extractIssues(payloadOf(r));
         pages.push(page);
@@ -648,7 +860,9 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
       if (gen === generation) {
         loadingMore = false;
         if (pages.length || !extraPages.length) extraPages = pages;
+        cachedAt = null;
         combine();
+        cacheWrite();
       }
     }
   }
@@ -657,7 +871,7 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
       firstPage = extractIssues(payloadOf(result));
       showNotice();
       combine();
-      if (wantedPages > 1) fetchExtraPages();
+      fetchExtraPages();
     } catch (e) { handleError(e); }
   }
   async function loadOnce() {
@@ -672,28 +886,41 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
       if (ev.type === "data") accept(ev.result); else handleError(ev.error);
     }, { cache: { staleTime: 30000, gcTime: 600000 }, refetchInterval: 60000 });
   }
+  function loadCache() {
+    const c = cacheRead();
+    if (c && Array.isArray(c.list)) { issues = { list: c.list, more: !!c.more, cursor: null }; cachedAt = c.at; }
+    else { issues = null; cachedAt = null; }
+  }
   function requery() {
-    issues = null; firstPage = null; extraPages = []; wantedPages = 1; generation++; loadingMore = false;
-    renderSkeleton();
+    firstPage = null; extraPages = []; wantedPages = DEFAULT_PAGES; generation++; loadingMore = false;
+    loadCache();
+    render();
     watch();
   }
 
   // ---- wiring ----
-  const pop = $("filters");
-  function setPopover(open) {
-    pop.hidden = !open;
-    $("filtersBtn").setAttribute("aria-expanded", String(open));
+  const pops = { filters: $("filters"), columns: $("columns") };
+  const popBtns = { filters: $("filtersBtn"), columns: $("columnsBtn") };
+  function setPopover(name, open) {
+    for (const [k, p] of Object.entries(pops)) {
+      const on = k === name && open;
+      p.hidden = !on;
+      popBtns[k].setAttribute("aria-expanded", String(on));
+    }
     if (open) renderFilters();
   }
-  $("filtersBtn").addEventListener("click", e => { e.stopPropagation(); setPopover(pop.hidden); });
+  for (const k of Object.keys(pops)) popBtns[k].addEventListener("click", e => { e.stopPropagation(); setPopover(k, pops[k].hidden); });
   document.addEventListener("click", e => {
-    if (!pop.hidden && !pop.contains(e.target)) setPopover(false);
+    for (const [k, p] of Object.entries(pops)) if (!p.hidden && !p.contains(e.target)) setPopover(k, false);
     if (!menu.hidden && !menu.contains(e.target)) closeMenu();
   });
-  document.addEventListener("keydown", e => { if (e.key === "Escape") { setPopover(false); closeMenu(); } });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") { setPopover("", false); closeMenu(); } });
   addEventListener("scroll", closeMenu, true);
 
-  $("search").addEventListener("input", e => { state.search = e.target.value.trim(); render(); });
+  $("viewBoard").addEventListener("click", () => { state.view = "board"; persist(); render(); });
+  $("viewList").addEventListener("click", () => { state.view = "list"; persist(); render(); });
+  $("search").value = state.search;
+  $("search").addEventListener("input", e => { state.search = e.target.value.trim(); persist(); render(); });
   for (const [id, key] of [["fAssignee", "assignee"], ["fType", "type"], ["fPriority", "priority"]]) {
     $(id).addEventListener("change", e => { state[key] = e.target.value; persist(); render(); });
   }
@@ -703,15 +930,27 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
     if (next === state.jql) return;
     state.jql = next; persist(); requery();
   });
-  $("allStatusBtn").addEventListener("click", () => { state.stages.clear(); persist(); render(); });
+  $("allStatusBtn").addEventListener("click", () => { state.stages = []; persist(); render(); });
   $("resetBtn").addEventListener("click", () => {
     const requeryNeeded = (!SPRINT_FIELD && state.sprint) || state.jql !== DEFAULT_JQL;
-    Object.assign(state, { jql: DEFAULT_JQL, sprint: "", assignee: "", type: "", priority: "" });
-    state.stages.clear();
+    Object.assign(state, { jql: DEFAULT_JQL, sprint: "", assignee: "", type: "", priority: "", stages: [] });
     persist();
     if (requeryNeeded) requery(); else render();
   });
-  $("moreBtn").addEventListener("click", () => { wantedPages = Math.min(MAX_PAGES, wantedPages + 1); fetchExtraPages(); });
+  $("colsResetBtn").addEventListener("click", () => { state.cols = DEFAULT_COLS.slice(); persist(); render(); });
+  $("moreBtn").addEventListener("click", () => { wantedPages = Math.min(MAX_PAGES, wantedPages + 5); fetchExtraPages(); });
+  $("linkBtn").addEventListener("click", e => {
+    const token = encodeView(state);
+    const link = PAGE_URL ? `${PAGE_URL}#${token}` : `#${token}`;
+    copyText(e.currentTarget, link, PAGE_URL ? "Copied a link to this view and its filters." : "Copied this view's anchor: add it after the board's link.");
+  });
+  addEventListener("hashchange", () => {
+    const next = stateFromHash();
+    if (!next) return;
+    const jqlChanged = next.jql !== state.jql || (!SPRINT_FIELD && next.sprint !== state.sprint);
+    state = next; persist(); $("search").value = state.search;
+    if (jqlChanged) requery(); else render();
+  });
 
   function renderPeers(user, list) {
     const people = new Map();
@@ -735,8 +974,8 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
   }
 
   async function boot() {
-    renderSkeleton();
-    renderFilters();
+    loadCache();
+    render();
     const claude = window.claude;
     if (!claude?.use) {
       showNotice("crit", "Open this board in claude.ai: it reads Jira with the Atlassian connector of whoever views it.");
