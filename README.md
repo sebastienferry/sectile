@@ -191,7 +191,7 @@ to install the skills and register the MCP server:
   then `claude plugin marketplace add /tmp/sectile-lite` and
   `claude plugin install sectile-lite@sectile-lite`. It asks for nothing: the
   ticket skills (`/sectile-lite:clarify-issue PE-123`, ...) reach Jira through
-  your Atlassian connector and record each stage as a `sectile:<stage>` label.
+  your Atlassian connector and record each stage as Sectile's own `#<stage>` label.
   `/sectile-lite:dispatch PE-123 PE-124`, or the board's buttons sent to a
   session running it, opens one Claude Code session per ticket, each in its
   own worktree. `/sectile-lite:board [JQL]` publishes your own Sectile Board

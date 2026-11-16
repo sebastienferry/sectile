@@ -27,7 +27,7 @@ change.
 
 **A second Claude plugin, `sectile-lite`, renders the same ticket skills from
 the same fragments, under its own contracts. Jira is the source of truth, and a
-ticket's stage is a `sectile:<stage>` label.**
+ticket's stage is Sectile's own `#<stage>` label.**
 
 - `internal/skills` takes a `lite` flavour. A contract is read from
   `fragments/contracts/lite/` when one is there, and from the shared contract
@@ -41,11 +41,14 @@ ticket's stage is a `sectile:<stage>` label.**
   change, `record_pull_request` a remote link, `get_project_context` a reading
   of the repository; `start_run`, `finish_run` and `report_waiting` are
   skipped, and `SECTILE_*` variables are absent.
-- **A stage is one label** among `sectile:clarified`, `sectile:specified`,
-  `sectile:implemented`, `sectile:reviewed` and `sectile:finished`; none means
-  `new`. Setting a stage replaces the previous `sectile:` label and leaves the
-  others alone. The Jira status is never changed: it belongs to the team's own
-  workflow. The stage report is one Jira comment headed `Sectile · <stage>`.
+- **A stage is Sectile's own label**, one of `#new`, `#clarified`,
+  `#specified`, `#implemented`, `#reviewed` and `#finished`; none means
+  `#new`. Setting a stage replaces every other stage label, in any case and
+  with or without its `#`, and leaves the others alone. Using Sectile's labels
+  rather than a Lite namespace lets Sectile, Lite and the board read each
+  other's tickets. Unlike Sectile, Lite never changes the Jira status: it
+  belongs to the team's own workflow. The stage report is one Jira comment
+  headed `Sectile · <stage>`.
 - The plugin declares no MCP server and asks nothing at install time. Jira is
   reached through the Atlassian connector of whoever runs the skill, so every
   write uses that person's own access (ADR 0059 by other means).

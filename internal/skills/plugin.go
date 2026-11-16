@@ -151,10 +151,10 @@ func LiteStageSkills() []StageSkill {
 // RenderLitePlugin returns the Sectile Lite plugin: the workflow skills for a
 // team that keeps its tickets on Jira and runs them from Claude, without a
 // Sectile server, the dispatcher that opens a session per ticket, and the
-// board skill with the page it publishes. It declares no MCP server and asks nothing at install time:
-// the skills reach Jira through the Atlassian connector of whoever runs them,
-// and record each stage as a sectile:<stage> label that the Sectile board
-// artifact reads.
+// board skill with the page it publishes. It declares no MCP server and asks
+// nothing at install time: the skills reach Jira through the Atlassian
+// connector of whoever runs them, and record each stage as Sectile's own
+// #<stage> label, which the board reads.
 func RenderLitePlugin(version string) (map[string][]byte, error) {
 	if err := validatePluginVersion(version); err != nil {
 		return nil, err
@@ -162,7 +162,7 @@ func RenderLitePlugin(version string) (map[string][]byte, error) {
 	manifest := map[string]any{
 		"name":        LitePluginName,
 		"version":     version,
-		"description": "Sectile workflow skills on Jira tickets, without a Sectile server: each stage is a sectile:<stage> label.",
+		"description": "Sectile workflow skills on Jira tickets, without a Sectile server: each stage is a #<stage> label, as in Sectile.",
 		"author":      map[string]any{"name": "Sectile"},
 		"skills":      "./skills/",
 	}

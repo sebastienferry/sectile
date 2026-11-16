@@ -79,7 +79,7 @@ func TestLiteSkillsKeepTheStageOnJira(t *testing.T) {
 			"Never call a Sectile MCP server's tools, even when one is connected",
 			"`transition_stage`: the stage change",
 			"`start_run`, `finish_run` and `report_waiting` have no equivalent",
-			"`sectile:clarified`",
+			"`#clarified`",
 		} {
 			if !strings.Contains(content, required) {
 				t.Errorf("%s lacks %q", s.DirName, required)
