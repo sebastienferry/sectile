@@ -1505,19 +1505,19 @@ a.connection-body:hover {
    and the workflow panel share one class per kind. Verify and failed have a
    shape of their own so the meaning never rests on colour alone. */
 .skill-status-mark { display:inline-block; width:8px; height:8px; margin-right:6px; vertical-align:middle; border:1px solid var(--muted); border-radius:50%; flex:0 0 auto; }
-.skill-working { background:#60a5fa; border-color:#60a5fa; animation:run-state-pulse 2s ease-in-out infinite; transform-origin:center; }
-.skill-waiting { background:#dca04f; border-color:#dca04f; }
-.skill-done { --skill-done:#4ade80; background:var(--skill-done); border-color:var(--skill-done); }
-.skill-verify { --skill-verify:#f5c542; background:var(--skill-verify); border-color:var(--skill-verify); }
+.conversation-indicator.skill-working,.skill-status-mark.skill-working { background:#60a5fa; border-color:#60a5fa; animation:run-state-pulse 2s ease-in-out infinite; transform-origin:center; }
+.conversation-indicator.skill-waiting,.skill-status-mark.skill-waiting { background:#dca04f; border-color:#dca04f; }
+.conversation-indicator.skill-done,.skill-status-mark.skill-done { --skill-done:#4ade80; background:var(--skill-done); border-color:var(--skill-done); }
+.conversation-indicator.skill-verify,.skill-status-mark.skill-verify { --skill-verify:#f5c542; background:var(--skill-verify); border-color:var(--skill-verify); }
 .conversation-indicator.skill-verify,.skill-status-mark.skill-verify { border-radius:1px; transform:rotate(45deg) scale(.85); }
-.skill-failed { --skill-failed:#f87171; background:var(--skill-failed); border-color:var(--skill-failed); }
+.conversation-indicator.skill-failed,.skill-status-mark.skill-failed { --skill-failed:#f87171; background:var(--skill-failed); border-color:var(--skill-failed); }
 .conversation-indicator.skill-failed,.skill-status-mark.skill-failed { border-radius:1px; }
-.skill-stopped { background:var(--muted); border-color:var(--muted); }
-.skill-stopping { background:var(--muted); border-color:var(--muted); animation:run-state-pulse 2s ease-in-out infinite; transform-origin:center; }
+.conversation-indicator.skill-stopped,.skill-status-mark.skill-stopped { background:var(--muted); border-color:var(--muted); }
+.conversation-indicator.skill-stopping,.skill-status-mark.skill-stopping { background:var(--muted); border-color:var(--muted); animation:run-state-pulse 2s ease-in-out infinite; transform-origin:center; }
 :root[data-theme="light"] .skill-done { --skill-done:#15803d; }
 :root[data-theme="light"] .skill-verify { --skill-verify:#a16207; }
 :root[data-theme="light"] .skill-failed { --skill-failed:#dc2626; }
-@media (prefers-reduced-motion:reduce){.skill-working,.skill-stopping{animation:none;}}
+@media (prefers-reduced-motion:reduce){.conversation-indicator.skill-working,.conversation-indicator.skill-stopping,.skill-status-mark.skill-working,.skill-status-mark.skill-stopping{animation:none;}}
 .conversation-execution-details { display:grid; gap:4px; padding:4px 2px 8px; border-bottom:1px solid var(--border); margin-bottom:6px; }
 .conversation-execution-details p { margin:0; font-size:var(--font-sm); overflow-wrap:anywhere; white-space:pre-wrap; }
 .conversation-execution-diagnostics { color:var(--muted); }
