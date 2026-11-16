@@ -228,7 +228,9 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
   // The Sectile Lite plugin: its skills keep the stage as Sectile's #<stage> label, which this board reads.
   const PLUGIN = "sectile-lite";
   const DEFAULT_JQL = CONFIG.jql;
-  const FIELDS = ["summary", "status", "assignee", "labels", "issuetype", "priority", "updated"];
+  // The Sprint field is a custom field whose id differs per Jira site; without it the filter falls back to open sprints only.
+  const SPRINT_FIELD = CONFIG.sprintField || "";
+  const FIELDS = ["summary", "status", "assignee", "labels", "issuetype", "priority", "updated"].concat(SPRINT_FIELD ? [SPRINT_FIELD] : []);
   const PAGE_SIZE = 100;
   const MAX_PAGES = 10;
 
@@ -326,6 +328,16 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
     if (cat === "indeterminate") return { id: "implemented", inferred: true };
     return { id: "new", inferred: true };
   }
+  // The issue's sprints, from the connector's mapped custom fields or the raw field.
+  function sprintsOf(issue) {
+    if (!SPRINT_FIELD) return [];
+    const f = issue.fields || {};
+    let v = f[SPRINT_FIELD];
+    if (v == null && f.customFields) {
+      for (const c of Object.values(f.customFields)) if (c && c.id === SPRINT_FIELD) { v = c.value; break; }
+    }
+    return Array.isArray(v) ? v.filter(x => x && x.id != null) : [];
+  }
   function prioTone(name) {
     if (/blocker|critical|highest|high|major/i.test(name)) return "var(--p-high)";
     if (/low|minor|trivial/i.test(name)) return "var(--p-low)";
@@ -342,6 +354,12 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
     }
     if (state.type && f.issuetype?.name !== state.type) return false;
     if (state.priority && f.priority?.name !== state.priority) return false;
+    if (SPRINT_FIELD && state.sprint) {
+      const sprints = sprintsOf(issue);
+      if (state.sprint === "none") { if (sprints.length) return false; }
+      else if (state.sprint === "open") { if (!sprints.some(x => x.state === "active")) return false; }
+      else if (!sprints.some(x => String(x.id) === state.sprint)) return false;
+    }
     if (state.search) {
       const q = state.search.toLowerCase();
       if (![issue.key, f.summary, f.assignee?.displayName].some(v => (v || "").toLowerCase().includes(q))) return false;
@@ -353,7 +371,7 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
       + (state.stages.size ? 1 : 0) + (state.jql !== DEFAULT_JQL ? 1 : 0);
   }
   function effectiveJql() {
-    if (state.sprint !== "open") return state.jql;
+    if (SPRINT_FIELD || state.sprint !== "open") return state.jql;
     const m = /\s+ORDER\s+BY\s+/i.exec(state.jql);
     const where = m ? state.jql.slice(0, m.index) : state.jql;
     const order = m ? state.jql.slice(m.index) : "";
@@ -383,7 +401,18 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
     fillSelect($("fAssignee"), "All assignees", people, state.assignee);
     fillSelect($("fType"), "All types", [...types].sort().map(t => [t, t]), state.type);
     fillSelect($("fPriority"), "All priorities", [...prios].sort().map(p => [p, p]), state.priority);
-    $("fSprint").value = state.sprint;
+    if (SPRINT_FIELD) {
+      const all = new Map();
+      for (const i of list) for (const x of sprintsOf(i)) all.set(String(x.id), x);
+      const rank = { active: 0, future: 1, closed: 2 };
+      const sprints = [...all.values()].sort((a, b) => (rank[a.state] ?? 3) - (rank[b.state] ?? 3)
+        || String(b.startDate || "").localeCompare(String(a.startDate || "")) || a.name.localeCompare(b.name));
+      fillSelect($("fSprint"), "All sprints",
+        [["open", "Active sprints"], ["none", "No sprint"]].concat(sprints.map(x => [String(x.id), x.state === "active" ? `${x.name} (active)` : x.name])),
+        state.sprint);
+    } else {
+      $("fSprint").value = state.sprint;
+    }
     $("fJql").value = state.jql;
 
     const counts = Object.fromEntries(STAGES.map(s => [s.id, 0]));
@@ -668,7 +697,7 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
   for (const [id, key] of [["fAssignee", "assignee"], ["fType", "type"], ["fPriority", "priority"]]) {
     $(id).addEventListener("change", e => { state[key] = e.target.value; persist(); render(); });
   }
-  $("fSprint").addEventListener("change", e => { state.sprint = e.target.value; persist(); requery(); });
+  $("fSprint").addEventListener("change", e => { state.sprint = e.target.value; persist(); if (SPRINT_FIELD) render(); else requery(); });
   $("fJql").addEventListener("change", e => {
     const next = e.target.value.trim() || DEFAULT_JQL;
     if (next === state.jql) return;
@@ -676,7 +705,7 @@ footer code { font-family: var(--font-mono); font-size: 11px; }
   });
   $("allStatusBtn").addEventListener("click", () => { state.stages.clear(); persist(); render(); });
   $("resetBtn").addEventListener("click", () => {
-    const requeryNeeded = state.sprint || state.jql !== DEFAULT_JQL;
+    const requeryNeeded = (!SPRINT_FIELD && state.sprint) || state.jql !== DEFAULT_JQL;
     Object.assign(state, { jql: DEFAULT_JQL, sprint: "", assignee: "", type: "", priority: "" });
     state.stages.clear();
     persist();
