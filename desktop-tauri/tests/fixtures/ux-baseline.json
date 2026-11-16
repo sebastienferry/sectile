@@ -309,7 +309,7 @@
     "projects": [{ "id": "project-a", "name": "Project A" }]
   },
   "runResult": {
-    "activity": { "id": "run-review", "taskId": "task-2605", "skillId": "implement", "status": "completed" },
+    "activity": { "id": "run-review", "taskId": "task-2605", "skillId": "implement", "status": "completed", "summary": "Implementation pushed", "error": "", "disconnected": false },
     "successor": null,
     "task": { "status": "to_test", "labels": ["#implemented"] }
   },

@@ -125,10 +125,17 @@ export function projectRuns(runs: Run[], projectId: string) {
         a.id.localeCompare(b.id),
     );
 }
+/**
+ * Whether a wait mark is set. A conversation run may carry the Go zero time
+ * (`0001-01-01T00:00:00Z`), which means no mark.
+ */
+export function hasWaitMark(waitingSince?: string | null): boolean {
+  return !!waitingSince && !waitingSince.startsWith("0001");
+}
 export function statusLabel(run: Run) {
   if (run.authenticationRequired) return "Provider sign-in required";
   if (run.cancelRequested && isActive(run)) return "Stopping…";
-  if (run.waitingSince && !run.waitingSince.startsWith("0001") && isActive(run))
+  if (hasWaitMark(run.waitingSince) && isActive(run))
     return "Action required";
   // A conversation process stays available between turns. Its turn state comes
   // from the conversation snapshot, not the longer-lived agent process state.

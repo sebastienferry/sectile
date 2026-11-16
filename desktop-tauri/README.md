@@ -574,6 +574,35 @@ grouped, and results are matched by tool ID even when they arrive out of order.
 Summary labels distinguish running, completed, failed and missing results.
 Approvals remain explicit controls outside collapsed tool output.
 
+## Skill status
+
+A conversation that runs a ticket skill says how that skill stands, in three
+places that always agree: the execution menu of the conversation status strip
+(in place of `Execution: <run state>`), the status line of the ticket workflow
+panel, and the conversation's dot in the sidebar. The status is one of
+**Working · <skill>**, **Needs your answer**, **Done · <outcome>** (for example
+`Done · Clarified`, followed by `Next: Specify` when a next step can be
+launched), **Needs verification**, **Could not finish**, **Stopped** and
+**Stopping**, with a short detail or the recorded reason.
+
+The process state and what the server recorded for the skill can disagree, so
+Desktop reconciles them with the same precedence as the Electron client
+([specification](../specs/878-clear-skill-status/spec.md)): a requested stop
+first, then the skill's recorded verdict (Done only once the task reached the
+stage the skill is expected to bring it to), then a declared wait or a pending
+question, then the process itself. A pickup reads Done only when it moved the
+ticket forward from the stage it started at. When the session went on to run
+another skill, the status speaks for that skill.
+
+Open the execution menu to see the run state, the full reason of a failure or a
+stop, and the diagnostics line (`Execution: … · Skill record: … · Task stage: …`).
+In the sidebar, Done is a green dot, Working stays blue and pulsing, Needs your
+answer stays orange, Needs verification is an amber diamond, Could not finish a
+red square and Stopped a grey dot; the row's tooltip ends with the status.
+Free conversations and discussions keep their run state. Recorded reasons need
+a local agent recent enough to send them; otherwise the detail reads
+"reason not available".
+
 ## Answer agent questions
 
 Claude Code and Codex questions appear above the composer while the agent waits.

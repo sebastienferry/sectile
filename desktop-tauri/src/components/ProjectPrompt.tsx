@@ -23,6 +23,8 @@ import { QUEUE_LIMIT } from "../lib/conversation-queue";
 import { invoke } from "@tauri-apps/api/core";
 import { openExternalLink } from "../lib/workspace";
 import { pullRequestLabel, pullRequestStateLabel, taskPullRequests } from "../domain/pull-requests";
+import { skillStatusText, skillStatusTitle } from "../domain/skill-status";
+import { useSkillStatus } from "../lib/skill-results";
 import { conversationTitle } from "../domain/conversation-navigation";
 
 function sendOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -498,7 +500,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
     )}
     <QueuedMessages queue={queue} readOnly={!!snapshot.readOnly} onRemove={itemId => controller.removeQueued(itemId)} onResume={() => controller.resumeQueue()} />
     {snapshot.readOnly ? <>
-      <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} agentAvailable={agentAvailable} workflowOpen={workflowOpen} onToggleWorkflow={() => setWorkflowOpen(prev => !prev)} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} />
+      <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} projectContext={projectContext} busy={busy} error={!!error} agentAvailable={agentAvailable} workflowOpen={workflowOpen} onToggleWorkflow={() => setWorkflowOpen(prev => !prev)} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} />
       <div className="conversation-readonly-footer" aria-label="History options">
         <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly onChanged={onFoldersChanged}/>
         <button type="button" className="composer-action" disabled={!directory} title="Open terminal in working folder" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Unable to open terminal in this folder."))}><Icon name="terminal"/>Terminal</button>
@@ -506,7 +508,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
       </div>
     </> : <form className="composer" onSubmit={e => { e.preventDefault(); submitDraft(); }}>
       <div className="composer-nav-row">
-        <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} busy={busy} error={!!error} agentAvailable={agentAvailable} workflowOpen={workflowOpen} onToggleWorkflow={() => setWorkflowOpen(prev => !prev)} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} />
+        <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} projectContext={projectContext} busy={busy} error={!!error} agentAvailable={agentAvailable} workflowOpen={workflowOpen} onToggleWorkflow={() => setWorkflowOpen(prev => !prev)} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} />
       </div>
       <div className="composer-box">
         <textarea
@@ -663,13 +665,24 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
     </div>
   </section>;
 }
-function ConversationStatus({snapshot,run,task,board,busy,error,agentAvailable,workflowOpen,onToggleWorkflow,onOpenQueue,onOpenTask}:{snapshot:ConversationSnapshot;run?:Run;task?:Task;board?:BoardMapping;busy:boolean;error:boolean;agentAvailable:boolean;workflowOpen?:boolean;onToggleWorkflow?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void}) {
+function ConversationStatus({snapshot,run,task,board,projectContext,busy,error,agentAvailable,workflowOpen,onToggleWorkflow,onOpenQueue,onOpenTask}:{snapshot:ConversationSnapshot;run?:Run;task?:Task;board?:BoardMapping;projectContext?:ProjectContext;busy:boolean;error:boolean;agentAvailable:boolean;workflowOpen?:boolean;onToggleWorkflow?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void}) {
   const stage=task?taskStage(task,board):undefined;
   const activity=!agentAvailable?"Agent unavailable":error?"Status interrupted":snapshot.approvals?.length?"Your answer needed":busy?"Responding":snapshot.readOnly?"Read-only history":"Ready to respond";
   const execution=!agentAvailable?"Status unavailable":run?busy&&run.conversation?"Responding":statusLabel(run):"Loading";
+  // A ticket skill shows how the skill stands in place of the run state (#908);
+  // the run state, the full reason and the diagnostics move into the panel.
+  const skill=useSkillStatus(run,{task,project:projectContext,asking:!!snapshot.approvals?.length,turnBusy:snapshot.busy});
+  const status=agentAvailable?skill:null;
   return <div className="conversation-status-strip" aria-label="Conversation status">
     <span className={`conversation-status-activity ${agentAvailable&&busy?"live":""}`}><span className="conversation-status-dot"/>{activity}</span>
-    <details className="conversation-execution-menu"><summary>Execution: {execution}</summary><div className="conversation-execution-panel">
+    <details className={`conversation-execution-menu${status?` skill-status-${status.kind}`:""}`}>{status
+      ?<summary title={skillStatusTitle(status)}><span className={`skill-status-mark skill-${status.kind}`} aria-hidden="true"/>{skillStatusText(status)}</summary>
+      :<summary>Execution: {execution}</summary>}<div className="conversation-execution-panel">
+      {status&&<div className="conversation-execution-details">
+        <p>Execution: {execution}</p>
+        {status.reason&&<p className="conversation-execution-reason">{status.reason}</p>}
+        <p className="conversation-execution-diagnostics">{status.diagnostics}</p>
+      </div>}
       {onOpenQueue&&<button type="button" onClick={onOpenQueue}>View execution queue</button>}
       {onOpenTask&&<button type="button" onClick={onOpenTask}>Open ticket in tracker</button>}
     </div></details>

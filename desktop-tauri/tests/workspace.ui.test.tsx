@@ -125,7 +125,9 @@ test("project menu opens the execution queue and groups ticket conversations by 
  expect(await within(sidebar).findByText("New task - Clarify")).toBeTruthy();
  expect(await within(sidebar).findByText("Reviewed task - Adjust")).toBeTruthy();
  expect(within(sidebar).queryByText("Clarify this")).toBeNull();
- expect(sidebar.querySelector(".conversation-indicator.session")).not.toBeNull();
+ // Ticket skill conversations show their skill status (#908): a running skill, a session that ended without a verdict.
+ expect(sidebar.querySelector(".conversation-indicator.skill-working")).not.toBeNull();
+ expect(sidebar.querySelector(".conversation-indicator.skill-verify")).not.toBeNull();
  fireEvent.click(within(sidebar).getByRole("button",{name:"Open ticket APP-1"}));
  await waitFor(()=>expect(workspace.openExternalLink).toHaveBeenCalledWith("https://jira.example.com/browse/APP-1"));
  fireEvent.click(within(sidebar).getByLabelText("Actions for Example"));
