@@ -520,6 +520,17 @@ pub enum CodexReviewer {
     #[serde(rename = "auto_review")]
     AutoReview,
 }
+#[derive(serde::Deserialize, serde::Serialize)]
+pub enum AgyPermissionMode {
+    #[serde(rename = "accept-edits")]
+    AcceptEdits,
+    #[serde(rename = "default")]
+    Default,
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "plan")]
+    Plan,
+}
 #[derive(serde::Deserialize)]
 #[serde(tag = "provider", rename_all = "lowercase", deny_unknown_fields)]
 pub enum ProviderPermissions {
@@ -529,6 +540,9 @@ pub enum ProviderPermissions {
     Codex {
         #[serde(rename = "approvalsReviewer")]
         approvals_reviewer: CodexReviewer,
+    },
+    Agy {
+        mode: AgyPermissionMode,
     },
 }
 fn permission_request(input: ProviderPermissions) -> (&'static str, Value) {
@@ -540,6 +554,10 @@ fn permission_request(input: ProviderPermissions) -> (&'static str, Value) {
             "/desktop/codex-settings",
             json!({"approvalsReviewer":approvals_reviewer}),
         ),
+        ProviderPermissions::Agy { mode } => (
+            "/desktop/agy-settings",
+            json!({"conversationMode":mode}),
+        ),
     }
 }
 #[tauri::command]
@@ -549,6 +567,24 @@ pub async fn save_provider_permissions(
 ) -> Result<Value, String> {
     let (route, body) = permission_request(input);
     request_agent(app, Method::PUT, route, &[], Some(body)).await
+}
+#[tauri::command]
+pub async fn get_agy_settings(app: tauri::AppHandle) -> Result<Value, String> {
+    request_agent(app, Method::GET, "/desktop/agy-settings", &[], None).await
+}
+#[tauri::command]
+pub async fn get_workstation_sandbox(app: tauri::AppHandle) -> Result<Value, String> {
+    request_agent(app, Method::GET, "/desktop/workstation/sandbox", &[], None).await
+}
+#[tauri::command]
+pub async fn save_workstation_sandbox(
+    app: tauri::AppHandle,
+    input: Value,
+) -> Result<Value, String> {
+    if !input.is_object() {
+        return Err("Invalid sandbox payload".into());
+    }
+    request_agent(app, Method::PUT, "/desktop/workstation/sandbox", &[], Some(input)).await
 }
 #[cfg(test)]
 mod permission_tests {

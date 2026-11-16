@@ -50,5 +50,28 @@ export const editorPreference=(editor?:string)=>invoke<{configured:boolean;selec
 export const declareReviewed=(projectId:string,taskId:string,note:string)=>invoke("declare_reviewed",{projectId,taskId,note});
 export const chooseRepositoryFolder=(projectId:string,repository:string)=>invoke<string|null>("choose_repository_folder",{projectId,repository});
 export const chooseSpecificationFolder=(projectId:string,kind:"macro"|"issue",usePrimary=false)=>invoke<string|null>("choose_specification_folder",{projectId,kind,usePrimary});
-export type ProviderPermissions = {provider:"claude";mode:"default"|"acceptEdits"|"plan"|"auto"}|{provider:"codex";approvalsReviewer:"user"|"auto_review"};
-export const saveProviderPermissions=(input:ProviderPermissions)=>invoke("save_provider_permissions",{input});
+export type ProviderPermissions =
+  | { provider: "claude"; mode: "default" | "acceptEdits" | "plan" | "auto" }
+  | { provider: "codex"; approvalsReviewer: "user" | "auto_review" }
+  | { provider: "agy"; mode: "accept-edits" | "default" | "auto" | "plan" };
+export interface ClaudeSandbox {
+  enabled?: boolean | null;
+  autoAllowBashIfSandboxed?: boolean | null;
+  allowUnsandboxedCommands?: boolean | null;
+  additionalDirectories?: string[];
+  allowedDomains?: string[];
+  excludedCommands?: string[];
+  allowWrite?: string[];
+  allow?: string[];
+  deny?: string[];
+}
+export interface WorkstationSandboxPayload {
+  platformSandbox?: boolean;
+  claudeSandbox?: ClaudeSandbox;
+  projects?: string[];
+}
+export const saveProviderPermissions = (input: ProviderPermissions) => invoke("save_provider_permissions", { input });
+export const getAgySettings = () => invoke<{ conversationMode?: string }>("get_agy_settings");
+export const getWorkstationSandbox = () => invoke<WorkstationSandboxPayload>("get_workstation_sandbox");
+export const saveWorkstationSandbox = (input: { claudeSandbox: ClaudeSandbox; claudeSandboxBase?: ClaudeSandbox; projects: string[] }) =>
+  invoke<WorkstationSandboxPayload>("save_workstation_sandbox", { input });

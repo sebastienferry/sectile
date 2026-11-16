@@ -54,3 +54,50 @@ test("detected CLI version and models are displayed per provider", async () => {
  expect(screen.getByText("claude-opus-4-6")).toBeTruthy();
  expect(screen.getByText("gpt-5.4")).toBeTruthy();
 });
+
+test("AI engine tabs expose Claude sandbox, Codex reviewer, and Antigravity permission controls", async () => {
+ vi.mocked(invoke).mockImplementation(async (command, args) => {
+  if (command === "provider_status") return { installed: true, authentication: "connected" };
+  if (command === "provider_readiness") {
+   const provider = (args as { provider: string }).provider;
+   return {
+    provider,
+    permissions: provider === "claude" ? { mode: "auto" } : { approvalsReviewer: "auto_review" },
+   };
+  }
+  if (command === "get_workstation_sandbox") {
+   return { claudeSandbox: { enabled: null }, projects: [] };
+  }
+  if (command === "get_agy_settings") {
+   return { conversationMode: "auto" };
+  }
+  return {};
+ });
+
+ render(<ProviderSettings projects={[{ id: "p1", name: "Sectile" }]} />);
+ await screen.findAllByText("CLI detected · connected");
+
+ fireEvent.click(screen.getByRole("tab", { name: "Claude" }));
+ await screen.findByRole("button", { name: "Autonomy in sandbox" });
+ fireEvent.click(screen.getByRole("button", { name: "Autonomy in sandbox" }));
+ fireEvent.click(screen.getByRole("button", { name: "Save Claude sandbox" }));
+ await waitFor(() =>
+  expect(invoke).toHaveBeenCalledWith("save_workstation_sandbox", expect.objectContaining({
+   input: expect.objectContaining({
+    claudeSandbox: expect.objectContaining({
+     enabled: true,
+     autoAllowBashIfSandboxed: true,
+     allowUnsandboxedCommands: false,
+    }),
+   }),
+  })),
+ );
+
+ fireEvent.click(screen.getByRole("tab", { name: "Codex" }));
+ await screen.findByRole("heading", { name: "Approval reviewer" });
+ expect(screen.getByRole("option", { name: "Approve on my behalf" })).toBeTruthy();
+
+ fireEvent.click(screen.getByRole("tab", { name: "Antigravity" }));
+ await screen.findByRole("heading", { name: "Conversation permission mode" });
+ expect(screen.getByRole("option", { name: "Auto-approve all tools" })).toBeTruthy();
+});

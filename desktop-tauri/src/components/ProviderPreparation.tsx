@@ -3,7 +3,7 @@ import {useEffect,useRef,useState} from "react";
 import {configureProviderMcp,installProviderSkills,providerReadiness,type Readiness} from "../lib/workspace";
 
 const statusLabel=(status?:string)=>status==="success"?"Configuration verified":status==="skipped"?"Explicitly skipped":status==="failed"?"Failed":status==="unknown"?"Verification unavailable":"Unverified";
-export function ProviderPreparation({provider,projects}:{provider:string;projects:{id:string;name:string}[]}){
+export function ProviderPreparation({provider,projects,hidePermissions=false}:{provider:string;projects:{id:string;name:string}[];hidePermissions?:boolean}){
  const [view,setView]=useState<Readiness>();
  const [source,setSource]=useState("");
  const [pending,setPending]=useState(false);
@@ -27,6 +27,6 @@ export function ProviderPreparation({provider,projects}:{provider:string;project
  {conflict&&<label className="profile-checkbox"><input type="checkbox" checked={replace} disabled={pending} onChange={e=>setReplace(e.target.checked)}/> Replace the existing Sectile MCP entry with the local companion's entry. The other desktop app may use this entry.</label>}
  {isolated?<p className="muted">Isolated MCP connection active for future Claude Code and Codex launches. Open Codex conversations keep their configuration until their process restarts.</p>:<button disabled={pending||!view||(conflict&&!replace)} onClick={()=>void act(()=>configureProviderMcp(provider,replace),"MCP registered to the local agent. Verify its access in a conversation next.")}>Configure local MCP</button>}
  <button disabled={pending} onClick={()=>void act(refresh,"Preparation status refreshed.")}>Check preparation</button>
- <ProviderPermissions provider={provider} view={view} onSaved={refresh}/>
+ {!hidePermissions&&<ProviderPermissions provider={provider} view={view} onSaved={refresh}/>}
  </details>;
 }
