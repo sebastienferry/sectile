@@ -9,6 +9,8 @@ const INJECTED_USER_TRAILERS = [
   /^Specification artefacts are dropped/i,
   /^Folders of this task \(never search for them/i,
   /^Work in the primary worktree:/i,
+  // The agent resolves @ mentions in a block of its own (#917); it is never journaled, but never shown either.
+  /^<referenced-context>/i,
 ];
 
 export function cleanUserEventText(text: string): string {

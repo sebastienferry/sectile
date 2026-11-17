@@ -18,8 +18,8 @@ test("a free prompt creates a project-scoped Go conversation and crosses IPC onc
   const created = vi.fn();
   render(<ProjectPrompt projectId="project-one" onCreated={created} />);
   expect(screen.getByRole("heading",{name:"New prompt"})).toBeTruthy();
-  expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Free prompt" }));
-  fireEvent.change(screen.getByRole("textbox", { name: "Free prompt" }), { target: { value: "Explain the project" } });
+  expect(document.activeElement).toBe(getComposer("Free prompt"));
+  typeIn(getComposer("Free prompt"), "Explain the project");
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(created).toHaveBeenCalledWith("new-project-chat"));
   await waitFor(() => expect(api.controlConversation).toHaveBeenCalledWith("new-project-chat", { action: "message", message: "Explain the project" }));
@@ -32,14 +32,14 @@ test("switching projects clears the draft and does not reopen an older project a
  vi.mocked(api.readConversation).mockResolvedValue(snapshot("new-project-chat"));
  const opened=vi.fn();
  const view=render(<ProjectPrompt key="project-one" projectId="project-one" onCreated={opened}/>);
- fireEvent.change(screen.getByRole("textbox",{name:"Free prompt"}),{target:{value:"Prompt for project one"}});
+ typeIn(getComposer("Free prompt"),"Prompt for project one");
  fireEvent.click(screen.getByRole("button",{name:"Send"}));
  view.rerender(<ProjectPrompt key="project-two" projectId="project-two" onCreated={opened}/>);
- expect((screen.getByRole("textbox",{name:"Free prompt"}) as HTMLTextAreaElement).value).toBe("");
+ expect(valueOf(getComposer("Free prompt"))).toBe("");
  resolveCreate({id:"old-project-chat"});
  await waitFor(()=>expect(api.controlConversation).toHaveBeenCalledWith("old-project-chat",{action:"message",message:"Prompt for project one"}));
  expect(opened).not.toHaveBeenCalled();
- fireEvent.change(screen.getByRole("textbox",{name:"Free prompt"}),{target:{value:"Prompt for project two"}});
+ typeIn(getComposer("Free prompt"),"Prompt for project two");
  fireEvent.click(screen.getByRole("button",{name:"Send"}));
  await waitFor(()=>expect(opened).toHaveBeenCalledWith("new-project-chat"));
  expect(api.createConversation).toHaveBeenNthCalledWith(2,"project-two","claude");
@@ -249,18 +249,20 @@ test("Enter sends a prompt once while Shift Enter keeps composing", async () => 
  vi.mocked(api.createConversation).mockResolvedValue({id:"keyboard-prompt"});
  vi.mocked(api.readConversation).mockResolvedValue(snapshot("keyboard-prompt"));
  render(<ProjectPrompt projectId="keyboard-project" onCreated={vi.fn()} />);
- const input=screen.getByRole("textbox",{name:"Free prompt"});
- fireEvent.change(input,{target:{value:"Explain the code"}});
- fireEvent.keyDown(input,{key:"Enter",shiftKey:true});
+ const input=getComposer("Free prompt");
+ typeIn(input,"Explain the code");
+ press(input,"Enter",{shiftKey:true});
  expect(api.createConversation).not.toHaveBeenCalled();
- fireEvent.keyDown(input,{key:"Enter"});
- await waitFor(()=>expect(api.controlConversation).toHaveBeenCalledWith("keyboard-prompt",{action:"message",message:"Explain the code"}));
+ // Shift+Enter is a new line in the message.
+ expect(valueOf(input)).toBe("Explain the code\n");
+ press(input,"Enter");
+ await waitFor(()=>expect(api.controlConversation).toHaveBeenCalledWith("keyboard-prompt",{action:"message",message:"Explain the code\n"}));
  expect(api.createConversation).toHaveBeenCalledOnce();
 });
 test("prompt suggestions fill the composer without starting execution", () => {
  render(<ProjectPrompt projectId="suggestion-project" onCreated={vi.fn()} />);
  fireEvent.click(screen.getByRole("button",{name:"Prepare a plan"}));
- expect((screen.getByRole("textbox",{name:"Free prompt"}) as HTMLTextAreaElement).value).toContain("without modifying files");
+ expect(valueOf(getComposer("Free prompt"))).toContain("without modifying files");
  expect((screen.getByLabelText("Conversation mode") as HTMLSelectElement).value).toBe("plan");
  expect(api.createConversation).not.toHaveBeenCalled();
 });

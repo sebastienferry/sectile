@@ -6,7 +6,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Added
 
-- Composer: queued messages show at the top of the message box and can be moved back into it with Edit; folders show as one-row pills; the message box grows with its text; Up/Down recall prompts sent in the conversation; `/` and `$` open a completion list of commands and skills with inline chips; a message starting with `!` shows a Shell badge; a gauge shows context window usage (#913, #914, #915, #916).
+- Composer: queued messages show at the top of the message box and can be moved back into it with Edit; folders show as one-row pills; the message box grows with its text; Up/Down recall prompts sent in the conversation; `/` and `$` open a completion list of commands and skills with inline chips; a message starting with `!` shows a Shell badge; a gauge shows context window usage; `@` mentions files, folders, conversations and tickets as chips (#913, #914, #915, #916, #917).
 - Queue follow-up messages while the agent is responding: they are listed above the composer, can be copied or removed, and are sent one per turn in order. An interrupt, a turn error or a failed send pauses the queue until it is resumed; the queue is not kept when the app quits (#905).
 - Restore Electron header parity: macOS titlebar overlay integration with traffic lights, connection status indicator with browser link, agent action menu, and settings gear icon.
 - Configure Desktop operating mode (Local Companion vs Fleet Agent) through a dedicated first-launch onboarding screen, with seamless switching available in Settings.

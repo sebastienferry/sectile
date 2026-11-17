@@ -2,6 +2,8 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { decodeEvents, type ConversationEvent, type ConversationSnapshot } from "../lib/conversation";
 import { Markdown } from "./Markdown";
 import { cleanUserEventText } from "../lib/user-event-text";
+import { splitMentions, type MentionTokenKind } from "../domain/mentions";
+import { Icon, type IconName } from "./Icon";
 
 const approvalLabels: Record<string, string> = {
   allow: "Request allowed once.",
@@ -22,6 +24,14 @@ function isSessionIntroNotice(event: ConversationEvent): boolean {
   );
 }
 export { cleanUserEventText };
+
+const mentionIcons: Record<MentionTokenKind, IconName> = { file: "file", conversation: "chat", ticket: "ticket" };
+/** A sent message with its `@` mentions shown as the composer showed them (#917). */
+function MentionText({ text }: { text: string }) {
+  return <>{splitMentions(text).map((part, index) => part.mention
+    ? <span key={index} className={`composer-chip-token composer-chip-${part.mention.kind}`} title={part.mention.id}><Icon name={mentionIcons[part.mention.kind]} size={12} />{part.mention.label}</span>
+    : part.text)}</>;
+}
 function eventText(event: ConversationEvent): string {
   if (isTurnReadyNotice(event)) return "Response completed";
   if (event.kind === "approval") return approvalLabels[event.text] ?? event.text;
@@ -99,7 +109,7 @@ export function ConversationTranscript({ snapshot, followRequest = 0, onInterrup
   }}><div ref={content} className="prompt-transcript-content">
     {rows.map(row => "tools" in row ? <Tools key={row.key} tools={row.tools} busy={snapshot.busy} onInterrupt={onInterrupt} /> : <article className={`prompt-event prompt-${row.event.kind}`} key={row.key}>
       <strong>{row.event.interrupted ? "Assistant · response interrupted" : ({ user: "You", assistant: "Assistant", error: "Error", thinking: "Thinking", approval: "Permission" } as Record<string, string>)[row.event.kind] ?? "Activity"}</strong>
-      {row.event.kind === "assistant" ? <Markdown text={row.event.text} /> : <p>{eventText(row.event)}</p>}
+      {row.event.kind === "assistant" ? <Markdown text={row.event.text} /> : row.event.kind === "user" ? <p><MentionText text={eventText(row.event)} /></p> : <p>{eventText(row.event)}</p>}
       {row.event.detail && <details><summary>Details</summary><pre>{row.event.detail}</pre></details>}
     </article>)}
     {snapshot.partial && <article className="prompt-event"><strong>Assistant</strong><Markdown text={snapshot.partial} /></article>}

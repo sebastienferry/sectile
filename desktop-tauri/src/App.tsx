@@ -2006,6 +2006,12 @@ function ProjectPane({
             onTitleChanged={()=>void monitor.refresh()}
             projectId={selection.projectId}
             runId={selection.runId}
+            mentionSources={{
+              conversations: projectRuns(monitor.snapshot?.runs ?? [], selection.projectId)
+                .filter(item => item.conversation)
+                .map(item => ({ id: item.id, title: conversationTitle(undefined, item, tasks.find(candidate => candidate.id === item.taskId)), archived: archivedConversationIds.includes(item.id), createdAt: item.createdAt })),
+              tickets: tasks.map(item => ({ id: item.id, key: item.key, title: item.title })),
+            }}
             onCreated={id => { if (project) navigate(project, "prompt", id); }}
           />
           {startOverSource && project && (()=>{

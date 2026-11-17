@@ -34,10 +34,14 @@ accepted.
 3. Conversations: the project's conversations except the current one, newest
    first after the text match, archived ones marked.
 4. Tickets: the project's tickets of every stage, matched on key and title,
-   key prefix first, then most recently updated.
-5. **Given** an agent without the listing route, **then** the menu still lists
+   key prefix first. Within a tier the board's order is kept: the Tauri
+   client's ticket carries no update time (deviation from T7's "most recently
+   updated").
+5. Per-kind caps keep every kind visible: 25 files and folders, 10
+   conversations, 15 tickets.
+6. **Given** an agent without the listing route, **then** the menu still lists
    conversations and tickets.
-6. Keyboard and mouse as for `/` (#916): arrows, Enter/Tab, Escape (closes
+7. Keyboard and mouse as for `/` (#916): arrows, Enter/Tab, Escape (closes
    without interrupting), hover, click.
 
 ### US2 - Chips and folders (P1)

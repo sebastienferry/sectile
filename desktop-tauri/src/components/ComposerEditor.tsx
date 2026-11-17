@@ -5,12 +5,12 @@
 // See docs/adrs/0019-codemirror-conversation-composer.md.
 
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
-import { EditorSelection, EditorState, Prec, RangeSetBuilder, StateEffect, StateField, type Extension } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, Prec, RangeSetBuilder, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, keymap, placeholder as placeholderExtension, type DecorationSet } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 
 /** A range of the draft shown as an inline chip. */
-export interface EditorChip { from: number; to: number; kind: string; label: string }
+export interface EditorChip { from: number; to: number; kind: string; label: string; /** SVG path data of a 24×24 icon shown before the label. */ icon?: string }
 
 export interface ComposerEditorHandle {
   focus(): void;
@@ -45,16 +45,26 @@ export interface ComposerEditorProps {
   /** Extra attributes for the editable element: ARIA combobox state, description. */
   attributes?: Record<string, string | undefined>;
   className?: string;
+  autoFocus?: boolean;
 }
 
 class ChipWidget extends WidgetType {
   constructor(readonly chip: EditorChip) { super(); }
-  eq(other: ChipWidget) { return other.chip.label === this.chip.label && other.chip.kind === this.chip.kind; }
+  eq(other: ChipWidget) { return other.chip.label === this.chip.label && other.chip.kind === this.chip.kind && other.chip.icon === this.chip.icon; }
   toDOM() {
     const element = document.createElement("span");
     element.className = `composer-chip-token composer-chip-${this.chip.kind}`;
     element.dataset.kind = this.chip.kind;
-    element.textContent = this.chip.label;
+    if (this.chip.icon) {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("aria-hidden", "true");
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", this.chip.icon);
+      svg.append(path);
+      element.append(svg);
+    }
+    element.append(this.chip.label);
     return element;
   }
   ignoreEvent() { return false; }
@@ -89,6 +99,9 @@ function chipField(initial: (doc: string) => EditorChip[]) {
 }
 
 const noChips = () => [];
+const editableCompartment = new Compartment();
+const placeholderCompartment = new Compartment();
+const editable = (readOnly?: boolean) => [EditorState.readOnly.of(!!readOnly), EditorView.editable.of(!readOnly)];
 
 export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorProps>(function ComposerEditor(props, ref) {
   const host = useRef<HTMLDivElement>(null);
@@ -108,9 +121,8 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
       history(),
       keymap.of([...defaultKeymap, ...historyKeymap]),
       EditorView.lineWrapping,
-      placeholderExtension(props.placeholder ?? ""),
-      EditorState.readOnly.of(!!props.readOnly),
-      EditorView.editable.of(!props.readOnly),
+      placeholderCompartment.of(placeholderExtension(props.placeholder ?? "")),
+      editableCompartment.of(editable(props.readOnly)),
       EditorState.changeFilter.of(transaction => !props.maxLength || transaction.newDoc.length <= props.maxLength || transaction.newDoc.length <= transaction.startState.doc.length),
       chipField(props.chips ?? noChips),
       EditorView.updateListener.of(update => {
@@ -125,6 +137,7 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
     ];
     const editor = new EditorView({ parent, state: EditorState.create({ doc: props.value, extensions, selection: EditorSelection.cursor(props.value.length) }) });
     view.current = editor;
+    if (props.autoFocus) editor.focus();
     return () => { editor.destroy(); view.current = null; };
     // The editor is created once; later prop changes are pushed below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -140,6 +153,8 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
   }, [props.value]);
 
   useEffect(() => { view.current?.dispatch({ effects: setChipSource.of(props.chips ?? noChips) }); }, [props.chips]);
+  useEffect(() => { view.current?.dispatch({ effects: editableCompartment.reconfigure(editable(props.readOnly)) }); }, [props.readOnly]);
+  useEffect(() => { view.current?.dispatch({ effects: placeholderCompartment.reconfigure(placeholderExtension(props.placeholder ?? "")) }); }, [props.placeholder]);
 
   // ARIA state changes often (active option): set it on the element directly.
   const attributes = props.attributes ?? {};

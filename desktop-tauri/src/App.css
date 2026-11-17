@@ -3197,7 +3197,7 @@ button.context-tray-toggle:hover,button.context-tray-toggle:focus-visible { colo
 @media (prefers-reduced-motion: reduce) { .context-meter-fill { transition:none; } }
 
 /* CodeMirror conversation composer (#916). The menu is placed against the composer box. */
-.conversation-input { position:static; min-width:0; }
+.prompt-input { position:static; min-width:0; }
 .composer-editor .cm-editor { background:transparent; outline:none; }
 .composer-editor .cm-editor.cm-focused { outline:none; }
 .composer-editor .cm-scroller { min-height:48px; max-height:var(--composer-max-height, 200px); overflow-y:auto; font-family:inherit; line-height:1.4; font-size:var(--font-base); }
@@ -3219,3 +3219,9 @@ button.context-tray-toggle:hover,button.context-tray-toggle:focus-visible { colo
 .project-prompt .composer-box.shell-mode { border-color:var(--accent); box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 40%,transparent); }
 .composer-shell-badge { order:2; display:inline-flex; align-items:center; gap:4px; height:20px; padding:0 6px; border-radius:4px; background:color-mix(in srgb,var(--accent) 18%,transparent); color:var(--accent-text, var(--text)); font-size:var(--font-sm); font-weight:600; }
 .composer-shell-badge svg { width:12px; height:12px; }
+
+/* @ mention chips (#917), in the composer and in sent messages. */
+.composer-chip-token svg { width:11px; height:11px; margin-inline-end:3px; vertical-align:-1px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.composer-chip-file,.composer-chip-conversation,.composer-chip-ticket { font-size:.95em; white-space:nowrap; }
+.composer-chip-ticket { font-variant-numeric:tabular-nums; }
+.prompt-user .composer-chip-token { margin:0 1px; }

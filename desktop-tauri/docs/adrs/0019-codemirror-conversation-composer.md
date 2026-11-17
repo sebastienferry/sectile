@@ -1,4 +1,4 @@
-# ADR 0019: Use CodeMirror 6 for the conversation composer
+# ADR 0019: Use CodeMirror 6 for the conversation composers
 
 Status: accepted
 
@@ -26,7 +26,8 @@ The conversation composer is a CodeMirror 6 editor (`@codemirror/state`,
   caret movement, `Shift+Enter`, undo and IME;
 - the 32 000-character limit is a change filter.
 
-The "New prompt" composer keeps its textarea: it has no command list.
+The "New prompt" composer uses the same editor since #917, for `@` mentions;
+it has no command list, so it shows no `/` menu.
 
 ## Alternatives rejected
 

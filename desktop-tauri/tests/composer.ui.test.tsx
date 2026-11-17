@@ -110,34 +110,20 @@ test("a sent recall resets history to the newest prompt", async () => {
 
 test("the new prompt view keeps native arrows and both composers size against their view", async () => {
   render(<ProjectPrompt projectId="p" onCreated={vi.fn()} />);
-  const prompt = screen.getByRole("textbox", { name: "Free prompt" }) as HTMLTextAreaElement;
-  const notHandled = fireEvent.keyDown(prompt, { key: "ArrowUp" });
-  expect(notHandled).toBe(true);
-  expect(prompt.value).toBe("");
+  const prompt = getComposer("Free prompt");
+  press(prompt, "ArrowUp");
+  expect(valueOf(prompt)).toBe("");
+  const promptWrapper = prompt.closest<HTMLElement>(".prompt-input")!;
   // jsdom lays nothing out: the cap starts from the window height, then follows the observed view.
-  expect(prompt.style.getPropertyValue("--composer-max-height")).toBe(`${Math.round(window.innerHeight * 0.4)}px`);
+  expect(promptWrapper.style.getPropertyValue("--composer-max-height")).toBe(`${Math.round(window.innerHeight * 0.4)}px`);
   resize(".project-prompt", 1000);
-  expect(prompt.style.getPropertyValue("--composer-max-height")).toBe("400px");
+  expect(promptWrapper.style.getPropertyValue("--composer-max-height")).toBe("400px");
   cleanup();
 
   const input = await openConversation();
-  const wrapper = input.closest<HTMLElement>(".conversation-input")!;
+  const wrapper = input.closest<HTMLElement>(".prompt-input")!;
   resize(".conversation-main-column", 800);
   expect(wrapper.style.getPropertyValue("--composer-max-height")).toBe("320px");
   resize(".conversation-main-column", 100);
   expect(wrapper.style.getPropertyValue("--composer-max-height")).toBe("150px");
-});
-
-test("the new prompt composer height follows its content", () => {
-  render(<ProjectPrompt projectId="p" onCreated={vi.fn()} />);
-  const input = screen.getByRole("textbox", { name: "Free prompt" }) as HTMLTextAreaElement;
-  let scrollHeight = 48;
-  Object.defineProperty(input, "scrollHeight", { configurable: true, get: () => scrollHeight });
-  scrollHeight = 120;
-  fireEvent.change(input, { target: { value: "one\ntwo\nthree\nfour\nfive" } });
-  expect(input.style.height).toBe("120px");
-  expect(input.style.overflowY).toBe("hidden");
-  scrollHeight = 48;
-  fireEvent.change(input, { target: { value: "" } });
-  expect(input.style.height).toBe("48px");
 });

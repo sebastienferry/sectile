@@ -418,7 +418,12 @@ that conversation, and Escape clears a recalled prompt. Typing `/` (or `$` for
 Codex skills) as the first word opens a completion list of the commands the
 conversation's agent offers; a known command becomes an inline chip that
 Backspace deletes whole. A message starting with `!` runs as a shell command in
-the conversation's folder, and the composer shows a **Shell** badge. The folders
+the conversation's folder, and the composer shows a **Shell** badge. Typing `@` at
+the start of a word mentions a file or folder of the project's folders, another
+conversation of the project or one of its tickets: a file, a conversation or a
+ticket becomes a chip, a folder is inserted as `@path/` to keep browsing, and
+the agent resolves each mention when the message is sent (a path, the ticket's
+reference, or a bounded transcript of the conversation). The folders
 the next message is sent with show as pills at the top of the composer, and a
 gauge beside the model shows how much of the model's context window is used.
 

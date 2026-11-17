@@ -46,7 +46,7 @@ test("the first project prompt sends model and plan choices once through the con
  await screen.findByRole("option",{name:"chosen-model"});
  fireEvent.change(screen.getByLabelText("Model"),{target:{value:"chosen-model"}});
  fireEvent.change(screen.getByLabelText("Conversation mode"),{target:{value:"plan"}});
- fireEvent.change(screen.getByLabelText("Free prompt"),{target:{value:"Plan this work"}});
+ typeIn(getComposer("Free prompt"),"Plan this work");
  fireEvent.click(screen.getByRole("button",{name:"Send"}));
  await waitFor(()=>expect(api.controlConversation).toHaveBeenCalledWith("first-turn-options",{action:"message",message:"Plan this work",model:"chosen-model",mode:"plan"}));
  expect(api.controlConversation).toHaveBeenCalledTimes(1);

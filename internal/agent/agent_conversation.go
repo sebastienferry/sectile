@@ -266,6 +266,12 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
+	// Mentions (#917) are resolved before the queue lock: a ticket is read
+	// from the server, and the lock must not wait on the network.
+	mentionBlock := ""
+	if r.Method == http.MethodPost && id != "" && strings.Contains(input.Message, "@") && !strings.HasPrefix(strings.TrimSpace(input.Message), "!") {
+		mentionBlock = d.resolveMentions(r.Context(), id, connectionID, input.Message)
+	}
 	d.queue.mu.Lock()
 	defer d.queue.mu.Unlock()
 	if id == "" && r.Method == http.MethodPost {
@@ -486,7 +492,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 			http.Error(w, "Conversation could not be saved locally; message was not sent", http.StatusServiceUnavailable)
 			return
 		}
-		message := withFormerContext(run.conversation, withShellContext(run.conversation, input.Message))
+		message := withFormerContext(run.conversation, withShellContext(run.conversation, withMentionContext(input.Message, mentionBlock)))
 		queued := run.desktop.Provider == "codex" || run.desktop.Provider == "agy" || run.conversation.input == nil || run.conversation.input.send(conversationUserMessage(message)) != nil
 		if queued {
 			run.conversation.next = append(run.conversation.next, message)
@@ -507,7 +513,7 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Conversation could not be saved locally; message was not sent", http.StatusServiceUnavailable)
 		return
 	}
-	message := withFormerContext(run.conversation, withShellContext(run.conversation, input.Message))
+	message := withFormerContext(run.conversation, withShellContext(run.conversation, withMentionContext(input.Message, mentionBlock)))
 	if run.desktop.Provider == "codex" {
 		// Admission records the message under the queue lock, before another
 		// HTTP request can enqueue one behind it during process startup.

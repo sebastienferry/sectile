@@ -30,8 +30,7 @@ import { useSkillStatus } from "../lib/skill-results";
 import { conversationTitle } from "../domain/conversation-navigation";
 import { userPrompts } from "../domain/prompt-history";
 import { isShellDraft } from "../domain/command-completion";
-import { ConversationInput, type ConversationInputHandle } from "./ConversationInput";
-import { useAutoGrowTextarea } from "../lib/composer-sizing";
+import { PromptInput, type MentionSources, type PromptInputHandle } from "./PromptInput";
 import { decodeEvents } from "../lib/conversation";
 
 /** The context tray shows folders only when there is more than the working folder (#914). */
@@ -40,9 +39,6 @@ function folderTrayItems(entries: FolderEntry[], onCopy: (path: string) => void)
   return entries.map(entry => ({ key: entry.path, label: entry.name, title: `${entry.label} · ${entry.path} · click to copy`, icon: "folder", onClick: () => onCopy(entry.path) }));
 }
 const copyPath = (path: string) => void navigator.clipboard?.writeText(path).catch(() => {});
-function sendOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
- if(event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {event.preventDefault();event.currentTarget.form?.requestSubmit();}
-}
 interface ProjectPromptProps {
   projectId:string; projectName?:string; runId?:string; directory?:string; folders?:Run["folders"];
   agentAvailable?:boolean;
@@ -57,6 +53,8 @@ interface ProjectPromptProps {
   onLaunchSkill?:(skillId:string)=>void;
   onEditTask?:()=>void;
   onCreated:(id:string)=>void; onTitleChanged?:()=>void; onFoldersChanged?:()=>void;
+  /** What `@` can mention besides files: the project's conversations and tickets (#917). */
+  mentionSources?:MentionSources;
   onOpenQueue?:()=>void; onOpenTask?:()=>void;
   onArchive?:()=>void; onStopped?:()=>void;
   /** The conversation is in the archived list: it offers Start over (#906). */
@@ -64,7 +62,7 @@ interface ProjectPromptProps {
   /** Opens the archived conversation a run started over from, when still listed. */
   onOpenSource?:(runId:string)=>void;
 }
-export default function ProjectPrompt({ projectId, projectName, runId, agentAvailable=true, onCreated, onTitleChanged, directory, folders, onFoldersChanged, run, task, board, projectContext, taskRuns, canEditTask, knownSprints, knownAssignees, onTaskSaved, onSelectRun, onLaunchSkill, onEditTask, onOpenQueue, onOpenTask, onArchive, onStopped, archived, onStartOver, onOpenSource }: ProjectPromptProps) {
+export default function ProjectPrompt({ projectId, projectName, runId, agentAvailable=true, onCreated, onTitleChanged, directory, folders, onFoldersChanged, run, task, board, projectContext, taskRuns, canEditTask, knownSprints, knownAssignees, onTaskSaved, onSelectRun, onLaunchSkill, onEditTask, onOpenQueue, onOpenTask, onArchive, onStopped, archived, onStartOver, onOpenSource, mentionSources }: ProjectPromptProps) {
   const [provider, setProvider] = useState("claude");
   const [options, setOptions] = useState<TurnOptions>({});
   const [draft, setDraft] = useState("");
@@ -75,9 +73,9 @@ export default function ProjectPrompt({ projectId, projectName, runId, agentAvai
   const [profileId, setProfileId] = useState("");
   const customized = useRef(false);
   const mounted = useRef(false);
-  const promptInput = useRef<HTMLTextAreaElement>(null);
+  const promptForm = useRef<HTMLFormElement>(null);
+  const mentions = mentionSources ?? { conversations: [], tickets: [] };
   const [folderEntries, setFolderEntries] = useState<FolderEntry[]>([]);
-  useAutoGrowTextarea(promptInput, draft, ".project-prompt");
   useEffect(() => { mounted.current=true; return () => { mounted.current=false; }; }, []);
   useEffect(() => {
     if(runId) return;
@@ -124,10 +122,10 @@ export default function ProjectPrompt({ projectId, projectName, runId, agentAvai
       setOptions({});
     }
   }
-  if (runId) return <Conversation id={runId} projectId={projectId} projectName={projectName} agentAvailable={agentAvailable} directory={directory} folders={folders} run={run} task={task} board={board} projectContext={projectContext} taskRuns={taskRuns} canEditTask={canEditTask} knownSprints={knownSprints} knownAssignees={knownAssignees} onTaskSaved={onTaskSaved} onSelectRun={onSelectRun} onLaunchSkill={onLaunchSkill} onEditTask={onEditTask} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onArchive={onArchive} onStopped={onStopped} onFoldersChanged={onFoldersChanged} onTitleChanged={onTitleChanged} archived={archived} onStartOver={onStartOver} onOpenSource={onOpenSource} />;
+  if (runId) return <Conversation id={runId} projectId={projectId} projectName={projectName} agentAvailable={agentAvailable} directory={directory} folders={folders} run={run} task={task} board={board} projectContext={projectContext} taskRuns={taskRuns} canEditTask={canEditTask} knownSprints={knownSprints} knownAssignees={knownAssignees} onTaskSaved={onTaskSaved} onSelectRun={onSelectRun} onLaunchSkill={onLaunchSkill} onEditTask={onEditTask} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} onArchive={onArchive} onStopped={onStopped} onFoldersChanged={onFoldersChanged} onTitleChanged={onTitleChanged} archived={archived} onStartOver={onStartOver} onOpenSource={onOpenSource} mentionSources={mentions} />;
   return <section className="project-prompt prompt-start prompt-new">
     <div className="prompt-intro"><h2>New prompt</h2></div>
-    <form className="composer" onSubmit={async e => {
+    <form ref={promptForm} className="composer" onSubmit={async e => {
       e.preventDefault(); if (!agentAvailable || busy || attaching || !draft.trim()) return;
       setBusy(true); setError("");
       try {
@@ -139,7 +137,7 @@ export default function ProjectPrompt({ projectId, projectName, runId, agentAvai
     }}>
       <div className="composer-box">
         <ContextTray items={folderTrayItems(folderEntries, copyPath)} />
-        <textarea ref={promptInput} autoFocus aria-label="Free prompt" value={draft} disabled={busy} maxLength={32000} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} placeholder="Ask something about this project…" rows={2} />
+        <PromptInput ariaLabel="Free prompt" viewSelector=".project-prompt" projectId={projectId} value={draft} onChange={setDraft} mentions={mentions} placeholder="Ask something about this project…" readOnly={busy} autoFocus onSubmit={() => promptForm.current?.requestSubmit()} />
         <div className="composer-footer"><div className="composer-options">
           <label className="sr-only"><span className="sr-only">Profile or engine</span><select tabIndex={-1} aria-label="Profile or engine" title={selectedProfile?`${selectedProfile.provider==="codex"?"Codex":"Claude Code"} · ${selectedProfile.name}`:"Choose a profile or engine"} value={profileId?`profile:${profileId}`:`engine:${provider}`} disabled={busy} onChange={e => selectEngine(e.target.value)}>
             {profiles?.profiles.length?<optgroup label="Project profiles">{profiles.profiles.map(profile=><option key={profile.id} value={`profile:${profile.id}`}>{profile.provider==="codex"?"Codex":"Claude Code"} · {profile.name}</option>)}</optgroup>:null}
@@ -174,7 +172,7 @@ export default function ProjectPrompt({ projectId, projectName, runId, agentAvai
     {error && <p role="alert" className="error">{error}</p>}
   </section>;
 }
-function Conversation({ id, projectId, projectName, agentAvailable, directory, folders, run, task, board, projectContext, taskRuns, canEditTask, knownSprints, knownAssignees, onTaskSaved, onSelectRun, onLaunchSkill, onOpenQueue, onOpenTask, onArchive, onStopped, onFoldersChanged, onTitleChanged, archived, onStartOver, onOpenSource }: { id:string;projectId:string;projectName?:string;agentAvailable:boolean;directory?:string;folders?:Run["folders"];run?:Run;task?:Task;board?:BoardMapping;projectContext?:ProjectContext;taskRuns?:Run[];canEditTask?:boolean;knownSprints?:string[];knownAssignees?:string[];onTaskSaved?:(task:Task)=>void;onSelectRun?:(runId:string)=>void;onLaunchSkill?:(skillId:string)=>void;onEditTask?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onArchive?:()=>void;onStopped?:()=>void;onFoldersChanged?:()=>void;onTitleChanged?:()=>void;archived?:boolean;onStartOver?:()=>void;onOpenSource?:(runId:string)=>void }) {
+function Conversation({ id, projectId, projectName, agentAvailable, directory, folders, run, task, board, projectContext, taskRuns, canEditTask, knownSprints, knownAssignees, onTaskSaved, onSelectRun, onLaunchSkill, onOpenQueue, onOpenTask, onArchive, onStopped, onFoldersChanged, onTitleChanged, archived, onStartOver, onOpenSource, mentionSources }: { mentionSources:MentionSources; id:string;projectId:string;projectName?:string;agentAvailable:boolean;directory?:string;folders?:Run["folders"];run?:Run;task?:Task;board?:BoardMapping;projectContext?:ProjectContext;taskRuns?:Run[];canEditTask?:boolean;knownSprints?:string[];knownAssignees?:string[];onTaskSaved?:(task:Task)=>void;onSelectRun?:(runId:string)=>void;onLaunchSkill?:(skillId:string)=>void;onEditTask?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onArchive?:()=>void;onStopped?:()=>void;onFoldersChanged?:()=>void;onTitleChanged?:()=>void;archived?:boolean;onStartOver?:()=>void;onOpenSource?:(runId:string)=>void }) {
   const { controller, snapshot, loaded, pending, error, queue } = useConversation(id);
   const [draft, setDraft] = useState("");
   const [queueFeedback, setQueueFeedback] = useState("");
@@ -190,7 +188,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
   const [editingTicketInline, setEditingTicketInline] = useState(false);
   const overflowMenuRef = useRef<HTMLDetailsElement | null>(null);
   const availableBefore = useRef(agentAvailable);
-  const messageInput = useRef<ConversationInputHandle>(null);
+  const messageInput = useRef<PromptInputHandle>(null);
   const [folderEntries, setFolderEntries] = useState<FolderEntry[]>([]);
   /** Edit (#914): the queued message leaves the queue for the composer, with its turn options. */
   function editQueued(itemId: string) {
@@ -541,9 +539,13 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
       <div className={`composer-box${isShellDraft(draft) ? " shell-mode" : ""}`}>
         <QueueStrip queue={queue} onRemove={itemId => controller.removeQueued(itemId)} onResume={() => controller.resumeQueue()} onEdit={editQueued} />
         <ContextTray items={folderTrayItems(folderEntries, copyPath)} />
-        <ConversationInput
+        <PromptInput
           ref={messageInput}
+          ariaLabel="Next message"
+          viewSelector=".conversation-main-column"
+          projectId={projectId}
           conversationId={id}
+          mentions={mentionSources}
           value={draft}
           onChange={setDraft}
           commands={snapshot.commands}

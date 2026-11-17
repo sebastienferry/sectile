@@ -376,6 +376,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopFolders(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/mentions/files" {
+		d.desktopMentionFiles(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/git-init" {
 		d.desktopGitInit(w, r)
 		return
