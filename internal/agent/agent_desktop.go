@@ -1269,7 +1269,8 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unknown project skill", 400)
 		return
 	}
-	if _, _, err := d.localProjectRoot(r.Context(), config); err != nil {
+	_, overrides, err := d.localProjectRoot(r.Context(), config)
+	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
@@ -1295,8 +1296,9 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	effective := agentconfig.Resolve(config, overrides)
 	launchProvider := strings.TrimSpace(input.Provider)
-	if connectionID != "" && launchProvider == "" && strings.TrimSpace(input.EngineID) == "" && strings.TrimSpace(config.AIProvider) == "agy" {
+	if connectionID != "" && launchProvider == "" && strings.TrimSpace(input.EngineID) == "" && strings.TrimSpace(effective.AIProvider) == "agy" {
 		launchProvider = "claude"
 	}
 	if input.View != "" || launchProvider != "" || strings.TrimSpace(input.EngineID) != "" || strings.TrimSpace(input.Model) != "" || strings.TrimSpace(input.ConversationMode) != "" {

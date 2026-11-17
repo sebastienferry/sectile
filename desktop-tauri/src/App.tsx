@@ -39,7 +39,7 @@ import {
 import { useConversation } from "./lib/conversation-controller";
 import { useSkillStatus } from "./lib/skill-results";
 import { renameConversation } from "./lib/conversation";
-import { conversationGroups, conversationTicketGroupKey, conversationTitle, deduplicateTicketConversations, type ConversationGrouping } from "./domain/conversation-navigation";
+import { conversationGroups, conversationTicketGroupKey, conversationTitle, deduplicateTicketConversations, isSidebarRun, type ConversationGrouping } from "./domain/conversation-navigation";
 import { pullRequestLabel, pullRequestStateLabel, taskPullRequests } from "./domain/pull-requests";
 import { CommandPalette } from "./components/CommandPalette";
 import { shortcutModifier, workspaceShortcut } from "./lib/workspace-shortcuts";
@@ -184,7 +184,7 @@ function Workspace() {
     const targetGroupKey = targetRun ? conversationTicketGroupKey(targetRun) : "";
     const matchingIds = targetRun && targetGroupKey
       ? (snapshot?.runs ?? [])
-          .filter(item => item.conversation && conversationTicketGroupKey(item) === targetGroupKey)
+          .filter(item => isSidebarRun(item) && conversationTicketGroupKey(item) === targetGroupKey)
           .map(item => item.id)
       : [runId];
     if (!matchingIds.includes(runId)) matchingIds.push(runId);
@@ -569,7 +569,7 @@ function Workspace() {
                 .map((project) => {
                   const runs = projectRuns(snapshot?.runs ?? [], project.id);
                   const selected = current?.projectId === project.id;
-                  const matchingConversations = runs.filter(run => run.conversation && archivedConversationIds.includes(run.id)===showArchivedConversations);
+                  const matchingConversations = runs.filter(run => isSidebarRun(run) && archivedConversationIds.includes(run.id)===showArchivedConversations);
                   const conversations = deduplicateTicketConversations(matchingConversations);
                   const currentSelectedRun = current?.runId ? runs.find(r => r.id === current.runId) : undefined;
                   const projectTasks = navigationTasks?.projectId === project.id ? navigationTasks.items : [];
@@ -770,7 +770,7 @@ function Workspace() {
                                   onClick={e => e.stopPropagation()}
                                 />
                               ) : (
-                                <RunNavigation run={run} task={task} selected={current?.runId===run.id || (Boolean(run.taskId) && Boolean(currentSelectedRun) && conversationTicketGroupKey(currentSelectedRun!) === conversationTicketGroupKey(run))} onClick={()=>navigate(project,"prompt",run.id)} onOpenTask={run.taskId ? () => void openTaskInTracker(project.id, run.taskId, task, setConversationActionError) : undefined} />
+                                <RunNavigation run={run} task={task} selected={current?.runId===run.id || (Boolean(run.taskId) && Boolean(currentSelectedRun) && conversationTicketGroupKey(currentSelectedRun!) === conversationTicketGroupKey(run))} onClick={()=>navigate(project, run.conversation ? "prompt" : "executions", run.id)} onOpenTask={run.taskId ? () => void openTaskInTracker(project.id, run.taskId, task, setConversationActionError) : undefined} />
                               )}
                               <ConversationPrAction task={task} taskKey={run.taskKey} onError={()=>setConversationActionError("Unable to open PR/MR.")}/>
                               {!showArchivedConversations && isActive(run) ? (
@@ -1203,6 +1203,9 @@ function ProjectPane({
   const currentContextError = contextError?.projectId === selection.projectId ? contextError.message : "";
   useEffect(()=>{let current=true;setContextError(undefined);void projectContext(selection.projectId).then(data=>{if(current){setContextState({projectId:selection.projectId,value:data});onContextChanged(data);setContextError(undefined);}}).catch(cause=>{if(current)setContextError({projectId:selection.projectId,message:String(cause)});});return()=>{current=false;};},[selection.projectId,contextRefresh]);
   const [selectedRun, setSelectedRun] = useState(selection.runId ?? "");
+  useEffect(() => {
+    if (selection.runId) setSelectedRun(selection.runId);
+  }, [selection.runId]);
   const [projectSettingsTab, setProjectSettingsTab] = useState("folder");
   useEffect(() => setProjectSettingsTab("folder"), [selection.projectId]);
   const request = useRef(0);
@@ -2068,17 +2071,29 @@ function visibleBoardTasks(tasks:Task[],activeRuns:Map<string,Run>,limit:number)
 
 function RunNavigation({run,task,selected,onClick,onOpenTask}:{run:Run;task?:Task;selected:boolean;onClick:()=>void;onOpenTask?:()=>void}){
  if(run.conversation)return <ConversationNavigation run={run} task={task} selected={selected} onClick={onClick} onOpenTask={onOpenTask} />;
- return <button className={`sidebar-run ${selected ? "selected" : ""}`} title={statusLabel(run)} onClick={onClick}>
-  <span className={`dot ${isActive(run) ? "live" : ""}`} />
-  {run.taskKey && <span role="button" tabIndex={0} className="sidebar-task-key" title={`Open ticket ${run.taskKey}`} aria-label={`Open ticket ${run.taskKey}`} onClick={e=>{e.stopPropagation();onOpenTask?.();}} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.stopPropagation();onOpenTask?.();}}}>{run.taskKey}</span>}
-  <span>{run.taskKey || run.skill || "Execution"}</span>
- </button>;
+ return <TicketExecutionNavigation run={run} task={task} selected={selected} onClick={onClick} onOpenTask={onOpenTask} />;
 }
 function ConversationPrAction({task,taskKey,onError}:{task?:Task;taskKey?:string;onError:()=>void}){
  const links=taskPullRequests(task);
  if(!links.length)return null;
  const current=links[links.length-1];
  return <button className="conversation-pr-action" type="button" aria-label={`Open PR/MR for ${task?.key||taskKey||task?.title||"this ticket"}`} title={`${links.length>1?`${links.length} PR/MR · `:""}${pullRequestLabel(current)} · ${pullRequestStateLabel(current)}`} onClick={()=>void openExternalLink(current.url).catch(onError)}><Icon name="branch"/>{links.length>1&&<small>{links.length}</small>}</button>;
+}
+function SidebarRunButton({run,title,indicatorClass,label,hasSkill,selected,onClick,onOpenTask}:{run:Run;title:string;indicatorClass:string;label:string;hasSkill:boolean;selected:boolean;onClick:()=>void;onOpenTask?:()=>void}){
+ return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={label} aria-label={hasSkill?label:undefined}>
+  <span className={`conversation-indicator ${indicatorClass}`} />
+  {run.taskKey && <span role="button" tabIndex={0} className="sidebar-task-key" title={`Open ticket ${run.taskKey}`} aria-label={`Open ticket ${run.taskKey}`} onClick={e=>{e.stopPropagation();onOpenTask?.();}} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.stopPropagation();onOpenTask?.();}}}>{run.taskKey}</span>}
+  <span className="conversation-navigation-text"><span>{title}</span></span>
+ </button>;
+}
+function TicketExecutionNavigation({run,task,selected,onClick,onOpenTask}:{run:Run;task?:Task;selected:boolean;onClick:()=>void;onOpenTask?:()=>void}){
+ const title=useMemo(()=>conversationTitle(undefined,run,task),[run,task]);
+ const provider=run.provider==="claude"?"Claude Code":run.provider==="codex"?"Codex":run.engineName||"Assistant";
+ const waiting=isActive(run)&&(hasWaitMark(run.waitingSince)||run.status==="waiting");
+ const skill=useSkillStatus(run,{task});
+ const label=`${run.taskKey?`${run.taskKey} · `:""}${title} · ${provider}${run.model ? ` · ${run.model}` : ""} · ${task?.trackerStatus?`${task.trackerStatus} · `:""}${skill?skill.label:statusLabel(run)}`;
+ const indicatorClass=skill?`skill-${skill.kind}`:waiting?"needs-input":isActive(run)?"live":"idle";
+ return <SidebarRunButton run={run} title={title} indicatorClass={indicatorClass} label={label} hasSkill={Boolean(skill)} selected={selected} onClick={onClick} onOpenTask={onOpenTask} />;
 }
 function ConversationNavigation({run,task,selected,onClick,onOpenTask}:{run:Run;task?:Task;selected:boolean;onClick:()=>void;onOpenTask?:()=>void}){
  // Subscribe to already loaded transcripts; navigation never fetches histories.
@@ -2091,9 +2106,6 @@ function ConversationNavigation({run,task,selected,onClick,onOpenTask}:{run:Run;
  const own=loaded&&snapshot.id===run.id;
  const skill=useSkillStatus(run,{task,asking:own&&!!snapshot.approvals?.length,turnBusy:own?snapshot.busy:undefined});
  const label=`${run.taskKey?`${run.taskKey} · `:""}${title} · ${provider}${run.model ? ` · ${run.model}` : ""} · ${task?.trackerStatus?`${task.trackerStatus} · `:""}${skill?skill.label:activity}`;
- return <button className={`sidebar-run conversation-navigation ${selected ? "selected" : ""}`} onClick={onClick} title={label} aria-label={skill?label:undefined}>
-  <span className={`conversation-indicator ${skill?`skill-${skill.kind}`:needsInput?"needs-input":loaded&&snapshot.busy?"live":isActive(run)?"session":"idle"}`} />
-  {run.taskKey && <span role="button" tabIndex={0} className="sidebar-task-key" title={`Open ticket ${run.taskKey}`} aria-label={`Open ticket ${run.taskKey}`} onClick={e=>{e.stopPropagation();onOpenTask?.();}} onKeyDown={e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();e.stopPropagation();onOpenTask?.();}}}>{run.taskKey}</span>}
-  <span className="conversation-navigation-text"><span>{title}</span></span>
- </button>;
+ const indicatorClass=skill?`skill-${skill.kind}`:needsInput?"needs-input":loaded&&snapshot.busy?"live":isActive(run)?"session":"idle";
+ return <SidebarRunButton run={run} title={title} indicatorClass={indicatorClass} label={label} hasSkill={Boolean(skill)} selected={selected} onClick={onClick} onOpenTask={onOpenTask} />;
 }

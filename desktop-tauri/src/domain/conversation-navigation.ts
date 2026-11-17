@@ -30,10 +30,14 @@ export function conversationTicketGroupKey(run: Run): string {
   return `free:${run.id}`;
 }
 
+export function isSidebarRun(run: Run): boolean {
+  return Boolean(run.conversation || run.skill === "pickup_issues");
+}
+
 export function deduplicateTicketConversations(runs: Run[]): Run[] {
   const groups = new Map<string, Run[]>();
   for (const run of runs) {
-    if (!run.conversation) continue;
+    if (!isSidebarRun(run)) continue;
     const key = conversationTicketGroupKey(run);
     const existing = groups.get(key);
     if (existing) existing.push(run);
@@ -104,6 +108,7 @@ const taskSkillNames: Record<string, string> = {
   adjust: "Adjust",
   handoff: "Handoff",
   pickup: "Pickup",
+  pickup_issues: "Batch pickup",
   discuss: "Discuss",
   create_pr: "Create PR",
 };
@@ -119,6 +124,9 @@ function appendTaskSkill(title: string, skill?: string): string {
   const suffix = taskSkillName(skill);
   if (!base) return suffix;
   if (!suffix) return base;
+  if (suffix === "Batch pickup") {
+    return base.toLowerCase().startsWith(`${suffix.toLowerCase()} · `) ? base : `${suffix} · ${base}`;
+  }
   if (base.toLowerCase().endsWith(` - ${suffix.toLowerCase()}`)) return base;
   return `${base} - ${suffix}`;
 }

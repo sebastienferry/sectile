@@ -76,8 +76,11 @@ test("AI engine tabs expose Claude sandbox, Codex reviewer, and Antigravity perm
 
  render(<ProviderSettings projects={[{ id: "p1", name: "Sectile" }]} />);
  await screen.findAllByText("CLI detected · connected");
+ expect(screen.queryByText("Sectile skills and MCP connection")).toBeNull();
 
  fireEvent.click(screen.getByRole("tab", { name: "Claude" }));
+ await screen.findByRole("heading", { name: "Conversation permission mode" });
+ expect(screen.getByText("Sectile skills and MCP connection")).toBeTruthy();
  await screen.findByRole("button", { name: "Autonomy in sandbox" });
  fireEvent.click(screen.getByRole("button", { name: "Autonomy in sandbox" }));
  fireEvent.click(screen.getByRole("button", { name: "Save Claude sandbox" }));

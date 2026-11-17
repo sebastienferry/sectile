@@ -1512,6 +1512,9 @@ func TestDesktopLaunchForwardsTheProjectOfTheBoard(t *testing.T) {
 	if binding := d.desktopLaunchConnections["run-1"]; binding.connectionID != connectionHeader || binding.projectID != "p" || binding.taskID != "task-1" {
 		t.Fatalf("accepted server run lost its launch identity: %+v", binding)
 	}
+	if pref, ok := d.conversationViews.takeLaunch("task-1"); !ok || pref.provider != "claude" {
+		t.Fatalf("connection-bound launch with resolved agy engine must fall back to claude: ok=%v pref=%+v", ok, pref)
+	}
 	connectionHeader = "invalid"
 	if w := launch(map[string]any{"taskID": "task-1", "skillID": "custom", "prompt": "go"}); w.Code != http.StatusBadRequest || len(forwarded) != 5 {
 		t.Fatalf("invalid connection reached the server: %d", w.Code)

@@ -131,6 +131,89 @@ export function ProviderSettings({
     }
   }
 
+  function renderProviderCard(provider: "claude" | "codex", name: string) {
+    const status = statuses[provider];
+    return (
+      <section className="provider-card" key={provider}>
+        <div className="provider-card-main">
+          <div className={`provider-symbol provider-symbol-${provider}`}>
+            <ProviderMark provider={provider} />
+          </div>
+          <div className="provider-card-copy">
+            <div className="provider-card-heading">
+              <h3>{name}</h3>
+              {status?.version && (
+                <span className="provider-version-badge">{status.version}</span>
+              )}
+            </div>
+            <p>
+              {!status
+                ? statusErrors[provider]
+                  ? "CLI status unavailable"
+                  : "Detecting…"
+                : !status.installed
+                ? "CLI not detected"
+                : status.authentication === "connected"
+                ? "CLI detected · connected"
+                : status.authentication === "disconnected"
+                ? "CLI detected · sign-in required"
+                : "CLI detected · connection status unknown"}
+            </p>
+          </div>
+          <button
+            className={status?.authentication === "connected" ? "" : "primary"}
+            disabled={pending || !status?.installed}
+            onClick={() => void login(provider)}
+          >
+            {status?.authentication === "connected"
+              ? `Reconnect ${name}`
+              : `Sign in to ${name}`}
+          </button>
+        </div>
+        {status?.models && status.models.length > 0 && (
+          <div
+            className="provider-models"
+            aria-label={`Detected ${name} models`}
+          >
+            <span className="provider-models-label">Detected models</span>
+            <div className="provider-models-list">
+              {status.models.map((model) => (
+                <code key={model} className="provider-model-pill">
+                  {model}
+                </code>
+              ))}
+            </div>
+          </div>
+        )}
+        {(statusErrors[provider] || status?.path || (status && !status.installed)) && (
+          <div className="provider-card-extra">
+            {statusErrors[provider] && (
+              <p role="alert" className="error">
+                {name}: {statusErrors[provider]}
+              </p>
+            )}
+            {status?.path && (
+              <details className="provider-details">
+                <summary>Installation details</summary>
+                <code>{status.path}</code>
+              </details>
+            )}
+            {status && !status.installed && (
+              <p>
+                Install the official CLI, then run detection again.{" "}
+                <code>
+                  {provider === "claude"
+                    ? "https://code.claude.com/docs/en/setup"
+                    : "https://developers.openai.com/codex/cli"}
+                </code>
+              </p>
+            )}
+          </div>
+        )}
+      </section>
+    );
+  }
+
   return (
     <article className="provider-settings" aria-label="AI engines">
       <div className="provider-tabs" role="tablist" aria-label="AI engine sections">
@@ -183,98 +266,7 @@ export function ProviderSettings({
                 ["claude", "Claude Code"],
                 ["codex", "Codex"],
               ] as const
-            ).map(([provider, name]) => {
-              const status = statuses[provider];
-              return (
-                <section className="provider-card" key={provider}>
-                  <div className="provider-card-main">
-                    <div
-                      className={`provider-symbol provider-symbol-${provider}`}
-                    >
-                      <ProviderMark provider={provider} />
-                    </div>
-                    <div className="provider-card-copy">
-                      <div className="provider-card-heading">
-                        <h3>{name}</h3>
-                        {status?.version && (
-                          <span className="provider-version-badge">
-                            {status.version}
-                          </span>
-                        )}
-                      </div>
-                      <p>
-                        {!status
-                          ? statusErrors[provider]
-                            ? "CLI status unavailable"
-                            : "Detecting…"
-                          : !status.installed
-                          ? "CLI not detected"
-                          : status.authentication === "connected"
-                          ? "CLI detected · connected"
-                          : status.authentication === "disconnected"
-                          ? "CLI detected · sign-in required"
-                          : "CLI detected · connection status unknown"}
-                      </p>
-                    </div>
-                    <button
-                      className={
-                        status?.authentication === "connected" ? "" : "primary"
-                      }
-                      disabled={pending || !status?.installed}
-                      onClick={() => void login(provider)}
-                    >
-                      {status?.authentication === "connected"
-                        ? `Reconnect ${name}`
-                        : `Sign in to ${name}`}
-                    </button>
-                  </div>
-                  {status?.models && status.models.length > 0 && (
-                    <div
-                      className="provider-models"
-                      aria-label={`Detected ${name} models`}
-                    >
-                      <span className="provider-models-label">
-                        Detected models
-                      </span>
-                      <div className="provider-models-list">
-                        {status.models.map((model) => (
-                          <code key={model} className="provider-model-pill">
-                            {model}
-                          </code>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div className="provider-card-extra">
-                    {statusErrors[provider] && (
-                      <p role="alert" className="error">
-                        {name}: {statusErrors[provider]}
-                      </p>
-                    )}
-                    {status?.path && (
-                      <details className="provider-details">
-                        <summary>Installation details</summary>
-                        <code>{status.path}</code>
-                      </details>
-                    )}
-                    {status && !status.installed && (
-                      <p>
-                        Install the official CLI, then run detection again.{" "}
-                        <code>
-                          {provider === "claude"
-                            ? "https://code.claude.com/docs/en/setup"
-                            : "https://developers.openai.com/codex/cli"}
-                        </code>
-                      </p>
-                    )}
-                    <ProviderPreparation
-                      provider={provider}
-                      projects={projects}
-                    />
-                  </div>
-                </section>
-              );
-            })}
+            ).map(([provider, name]) => renderProviderCard(provider, name))}
           </div>
           {showProfiles && (
             <WorkstationProfiles
@@ -287,11 +279,17 @@ export function ProviderSettings({
 
       {tab === "claude" && (
         <div className="provider-engine-panel">
+          {renderProviderCard("claude", "Claude Code")}
           <ProviderPermissions
             provider="claude"
             view={readiness.claude}
             onSaved={() => refreshReadiness("claude")}
             inline
+          />
+          <ProviderPreparation
+            provider="claude"
+            projects={projects}
+            hidePermissions
           />
           <ClaudeSandboxSettings projects={projects} />
         </div>
@@ -299,6 +297,7 @@ export function ProviderSettings({
 
       {tab === "codex" && (
         <div className="provider-engine-panel">
+          {renderProviderCard("codex", "Codex")}
           <ProviderPermissions
             provider="codex"
             view={readiness.codex}

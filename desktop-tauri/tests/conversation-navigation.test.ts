@@ -106,3 +106,51 @@ test("conversationGroups deduplicates multiple conversations on the same ticket 
   assert.equal(groups.length, 1);
   assert.deepEqual(groups[0].runs.map(r => r.id), ["run-new", "run-free"]);
 });
+
+test("conversationGroups includes active pickup_issues batch runs without a conversation and ranks them over older stopped conversations", () => {
+  const olderStoppedClarify: Run = {
+    id: "run-clarify",
+    projectId: "p",
+    taskId: "gh-913",
+    taskKey: "#913",
+    skill: "clarify",
+    status: "canceled",
+    createdAt: "2026-11-17T14:19:55Z",
+    conversation: true,
+  };
+  const activeBatch: Run = {
+    id: "run-batch",
+    projectId: "p",
+    taskId: "gh-913",
+    taskKey: "#913",
+    skill: "pickup_issues",
+    status: "running",
+    createdAt: "2026-11-17T14:28:32Z",
+    conversation: false,
+  };
+  const singleHeadless: Run = {
+    id: "run-implement",
+    projectId: "p",
+    taskId: "gh-914",
+    taskKey: "#914",
+    skill: "implement",
+    status: "running",
+    createdAt: "2026-11-17T14:29:00Z",
+    conversation: false,
+  };
+  const task = {
+    id: "gh-913",
+    key: "#913",
+    title: "Tauri: auto-expanding composer",
+    status: "to_clarify",
+    source: "github" as const,
+  };
+
+  const groups = conversationGroups([olderStoppedClarify, activeBatch, singleHeadless], [task], "recent");
+  assert.equal(groups.length, 1);
+  assert.deepEqual(groups[0].runs.map(r => r.id), ["run-batch"]);
+  assert.equal(
+    conversationTitle(undefined, activeBatch, task),
+    "Batch pickup · Tauri: auto-expanding composer",
+  );
+});
