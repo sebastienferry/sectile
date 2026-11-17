@@ -3185,3 +3185,13 @@ button.context-tray-pill svg { width:12px; height:12px; flex:0 0 auto; }
 button.context-tray-pill:hover,button.context-tray-pill:focus-visible { color:var(--text); border-color:var(--border-strong); background:transparent; }
 button.context-tray-toggle { appearance:none; flex:0 0 auto; height:24px; padding:0 6px; border:0; background:transparent; box-shadow:none; color:var(--muted); font-size:var(--font-sm); cursor:pointer; white-space:nowrap; }
 button.context-tray-toggle:hover,button.context-tray-toggle:focus-visible { color:var(--text); background:transparent; }
+
+/* Context usage gauge beside the model chip (#915): order 1 sits after the model chip, before the mode chip. */
+.context-meter { order:1; display:inline-flex; align-items:center; gap:3px; flex:0 0 auto; height:24px; padding:0 4px; color:var(--muted); font-size:var(--font-sm); font-variant-numeric:tabular-nums; cursor:default; }
+.context-meter svg { width:16px; height:16px; flex:0 0 auto; }
+.context-meter path { fill:none; stroke-width:2; stroke-linecap:round; }
+.context-meter-track { stroke:color-mix(in srgb,var(--muted) 30%,transparent); }
+.context-meter-fill { stroke:var(--accent); transition:stroke-dashoffset .3s ease; }
+.context-meter.warning { color:var(--danger); }
+.context-meter.warning .context-meter-fill { stroke:var(--danger); }
+@media (prefers-reduced-motion: reduce) { .context-meter-fill { transition:none; } }

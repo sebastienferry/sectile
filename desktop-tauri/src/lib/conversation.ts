@@ -22,6 +22,8 @@ export interface ConversationSnapshot {
   title?: string; canRename?: boolean; provider?: string; model?: string; mode?: string; models?: { model: string }[] | null;
   connectionId?: string; canAdoptConnection?: boolean;
   id: string; busy: boolean; readOnly: boolean; events?: string[] | null; partial?: string; persistenceError?: string; approvals?: Approval[];
+  /** Tokens in the model's context and its window, sent once the provider reports a window (#915). */
+  context?: { used: number; window: number };
 }
 export const createConversation = (projectId: string, provider: string, engineId?: string, contextRunId?: string) =>
   invoke<{ id: string }>("create_conversation", { projectId, provider, ...(engineId ? {engineId} : {}), ...(contextRunId ? {contextRunId} : {}) });

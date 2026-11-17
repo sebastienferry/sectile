@@ -5,6 +5,7 @@ import { createConversation, renameConversation, type ConversationAction, type C
 import { conversationProfiles, type ProjectProfiles } from "../lib/profiles";
 import { PromptFolders, type FolderEntry } from "./FolderContext";
 import { ContextTray, type ContextTrayItem } from "./ContextTray";
+import { ContextUsageMeter } from "./ContextUsageMeter";
 import type { Run } from "../domain/execution";
 import { statusLabel } from "../domain/execution";
 import { isActive } from "../domain/execution";
@@ -585,6 +586,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
           placeholder={snapshot.busy ? "Queue a follow-up…" : "Ask a question or describe a change…"}
         />
         <div className="composer-footer"><TurnSettings compact showProviderMark provider={snapshot.provider} snapshot={snapshot} value={options} onChange={setOptions} disabled={!loaded || busy || !!snapshot.readOnly || !!error || acting} />
+        <ContextUsageMeter context={snapshot.context} />
         <div className="composer-inline-tools">
           <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly={!loaded||snapshot.readOnly} onChanged={onFoldersChanged} onPendingChange={setAttaching} onEntriesChange={setFolderEntries}/>
           <button type="button" className="composer-nav-btn" aria-label="Terminal" disabled={!directory} title="Open terminal in working folder" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Unable to open terminal in this folder."))}><Icon name="terminal"/><span className="sr-only">Terminal</span></button>

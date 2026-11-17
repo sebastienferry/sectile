@@ -197,7 +197,7 @@ func TestCodexConversationKeepsOneProcessAndSendsNativeSkills(t *testing.T) {
 		}
 	}
 	w := conversationRequest(d, "GET", "/desktop/conversation?id="+id, "", "private")
-	if !strings.Contains(w.Body.String(), `"used":25`) || !strings.Contains(w.Body.String(), `"provider":"codex"`) {
+	if !strings.Contains(w.Body.String(), `"context":{"used":25,"window":200000}`) || !strings.Contains(w.Body.String(), `"provider":"codex"`) {
 		t.Fatal(w.Body.String())
 	}
 	if w := conversationRequest(d, "POST", "/desktop/stop?id="+id, "", "private"); w.Code != 204 {
