@@ -26,6 +26,9 @@ import { pullRequestLabel, pullRequestStateLabel, taskPullRequests } from "../do
 import { skillStatusText, skillStatusTitle } from "../domain/skill-status";
 import { useSkillStatus } from "../lib/skill-results";
 import { conversationTitle } from "../domain/conversation-navigation";
+import { navigatePromptHistory, userPrompts, type PromptRecall } from "../domain/prompt-history";
+import { caretOnEdgeRow, useAutoGrowTextarea } from "../lib/composer-sizing";
+import { decodeEvents } from "../lib/conversation";
 
 function sendOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
  if(event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {event.preventDefault();event.currentTarget.form?.requestSubmit();}
@@ -62,6 +65,8 @@ export default function ProjectPrompt({ projectId, projectName, runId, agentAvai
   const [profileId, setProfileId] = useState("");
   const customized = useRef(false);
   const mounted = useRef(false);
+  const promptInput = useRef<HTMLTextAreaElement>(null);
+  useAutoGrowTextarea(promptInput, draft, ".project-prompt");
   useEffect(() => { mounted.current=true; return () => { mounted.current=false; }; }, []);
   useEffect(() => {
     if(runId) return;
@@ -122,7 +127,7 @@ export default function ProjectPrompt({ projectId, projectName, runId, agentAvai
       finally { setBusy(false); }
     }}>
       <div className="composer-box">
-        <textarea autoFocus aria-label="Free prompt" value={draft} disabled={busy} maxLength={32000} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} placeholder="Ask something about this project…" rows={2} />
+        <textarea ref={promptInput} autoFocus aria-label="Free prompt" value={draft} disabled={busy} maxLength={32000} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} placeholder="Ask something about this project…" rows={2} />
         <div className="composer-footer"><div className="composer-options">
           <label className="sr-only"><span className="sr-only">Profile or engine</span><select tabIndex={-1} aria-label="Profile or engine" title={selectedProfile?`${selectedProfile.provider==="codex"?"Codex":"Claude Code"} · ${selectedProfile.name}`:"Choose a profile or engine"} value={profileId?`profile:${profileId}`:`engine:${provider}`} disabled={busy} onChange={e => selectEngine(e.target.value)}>
             {profiles?.profiles.length?<optgroup label="Project profiles">{profiles.profiles.map(profile=><option key={profile.id} value={`profile:${profile.id}`}>{profile.provider==="codex"?"Codex":"Claude Code"} · {profile.name}</option>)}</optgroup>:null}
@@ -173,6 +178,12 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
   const [editingTicketInline, setEditingTicketInline] = useState(false);
   const overflowMenuRef = useRef<HTMLDetailsElement | null>(null);
   const availableBefore = useRef(agentAvailable);
+  const messageInput = useRef<HTMLTextAreaElement>(null);
+  useAutoGrowTextarea(messageInput, draft, ".conversation-main-column");
+  // Up/Down prompt history (#913): the prompt recalled, and whether an IME composition runs.
+  const recall = useRef<PromptRecall>(null);
+  const composing = useRef(false);
+  useEffect(() => { recall.current = null; }, [id]);
   useEffect(() => { void controller.refresh(); }, [controller]);
   useEffect(() => {
     if(agentAvailable && !availableBefore.current) void controller.refresh();
@@ -204,7 +215,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
     if (!queueing && (!agentAvailable || error)) return;
     const result = controller.submit(draft, options);
     if (result === "sent" || result === "queued") {
-      setDraft(""); setQueueFeedback("");
+      setDraft(""); setQueueFeedback(""); recall.current = null;
       setFollowRequest(value => value + 1);
     } else if (result === "full") setQueueFeedback(`Queue full (${QUEUE_LIMIT} messages). Remove one to add another.`);
   }
@@ -512,12 +523,36 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
       </div>
       <div className="composer-box">
         <textarea
+          ref={messageInput}
           aria-label="Next message"
           rows={2}
           maxLength={32000}
           value={draft}
           onChange={e => setDraft(e.target.value)}
+          onCompositionStart={() => { composing.current = true; }}
+          onCompositionEnd={() => { composing.current = false; }}
           onKeyDown={e => {
+            const textarea = e.currentTarget;
+            const history = navigatePromptHistory({
+              prompts: userPrompts(decodeEvents(snapshot)),
+              value: textarea.value,
+              selectionStart: textarea.selectionStart,
+              selectionEnd: textarea.selectionEnd,
+              recall: recall.current,
+              event: { key: e.key, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing },
+              composing: composing.current,
+              caretOnEdgeRow: direction => caretOnEdgeRow(textarea, direction),
+            });
+            recall.current = history.recall;
+            if (history.handled) {
+              // A recalled prompt is cleared by Escape before Escape can interrupt a turn.
+              e.preventDefault();
+              setDraft(history.value);
+              requestAnimationFrame(() => {
+                if (messageInput.current) messageInput.current.selectionStart = messageInput.current.selectionEnd = history.value.length;
+              });
+              return;
+            }
             if (e.key === "Escape" && busy && !snapshot.readOnly && agentAvailable && !acting) {
               e.preventDefault();
               void control({ action: "interrupt" }).catch(() => {});

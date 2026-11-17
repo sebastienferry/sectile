@@ -1767,7 +1767,8 @@ button.composer-nav-btn:disabled { opacity:.4; cursor:default; background:transp
 .composer-nav-btn svg { width:16px; height:16px; }
 .project-prompt .composer-box { position:relative; display:flex; flex-direction:column; border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:0; gap:0; box-shadow:none; container-type:inline-size; }
 .project-prompt .composer-box:focus-within { border-color:var(--border-strong); }
-.project-prompt .composer textarea { border:0; box-shadow:none; background:transparent; padding:12px 13px 4px; border-radius:0; min-height:48px; max-height:200px; resize:none; line-height:1.45; font-size: var(--font-base); outline:none; }
+/* Auto-grow (#913): the height follows the content; --composer-max-height is set from the view height. */
+.project-prompt .composer textarea { border:0; box-shadow:none; background:transparent; padding:12px 13px 4px; border-radius:0; min-height:48px; max-height:var(--composer-max-height, 200px); overflow-y:hidden; resize:none; line-height:1.4; font-size: var(--font-base); outline:none; }
 .project-prompt .composer textarea::placeholder { color:var(--muted); }
 .composer-footer { display:flex; align-items:center; flex-wrap:wrap; gap:2px; justify-content:flex-start; min-width:0; padding:4px 8px 7px; }
 .composer-options { display:contents; }
