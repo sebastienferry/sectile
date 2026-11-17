@@ -341,4 +341,16 @@ describe("conversation composer queue", () => {
     expect(within(strip).getByRole("button", { name: "Resume" })).toBeTruthy();
     expect(within(within(strip).getByRole("list", { name: "Queued messages" })).getByText("Failed: Error: network down")).toBeTruthy();
   });
+  test("Edit past the length limit shows exactly what Send would send", async () => {
+    const id = fresh("long-edit");
+    agent[id] = busy(id);
+    view(id);
+    const box = await findComposer();
+    await screen.findByRole("button", { name: "Queue message" });
+    conversationFor(id).enqueue("q".repeat(15000));
+    const strip = await screen.findByRole("region", { name: "Message queue" });
+    typeIn(box, "d".repeat(20000));
+    fireEvent.click(within(strip).getByRole("button", { name: "Edit queued message 1" }));
+    expect(valueOf(box).length).toBe(20000 + 2 + 15000);
+  });
 });

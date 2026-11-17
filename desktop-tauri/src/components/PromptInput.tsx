@@ -99,7 +99,11 @@ export const PromptInput = forwardRef<PromptInputHandle, {
     ];
   }, [mention?.query, mentions, files, conversationId]);
 
-  useEffect(() => { setActive(0); }, [contextKey]);
+  // Another word, or files arriving and shifting the rows, start again from the first entry.
+  const entriesKey = `${contextKey}|${files.query}|${files.list.length}`;
+  useEffect(() => { setActive(0); }, [entriesKey]);
+  // Another project's or conversation's files are never offered.
+  useEffect(() => { setFiles({ query: "", list: [] }); }, [projectId, conversationId]);
 
   const entries: CompletionEntry[] = command
     ? ranked.map(({ command: item, match }, index) => {

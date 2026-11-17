@@ -149,7 +149,8 @@ export const ComposerEditor = forwardRef<ComposerEditorHandle, ComposerEditorPro
     if (!editor) return;
     const current = editor.state.doc.toString();
     if (current === props.value) return;
-    editor.dispatch({ changes: { from: 0, to: current.length, insert: props.value }, selection: EditorSelection.cursor(props.value.length) });
+    // The parent's value is the truth: the length filter guards typing, never this sync.
+    editor.dispatch({ changes: { from: 0, to: current.length, insert: props.value }, selection: EditorSelection.cursor(props.value.length), filter: false });
   }, [props.value]);
 
   useEffect(() => { view.current?.dispatch({ effects: setChipSource.of(props.chips ?? noChips) }); }, [props.chips]);

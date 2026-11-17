@@ -12,7 +12,9 @@ const TOKEN = /@\[([^\]\n]*)\]\(sectile:(file|conversation|ticket)\/([^)\s]+)\)/
 /** The token a picked file, conversation or ticket inserts. */
 export function mentionToken(kind: MentionTokenKind, id: string, label: string): string {
   const safe = label.replace(/[[\]\n]+/g, " ").trim() || kind;
-  return `@[${safe}](sectile:${kind}/${encodeURIComponent(id)})`;
+  // encodeURIComponent leaves ( ) ! ' * as they are; a ")" would end the token early.
+  const encoded = encodeURIComponent(id).replace(/[()!'*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `@[${safe}](sectile:${kind}/${encoded})`;
 }
 
 /** The `@` word being typed at the caret: `@` at the start or after whitespace. */

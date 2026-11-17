@@ -64,8 +64,9 @@ type mentionIndex struct {
 
 var mentionIndexes = struct {
 	sync.Mutex
-	byRoot map[string]mentionIndex
-}{byRoot: map[string]mentionIndex{}}
+	byRoot   map[string]mentionIndex
+	building map[string]*sync.Mutex
+}{byRoot: map[string]mentionIndex{}, building: map[string]*sync.Mutex{}}
 
 // mentionRootsFor lists the working folder, then the project's attached
 // folders, without duplicates or folders missing on this workstation.
@@ -148,11 +149,15 @@ func insideRoot(root, target string) bool {
 // untracked, ignored files excluded) in a checkout, otherwise a walk that
 // skips .git and node_modules. Symlinks leaving the root are dropped.
 // Folders are derived from the files, with their newest descendant's time.
-func indexMentionRoot(ctx context.Context, root string) []mentionEntry {
-	ctx, cancel := context.WithTimeout(ctx, mentionIndexTimeout)
+func indexMentionRoot(parent context.Context, root string) []mentionEntry {
+	gitCtx, cancelGit := context.WithTimeout(parent, mentionIndexTimeout)
+	defer cancelGit()
+	// A git that times out leaves the walk its own budget, so a large
+	// repository still gets a capped list rather than none.
+	ctx, cancel := context.WithTimeout(parent, mentionIndexTimeout)
 	defer cancel()
 	var files []string
-	if out, err := gitLocal(ctx, root, "ls-files", "--cached", "--others", "--exclude-standard", "-z"); err == nil {
+	if out, err := gitLocal(gitCtx, root, "ls-files", "--cached", "--others", "--exclude-standard", "-z"); err == nil {
 		for _, name := range strings.Split(out, "\x00") {
 			if name = strings.TrimSpace(name); name != "" {
 				files = append(files, name)
@@ -206,17 +211,37 @@ func indexMentionRoot(ctx context.Context, root string) []mentionEntry {
 	return entries
 }
 
+// cachedMentionIndex reuses a recent index of root. One build runs per root
+// at a time: requests made while the user types wait for it rather than
+// starting their own. A build cut short by its request is not kept.
 func cachedMentionIndex(ctx context.Context, root string) []mentionEntry {
+	fresh := func() ([]mentionEntry, bool) {
+		mentionIndexes.Lock()
+		defer mentionIndexes.Unlock()
+		cached, ok := mentionIndexes.byRoot[root]
+		return cached.entries, ok && time.Since(cached.built) < mentionIndexTTL
+	}
+	if entries, ok := fresh(); ok {
+		return entries
+	}
 	mentionIndexes.Lock()
-	cached, ok := mentionIndexes.byRoot[root]
+	build := mentionIndexes.building[root]
+	if build == nil {
+		build = &sync.Mutex{}
+		mentionIndexes.building[root] = build
+	}
 	mentionIndexes.Unlock()
-	if ok && time.Since(cached.built) < mentionIndexTTL {
-		return cached.entries
+	build.Lock()
+	defer build.Unlock()
+	if entries, ok := fresh(); ok {
+		return entries
 	}
 	entries := indexMentionRoot(ctx, root)
-	mentionIndexes.Lock()
-	mentionIndexes.byRoot[root] = mentionIndex{built: time.Now(), entries: entries}
-	mentionIndexes.Unlock()
+	if ctx.Err() == nil {
+		mentionIndexes.Lock()
+		mentionIndexes.byRoot[root] = mentionIndex{built: time.Now(), entries: entries}
+		mentionIndexes.Unlock()
+	}
 	return entries
 }
 
@@ -318,8 +343,10 @@ func (d *agentDaemon) desktopMentionFiles(w http.ResponseWriter, r *http.Request
 var (
 	// mentionToken is a chip the composer inserted: @[label](sectile:type/id).
 	mentionToken = regexp.MustCompile(`@\[([^\]\n]*)\]\(sectile:(file|conversation|ticket)/([^)\s]+)\)`)
-	// folderMention is a folder the composer inserted as text: @path/.
-	folderMention = regexp.MustCompile(`(?:^|\s)@([^\s@\[\]()]+)/(?:\s|$)`)
+	// folderMention is a folder the composer inserted as text: @path/. The
+	// character after the slash is checked in code, so that adjacent mentions
+	// and trailing punctuation both work.
+	folderMention = regexp.MustCompile(`(?:^|\s)@([^\s@\[\]()]+)/`)
 )
 
 // mentionTarget is one mention of a message, in order of appearance.
@@ -346,8 +373,13 @@ func parseMentions(message string) []mentionTarget {
 		}
 		add(mentionTarget{kind: match[2], label: strings.TrimSpace(match[1]), id: id})
 	}
-	for _, match := range folderMention.FindAllStringSubmatch(mentionToken.ReplaceAllString(message, ""), -1) {
-		add(mentionTarget{kind: "folder", label: match[1] + "/", id: match[1]})
+	plain := mentionToken.ReplaceAllString(message, " ")
+	for _, match := range folderMention.FindAllStringSubmatchIndex(plain, -1) {
+		if end := match[1]; end < len(plain) && !strings.ContainsRune(" \t\n\r.,;:!?)", rune(plain[end])) {
+			continue
+		}
+		name := plain[match[2]:match[3]]
+		add(mentionTarget{kind: "folder", label: name + "/", id: name})
 	}
 	return targets
 }
@@ -391,7 +423,7 @@ func (d *agentDaemon) resolveMentions(ctx context.Context, runID, connectionID, 
 	if run != nil {
 		projectID = run.desktop.ProjectID
 	}
-	transcripts := map[string]formerSelection{}
+	transcriptLines := map[string][]string{}
 	titles := map[string]string{}
 	refused := map[string]string{}
 	for _, target := range targets {
@@ -406,14 +438,18 @@ func (d *agentDaemon) resolveMentions(ctx context.Context, runID, connectionID, 
 		case projectID != "" && source.desktop.ProjectID != projectID:
 			refused[target.id] = "belongs to another project"
 		default:
-			lines, _ := source.trace.snapshot()
-			transcripts[target.id] = recentFormerMessages(lines, mentionConversationBudget)
+			// Only the copy is taken under the lock; it is parsed after.
+			transcriptLines[target.id], _ = source.trace.snapshot()
 			titles[target.id] = source.desktop.Title
 		}
 	}
 	d.queue.mu.Unlock()
 	if run == nil {
 		return ""
+	}
+	transcripts := map[string]formerSelection{}
+	for id, lines := range transcriptLines {
+		transcripts[id] = recentFormerMessages(lines, mentionConversationBudget)
 	}
 
 	var roots []mentionRoot

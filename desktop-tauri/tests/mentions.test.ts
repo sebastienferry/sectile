@@ -43,3 +43,9 @@ test("conversations match their title, newest first; tickets put a key prefix fi
   assert.deepEqual(rankTickets(tickets, "#19", 10).map(entry => entry.item.id), ["t1", "t2", "t3"]);
   assert.deepEqual(rankTickets(tickets, "cache", 10).map(entry => [entry.item.id, entry.field, entry.from]), [["t1", "detail", 8]]);
 });
+
+test("a path with parentheses keeps its whole token", () => {
+  const token = mentionToken("file", "/repo/app/(marketing)/page.tsx", "page.tsx");
+  assert.equal(token, "@[page.tsx](sectile:file/%2Frepo%2Fapp%2F%28marketing%29%2Fpage.tsx)");
+  assert.deepEqual(splitMentions(`${token} next`), [{ mention: { kind: "file", label: "page.tsx", id: "/repo/app/(marketing)/page.tsx" } }, { text: " next" }]);
+});

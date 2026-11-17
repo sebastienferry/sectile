@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { conversationFor, useConversation } from "../lib/conversation-controller";
 import { createConversation, renameConversation, type ConversationAction, type ConversationSnapshot, type TurnOptions } from "../lib/conversation";
 
@@ -189,6 +189,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
   const overflowMenuRef = useRef<HTMLDetailsElement | null>(null);
   const availableBefore = useRef(agentAvailable);
   const messageInput = useRef<PromptInputHandle>(null);
+  const sentPrompts = useMemo(() => userPrompts(decodeEvents(snapshot)), [snapshot.events]);
   const [folderEntries, setFolderEntries] = useState<FolderEntry[]>([]);
   /** Edit (#914): the queued message leaves the queue for the composer, with its turn options. */
   function editQueued(itemId: string) {
@@ -549,7 +550,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
           value={draft}
           onChange={setDraft}
           commands={snapshot.commands}
-          prompts={userPrompts(decodeEvents(snapshot))}
+          prompts={sentPrompts}
           readOnly={!!snapshot.readOnly}
           placeholder={snapshot.busy ? "Queue a follow-up…" : "Ask a question or describe a change…"}
           onSubmit={submitDraft}

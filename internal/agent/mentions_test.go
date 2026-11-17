@@ -131,6 +131,38 @@ func TestMentionsParseChipsAndFolders(t *testing.T) {
 	}
 }
 
+// Folders side by side, or followed by punctuation, are each mentioned; a
+// path with parentheses survives its encoding.
+func TestMentionsParseAdjacentFoldersAndParentheses(t *testing.T) {
+	got := parseMentions("@src/ @docs/, and @web/(app)/ not@this/ @[page](sectile:file/%2Frepo%2F%28marketing%29%2Fpage.tsx)")
+	want := []mentionTarget{
+		{kind: "file", label: "page", id: "/repo/(marketing)/page.tsx"},
+		{kind: "folder", label: "src/", id: "src"},
+		{kind: "folder", label: "docs/", id: "docs"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("mentions = %+v, want %+v", got, want)
+	}
+}
+
+// A request cancelled while the index builds leaves nothing cached.
+func TestMentionIndexIsNotCachedWhenItsRequestEnds(t *testing.T) {
+	root := t.TempDir()
+	writeMentionFile(t, root, "a.md", time.Now())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	cachedMentionIndex(ctx, root)
+	mentionIndexes.Lock()
+	_, cached := mentionIndexes.byRoot[root]
+	mentionIndexes.Unlock()
+	if cached {
+		t.Fatal("an index built for a cancelled request was cached")
+	}
+	if got := mentionPaths(cachedMentionIndex(context.Background(), root)); !reflect.DeepEqual(got, []string{"a.md"}) {
+		t.Fatalf("index = %q", got)
+	}
+}
+
 // A path is resolved again by the agent: inside a root, of the right kind.
 func TestMentionPathsStayInsideTheRoots(t *testing.T) {
 	working, attached, outside := t.TempDir(), t.TempDir(), t.TempDir()
