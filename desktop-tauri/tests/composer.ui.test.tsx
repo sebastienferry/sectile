@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import ProjectPrompt from "../src/components/ProjectPrompt";
+import { getComposer, press, setCaret, typeIn, valueOf } from "./composer-editor";
 import * as api from "../src/lib/conversation";
 vi.mock("../src/lib/conversation", async original => ({
   ...await original<typeof api>(), createConversation: vi.fn(), readConversation: vi.fn(), controlConversation: vi.fn(),
@@ -44,68 +45,65 @@ async function openConversation(busy = false) {
   vi.mocked(api.readConversation).mockResolvedValue(conversation("history-chat", busy));
   render(<ProjectPrompt projectId="p" runId="history-chat" onCreated={vi.fn()} />);
   await screen.findByText("Second answer");
-  return screen.getByRole("textbox", { name: "Next message" }) as HTMLTextAreaElement;
+  return getComposer();
 }
-const value = () => (screen.getByRole("textbox", { name: "Next message" }) as HTMLTextAreaElement).value;
-function caret(input: HTMLTextAreaElement, position: number) { input.setSelectionRange(position, position); }
+const value = () => valueOf(getComposer());
+const caret = setCaret;
 
 test("ArrowUp in an empty conversation composer recalls prompts and ArrowDown clears past the newest", async () => {
   const input = await openConversation();
-  fireEvent.keyDown(input, { key: "ArrowUp" });
+  press(input, "ArrowUp");
   expect(value()).toBe("Second prompt\nwith two lines");
   caret(input, 0);
-  fireEvent.keyDown(input, { key: "ArrowUp" });
+  press(input, "ArrowUp");
   expect(value()).toBe("First prompt");
-  fireEvent.keyDown(input, { key: "ArrowDown" });
+  press(input, "ArrowDown");
   expect(value()).toBe("Second prompt\nwith two lines");
   caret(input, value().length);
-  fireEvent.keyDown(input, { key: "ArrowDown" });
+  press(input, "ArrowDown");
   expect(value()).toBe("");
 });
 
 test("arrows move the caret inside a recalled multi-line prompt and never replace a typed draft", async () => {
   const input = await openConversation();
-  fireEvent.keyDown(input, { key: "ArrowUp" });
+  press(input, "ArrowUp");
   caret(input, value().length);
-  const notOnFirstRow = fireEvent.keyDown(input, { key: "ArrowUp" });
-  expect(notOnFirstRow).toBe(true);
+  press(input, "ArrowUp");
   expect(value()).toBe("Second prompt\nwith two lines");
-  fireEvent.change(input, { target: { value: "My own draft" } });
-  fireEvent.keyDown(input, { key: "ArrowUp" });
-  fireEvent.keyDown(input, { key: "Escape" });
+  typeIn(input, "My own draft");
+  press(input, "ArrowUp");
+  press(input, "Escape");
   expect(value()).toBe("My own draft");
 });
 
 test("modifiers and IME composition never recall", async () => {
   const input = await openConversation();
-  fireEvent.keyDown(input, { key: "ArrowUp", shiftKey: true });
-  fireEvent.keyDown(input, { key: "ArrowUp", metaKey: true });
+  press(input, "ArrowUp", { shiftKey: true });
+  press(input, "ArrowUp", { metaKey: true });
   expect(value()).toBe("");
-  fireEvent.compositionStart(input);
-  fireEvent.keyDown(input, { key: "ArrowUp" });
+  press(input, "ArrowUp", { isComposing: true });
   expect(value()).toBe("");
-  fireEvent.compositionEnd(input);
-  fireEvent.keyDown(input, { key: "ArrowUp" });
+  press(input, "ArrowUp");
   expect(value()).toBe("Second prompt\nwith two lines");
 });
 
 test("Escape clears a recalled prompt without interrupting, then interrupts the running turn", async () => {
   const input = await openConversation(true);
-  fireEvent.keyDown(input, { key: "ArrowUp" });
+  press(input, "ArrowUp");
   expect(value()).toBe("Second prompt\nwith two lines");
-  fireEvent.keyDown(input, { key: "Escape" });
+  press(input, "Escape");
   expect(value()).toBe("");
   expect(api.controlConversation).not.toHaveBeenCalledWith("history-chat", { action: "interrupt" });
-  fireEvent.keyDown(input, { key: "Escape" });
+  press(input, "Escape");
   await waitFor(() => expect(api.controlConversation).toHaveBeenCalledWith("history-chat", { action: "interrupt" }));
 });
 
 test("a sent recall resets history to the newest prompt", async () => {
   const input = await openConversation();
-  fireEvent.keyDown(input, { key: "ArrowUp" });
+  press(input, "ArrowUp");
   caret(input, 0);
-  fireEvent.keyDown(input, { key: "ArrowUp" });
-  fireEvent.keyDown(input, { key: "Enter" });
+  press(input, "ArrowUp");
+  press(input, "Enter");
   await waitFor(() => expect(api.controlConversation).toHaveBeenCalledWith("history-chat", { action: "message", message: "First prompt" }));
   expect(value()).toBe("");
 });
@@ -123,14 +121,16 @@ test("the new prompt view keeps native arrows and both composers size against th
   cleanup();
 
   const input = await openConversation();
+  const wrapper = input.closest<HTMLElement>(".conversation-input")!;
   resize(".conversation-main-column", 800);
-  expect(input.style.getPropertyValue("--composer-max-height")).toBe("320px");
+  expect(wrapper.style.getPropertyValue("--composer-max-height")).toBe("320px");
   resize(".conversation-main-column", 100);
-  expect(input.style.getPropertyValue("--composer-max-height")).toBe("150px");
+  expect(wrapper.style.getPropertyValue("--composer-max-height")).toBe("150px");
 });
 
-test("the composer height follows its content", async () => {
-  const input = await openConversation();
+test("the new prompt composer height follows its content", () => {
+  render(<ProjectPrompt projectId="p" onCreated={vi.fn()} />);
+  const input = screen.getByRole("textbox", { name: "Free prompt" }) as HTMLTextAreaElement;
   let scrollHeight = 48;
   Object.defineProperty(input, "scrollHeight", { configurable: true, get: () => scrollHeight });
   scrollHeight = 120;

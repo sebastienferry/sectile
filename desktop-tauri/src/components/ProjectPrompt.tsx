@@ -28,8 +28,10 @@ import { pullRequestLabel, pullRequestStateLabel, taskPullRequests } from "../do
 import { skillStatusText, skillStatusTitle } from "../domain/skill-status";
 import { useSkillStatus } from "../lib/skill-results";
 import { conversationTitle } from "../domain/conversation-navigation";
-import { navigatePromptHistory, userPrompts, type PromptRecall } from "../domain/prompt-history";
-import { caretOnEdgeRow, useAutoGrowTextarea } from "../lib/composer-sizing";
+import { userPrompts } from "../domain/prompt-history";
+import { isShellDraft } from "../domain/command-completion";
+import { ConversationInput, type ConversationInputHandle } from "./ConversationInput";
+import { useAutoGrowTextarea } from "../lib/composer-sizing";
 import { decodeEvents } from "../lib/conversation";
 
 /** The context tray shows folders only when there is more than the working folder (#914). */
@@ -188,7 +190,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
   const [editingTicketInline, setEditingTicketInline] = useState(false);
   const overflowMenuRef = useRef<HTMLDetailsElement | null>(null);
   const availableBefore = useRef(agentAvailable);
-  const messageInput = useRef<HTMLTextAreaElement>(null);
+  const messageInput = useRef<ConversationInputHandle>(null);
   const [folderEntries, setFolderEntries] = useState<FolderEntry[]>([]);
   /** Edit (#914): the queued message leaves the queue for the composer, with its turn options. */
   function editQueued(itemId: string) {
@@ -199,11 +201,6 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
     setQueueFeedback("");
     messageInput.current?.focus();
   }
-  useAutoGrowTextarea(messageInput, draft, ".conversation-main-column");
-  // Up/Down prompt history (#913): the prompt recalled, and whether an IME composition runs.
-  const recall = useRef<PromptRecall>(null);
-  const composing = useRef(false);
-  useEffect(() => { recall.current = null; }, [id]);
   useEffect(() => { void controller.refresh(); }, [controller]);
   useEffect(() => {
     if(agentAvailable && !availableBefore.current) void controller.refresh();
@@ -235,7 +232,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
     if (!queueing && (!agentAvailable || error)) return;
     const result = controller.submit(draft, options);
     if (result === "sent" || result === "queued") {
-      setDraft(""); setQueueFeedback(""); recall.current = null;
+      setDraft(""); setQueueFeedback(""); messageInput.current?.resetHistory();
       setFollowRequest(value => value + 1);
     } else if (result === "full") setQueueFeedback(`Queue full (${QUEUE_LIMIT} messages). Remove one to add another.`);
   }
@@ -541,52 +538,28 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
       <div className="composer-nav-row">
         <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} projectContext={projectContext} busy={busy} error={!!error} agentAvailable={agentAvailable} workflowOpen={workflowOpen} onToggleWorkflow={() => setWorkflowOpen(prev => !prev)} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} />
       </div>
-      <div className="composer-box">
+      <div className={`composer-box${isShellDraft(draft) ? " shell-mode" : ""}`}>
         <QueueStrip queue={queue} onRemove={itemId => controller.removeQueued(itemId)} onResume={() => controller.resumeQueue()} onEdit={editQueued} />
         <ContextTray items={folderTrayItems(folderEntries, copyPath)} />
-        <textarea
+        <ConversationInput
           ref={messageInput}
-          aria-label="Next message"
-          rows={2}
-          maxLength={32000}
+          conversationId={id}
           value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onCompositionStart={() => { composing.current = true; }}
-          onCompositionEnd={() => { composing.current = false; }}
-          onKeyDown={e => {
-            const textarea = e.currentTarget;
-            const history = navigatePromptHistory({
-              prompts: userPrompts(decodeEvents(snapshot)),
-              value: textarea.value,
-              selectionStart: textarea.selectionStart,
-              selectionEnd: textarea.selectionEnd,
-              recall: recall.current,
-              event: { key: e.key, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing },
-              composing: composing.current,
-              caretOnEdgeRow: direction => caretOnEdgeRow(textarea, direction),
-            });
-            recall.current = history.recall;
-            if (history.handled) {
-              // A recalled prompt is cleared by Escape before Escape can interrupt a turn.
-              e.preventDefault();
-              setDraft(history.value);
-              requestAnimationFrame(() => {
-                if (messageInput.current) messageInput.current.selectionStart = messageInput.current.selectionEnd = history.value.length;
-              });
-              return;
-            }
-            if (e.key === "Escape" && busy && !snapshot.readOnly && agentAvailable && !acting) {
-              e.preventDefault();
-              void control({ action: "interrupt" }).catch(() => {});
-              return;
-            }
-            sendOnEnter(e);
-          }}
-          disabled={!!snapshot.readOnly}
+          onChange={setDraft}
+          commands={snapshot.commands}
+          prompts={userPrompts(decodeEvents(snapshot))}
+          readOnly={!!snapshot.readOnly}
           placeholder={snapshot.busy ? "Queue a follow-up…" : "Ask a question or describe a change…"}
+          onSubmit={submitDraft}
+          onEscape={() => {
+            if (!busy || snapshot.readOnly || !agentAvailable || acting) return false;
+            void control({ action: "interrupt" }).catch(() => {});
+            return true;
+          }}
         />
         <div className="composer-footer"><TurnSettings compact showProviderMark provider={snapshot.provider} snapshot={snapshot} value={options} onChange={setOptions} disabled={!loaded || busy || !!snapshot.readOnly || !!error || acting} />
         <ContextUsageMeter context={snapshot.context} />
+        {isShellDraft(draft) && <span className="composer-shell-badge" title="Runs as a shell command in this conversation's folder"><Icon name="terminal" />Shell</span>}
         <div className="composer-inline-tools">
           <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly={!loaded||snapshot.readOnly} onChanged={onFoldersChanged} onPendingChange={setAttaching} onEntriesChange={setFolderEntries}/>
           <button type="button" className="composer-nav-btn" aria-label="Terminal" disabled={!directory} title="Open terminal in working folder" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Unable to open terminal in this folder."))}><Icon name="terminal"/><span className="sr-only">Terminal</span></button>

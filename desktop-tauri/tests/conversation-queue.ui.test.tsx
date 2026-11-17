@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import ProjectPrompt from "../src/components/ProjectPrompt";
+import { findComposer, getComposer, press, queryComposer, typeIn, valueOf } from "./composer-editor";
 import { conversationFor } from "../src/lib/conversation-controller";
 import * as api from "../src/lib/conversation";
 import type { ConversationSnapshot } from "../src/lib/conversation";
@@ -221,19 +222,19 @@ describe("conversation composer queue", () => {
     const id = fresh("composer");
     agent[id] = busy(id);
     view(id);
-    const box = await screen.findByRole("textbox", { name: "Next message" });
+    const box = await findComposer();
     await screen.findByRole("button", { name: "Queue message" });
     expect(screen.getByRole("button", { name: "Interrupt" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
-    fireEvent.change(box, { target: { value: "Then add tests" } });
-    fireEvent.keyDown(box, { key: "Enter" });
+    typeIn(box, "Then add tests");
+    press(box, "Enter");
     const strip = await screen.findByRole("region", { name: "Message queue" });
-    // The strip sits at the top of the composer box, before the textarea.
+    // The strip sits at the top of the composer box, before the editor.
     expect(strip.parentElement).toBe(box.closest(".composer-box"));
     expect(within(strip).getByText("Then add tests")).toBeTruthy();
     expect(within(strip).getByText("Queued")).toBeTruthy();
     expect(within(strip).queryByRole("button", { name: "Expand queued messages" })).toBeNull();
-    expect((box as HTMLTextAreaElement).value).toBe("");
+    expect(valueOf(box)).toBe("");
     expect(api.controlConversation).not.toHaveBeenCalled();
     fireEvent.click(within(strip).getByRole("button", { name: "Remove queued message 1" }));
     expect(screen.queryByRole("region", { name: "Message queue" })).toBeNull();
@@ -243,15 +244,15 @@ describe("conversation composer queue", () => {
     const id = fresh("full");
     agent[id] = busy(id);
     view(id);
-    const box = await screen.findByRole("textbox", { name: "Next message" });
+    const box = await findComposer();
     await screen.findByRole("button", { name: "Queue message" });
     for (let index = 0; index < 20; index++) conversationFor(id).enqueue(`message ${index}`);
     await screen.findByLabelText("20 messages");
-    fireEvent.change(box, { target: { value: "One more" } });
+    typeIn(box, "One more");
     expect(screen.getByRole("button", { name: "Queue message" }).hasAttribute("disabled")).toBe(true);
-    fireEvent.keyDown(box, { key: "Enter" });
+    press(box, "Enter");
     expect(await screen.findByText("Queue full (20 messages). Remove one to add another.")).toBeTruthy();
-    expect((box as HTMLTextAreaElement).value).toBe("One more");
+    expect(valueOf(box)).toBe("One more");
   });
 
   test("a paused queue shows its reason and resumes on demand", async () => {
@@ -281,7 +282,7 @@ describe("conversation composer queue", () => {
     view(id);
     const list = await screen.findByRole("list", { name: "Queued messages" });
     expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
-    expect(screen.queryByRole("textbox", { name: "Next message" })).toBeNull();
+    expect(queryComposer()).toBeNull();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     fireEvent.click(within(list).getByRole("button", { name: "Copy queued message 1" }));
@@ -295,13 +296,13 @@ describe("conversation composer queue", () => {
     const id = fresh("edit");
     agent[id] = busy(id);
     view(id);
-    const box = await screen.findByRole("textbox", { name: "Next message" }) as HTMLTextAreaElement;
+    const box = await findComposer();
     await screen.findByRole("button", { name: "Queue message" });
     conversationFor(id).enqueue("Queued with plan", { mode: "plan" });
     const strip = await screen.findByRole("region", { name: "Message queue" });
-    fireEvent.change(box, { target: { value: "My draft" } });
+    typeIn(box, "My draft");
     fireEvent.click(within(strip).getByRole("button", { name: "Edit queued message 1" }));
-    expect(box.value).toBe("My draft\n\nQueued with plan");
+    expect(valueOf(box)).toBe("My draft\n\nQueued with plan");
     expect(document.activeElement).toBe(box);
     expect((screen.getByLabelText("Conversation mode") as HTMLSelectElement).value).toBe("plan");
     expect(screen.queryByRole("region", { name: "Message queue" })).toBeNull();
@@ -325,7 +326,7 @@ describe("conversation composer queue", () => {
     const list = within(strip).getByRole("list", { name: "Queued messages" });
     expect(within(list).getByText("Second queued")).toBeTruthy();
     fireEvent.click(within(list).getByRole("button", { name: "Edit queued message 2" }));
-    expect((screen.getByRole("textbox", { name: "Next message" }) as HTMLTextAreaElement).value).toBe("Second queued");
+    expect(valueOf(getComposer())).toBe("Second queued");
     // Down to one message, the strip collapses to its single line.
     expect(within(strip).queryByRole("list", { name: "Queued messages" })).toBeNull();
     controller.enqueue("Third queued");

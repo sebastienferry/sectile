@@ -24,22 +24,22 @@ function fitToContent(textarea: HTMLTextAreaElement) {
 }
 
 /**
- * Sizes `ref`'s textarea to its content on every `value` change, capped by
- * `--composer-max-height` computed from the closest `viewSelector` ancestor.
+ * Keeps `--composer-max-height` on `ref`'s element at `max(150px, 40%)` of its closest
+ * `viewSelector` ancestor, following that view's resizes. `onChange` runs after each update.
  */
-export function useAutoGrowTextarea(ref: RefObject<HTMLTextAreaElement | null>, value: string, viewSelector: string) {
+export function useComposerMaxHeight(ref: RefObject<HTMLElement | null>, viewSelector: string, onChange?: (element: HTMLElement) => void) {
   useLayoutEffect(() => {
-    const textarea = ref.current;
-    if (!textarea) return;
-    const view = textarea.closest<HTMLElement>(viewSelector);
-    const ownerWindow = textarea.ownerDocument.defaultView;
+    const element = ref.current;
+    if (!element) return;
+    const view = element.closest<HTMLElement>(viewSelector);
+    const ownerWindow = element.ownerDocument.defaultView;
     let current = "";
     const update = (viewHeight: number) => {
       const next = `${Math.round(composerMaxHeight(viewHeight))}px`;
       if (next === current) return;
       current = next;
-      textarea.style.setProperty("--composer-max-height", next);
-      fitToContent(textarea);
+      element.style.setProperty("--composer-max-height", next);
+      onChange?.(element);
     };
     update(view?.clientHeight || ownerWindow?.innerHeight || MIN_MAX_HEIGHT);
     const Observer = ownerWindow?.ResizeObserver;
@@ -50,7 +50,17 @@ export function useAutoGrowTextarea(ref: RefObject<HTMLTextAreaElement | null>, 
     });
     observer.observe(view);
     return () => observer.disconnect();
+    // onChange is a stable module function for its callers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ref, viewSelector]);
+}
+
+/**
+ * Sizes `ref`'s textarea to its content on every `value` change, capped by
+ * `--composer-max-height` computed from the closest `viewSelector` ancestor.
+ */
+export function useAutoGrowTextarea(ref: RefObject<HTMLTextAreaElement | null>, value: string, viewSelector: string) {
+  useComposerMaxHeight(ref, viewSelector, element => fitToContent(element as HTMLTextAreaElement));
   useLayoutEffect(() => {
     if (ref.current) fitToContent(ref.current);
   }, [ref, value]);

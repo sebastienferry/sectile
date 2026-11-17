@@ -401,14 +401,26 @@ saved turn as completed and replaces the disabled composer with compact
 read-only folder and terminal controls.
 
 While the agent responds, the composer queues follow-up messages instead of
-sending them: press Enter or **Queue** beside **Interrupt**. Queued messages are
-listed above the composer, apart from the transcript, and each can be copied or
-removed before it leaves. They are sent one per turn, in order, once the
+sending them: press Enter or **Queue** beside **Interrupt**. Queued messages
+show at the top of the composer box, apart from the transcript: the next one on
+a single line, the whole list behind a toggle when several wait. Each can be
+copied, removed, or moved back into the composer with **Edit**, which keeps the
+model and mode it was queued with. They are sent one per turn, in order, once the
 conversation is idle with no pending approval or question, even while another
 conversation or view is open. An interrupt, a turn ending in an error or a failed
 send pauses the queue until **Resume**; a failed message is never retried on its
 own. A stopped conversation keeps its queue visible but never sends it. The queue
 lives in memory only and is lost when Sectile Desktop quits.
+
+The composer grows with its content up to 40% of the conversation's height. In
+an empty conversation composer, Up and Down recall the prompts already sent in
+that conversation, and Escape clears a recalled prompt. Typing `/` (or `$` for
+Codex skills) as the first word opens a completion list of the commands the
+conversation's agent offers; a known command becomes an inline chip that
+Backspace deletes whole. A message starting with `!` runs as a shell command in
+the conversation's folder, and the composer shows a **Shell** badge. The folders
+the next message is sent with show as pills at the top of the composer, and a
+gauge beside the model shows how much of the model's context window is used.
 
 Conversation headers keep long titles and discussion actions on one line;
 response state stays beside the composer. Click the project in the sidebar to

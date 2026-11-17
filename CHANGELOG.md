@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Sectile Desktop completes commands in a conversation: typing `/`, or `$` for Codex skills, as the first word lists the commands the agent offers, ranked and highlighted; a chosen command shows as an inline chip that Backspace deletes whole, and a message starting with `!` shows a Shell badge since it runs as a shell command (#916).
 - Sectile Desktop shows, beside the model in a conversation's message box, a small gauge of how much of the model's context window the conversation uses, turning to a warning with a `/compact` hint above 80% (#915).
 - Sectile Desktop shows queued follow-up messages on one line at the top of the message box, expandable when several wait, with an Edit action that moves a queued message back into the box with its model and mode; the folders a message is sent with appear as compact pills on one row, with a `+N more` toggle when they overflow (#914).
 - Sectile Desktop's message box grows with what you type, up to 40% of the conversation's height, and Up/Down in an empty conversation box brings back the prompts already sent in that conversation; Escape clears a recalled prompt (#913).

@@ -3195,3 +3195,27 @@ button.context-tray-toggle:hover,button.context-tray-toggle:focus-visible { colo
 .context-meter.warning { color:var(--danger); }
 .context-meter.warning .context-meter-fill { stroke:var(--danger); }
 @media (prefers-reduced-motion: reduce) { .context-meter-fill { transition:none; } }
+
+/* CodeMirror conversation composer (#916). The menu is placed against the composer box. */
+.conversation-input { position:static; min-width:0; }
+.composer-editor .cm-editor { background:transparent; outline:none; }
+.composer-editor .cm-editor.cm-focused { outline:none; }
+.composer-editor .cm-scroller { min-height:48px; max-height:var(--composer-max-height, 200px); overflow-y:auto; font-family:inherit; line-height:1.4; font-size:var(--font-base); }
+.composer-editor .cm-content { padding:12px 13px 4px; caret-color:var(--text); color:var(--text); }
+.composer-editor .cm-line { padding:0; }
+.composer-editor .cm-placeholder { color:var(--muted); }
+.composer-chip-token { display:inline-block; padding:0 5px; margin:0 1px; border-radius:4px; line-height:1.35; background:color-mix(in srgb,var(--accent) 16%,transparent); color:var(--accent-text, var(--text)); }
+.composer-chip-command { font-family:var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size:.92em; }
+.composer-chip-skill::before { content:"✦"; margin-inline-end:4px; font-size:.85em; }
+.completion-menu { position:absolute; left:0; right:0; bottom:calc(100% + 6px); z-index:30; max-height:260px; overflow-y:auto; margin:0; padding:4px; list-style:none; border:1px solid var(--border); border-radius:8px; background:var(--surface); box-shadow:0 8px 24px var(--shadow); }
+.completion-menu.below { bottom:auto; top:calc(100% + 6px); }
+.completion-menu li { display:flex; align-items:center; gap:8px; min-height:28px; padding:3px 8px; border-radius:5px; cursor:pointer; color:var(--text); font-size:var(--font-base); }
+.completion-menu li.active { background:color-mix(in srgb,var(--accent) 14%,transparent); }
+.completion-menu li svg { flex:0 0 auto; color:var(--muted); }
+.completion-menu-label { flex:0 0 auto; font-family:var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size:.95em; }
+.completion-menu-hint { flex:0 0 auto; color:var(--muted); font-size:var(--font-sm); }
+.completion-menu-detail { flex:1 1 auto; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:var(--muted); font-size:var(--font-sm); }
+.completion-menu mark { background:transparent; color:var(--accent-text, var(--accent)); font-weight:600; }
+.project-prompt .composer-box.shell-mode { border-color:var(--accent); box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 40%,transparent); }
+.composer-shell-badge { order:2; display:inline-flex; align-items:center; gap:4px; height:20px; padding:0 6px; border-radius:4px; background:color-mix(in srgb,var(--accent) 18%,transparent); color:var(--accent-text, var(--text)); font-size:var(--font-sm); font-weight:600; }
+.composer-shell-badge svg { width:12px; height:12px; }
