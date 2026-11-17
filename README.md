@@ -194,7 +194,10 @@ to install the skills and register the MCP server:
   your Atlassian connector and record each stage as Sectile's own `#<stage>` label.
   `/sectile-lite:dispatch PE-123 PE-124`, or the board's buttons sent to a
   session running it, opens one Claude Code session per ticket, each in its
-  own worktree. `/sectile-lite:board [JQL]` publishes your own Sectile Board
+  own worktree. It finds each ticket's local clone in
+  `~/.config/sectile-lite/repositories.json` (rules by Jira project, component
+  or label), asks when no rule matches, and offers to save the answer.
+  `/sectile-lite:board [JQL]` publishes your own Sectile Board
   as a claude.ai artifact, and updates it in place when run again after a
   plugin update. Macro skills are not included. See
   [ADR 0064](docs/adrs/0064-sectile-lite-runs-the-skills-on-jira-without-a-server.md).

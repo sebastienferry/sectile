@@ -62,6 +62,16 @@ ticket's stage is Sectile's own `#<stage>` label.**
   command, at most three at a time, and only relays what they reach. It is not
   in the shared catalogue, which describes the stages Sectile itself runs. A
   host that cannot start sessions gets the commands to paste instead.
+- **A workstation map says where a ticket is worked.** Sectile links a project
+  to its tracker and to a folder; Lite has no server to hold that link, and a
+  folder is a path on one machine. The dispatcher reads
+  `~/.config/sectile-lite/repositories.json`, whose rules match a Jira project,
+  narrowed by a component or a label, to a local clone and optionally its
+  remote. It takes, in order, the folder the user named, the most specific
+  rule, a linked pull request whose repository a rule or the current folder
+  owns, and the current folder when no rule covers the project. Otherwise it
+  asks once and writes the answer to the map only on a yes. The map stays out
+  of the board, which is shared and knows nothing of a workstation's paths.
 - The full plugin's output is unchanged, byte for byte; its golden files
   guard it. A test checks that each Lite skill has the same body as the
   generic one.

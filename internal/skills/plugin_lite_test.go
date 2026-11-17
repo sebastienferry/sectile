@@ -131,6 +131,9 @@ func TestLitePluginShipsTheDispatcher(t *testing.T) {
 		"Start one session per ticket",
 		"/sectile-lite:<skill> <KEY>",
 		"Do not do the ticket work in this session",
+		"~/.config/sectile-lite/repositories.json",
+		"never guess a path",
+		"write the file only on a yes",
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("the dispatcher lacks %q", required)
