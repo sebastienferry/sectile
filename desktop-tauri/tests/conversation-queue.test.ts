@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { emptyQueue, enqueue, MESSAGE_LIMIT, QUEUE_LIMIT, remove, turnOutcome, type MessageQueue } from "../src/lib/conversation-queue.ts";
+import { emptyQueue, enqueue, MESSAGE_LIMIT, QUEUE_LIMIT, mergeDraft, remove, turnOutcome, withdraw, type MessageQueue } from "../src/lib/conversation-queue.ts";
 import type { ConversationEvent } from "../src/lib/conversation.ts";
 
 const queued = (queue: MessageQueue | string): MessageQueue => {
@@ -58,4 +58,26 @@ test("turnOutcome reads the end of the last turn from the Go transcript", () => 
 test("turnOutcome ignores errors from earlier turns", () => {
   assert.equal(turnOutcome([event("user", "Hi"), event("error", "Old failure"), event("user", "Again"), event("assistant", "Fine")]), "ok");
   assert.equal(turnOutcome([event("user", "Hi"), event("notice", "Interrupted"), event("user", "Again"), event("assistant", "Fine")]), "ok");
+});
+
+test("withdraw takes a queued or failed message back, never one being sent", () => {
+  const queue: MessageQueue = { paused: "sendFailed", items: [
+    { id: "a", text: "A", options: { model: "opus" }, status: "failed", error: "boom" },
+    { id: "b", text: "B", options: {}, status: "queued" },
+  ] };
+  const first = withdraw(queue, "a");
+  assert.equal(first?.item.text, "A");
+  assert.deepEqual(first?.item.options, { model: "opus" });
+  assert.deepEqual(first?.queue.items.map(item => item.id), ["b"]);
+  assert.equal(first?.queue.paused, "sendFailed");
+  // The last message withdrawn leaves nothing to hold back.
+  assert.deepEqual(withdraw(first!.queue, "b")?.queue, { items: [] });
+  assert.equal(withdraw({ items: [{ id: "c", text: "C", options: {}, status: "sending" }] }, "c"), undefined);
+  assert.equal(withdraw(queue, "missing"), undefined);
+});
+
+test("a withdrawn message joins the draft after a blank line", () => {
+  assert.equal(mergeDraft("", "Queued"), "Queued");
+  assert.equal(mergeDraft("  \n", "Queued"), "Queued");
+  assert.equal(mergeDraft("Draft\n", "Queued"), "Draft\n\nQueued");
 });

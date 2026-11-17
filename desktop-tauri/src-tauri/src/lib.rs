@@ -106,6 +106,7 @@ pub fn run() {
             local::choose_project_folder,
             local::choose_attached_folder,
             agent::project_folders,
+            agent::mention_files,
             workspace::project_context,
             workspace::run_result,
             workspace::run_diff,

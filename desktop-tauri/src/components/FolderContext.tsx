@@ -19,8 +19,12 @@ function useFolders(projectId:string){
  useEffect(()=>{setFolders([]);void refresh();return()=>{request.current++;};},[projectId]);
  return {folders,unavailable,refresh,context,repositories};
 }
-export function PromptFolders({projectId,runId,directory,folders:runFolders,readOnly=false,compact=false,onChanged,onPendingChange}:{
+/** A folder the agent works with, as listed in the folder popover and the composer's context tray (#914). */
+export interface FolderEntry { path:string; label:string; name:string }
+export function PromptFolders({projectId,runId,directory,folders:runFolders,readOnly=false,compact=false,onChanged,onPendingChange,onEntriesChange}:{
  projectId:string;runId?:string;directory?:string;folders?:Run["folders"];readOnly?:boolean;compact?:boolean;onChanged?:()=>void;onPendingChange?:(pending:boolean)=>void;
+ /** Receives the listed folders whenever they change, so the composer shows them without reading them twice. */
+ onEntriesChange?:(entries:FolderEntry[])=>void;
 }){
  const {folders,unavailable,refresh,context,repositories}=useFolders(projectId);
  const [pending,setPending]=useState(false);
@@ -42,7 +46,11 @@ export function PromptFolders({projectId,runId,directory,folders:runFolders,read
  },[]);
  const configured=[...repositories.filter(r=>!r.code&&r.path).map(r=>({path:r.path,name:r.identity,role:"context",attached:false})),...([context?.specPath,context?.issueSpecPath].filter(Boolean) as string[]).map(path=>({path,name:"Specifications",role:"spec",attached:false}))];
  const listed=[...(runFolders??[]).filter(f=>f.path!==directory),...configured,...folders.map(f=>({path:f.path,name:folderName(f.path),role:"local",attached:true}))].filter((f,index,all)=>f.path!==directory&&all.findIndex(other=>other.path===f.path)===index);
- const allEntries=[...(directory?[{path:directory,label:"Working"}]:[]),...listed.map(f=>({path:f.path,label:f.attached?"Attached to project":roleNames[f.role]||f.role}))];
+ const allEntries:FolderEntry[]=[...(directory?[{path:directory,label:"Working",name:folderName(directory)}]:[]),...listed.map(f=>({path:f.path,label:f.attached?"Attached to project":roleNames[f.role]||f.role,name:folderName(f.path)}))];
+ const entriesKey=JSON.stringify(allEntries);
+ const reportEntries=useRef(onEntriesChange);
+ reportEntries.current=onEntriesChange;
+ useEffect(()=>{reportEntries.current?.(JSON.parse(entriesKey) as FolderEntry[]);},[entriesKey]);
  async function copyFolderPath(path:string){
   try{
    await navigator.clipboard.writeText(path);

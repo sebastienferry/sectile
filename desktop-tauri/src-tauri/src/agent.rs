@@ -1494,6 +1494,30 @@ pub async fn project_folders(app: tauri::AppHandle, project_id: String) -> Resul
     .await
 }
 
+/// Files and folders of a project a composer can mention with `@` (#917).
+#[tauri::command]
+pub async fn mention_files(
+    app: tauri::AppHandle,
+    project_id: String,
+    run_id: Option<String>,
+    query: String,
+) -> Result<Value, String> {
+    required(&project_id)?;
+    let run_id = run_id.unwrap_or_default();
+    request_agent(
+        app,
+        reqwest::Method::GET,
+        "/desktop/mentions/files",
+        &[
+            ("projectId", &project_id),
+            ("runId", &run_id),
+            ("query", &query),
+        ],
+        None,
+    )
+    .await
+}
+
 #[tauri::command]
 pub async fn detach_project_folder(
     app: tauri::AppHandle,

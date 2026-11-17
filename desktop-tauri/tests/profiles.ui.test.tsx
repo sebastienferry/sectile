@@ -2,6 +2,7 @@ import {afterEach,beforeEach,expect,test,vi} from "vitest";
 import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
 import {ProjectProfiles} from "../src/components/ProjectProfiles";
 import ProjectPrompt from "../src/components/ProjectPrompt";
+import { getComposer, typeIn } from "./composer-editor";
 import * as profiles from "../src/lib/profiles";
 import * as chat from "../src/lib/conversation";
 vi.mock("../src/lib/profiles",()=>({conversationProfiles:vi.fn(),controlProfiles:vi.fn()}));
@@ -15,7 +16,7 @@ test("a project default preloads the new prompt and sends the named profile and 
  await screen.findByRole("option",{name:"Codex · Review"});
  expect((screen.getByLabelText("Profile or engine") as HTMLSelectElement).value).toBe("profile:review");
  expect((screen.getByLabelText("Conversation mode") as HTMLSelectElement).value).toBe("plan");
- fireEvent.change(screen.getByLabelText("Free prompt"),{target:{value:"Review the project"}});fireEvent.click(screen.getByLabelText("Send"));
+ typeIn(getComposer("Free prompt"),"Review the project");fireEvent.click(screen.getByLabelText("Send"));
  await waitFor(()=>expect(chat.controlConversation).toHaveBeenCalledWith("profile-first-turn",{action:"message",message:"Review the project",model:"chosen-model",mode:"plan"}));
  expect(chat.createConversation).toHaveBeenCalledWith("project","codex","review");expect(chat.controlConversation).toHaveBeenCalledTimes(1);
 });
@@ -36,7 +37,7 @@ test("the combined menu switches a saved profile to a standalone engine without 
  fireEvent.change(choice,{target:{value:"engine:claude"}});
  expect(choice.value).toBe("engine:claude");
  expect((screen.getByLabelText("Conversation mode") as HTMLSelectElement).value).toBe("");
- fireEvent.change(screen.getByLabelText("Free prompt"),{target:{value:"Explain this project"}});
+ typeIn(getComposer("Free prompt"),"Explain this project");
  fireEvent.click(screen.getByLabelText("Send"));
  await waitFor(()=>expect(chat.createConversation).toHaveBeenCalledWith("project","claude"));
  expect(chat.createConversation).not.toHaveBeenCalledWith("project","claude","review");

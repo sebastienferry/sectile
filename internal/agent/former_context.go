@@ -46,6 +46,31 @@ type formerMessage struct {
 // approvals never enter it; the block says so when the source had any.
 func buildFormerContext(sourceID, title string, lines []string) (formerContext, error) {
 	result := formerContext{SourceID: sourceID, SourceTitle: strings.TrimSpace(title)}
+	selection := recentFormerMessages(lines, formerContextBudget)
+	result.ToolsOmitted = selection.toolsOmitted
+	if selection.total == 0 {
+		return result, errFormerContextEmpty
+	}
+	result.Messages, result.Omitted, result.Characters = len(selection.messages), selection.total-len(selection.messages), selection.characters
+	result.Text = renderFormerContext(result, selection.messages)
+	return result, nil
+}
+
+// formerSelection is the newest messages of a transcript that fit a budget.
+type formerSelection struct {
+	messages     []formerMessage
+	total        int
+	characters   int
+	toolsOmitted bool
+}
+
+// recentFormerMessages keeps the user and assistant messages of a
+// conversation's display events, newest first while they fit budget
+// characters; a single message longer than budget is cut. Tool calls and
+// results, notices and approvals never enter it; toolsOmitted says the source
+// had some. Former context (#906) and conversation mentions (#917) share it.
+func recentFormerMessages(lines []string, budget int) formerSelection {
+	var result formerSelection
 	var messages []formerMessage
 	for _, line := range lines {
 		var event conversationEvent
@@ -63,29 +88,26 @@ func buildFormerContext(sourceID, title string, lines []string) (formerContext, 
 				messages = append(messages, formerMessage{author: "Assistant", text: text})
 			}
 		case "tool", "tool_result", "approval":
-			result.ToolsOmitted = true
+			result.toolsOmitted = true
 		}
 	}
-	if len(messages) == 0 {
-		return result, errFormerContextEmpty
-	}
+	result.total = len(messages)
 	kept, used := 0, 0
 	for i := len(messages) - 1; i >= 0; i-- {
 		size := len([]rune(messages[i].text))
-		if kept > 0 && used+size > formerContextBudget {
+		if kept > 0 && used+size > budget {
 			break
 		}
-		if size > formerContextBudget {
+		if size > budget {
 			runes := []rune(messages[i].text)
-			messages[i].text = string(runes[:formerContextBudget]) + formerContextCutMarker
-			size = formerContextBudget
+			messages[i].text = string(runes[:budget]) + formerContextCutMarker
+			size = budget
 		}
 		used += size
 		kept++
 	}
-	result.Messages, result.Omitted, result.Characters = kept, len(messages)-kept, used
-	result.Text = renderFormerContext(result, messages[len(messages)-kept:])
-	return result, nil
+	result.messages, result.characters = messages[len(messages)-kept:], used
+	return result
 }
 
 func renderFormerContext(context formerContext, messages []formerMessage) string {

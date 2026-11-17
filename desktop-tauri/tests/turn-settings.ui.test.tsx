@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TurnSettings } from "../src/components/TurnSettings";
 import ProjectPrompt from "../src/components/ProjectPrompt";
+import { getComposer, typeIn } from "./composer-editor";
 import * as api from "../src/lib/conversation";
 vi.mock("../src/lib/conversation",async original=>({...await original<typeof api>(),providerModels:vi.fn(),createConversation:vi.fn(),readConversation:vi.fn(),controlConversation:vi.fn()}));
 afterEach(()=>{cleanup();vi.resetAllMocks();});
@@ -45,7 +46,7 @@ test("the first project prompt sends model and plan choices once through the con
  await screen.findByRole("option",{name:"chosen-model"});
  fireEvent.change(screen.getByLabelText("Model"),{target:{value:"chosen-model"}});
  fireEvent.change(screen.getByLabelText("Conversation mode"),{target:{value:"plan"}});
- fireEvent.change(screen.getByLabelText("Free prompt"),{target:{value:"Plan this work"}});
+ typeIn(getComposer("Free prompt"),"Plan this work");
  fireEvent.click(screen.getByRole("button",{name:"Send"}));
  await waitFor(()=>expect(api.controlConversation).toHaveBeenCalledWith("first-turn-options",{action:"message",message:"Plan this work",model:"chosen-model",mode:"plan"}));
  expect(api.controlConversation).toHaveBeenCalledTimes(1);
@@ -58,7 +59,7 @@ test("a subsequent Codex message applies the chosen model and execution mode and
  await screen.findByRole("option",{name:"next-model"});
  fireEvent.change(screen.getByLabelText("Model"),{target:{value:"next-model"}});
  fireEvent.change(screen.getByLabelText("Conversation mode"),{target:{value:"execute"}});
- fireEvent.change(screen.getByLabelText("Next message"),{target:{value:"Implement it"}});
+ typeIn(getComposer(),"Implement it");
  vi.mocked(api.readConversation).mockResolvedValue({id:"next-turn-options",provider:"codex",busy:false,readOnly:true});
  fireEvent.click(screen.getByRole("button",{name:"Send"}));
  await waitFor(()=>expect(api.controlConversation).toHaveBeenCalledWith("next-turn-options",{action:"message",message:"Implement it",model:"next-model",mode:"execute"}));

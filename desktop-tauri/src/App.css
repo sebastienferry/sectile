@@ -1767,7 +1767,8 @@ button.composer-nav-btn:disabled { opacity:.4; cursor:default; background:transp
 .composer-nav-btn svg { width:16px; height:16px; }
 .project-prompt .composer-box { position:relative; display:flex; flex-direction:column; border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:0; gap:0; box-shadow:none; container-type:inline-size; }
 .project-prompt .composer-box:focus-within { border-color:var(--border-strong); }
-.project-prompt .composer textarea { border:0; box-shadow:none; background:transparent; padding:12px 13px 4px; border-radius:0; min-height:48px; max-height:200px; resize:none; line-height:1.45; font-size: var(--font-base); outline:none; }
+/* Auto-grow (#913): the height follows the content; --composer-max-height is set from the view height. */
+.project-prompt .composer textarea { border:0; box-shadow:none; background:transparent; padding:12px 13px 4px; border-radius:0; min-height:48px; max-height:var(--composer-max-height, 200px); overflow-y:hidden; resize:none; line-height:1.4; font-size: var(--font-base); outline:none; }
 .project-prompt .composer textarea::placeholder { color:var(--muted); }
 .composer-footer { display:flex; align-items:center; flex-wrap:wrap; gap:2px; justify-content:flex-start; min-width:0; padding:4px 8px 7px; }
 .composer-options { display:contents; }
@@ -3158,3 +3159,69 @@ button.conversation-workflow-toggle svg {
 .queued-message.failed .queued-message-status { color:var(--danger); white-space:normal; }
 .queued-message .icon-button { padding:2px; }
 .queued-message .icon-button svg { width:12px; height:12px; }
+
+/* Queue strip inside the composer box (#914). */
+.queue-strip { border-bottom:1px solid var(--border); background:color-mix(in srgb,var(--accent, var(--border)) 6%,var(--surface)); border-radius:10px 10px 0 0; padding:4px 8px; font-size:var(--font-base); color:var(--muted); }
+.queue-strip-header { display:flex; align-items:center; gap:6px; min-height:24px; min-width:0; }
+.queue-strip-tag { flex:0 0 auto; padding:0 6px; border-radius:4px; background:color-mix(in srgb,var(--muted) 14%,transparent); font-size:var(--font-sm); font-weight:600; line-height:18px; }
+.queue-strip-preview { flex:1 1 auto; min-width:0; margin:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-style:italic; }
+.queue-strip-spacer { flex:1 1 auto; }
+.queue-strip-status { flex:0 0 auto; white-space:nowrap; font-size:.9em; }
+.queue-strip-status.failed { color:var(--danger); }
+.queue-strip .icon-button { padding:2px; flex:0 0 auto; }
+.queue-strip .icon-button svg { width:12px; height:12px; }
+.queue-strip .composer-action { flex:0 0 auto; }
+.queue-strip-toggle svg { transform:rotate(90deg); transition:transform .15s ease; }
+.queue-strip.expanded .queue-strip-toggle svg { transform:rotate(-90deg); }
+.queue-strip ol { list-style:none; margin:4px 0 2px; padding:0; display:flex; flex-direction:column; gap:4px; max-height:180px; overflow-y:auto; }
+
+/* Single-line context tray (#914): pills past the first row hide behind +N more. */
+.context-tray { display:flex; align-items:flex-start; gap:6px; padding:6px 10px 0; min-width:0; }
+.context-tray-row { display:flex; flex-wrap:wrap; gap:4px; flex:1 1 auto; min-width:0; max-height:24px; overflow:hidden; }
+.context-tray.expanded .context-tray-row { max-height:none; }
+button.context-tray-pill { appearance:none; display:inline-flex; align-items:center; gap:4px; height:24px; max-width:220px; padding:0 8px; border:1px solid var(--border); border-radius:12px; background:transparent; box-shadow:none; color:var(--muted); font-size:var(--font-sm); font-weight:400; cursor:pointer; }
+button.context-tray-pill span { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+button.context-tray-pill svg { width:12px; height:12px; flex:0 0 auto; }
+button.context-tray-pill:hover,button.context-tray-pill:focus-visible { color:var(--text); border-color:var(--border-strong); background:transparent; }
+button.context-tray-toggle { appearance:none; flex:0 0 auto; height:24px; padding:0 6px; border:0; background:transparent; box-shadow:none; color:var(--muted); font-size:var(--font-sm); cursor:pointer; white-space:nowrap; }
+button.context-tray-toggle:hover,button.context-tray-toggle:focus-visible { color:var(--text); background:transparent; }
+
+/* Context usage gauge beside the model chip (#915): order 1 sits after the model chip, before the mode chip. */
+.context-meter { order:1; display:inline-flex; align-items:center; gap:3px; flex:0 0 auto; height:24px; padding:0 4px; color:var(--muted); font-size:var(--font-sm); font-variant-numeric:tabular-nums; cursor:default; }
+.context-meter svg { width:16px; height:16px; flex:0 0 auto; }
+.context-meter path { fill:none; stroke-width:2; stroke-linecap:round; }
+.context-meter-track { stroke:color-mix(in srgb,var(--muted) 30%,transparent); }
+.context-meter-fill { stroke:var(--accent); transition:stroke-dashoffset .3s ease; }
+.context-meter.warning { color:var(--danger); }
+.context-meter.warning .context-meter-fill { stroke:var(--danger); }
+@media (prefers-reduced-motion: reduce) { .context-meter-fill { transition:none; } }
+
+/* CodeMirror conversation composer (#916). The menu is placed against the composer box. */
+.prompt-input { position:static; min-width:0; }
+.composer-editor .cm-editor { background:transparent; outline:none; }
+.composer-editor .cm-editor.cm-focused { outline:none; }
+.composer-editor .cm-scroller { min-height:48px; max-height:var(--composer-max-height, 200px); overflow-y:auto; font-family:inherit; line-height:1.4; font-size:var(--font-base); }
+.composer-editor .cm-content { padding:12px 13px 4px; caret-color:var(--text); color:var(--text); }
+.composer-editor .cm-line { padding:0; }
+.composer-editor .cm-placeholder { color:var(--muted); }
+.composer-chip-token { display:inline-block; padding:0 5px; margin:0 1px; border-radius:4px; line-height:1.35; background:color-mix(in srgb,var(--accent) 16%,transparent); color:var(--accent-text, var(--text)); }
+.composer-chip-command { font-family:var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size:.92em; }
+.composer-chip-skill::before { content:"✦"; margin-inline-end:4px; font-size:.85em; }
+.completion-menu { position:absolute; left:0; right:0; bottom:calc(100% + 6px); z-index:30; max-height:260px; overflow-y:auto; margin:0; padding:4px; list-style:none; border:1px solid var(--border); border-radius:8px; background:var(--surface); box-shadow:0 8px 24px var(--shadow); }
+.completion-menu.below { bottom:auto; top:calc(100% + 6px); }
+.completion-menu li { display:flex; align-items:center; gap:8px; min-height:28px; padding:3px 8px; border-radius:5px; cursor:pointer; color:var(--text); font-size:var(--font-base); }
+.completion-menu li.active { background:color-mix(in srgb,var(--accent) 14%,transparent); }
+.completion-menu li svg { flex:0 0 auto; color:var(--muted); }
+.completion-menu-label { flex:0 0 auto; font-family:var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size:.95em; }
+.completion-menu-hint { flex:0 0 auto; color:var(--muted); font-size:var(--font-sm); }
+.completion-menu-detail { flex:1 1 auto; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:var(--muted); font-size:var(--font-sm); }
+.completion-menu mark { background:transparent; color:var(--accent-text, var(--accent)); font-weight:600; }
+.project-prompt .composer-box.shell-mode { border-color:var(--accent); box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 40%,transparent); }
+.composer-shell-badge { order:2; display:inline-flex; align-items:center; gap:4px; height:20px; padding:0 6px; border-radius:4px; background:color-mix(in srgb,var(--accent) 18%,transparent); color:var(--accent-text, var(--text)); font-size:var(--font-sm); font-weight:600; }
+.composer-shell-badge svg { width:12px; height:12px; }
+
+/* @ mention chips (#917), in the composer and in sent messages. */
+.composer-chip-token svg { width:11px; height:11px; margin-inline-end:3px; vertical-align:-1px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.composer-chip-file,.composer-chip-conversation,.composer-chip-ticket { font-size:.95em; white-space:nowrap; }
+.composer-chip-ticket { font-variant-numeric:tabular-nums; }
+.prompt-user .composer-chip-token { margin:0 1px; }

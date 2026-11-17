@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import ProjectPrompt from "../src/components/ProjectPrompt";
+import { getComposer, press, queryComposer, typeIn, valueOf } from "./composer-editor";
 import * as api from "../src/lib/conversation";
 vi.mock("../src/lib/conversation", async original => ({
   ...await original<typeof api>(), createConversation: vi.fn(), readConversation: vi.fn(), controlConversation: vi.fn(),
@@ -17,8 +18,8 @@ test("a free prompt creates a project-scoped Go conversation and crosses IPC onc
   const created = vi.fn();
   render(<ProjectPrompt projectId="project-one" onCreated={created} />);
   expect(screen.getByRole("heading",{name:"New prompt"})).toBeTruthy();
-  expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Free prompt" }));
-  fireEvent.change(screen.getByRole("textbox", { name: "Free prompt" }), { target: { value: "Explain the project" } });
+  expect(document.activeElement).toBe(getComposer("Free prompt"));
+  typeIn(getComposer("Free prompt"), "Explain the project");
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(created).toHaveBeenCalledWith("new-project-chat"));
   await waitFor(() => expect(api.controlConversation).toHaveBeenCalledWith("new-project-chat", { action: "message", message: "Explain the project" }));
@@ -31,14 +32,14 @@ test("switching projects clears the draft and does not reopen an older project a
  vi.mocked(api.readConversation).mockResolvedValue(snapshot("new-project-chat"));
  const opened=vi.fn();
  const view=render(<ProjectPrompt key="project-one" projectId="project-one" onCreated={opened}/>);
- fireEvent.change(screen.getByRole("textbox",{name:"Free prompt"}),{target:{value:"Prompt for project one"}});
+ typeIn(getComposer("Free prompt"),"Prompt for project one");
  fireEvent.click(screen.getByRole("button",{name:"Send"}));
  view.rerender(<ProjectPrompt key="project-two" projectId="project-two" onCreated={opened}/>);
- expect((screen.getByRole("textbox",{name:"Free prompt"}) as HTMLTextAreaElement).value).toBe("");
+ expect(valueOf(getComposer("Free prompt"))).toBe("");
  resolveCreate({id:"old-project-chat"});
  await waitFor(()=>expect(api.controlConversation).toHaveBeenCalledWith("old-project-chat",{action:"message",message:"Prompt for project one"}));
  expect(opened).not.toHaveBeenCalled();
- fireEvent.change(screen.getByRole("textbox",{name:"Free prompt"}),{target:{value:"Prompt for project two"}});
+ typeIn(getComposer("Free prompt"),"Prompt for project two");
  fireEvent.click(screen.getByRole("button",{name:"Send"}));
  await waitFor(()=>expect(opened).toHaveBeenCalledWith("new-project-chat"));
  expect(api.createConversation).toHaveBeenNthCalledWith(2,"project-two","claude");
@@ -49,12 +50,12 @@ test("the React controller renders Go state, sends only the next message and res
   await screen.findByText("Repository explanation");
   expect(api.controlConversation).not.toHaveBeenCalled();
   vi.mocked(api.readConversation).mockResolvedValue({ ...snapshot("history-chat"), readOnly: true });
-  fireEvent.change(screen.getByRole("textbox", { name: "Next message" }), { target: { value: "Continue" } });
+  typeIn(getComposer(), "Continue");
   await waitFor(() => expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false));
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(api.controlConversation).toHaveBeenCalledWith("history-chat", { action: "message", message: "Continue" }));
   await waitFor(() => expect(screen.getByLabelText("Conversation status").textContent).toContain("Read-only history"));
-  expect(screen.queryByRole("textbox", { name: "Next message" })).toBeNull();
+  expect(queryComposer()).toBeNull();
   expect(screen.getByLabelText("History options")).toBeTruthy();
 });
 test("a free project conversation keeps only relevant status above the composer",async()=>{
@@ -73,19 +74,19 @@ test("an agent outage keeps conversation history and draft while blocking sends 
  vi.mocked(api.readConversation).mockResolvedValue(snapshot("offline-chat"));
  const view=render(<ProjectPrompt projectId="p" runId="offline-chat" agentAvailable run={{id:"offline-chat",projectId:"p",conversation:true,status:"running",createdAt:"2026-10-30"}} onCreated={vi.fn()}/>);
  await screen.findByText("Repository explanation");
- fireEvent.change(screen.getByRole("textbox",{name:"Next message"}),{target:{value:"Continue after recovery"}});
+ typeIn(getComposer(),"Continue after recovery");
  view.rerender(<ProjectPrompt projectId="p" runId="offline-chat" agentAvailable={false} run={{id:"offline-chat",projectId:"p",conversation:true,status:"running",createdAt:"2026-10-30"}} onCreated={vi.fn()}/>);
  expect(screen.getByLabelText("Conversation status").textContent).toContain("Agent unavailable");
  expect(screen.getByLabelText("Conversation status").textContent).toContain("Execution: Status unavailable");
  expect(screen.getByText("Repository explanation")).toBeTruthy();
- expect((screen.getByRole("textbox",{name:"Next message"}) as HTMLTextAreaElement).value).toBe("Continue after recovery");
+ expect(valueOf(getComposer())).toBe("Continue after recovery");
  expect(screen.getByRole("button",{name:"Send"}).hasAttribute("disabled")).toBe(true);
- fireEvent.submit(screen.getByRole("textbox",{name:"Next message"}).closest("form")!);
+ fireEvent.submit(getComposer().closest("form")!);
  expect(api.controlConversation).not.toHaveBeenCalled();
  view.rerender(<ProjectPrompt projectId="p" runId="offline-chat" agentAvailable run={{id:"offline-chat",projectId:"p",conversation:true,status:"running",createdAt:"2026-10-30"}} onCreated={vi.fn()}/>);
  await waitFor(()=>expect(vi.mocked(api.readConversation).mock.calls.length).toBeGreaterThan(1));
  await waitFor(()=>expect(screen.getByRole("button",{name:"Send"}).hasAttribute("disabled")).toBe(false));
- expect((screen.getByRole("textbox",{name:"Next message"}) as HTMLTextAreaElement).value).toBe("Continue after recovery");
+ expect(valueOf(getComposer())).toBe("Continue after recovery");
 });
 test("a linked conversation shows ticket and execution state above the composer",async()=>{
  vi.mocked(api.readConversation).mockResolvedValue(snapshot("linked-chat"));
@@ -138,7 +139,7 @@ test("a stopped discussion describes the saved turn as completed and replaces th
  expect(screen.getByText("Response completed")).toBeTruthy();
  expect(screen.getByText("Conversation arrêtée")).toBeTruthy();
  expect(screen.queryByText("Prêt pour votre prochain message")).toBeNull();
- expect(screen.queryByRole("textbox",{name:"Next message"})).toBeNull();
+ expect(queryComposer()).toBeNull();
  expect(screen.getByLabelText("Conversation status").textContent).toContain("Read-only history");
  expect(screen.getByRole("button",{name:"Terminal"})).toBeTruthy();
 });
@@ -248,18 +249,20 @@ test("Enter sends a prompt once while Shift Enter keeps composing", async () => 
  vi.mocked(api.createConversation).mockResolvedValue({id:"keyboard-prompt"});
  vi.mocked(api.readConversation).mockResolvedValue(snapshot("keyboard-prompt"));
  render(<ProjectPrompt projectId="keyboard-project" onCreated={vi.fn()} />);
- const input=screen.getByRole("textbox",{name:"Free prompt"});
- fireEvent.change(input,{target:{value:"Explain the code"}});
- fireEvent.keyDown(input,{key:"Enter",shiftKey:true});
+ const input=getComposer("Free prompt");
+ typeIn(input,"Explain the code");
+ press(input,"Enter",{shiftKey:true});
  expect(api.createConversation).not.toHaveBeenCalled();
- fireEvent.keyDown(input,{key:"Enter"});
- await waitFor(()=>expect(api.controlConversation).toHaveBeenCalledWith("keyboard-prompt",{action:"message",message:"Explain the code"}));
+ // Shift+Enter is a new line in the message.
+ expect(valueOf(input)).toBe("Explain the code\n");
+ press(input,"Enter");
+ await waitFor(()=>expect(api.controlConversation).toHaveBeenCalledWith("keyboard-prompt",{action:"message",message:"Explain the code\n"}));
  expect(api.createConversation).toHaveBeenCalledOnce();
 });
 test("prompt suggestions fill the composer without starting execution", () => {
  render(<ProjectPrompt projectId="suggestion-project" onCreated={vi.fn()} />);
  fireEvent.click(screen.getByRole("button",{name:"Prepare a plan"}));
- expect((screen.getByRole("textbox",{name:"Free prompt"}) as HTMLTextAreaElement).value).toContain("without modifying files");
+ expect(valueOf(getComposer("Free prompt"))).toContain("without modifying files");
  expect((screen.getByLabelText("Conversation mode") as HTMLSelectElement).value).toBe("plan");
  expect(api.createConversation).not.toHaveBeenCalled();
 });
@@ -277,7 +280,7 @@ test("running tool commands can be canceled from the tool row or with Escape in 
  await waitFor(() => expect(api.controlConversation).toHaveBeenCalledWith("tool-cancel-chat", { action: "interrupt" }));
 
  vi.mocked(api.controlConversation).mockClear();
- fireEvent.keyDown(screen.getByRole("textbox", { name: "Next message" }), { key: "Escape" });
+ press(getComposer(), "Escape");
  await waitFor(() => expect(api.controlConversation).toHaveBeenCalledWith("tool-cancel-chat", { action: "interrupt" }));
 });
 

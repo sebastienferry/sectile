@@ -1,6 +1,7 @@
 import {afterEach,beforeEach,expect,test,vi} from "vitest";
 import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
 import ProjectPrompt from "../src/components/ProjectPrompt";
+import { getComposer, typeIn } from "./composer-editor";
 import * as folders from "../src/lib/folders";
 import * as chat from "../src/lib/conversation";
 vi.mock("../src/lib/folders",()=>({projectFolders:vi.fn(),attachFolder:vi.fn()}));
@@ -12,10 +13,10 @@ test("a first prompt waits until native attachment is confirmed",async()=>{
  let resolve!:(value:folders.FolderAttachment|null)=>void;
  vi.mocked(folders.attachFolder).mockReturnValue(new Promise(done=>resolve=done));
  render(<ProjectPrompt projectId="project" directory="/working" onCreated={()=>{}}/>);
- fireEvent.change(screen.getByLabelText("Free prompt"),{target:{value:"Use the added context"}});
+ typeIn(getComposer("Free prompt"),"Use the added context");
  fireEvent.click(screen.getByRole("button",{name:/^(Add folder|Add a folder|Ajouter un dossier)$/i}));
  expect(screen.getByRole("button",{name:"Send"}).hasAttribute("disabled")).toBe(true);
- fireEvent.submit(screen.getByLabelText("Free prompt").closest("form")!);
+ fireEvent.submit(getComposer("Free prompt").closest("form")!);
  expect(chat.createConversation).not.toHaveBeenCalled();
  resolve({path:"/context",appliesAt:"next-launch"});
  await waitFor(()=>expect(screen.getByRole("button",{name:"Send"}).hasAttribute("disabled")).toBe(false));

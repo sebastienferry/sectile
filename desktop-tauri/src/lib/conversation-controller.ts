@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { controlConversation, decodeEvents, readConversation, type ConversationAction, type ConversationSnapshot, type TurnOptions } from "./conversation";
-import { emptyQueue, enqueue, remove, settle, turnOutcome, type EnqueueRefusal, type MessageQueue } from "./conversation-queue";
+import { emptyQueue, enqueue, remove, settle, withdraw, turnOutcome, type EnqueueRefusal, type MessageQueue, type QueuedMessage } from "./conversation-queue";
 
 interface ConversationState {
   snapshot: ConversationSnapshot;
@@ -130,6 +130,13 @@ export class ConversationController {
     if (queue !== this.state.queue) this.update({ queue });
   }
   /** Lifts the pause, gives a failed message one more explicit try, and dispatches after a fresh read. */
+  /** Takes a queued or failed message out of the queue and returns it, for the composer to edit. */
+  withdrawQueued(id: string): QueuedMessage | undefined {
+    const withdrawn = withdraw(this.state.queue, id);
+    if (!withdrawn) return undefined;
+    this.update({ queue: withdrawn.queue });
+    return withdrawn.item;
+  }
   resumeQueue() {
     const items = this.state.queue.items.map(item => item.status === "failed" ? { id: item.id, text: item.text, options: item.options, status: "queued" as const } : item);
     this.update({ queue: { items } });
