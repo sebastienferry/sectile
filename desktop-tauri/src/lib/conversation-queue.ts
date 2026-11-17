@@ -40,6 +40,21 @@ export function remove(queue: MessageQueue, id: string): MessageQueue {
   return settle({ ...queue, items: queue.items.filter(candidate => candidate !== item) });
 }
 
+/**
+ * Takes a message back out of the queue so it can be edited (#914). Like `remove`, a
+ * message being sent stays. Returns undefined when nothing was withdrawn.
+ */
+export function withdraw(queue: MessageQueue, id: string): { queue: MessageQueue; item: QueuedMessage } | undefined {
+  const item = queue.items.find(candidate => candidate.id === id);
+  if (!item || item.status === "sending") return undefined;
+  return { queue: remove(queue, id), item };
+}
+
+/** A withdrawn message joins the draft after a blank line, so nothing typed is lost. */
+export function mergeDraft(draft: string, text: string): string {
+  return draft.trim() ? `${draft.replace(/\s+$/, "")}\n\n${text}` : text;
+}
+
 /** An empty queue has nothing left to hold back, so it is never paused. */
 export function settle(queue: MessageQueue): MessageQueue {
   return queue.items.length || !queue.paused ? queue : { items: queue.items };

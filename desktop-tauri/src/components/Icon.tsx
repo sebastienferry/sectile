@@ -48,6 +48,7 @@ const paths = {
   pr: "",
   stopSquare: "",
 };
+export type IconName = keyof typeof paths;
 export function Icon({
   name,
   size = 18,

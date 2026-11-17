@@ -227,14 +227,16 @@ describe("conversation composer queue", () => {
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
     fireEvent.change(box, { target: { value: "Then add tests" } });
     fireEvent.keyDown(box, { key: "Enter" });
-    const list = await screen.findByRole("list", { name: "Queued messages" });
-    expect(within(list).getByText("Then add tests")).toBeTruthy();
-    expect(within(list).getByText("Queued")).toBeTruthy();
-    expect(screen.getByText("Queued (1)")).toBeTruthy();
+    const strip = await screen.findByRole("region", { name: "Message queue" });
+    // The strip sits at the top of the composer box, before the textarea.
+    expect(strip.parentElement).toBe(box.closest(".composer-box"));
+    expect(within(strip).getByText("Then add tests")).toBeTruthy();
+    expect(within(strip).getByText("Queued")).toBeTruthy();
+    expect(within(strip).queryByRole("button", { name: "Expand queued messages" })).toBeNull();
     expect((box as HTMLTextAreaElement).value).toBe("");
     expect(api.controlConversation).not.toHaveBeenCalled();
-    fireEvent.click(within(list).getByRole("button", { name: "Remove queued message 1" }));
-    expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
+    fireEvent.click(within(strip).getByRole("button", { name: "Remove queued message 1" }));
+    expect(screen.queryByRole("region", { name: "Message queue" })).toBeNull();
   });
 
   test("a full queue keeps the draft and says why", async () => {
@@ -244,7 +246,7 @@ describe("conversation composer queue", () => {
     const box = await screen.findByRole("textbox", { name: "Next message" });
     await screen.findByRole("button", { name: "Queue message" });
     for (let index = 0; index < 20; index++) conversationFor(id).enqueue(`message ${index}`);
-    await screen.findByText("Queued (20)");
+    await screen.findByLabelText("20 messages");
     fireEvent.change(box, { target: { value: "One more" } });
     expect(screen.getByRole("button", { name: "Queue message" }).hasAttribute("disabled")).toBe(true);
     fireEvent.keyDown(box, { key: "Enter" });
@@ -288,5 +290,54 @@ describe("conversation composer queue", () => {
     expect(within(list).queryByText("Left behind")).toBeNull();
     expect(within(list).getByText("Also left")).toBeTruthy();
     expect(sent()).toEqual([]);
+  });
+  test("Edit moves a queued message back into the composer, after the draft, with its turn options", async () => {
+    const id = fresh("edit");
+    agent[id] = busy(id);
+    view(id);
+    const box = await screen.findByRole("textbox", { name: "Next message" }) as HTMLTextAreaElement;
+    await screen.findByRole("button", { name: "Queue message" });
+    conversationFor(id).enqueue("Queued with plan", { mode: "plan" });
+    const strip = await screen.findByRole("region", { name: "Message queue" });
+    fireEvent.change(box, { target: { value: "My draft" } });
+    fireEvent.click(within(strip).getByRole("button", { name: "Edit queued message 1" }));
+    expect(box.value).toBe("My draft\n\nQueued with plan");
+    expect(document.activeElement).toBe(box);
+    expect((screen.getByLabelText("Conversation mode") as HTMLSelectElement).value).toBe("plan");
+    expect(screen.queryByRole("region", { name: "Message queue" })).toBeNull();
+    expect(conversationFor(id).getSnapshot().queue.items).toEqual([]);
+    expect(sent()).toEqual([]);
+  });
+
+  test("several queued messages expand into a list keeping pause, resume and failure", async () => {
+    const id = fresh("expand");
+    agent[id] = busy(id);
+    view(id);
+    await screen.findByRole("button", { name: "Queue message" });
+    const controller = conversationFor(id);
+    controller.enqueue("First queued");
+    controller.enqueue("Second queued");
+    const strip = await screen.findByRole("region", { name: "Message queue" });
+    expect(within(strip).getByLabelText("2 messages")).toBeTruthy();
+    expect(within(strip).getByText("First queued")).toBeTruthy();
+    expect(within(strip).queryByText("Second queued")).toBeNull();
+    fireEvent.click(within(strip).getByRole("button", { name: "Expand queued messages" }));
+    const list = within(strip).getByRole("list", { name: "Queued messages" });
+    expect(within(list).getByText("Second queued")).toBeTruthy();
+    fireEvent.click(within(list).getByRole("button", { name: "Edit queued message 2" }));
+    expect((screen.getByRole("textbox", { name: "Next message" }) as HTMLTextAreaElement).value).toBe("Second queued");
+    // Down to one message, the strip collapses to its single line.
+    expect(within(strip).queryByRole("list", { name: "Queued messages" })).toBeNull();
+    controller.enqueue("Third queued");
+    vi.mocked(api.controlConversation).mockImplementation(async (target, input) => {
+      if (input.action === "message") throw new Error("network down");
+      return { accepted: true };
+    });
+    finishTurn(id);
+    expect(await within(strip).findByText("Queue paused · send failed: Error: network down")).toBeTruthy();
+    expect(within(strip).getByText("Failed: Error: network down")).toBeTruthy();
+    fireEvent.click(within(strip).getByRole("button", { name: "Expand queued messages" }));
+    expect(within(strip).getByRole("button", { name: "Resume" })).toBeTruthy();
+    expect(within(within(strip).getByRole("list", { name: "Queued messages" })).getByText("Failed: Error: network down")).toBeTruthy();
   });
 });

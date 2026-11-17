@@ -3159,3 +3159,29 @@ button.conversation-workflow-toggle svg {
 .queued-message.failed .queued-message-status { color:var(--danger); white-space:normal; }
 .queued-message .icon-button { padding:2px; }
 .queued-message .icon-button svg { width:12px; height:12px; }
+
+/* Queue strip inside the composer box (#914). */
+.queue-strip { border-bottom:1px solid var(--border); background:color-mix(in srgb,var(--accent, var(--border)) 6%,var(--surface)); border-radius:10px 10px 0 0; padding:4px 8px; font-size:var(--font-base); color:var(--muted); }
+.queue-strip-header { display:flex; align-items:center; gap:6px; min-height:24px; min-width:0; }
+.queue-strip-tag { flex:0 0 auto; padding:0 6px; border-radius:4px; background:color-mix(in srgb,var(--muted) 14%,transparent); font-size:var(--font-sm); font-weight:600; line-height:18px; }
+.queue-strip-preview { flex:1 1 auto; min-width:0; margin:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-style:italic; }
+.queue-strip-spacer { flex:1 1 auto; }
+.queue-strip-status { flex:0 0 auto; white-space:nowrap; font-size:.9em; }
+.queue-strip-status.failed { color:var(--danger); }
+.queue-strip .icon-button { padding:2px; flex:0 0 auto; }
+.queue-strip .icon-button svg { width:12px; height:12px; }
+.queue-strip .composer-action { flex:0 0 auto; }
+.queue-strip-toggle svg { transform:rotate(90deg); transition:transform .15s ease; }
+.queue-strip.expanded .queue-strip-toggle svg { transform:rotate(-90deg); }
+.queue-strip ol { list-style:none; margin:4px 0 2px; padding:0; display:flex; flex-direction:column; gap:4px; max-height:180px; overflow-y:auto; }
+
+/* Single-line context tray (#914): pills past the first row hide behind +N more. */
+.context-tray { display:flex; align-items:flex-start; gap:6px; padding:6px 10px 0; min-width:0; }
+.context-tray-row { display:flex; flex-wrap:wrap; gap:4px; flex:1 1 auto; min-width:0; max-height:24px; overflow:hidden; }
+.context-tray.expanded .context-tray-row { max-height:none; }
+button.context-tray-pill { appearance:none; display:inline-flex; align-items:center; gap:4px; height:24px; max-width:220px; padding:0 8px; border:1px solid var(--border); border-radius:12px; background:transparent; box-shadow:none; color:var(--muted); font-size:var(--font-sm); font-weight:400; cursor:pointer; }
+button.context-tray-pill span { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+button.context-tray-pill svg { width:12px; height:12px; flex:0 0 auto; }
+button.context-tray-pill:hover,button.context-tray-pill:focus-visible { color:var(--text); border-color:var(--border-strong); background:transparent; }
+button.context-tray-toggle { appearance:none; flex:0 0 auto; height:24px; padding:0 6px; border:0; background:transparent; box-shadow:none; color:var(--muted); font-size:var(--font-sm); cursor:pointer; white-space:nowrap; }
+button.context-tray-toggle:hover,button.context-tray-toggle:focus-visible { color:var(--text); background:transparent; }

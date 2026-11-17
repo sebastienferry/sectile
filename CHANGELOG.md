@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Sectile Desktop shows queued follow-up messages on one line at the top of the message box, expandable when several wait, with an Edit action that moves a queued message back into the box with its model and mode; the folders a message is sent with appear as compact pills on one row, with a `+N more` toggle when they overflow (#914).
 - Sectile Desktop's message box grows with what you type, up to 40% of the conversation's height, and Up/Down in an empty conversation box brings back the prompts already sent in that conversation; Escape clears a recalled prompt (#913).
 - Sectile Desktop shows how a ticket skill ended (done with its outcome and next step, needs your answer, needs verification, could not finish with the reason, stopped) in the conversation, the ticket workflow panel and the sidebar (#908).
 - Sectile Desktop can start a new conversation, or a skill on the same ticket, from an archived conversation, giving it that conversation's messages as background while leaving the archived one unchanged (#906).

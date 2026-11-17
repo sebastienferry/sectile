@@ -3,7 +3,8 @@ import { conversationFor, useConversation } from "../lib/conversation-controller
 import { createConversation, renameConversation, type ConversationAction, type ConversationSnapshot, type TurnOptions } from "../lib/conversation";
 
 import { conversationProfiles, type ProjectProfiles } from "../lib/profiles";
-import { PromptFolders } from "./FolderContext";
+import { PromptFolders, type FolderEntry } from "./FolderContext";
+import { ContextTray, type ContextTrayItem } from "./ContextTray";
 import type { Run } from "../domain/execution";
 import { statusLabel } from "../domain/execution";
 import { isActive } from "../domain/execution";
@@ -18,8 +19,8 @@ import { TaskEditor } from "./TaskEditor";
 import { TurnSettings } from "./TurnSettings";
 import { QuestionForm } from "./QuestionForm";
 import { ConversationTranscript } from "./ConversationTranscript";
-import { QueuedMessages } from "./QueuedMessages";
-import { QUEUE_LIMIT } from "../lib/conversation-queue";
+import { QueuedMessages, QueueStrip } from "./QueuedMessages";
+import { QUEUE_LIMIT, mergeDraft } from "../lib/conversation-queue";
 import { invoke } from "@tauri-apps/api/core";
 import { openExternalLink } from "../lib/workspace";
 import { pullRequestLabel, pullRequestStateLabel, taskPullRequests } from "../domain/pull-requests";
@@ -30,6 +31,12 @@ import { navigatePromptHistory, userPrompts, type PromptRecall } from "../domain
 import { caretOnEdgeRow, useAutoGrowTextarea } from "../lib/composer-sizing";
 import { decodeEvents } from "../lib/conversation";
 
+/** The context tray shows folders only when there is more than the working folder (#914). */
+function folderTrayItems(entries: FolderEntry[], onCopy: (path: string) => void): ContextTrayItem[] {
+  if (entries.length < 2) return [];
+  return entries.map(entry => ({ key: entry.path, label: entry.name, title: `${entry.label} · ${entry.path} · click to copy`, icon: "folder", onClick: () => onCopy(entry.path) }));
+}
+const copyPath = (path: string) => void navigator.clipboard?.writeText(path).catch(() => {});
 function sendOnEnter(event: React.KeyboardEvent<HTMLTextAreaElement>) {
  if(event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {event.preventDefault();event.currentTarget.form?.requestSubmit();}
 }
@@ -66,6 +73,7 @@ export default function ProjectPrompt({ projectId, projectName, runId, agentAvai
   const customized = useRef(false);
   const mounted = useRef(false);
   const promptInput = useRef<HTMLTextAreaElement>(null);
+  const [folderEntries, setFolderEntries] = useState<FolderEntry[]>([]);
   useAutoGrowTextarea(promptInput, draft, ".project-prompt");
   useEffect(() => { mounted.current=true; return () => { mounted.current=false; }; }, []);
   useEffect(() => {
@@ -127,6 +135,7 @@ export default function ProjectPrompt({ projectId, projectName, runId, agentAvai
       finally { setBusy(false); }
     }}>
       <div className="composer-box">
+        <ContextTray items={folderTrayItems(folderEntries, copyPath)} />
         <textarea ref={promptInput} autoFocus aria-label="Free prompt" value={draft} disabled={busy} maxLength={32000} onChange={e => setDraft(e.target.value)} onKeyDown={sendOnEnter} placeholder="Ask something about this project…" rows={2} />
         <div className="composer-footer"><div className="composer-options">
           <label className="sr-only"><span className="sr-only">Profile or engine</span><select tabIndex={-1} aria-label="Profile or engine" title={selectedProfile?`${selectedProfile.provider==="codex"?"Codex":"Claude Code"} · ${selectedProfile.name}`:"Choose a profile or engine"} value={profileId?`profile:${profileId}`:`engine:${provider}`} disabled={busy} onChange={e => selectEngine(e.target.value)}>
@@ -146,7 +155,7 @@ export default function ProjectPrompt({ projectId, projectName, runId, agentAvai
             onSelectEngine={selectEngine}
           />
           <div className="composer-inline-tools">
-            <PromptFolders compact projectId={projectId} directory={directory} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
+            <PromptFolders compact projectId={projectId} directory={directory} onChanged={onFoldersChanged} onPendingChange={setAttaching} onEntriesChange={setFolderEntries}/>
             <button type="button" className="composer-nav-btn" aria-label="Terminal" disabled={!directory} title="Open terminal in working folder" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setError("Unable to open terminal in this folder."))}><Icon name="terminal"/><span className="sr-only">Terminal</span></button>
           </div>
         </div><button className="send-button" aria-label="Send" title="Send · Enter" disabled={!agentAvailable || busy || attaching || !draft.trim()}><Icon name="send" /></button></div>
@@ -179,6 +188,16 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
   const overflowMenuRef = useRef<HTMLDetailsElement | null>(null);
   const availableBefore = useRef(agentAvailable);
   const messageInput = useRef<HTMLTextAreaElement>(null);
+  const [folderEntries, setFolderEntries] = useState<FolderEntry[]>([]);
+  /** Edit (#914): the queued message leaves the queue for the composer, with its turn options. */
+  function editQueued(itemId: string) {
+    const item = controller.withdrawQueued(itemId);
+    if (!item) return;
+    setDraft(current => mergeDraft(current, item.text));
+    setOptions({ ...item.options });
+    setQueueFeedback("");
+    messageInput.current?.focus();
+  }
   useAutoGrowTextarea(messageInput, draft, ".conversation-main-column");
   // Up/Down prompt history (#913): the prompt recalled, and whether an IME composition runs.
   const recall = useRef<PromptRecall>(null);
@@ -509,7 +528,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
         </ol>
       </section>
     )}
-    <QueuedMessages queue={queue} readOnly={!!snapshot.readOnly} onRemove={itemId => controller.removeQueued(itemId)} onResume={() => controller.resumeQueue()} />
+    {snapshot.readOnly && <QueuedMessages queue={queue} onRemove={itemId => controller.removeQueued(itemId)} />}
     {snapshot.readOnly ? <>
       <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} projectContext={projectContext} busy={busy} error={!!error} agentAvailable={agentAvailable} workflowOpen={workflowOpen} onToggleWorkflow={() => setWorkflowOpen(prev => !prev)} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} />
       <div className="conversation-readonly-footer" aria-label="History options">
@@ -522,6 +541,8 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
         <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} projectContext={projectContext} busy={busy} error={!!error} agentAvailable={agentAvailable} workflowOpen={workflowOpen} onToggleWorkflow={() => setWorkflowOpen(prev => !prev)} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} />
       </div>
       <div className="composer-box">
+        <QueueStrip queue={queue} onRemove={itemId => controller.removeQueued(itemId)} onResume={() => controller.resumeQueue()} onEdit={editQueued} />
+        <ContextTray items={folderTrayItems(folderEntries, copyPath)} />
         <textarea
           ref={messageInput}
           aria-label="Next message"
@@ -565,7 +586,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
         />
         <div className="composer-footer"><TurnSettings compact showProviderMark provider={snapshot.provider} snapshot={snapshot} value={options} onChange={setOptions} disabled={!loaded || busy || !!snapshot.readOnly || !!error || acting} />
         <div className="composer-inline-tools">
-          <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly={!loaded||snapshot.readOnly} onChanged={onFoldersChanged} onPendingChange={setAttaching}/>
+          <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly={!loaded||snapshot.readOnly} onChanged={onFoldersChanged} onPendingChange={setAttaching} onEntriesChange={setFolderEntries}/>
           <button type="button" className="composer-nav-btn" aria-label="Terminal" disabled={!directory} title="Open terminal in working folder" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Unable to open terminal in this folder."))}><Icon name="terminal"/><span className="sr-only">Terminal</span></button>
           <button type="button" className={`composer-nav-btn mcp-action mcp-${snapshot.sectileMcp?.status??"unknown"}`} disabled={!agentAvailable||!loaded||acting||snapshot.checkingMcp||snapshot.readOnly} aria-label="Check MCP for this conversation" title={`${snapshot.sectileMcp?.source==="transport"?"Companion MCP transport":"Engine MCP"} · ${snapshot.checkingMcp?"Checking…":({connected:"Connected",missing:"Not registered",failed:"Connection failed","needs-auth":"Sign-in required",pending:"Connecting",unknown:"Status unverified"} as Record<string,string>)[snapshot.sectileMcp?.status??"unknown"]||"Status unverified"}`} onClick={()=>void control({action:"checkMcp"}).then(()=>{const current=controller.getSnapshot().snapshot;setMcpFeedback(current.provider==="codex"&&!current.checkingMcp&&current.sectileMcp?.status==="unknown"?"Codex will check MCP on the next message, after its session reconnects.":"");}).catch(()=>{})}><span className="mcp-dot"/>MCP</button>
           {run?.taskId && <TaskPrStatus task={task} onOpenPr={url=>void openExternalLink(url).catch(()=>setLinkError("Unable to open PR/MR."))} />}
