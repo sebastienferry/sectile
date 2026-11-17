@@ -266,3 +266,11 @@ Use **Open board** on a project, or **Project board** in the command palette, to
 ### Provider model lists
 
 Configure the models offered at launch under each provider's sub-tab (**Settings → AI engines → Claude**, **Settings → AI engines → Codex**, and **Settings → AI engines → Antigravity**). Each provider has its own **Models offered** field and **Save models** button. Reset restores the shipped list; saving an empty custom list offers no models. Execution defaults save separately and preserve these choices. Upgrade the local agent together with Desktop.
+
+### Desktop sidebar status help
+
+In Tauri Desktop, select the **?** button at the bottom of the project sidebar to open **Sidebar status help**, even with no conversation selected. It stays available while the conversation list scrolls. Use the keyboard to activate it, scroll the legend, and select **Close** or press Escape to return focus to the button. Opening help preserves your conversation, draft and running work.
+
+The legend shows the same symbols and motion as the sidebar, with reduced-motion preferences respected. Row labels and tooltips identify the skill; the symbol describes its state or outcome. Ticket skills distinguish working, needs your answer, done, needs verification, could not finish, stopping and stopped. Answer a pending question or approval in the console, or choose a required repository. Check unconfirmed results against the ticket and inspect a failure's recorded reason before relaunching. A done skill does not mean the entire ticket is finished.
+
+Conversation and fallback indicators have their own explanations: a blue pulse can mean active work or an active session ready between turns; amber requests input; an outlined idle dot alone certifies neither success nor a stop reason. Help explains the symbols without changing or diagnosing an execution.

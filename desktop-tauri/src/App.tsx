@@ -1,3 +1,4 @@
+import SidebarHelp from "./components/SidebarHelpDialog";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -840,6 +841,7 @@ function Workspace() {
                 </p>
               )}
             </div>
+            <div className="sidebar-footer"><SidebarHelp /></div>
           </aside>
           <div
             className="sidebar-resizer"

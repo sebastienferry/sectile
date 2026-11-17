@@ -1495,7 +1495,7 @@ a.connection-body:hover {
 .project-children > .sidebar-link { font-size: var(--font-base); }
 .sidebar-run { padding:6px 8px; min-height:30px; font-size: var(--font-base); }
 .conversation-navigation { gap:8px; align-items:center; }
-.conversation-navigation > .conversation-indicator { width:8px; height:8px; margin-top:0; display:inline-block; border:1px solid var(--muted); border-radius:50%; flex:0 0 auto; }
+.conversation-navigation > .conversation-indicator, .sidebar-help-body .conversation-indicator { width:8px; height:8px; margin-top:0; display:inline-block; border:1px solid var(--muted); border-radius:50%; flex:0 0 auto; }
 .conversation-indicator.live,.conversation-indicator.session { background:#60a5fa; border-color:#60a5fa; }
 .conversation-indicator.live,.conversation-indicator.session,.dot.live { animation:run-state-pulse 2s ease-in-out infinite; transform-origin:center; }
 @keyframes run-state-pulse { 0%,100%{opacity:1;transform:scale(1);box-shadow:0 0 0 0 rgba(96,165,250,.4);} 50%{opacity:.45;transform:scale(.8);box-shadow:0 0 0 3px rgba(96,165,250,0);} }
@@ -3225,3 +3225,18 @@ button.context-tray-toggle:hover,button.context-tray-toggle:focus-visible { colo
 .composer-chip-file,.composer-chip-conversation,.composer-chip-ticket { font-size:.95em; white-space:nowrap; }
 .composer-chip-ticket { font-variant-numeric:tabular-nums; }
 .prompt-user .composer-chip-token { margin:0 1px; }
+
+/* Sidebar help shares the production status palette and motion rules above. */
+.sidebar-footer { flex-shrink:0; }
+.sidebar-help-button { border:1px solid var(--border); border-radius:50%; width:28px; height:28px; padding:0; }
+.sidebar-help-button:focus-visible, .sidebar-help-dialog :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.sidebar-help-dialog { width:min(560px, calc(100vw - 24px)); max-width:calc(100vw - 24px); max-height:calc(100dvh - 24px); padding:0; border:1px solid var(--border); border-radius:12px; background:var(--surface); color:var(--text); overflow:hidden; }
+.sidebar-help-dialog[open] { display:flex; flex-direction:column; }
+.sidebar-help-dialog::backdrop { background:rgb(0 0 0 / 45%); }
+.sidebar-help-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px; flex-shrink:0; border-bottom:1px solid var(--border); }
+.sidebar-help-header h2 { margin:0; font-size:var(--font-lg); overflow-wrap:anywhere; }
+.sidebar-help-body { padding:0 16px 16px; overflow-y:auto; min-height:0; overflow-wrap:anywhere; }
+.sidebar-help-body ul { list-style:none; padding:0; margin:0; }
+.sidebar-help-body li { display:flex; align-items:baseline; gap:12px; margin:16px 0; }
+.sidebar-help-body .skill-status-mark { margin-right:0; }
+.sidebar-help-body li p { margin:4px 0 0; color:var(--muted); }
