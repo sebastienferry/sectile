@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import ProjectPrompt from "../src/components/ProjectPrompt";
+import { iconPath } from "../src/components/Icon";
 import { findComposer, getComposer, press, queryComposer, typeIn, valueOf } from "./composer-editor";
 import { conversationFor } from "../src/lib/conversation-controller";
 import * as api from "../src/lib/conversation";
@@ -218,16 +219,43 @@ describe("conversation controller queue", () => {
 describe("conversation composer queue", () => {
   const view = (id: string) => render(<ProjectPrompt projectId="p" runId={id} agentAvailable onCreated={vi.fn()} />);
 
-  test("while the agent responds, Enter queues the draft beside Interrupt and clears it", async () => {
+  test.each(["Send", "Enter"])("while idle, %s sends immediately and keeps its Send identity when busy", async method => {
+    const id = fresh("idle-composer");
+    agent[id] = idle(id);
+    view(id);
+    const button = await screen.findByRole("button", { name: "Send" });
+    await waitFor(() => expect(conversationFor(id).getSnapshot().loaded).toBe(true));
+    const box = getComposer();
+    expect(button.hasAttribute("disabled")).toBe(true);
+    typeIn(box, "Continue now");
+    expect(button.getAttribute("title")).toBe("Send · Enter");
+    expect(button.querySelector("path")?.getAttribute("d")).toBe(iconPath("send"));
+    if (method === "Send") fireEvent.click(button);
+    else press(box, "Enter");
+    await screen.findByRole("button", { name: "Interrupt" });
+    expect(sent()).toEqual([[id, "Continue now"]]);
+    expect(valueOf(box)).toBe("");
+    expect(screen.getByRole("button", { name: "Send" })).toBe(button);
+    expect(button.className).toBe("send-button");
+    expect(button.querySelector("path")?.getAttribute("d")).toBe(iconPath("send"));
+    expect(button.getAttribute("title")).toContain("Enter to queue");
+    expect(screen.queryByRole("region", { name: "Message queue" })).toBeNull();
+  });
+
+  test.each(["Send", "Enter"])("while the agent responds, %s queues the draft beside Interrupt and clears it", async method => {
     const id = fresh("composer");
     agent[id] = busy(id);
     view(id);
     const box = await findComposer();
-    await screen.findByRole("button", { name: "Queue message" });
+    const button = await screen.findByRole("button", { name: "Send" });
+    await screen.findByRole("button", { name: "Interrupt" });
+    expect(button.querySelector("path")?.getAttribute("d")).toBe(iconPath("send"));
+    expect(button.className).toBe("send-button");
     expect(screen.getByRole("button", { name: "Interrupt" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Queue message" })).toBeNull();
     typeIn(box, "Then add tests");
-    press(box, "Enter");
+    if (method === "Send") fireEvent.click(button);
+    else press(box, "Enter");
     const strip = await screen.findByRole("region", { name: "Message queue" });
     // The strip sits at the top of the composer box, before the editor.
     expect(strip.parentElement).toBe(box.closest(".composer-box"));
@@ -240,16 +268,110 @@ describe("conversation composer queue", () => {
     expect(screen.queryByRole("region", { name: "Message queue" })).toBeNull();
   });
 
+  test.each([false, true])("repeated button and keyboard submissions before render consume one draft (busy=%s)", async active => {
+    const id = fresh("duplicate-composer");
+    agent[id] = active ? busy(id) : idle(id);
+    view(id);
+    await waitFor(() => expect(conversationFor(id).getSnapshot().loaded).toBe(true));
+    const box = getComposer();
+    typeIn(box, "Only once");
+    const button = screen.getByRole("button", { name: "Send" });
+    act(() => {
+      // Keep React updates batched, as overlapping submission events can be.
+      button.click();
+      box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      button.click();
+    });
+    const controller = conversationFor(id);
+    expect(controller.getSnapshot().queue.items.map(item => item.text)).toEqual(active ? ["Only once"] : []);
+    expect(sent()).toEqual(active ? [] : [[id, "Only once"]]);
+    expect(valueOf(box)).toBe("");
+
+    // Identical text deliberately entered again is a new draft, not a duplicate event.
+    typeIn(box, "Only once");
+    fireEvent.click(button);
+    expect(controller.getSnapshot().queue.items.map(item => item.text)).toEqual(active ? ["Only once", "Only once"] : ["Only once"]);
+  });
+
+  test("Send and Enter queue follow-ups that are delivered in order, one per turn", async () => {
+    const id = fresh("composer-order");
+    agent[id] = busy(id);
+    view(id);
+    await screen.findByRole("button", { name: "Interrupt" });
+    const box = getComposer();
+    typeIn(box, "First follow-up");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    typeIn(box, "Second follow-up");
+    press(box, "Enter");
+    expect(conversationFor(id).getSnapshot().queue.items.map(item => item.text)).toEqual(["First follow-up", "Second follow-up"]);
+    expect(api.controlConversation).not.toHaveBeenCalled();
+    finishTurn(id);
+    await act(async () => { await conversationFor(id).refresh(); });
+    await waitFor(() => expect(sent()).toEqual([[id, "First follow-up"]]));
+    finishTurn(id);
+    await act(async () => { await conversationFor(id).refresh(); });
+    await waitFor(() => expect(sent()).toEqual([[id, "First follow-up"], [id, "Second follow-up"]]));
+  });
+
+  test("an empty draft cannot be submitted with Send or Enter", async () => {
+    const id = fresh("empty-composer");
+    agent[id] = busy(id);
+    view(id);
+    await screen.findByRole("button", { name: "Interrupt" });
+    const box = getComposer();
+    typeIn(box, " \n ");
+    const button = screen.getByRole("button", { name: "Send" });
+    expect(button.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(button);
+    press(box, "Enter");
+    expect(valueOf(box)).toBe(" \n ");
+    expect(conversationFor(id).getSnapshot().queue.items).toEqual([]);
+    expect(api.controlConversation).not.toHaveBeenCalled();
+  });
+
+  test("a refused enqueue keeps the draft available for a later submission", async () => {
+    const id = fresh("refused-composer");
+    agent[id] = busy(id);
+    view(id);
+    await screen.findByRole("button", { name: "Interrupt" });
+    const box = getComposer();
+    typeIn(box, "Keep my draft");
+    const submit = vi.spyOn(conversationFor(id), "submit").mockReturnValueOnce("unavailable");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(valueOf(box)).toBe("Keep my draft");
+    expect(conversationFor(id).getSnapshot().queue.items).toEqual([]);
+    submit.mockRestore();
+    press(box, "Enter");
+    expect(valueOf(box)).toBe("");
+    expect(conversationFor(id).getSnapshot().queue.items.map(item => item.text)).toEqual(["Keep my draft"]);
+  });
+
+  test("busy local queue admission stays available while the agent is offline", async () => {
+    const id = fresh("offline-busy-composer");
+    agent[id] = busy(id);
+    const page = view(id);
+    await screen.findByRole("button", { name: "Interrupt" });
+    page.rerender(<ProjectPrompt projectId="p" runId={id} agentAvailable={false} onCreated={vi.fn()} />);
+    const box = getComposer();
+    typeIn(box, "After reconnecting");
+    const button = screen.getByRole("button", { name: "Send" });
+    expect(button.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(button);
+    expect(conversationFor(id).getSnapshot().queue.items.map(item => item.text)).toEqual(["After reconnecting"]);
+    expect(valueOf(box)).toBe("");
+    expect(api.controlConversation).not.toHaveBeenCalled();
+  });
+
   test("a full queue keeps the draft and says why", async () => {
     const id = fresh("full");
     agent[id] = busy(id);
     view(id);
     const box = await findComposer();
-    await screen.findByRole("button", { name: "Queue message" });
+    await screen.findByRole("button", { name: "Send" });
     for (let index = 0; index < 20; index++) conversationFor(id).enqueue(`message ${index}`);
     await screen.findByLabelText("20 messages");
     typeIn(box, "One more");
-    expect(screen.getByRole("button", { name: "Queue message" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
     press(box, "Enter");
     expect(await screen.findByText("Queue full (20 messages). Remove one to add another.")).toBeTruthy();
     expect(valueOf(box)).toBe("One more");
@@ -259,7 +381,7 @@ describe("conversation composer queue", () => {
     const id = fresh("paused");
     agent[id] = busy(id);
     view(id);
-    await screen.findByRole("button", { name: "Queue message" });
+    await screen.findByRole("button", { name: "Send" });
     conversationFor(id).enqueue("Next step");
     fireEvent.click(screen.getByRole("button", { name: "Interrupt" }));
     finishTurn(id, line("notice", "Interrupted"));
@@ -297,7 +419,7 @@ describe("conversation composer queue", () => {
     agent[id] = busy(id);
     view(id);
     const box = await findComposer();
-    await screen.findByRole("button", { name: "Queue message" });
+    await screen.findByRole("button", { name: "Send" });
     conversationFor(id).enqueue("Queued with plan", { mode: "plan" });
     const strip = await screen.findByRole("region", { name: "Message queue" });
     typeIn(box, "My draft");
@@ -314,7 +436,7 @@ describe("conversation composer queue", () => {
     const id = fresh("expand");
     agent[id] = busy(id);
     view(id);
-    await screen.findByRole("button", { name: "Queue message" });
+    await screen.findByRole("button", { name: "Send" });
     const controller = conversationFor(id);
     controller.enqueue("First queued");
     controller.enqueue("Second queued");
@@ -346,7 +468,7 @@ describe("conversation composer queue", () => {
     agent[id] = busy(id);
     view(id);
     const box = await findComposer();
-    await screen.findByRole("button", { name: "Queue message" });
+    await screen.findByRole("button", { name: "Send" });
     conversationFor(id).enqueue("q".repeat(15000));
     const strip = await screen.findByRole("region", { name: "Message queue" });
     typeIn(box, "d".repeat(20000));
