@@ -415,6 +415,12 @@ journal rather than defining a five-second conversation-loss window. Storage
 errors are visible and prevent unsaved new prompts from being dispatched. See
 [ADR 0064](docs/adrs/0064-conversation-events-use-a-synchronous-journal.md).
 
+In the Tauri desktop, eligible read-only ticket histories offer the next step beside
+Workflow as well as in the header. An active execution on the ticket hides both
+next-step controls. Stop discussion sits in the status strip for active sessions,
+including between turns and in free conversations; inactive conversations retain
+Archive in the header, and archived histories retain Start over.
+
 ### Desktop project conversation preferences
 
 The local desktop companion exposes authenticated conversation-profile and title
@@ -450,9 +456,3 @@ mode are checkpointed through normal daemon cleanup for the next explicit
 message. Active turns, queued input, pending authorizations, tracker-bound
 sessions and unavailable history storage still prevent shutdown. Do not use
 conversation Stop to prepare an update: Stop is an explicit terminal action.
-
-In the Tauri desktop, eligible read-only ticket histories offer the next step beside
-Workflow as well as in the header. An active execution on the ticket hides both
-next-step controls. Stop discussion sits in the status strip for active sessions,
-including between turns and in free conversations; inactive conversations retain
-Archive in the header, and archived histories retain Start over.
