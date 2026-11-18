@@ -44,3 +44,14 @@ audit; a process exit alone is never evidence of a stage transition.
 
 - [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode): sandboxing, automatic review and JSON Lines output.
 - [Configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference): server-scoped MCP policy remains separate from CLI sandbox settings.
+
+## Linked-worktree metadata scope (#921)
+
+Built-in autonomous launches now reuse the app-server turn's Git scope resolver,
+passing explicit metadata paths through `--add-dir`, including the three
+packed-reference file paths. The installed 0.164.0 CLI accepts these file paths;
+this was qualified separately from the app-server protocol. No template,
+approval, network or read-only policy is changed. The common Git directory and
+its hooks/configuration are not writable roots. General GC bookkeeping remains
+outside this scope. See [the native evidence](../testing/shared-git-worktree-permissions-921.md)
+and [regression recipe](../TESTING.md#codex-linked-worktree-sandbox-qualification).

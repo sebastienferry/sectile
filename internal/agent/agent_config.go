@@ -663,6 +663,11 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 		addDirs, settings = contexts[0].AddDirs, contexts[0].ClaudeSettings
 	}
 	if autonomous {
+		if provider == "codex" && len(contexts) > 0 {
+			// --add-dir accepts exact metadata file paths as well as folders.
+			// Reuse the turn policy's scope; templates above own their policy.
+			addDirs = append(append([]string(nil), addDirs...), worktreeGitWritableRoots(contexts[0].Directory)...)
+		}
 		return headlessCommandLine(provider, model, prompt, settings, addDirs...)
 	}
 	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")

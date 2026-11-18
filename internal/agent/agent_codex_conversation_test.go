@@ -381,9 +381,21 @@ func TestCodexConversationTurnGrantsWorktreeGitMetadataInSandboxPolicy(t *testin
 		filepath.Join(".git", "objects"),
 		filepath.Join(".git", "refs"),
 		filepath.Join(".git", "logs"),
+		filepath.Join(".git", "packed-refs"),
+		filepath.Join(".git", "packed-refs.lock"),
+		filepath.Join(".git", "packed-refs.new"),
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("turn/start sandboxPolicy missing %s: %s", want, text)
 		}
+	}
+}
+
+func TestCodexSuccessfulCommandPreservesAuxiliaryDenial(t *testing.T) {
+	output := "[feat/task abc1234] change\nerror: Unable to create '/repo/.git/packed-refs.lock': Operation not permitted"
+	raw, _ := json.Marshal(map[string]any{"id": "commit", "type": "commandExecution", "status": "completed", "exitCode": 0, "aggregatedOutput": output})
+	events := codexItemEvents(raw, true)
+	if len(events) != 1 || events[0].Error || events[0].Text != output {
+		t.Fatalf("successful commit and denied auxiliary operation must both survive: %+v", events)
 	}
 }

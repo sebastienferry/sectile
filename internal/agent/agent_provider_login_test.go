@@ -59,4 +59,3 @@ func TestParseCodexModelListAndCacheFilterHiddenAndInvalidModels(t *testing.T) {
 		t.Fatalf("got %v, want %v", gotCache, wantCache)
 	}
 }
-
