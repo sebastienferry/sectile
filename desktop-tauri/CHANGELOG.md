@@ -38,6 +38,7 @@ All notable changes are documented here using Keep a Changelog conventions.
 
 ### Fixed
 
+- Match the conversation next-step button's size, spacing and interaction states to the adjacent header icons.
 - Keep a stopped, completed or failed conversation's execution status stable in the project sidebar after its read-only history opens.
 - Show one clear tracker-source status in project settings and keep source management beside the heading, including during connection errors. Tracker load and association failures now explain how to retry without exposing technical responses.
 - Keep the project folder path and native picker together in a compact settings row, leaving more room for tracker sources and conversation options.

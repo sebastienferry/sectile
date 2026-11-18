@@ -350,7 +350,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
         {run?.taskId && step?.skillId && onLaunchSkill && !anyTaskRunActive && (
           <button
             type="button"
-            className="primary icon-button conversation-next-step-btn"
+            className="icon-button"
             disabled={!agentAvailable}
             aria-label={`Next step: ${step.label}`}
             title={`Next step: ${step.label}`}
