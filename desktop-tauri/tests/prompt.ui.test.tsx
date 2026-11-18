@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { conversationFor } from "../src/lib/conversation-controller";
+import userEvent from "@testing-library/user-event";
+import { stopRun } from "../src/lib/agent";
+import type { ProjectPromptProps } from "../src/components/ProjectPrompt";
 import ProjectPrompt from "../src/components/ProjectPrompt";
 import { getComposer, press, queryComposer, typeIn, valueOf } from "./composer-editor";
 import * as api from "../src/lib/conversation";
 vi.mock("../src/lib/conversation", async original => ({
   ...await original<typeof api>(), createConversation: vi.fn(), readConversation: vi.fn(), controlConversation: vi.fn(),
 }));
+vi.mock("../src/lib/agent", async original => ({ ...await original<typeof import("../src/lib/agent")>(), stopRun: vi.fn() }));
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(api.controlConversation).mockResolvedValue({ accepted: true });
@@ -328,4 +333,134 @@ test("task conversation header renders the next workflow step as a chevron icon 
  expect(btn.querySelector("svg")).not.toBeNull();
  fireEvent.click(btn);
  expect(onLaunchSkill).toHaveBeenCalledWith("clarify");
+});
+
+
+const workflowProps = (id:string):ProjectPromptProps => ({
+ projectId:"p",runId:id,onCreated:vi.fn(),onLaunchSkill:vi.fn(),
+ run:{id,projectId:"p",taskId:"ticket",conversation:true,status:"completed",createdAt:"2026-11-18"},
+ task:{id:"ticket",key:"#925",title:"Workflow actions",status:"new"},
+ projectContext:{configured:true,skills:[{id:"clarify",name:"Clarify"},{id:"implement",name:"Implement"}]},
+});
+
+test("closed history shares next-step behavior with the header and retains archive and start over",async()=>{
+ const id="closed-actions";
+ vi.mocked(api.readConversation).mockResolvedValue({...snapshot(id),readOnly:true});
+ const props={...workflowProps(id),archived:true,onStartOver:vi.fn(),onArchive:vi.fn()};
+ render(<ProjectPrompt {...props}/>);
+ await screen.findByText("Repository explanation");
+ const strip=screen.getByLabelText("Conversation status");
+ const button=within(strip).getByRole("button",{name:"Next step: Clarify"});
+ const workflow=within(strip).getByRole("button",{name:/Workflow/});
+ expect(workflow.nextElementSibling).toBe(button);
+ expect(button.title).toBe("Next step: Clarify");
+ const header=screen.getByRole("heading",{level:2}).closest("header")!;
+ fireEvent.click(within(header).getByRole("button",{name:"Next step: Clarify"}));
+ expect(props.onLaunchSkill).toHaveBeenCalledExactlyOnceWith("clarify");
+ props.onLaunchSkill.mockClear();
+ const user=userEvent.setup();
+ button.focus();
+ await user.keyboard("{Enter}");
+ expect(props.onLaunchSkill).toHaveBeenCalledExactlyOnceWith("clarify");
+ props.onLaunchSkill.mockClear();
+ await user.keyboard(" ");
+ expect(props.onLaunchSkill).toHaveBeenCalledExactlyOnceWith("clarify");
+ expect(screen.queryByRole("region",{name:"Ticket workflow"})).toBeNull();
+ expect(api.controlConversation).not.toHaveBeenCalled();
+ expect(screen.queryByRole("button",{name:"Stop discussion"})).toBeNull();
+ expect(within(header).getByRole("button",{name:"Archive discussion"})).toBeTruthy();
+ expect(within(header).getByRole("button",{name:"Start over"})).toBeTruthy();
+});
+
+test("next-step eligibility tracks agent availability and task-wide activity without clearing the draft",async()=>{
+ const id="actions-lifecycle";
+ vi.mocked(api.readConversation).mockResolvedValue(snapshot(id));
+ const props=workflowProps(id);
+ const view=render(<ProjectPrompt {...props}/>);
+ await screen.findByText("Repository explanation");
+ typeIn(getComposer(),"Keep this draft");
+ expect(screen.getAllByRole("button",{name:"Next step: Clarify"})).toHaveLength(1);
+ expect(within(screen.getByLabelText("Conversation status")).queryByRole("button",{name:/Next step/})).toBeNull();
+ view.rerender(<ProjectPrompt {...props} taskRuns={[{...props.run!,id:"other-active",status:"running"}]}/>);
+ expect(screen.queryByRole("button",{name:/Next step/})).toBeNull();
+ expect(valueOf(getComposer())).toBe("Keep this draft");
+ view.rerender(<ProjectPrompt {...props} agentAvailable={false}/>);
+ expect(screen.getByRole("button",{name:"Next step: Clarify"}).hasAttribute("disabled")).toBe(true);
+ expect(valueOf(getComposer())).toBe("Keep this draft");
+ vi.mocked(api.readConversation).mockResolvedValue({...snapshot(id),readOnly:true});
+ await act(()=>conversationFor(id).refresh());
+ await waitFor(()=>expect(queryComposer()).toBeNull());
+ expect(screen.getAllByRole("button",{name:"Next step: Clarify"})).toHaveLength(2);
+ for(const button of screen.getAllByRole("button",{name:"Next step: Clarify"}))expect(button.hasAttribute("disabled")).toBe(true);
+ view.rerender(<ProjectPrompt {...props} run={{...props.run!,status:"running"}}/>);
+ expect(screen.queryByRole("button",{name:/Next step/})).toBeNull();
+ expect(within(screen.getByLabelText("Conversation status")).getByRole("button",{name:"Stop discussion"})).toBeTruthy();
+});
+
+test.each(["task","association","callback","configuration","skill","finished","unknown"])("closed history omits an unavailable next step: %s",async missing=>{
+ const id=`missing-action-${missing}`;
+ vi.mocked(api.readConversation).mockResolvedValue({...snapshot(id),readOnly:true});
+ const props=workflowProps(id);
+ if(missing==="task")props.task=undefined;
+ if(missing==="association")props.run={...props.run!,taskId:undefined};
+ if(missing==="callback")props.onLaunchSkill=undefined;
+ if(missing==="configuration")props.projectContext=undefined;
+ if(missing==="skill")props.projectContext={configured:true,skills:[]};
+ if(missing==="finished"||missing==="unknown")props.task={...props.task!,status:missing};
+ render(<ProjectPrompt {...props}/>);
+ await screen.findByText("Repository explanation");
+ expect(screen.queryByRole("button",{name:/Next step/})).toBeNull();
+});
+
+test("closed history retains PR creation recovery instead of launching review",async()=>{
+ const id="recover-pr-action";
+ vi.mocked(api.readConversation).mockResolvedValue({...snapshot(id),readOnly:true});
+ const props=workflowProps(id);props.task={...props.task!,status:"implemented"};
+ render(<ProjectPrompt {...props}/>);
+ await screen.findByText("Repository explanation");
+ fireEvent.click(within(screen.getByLabelText("Conversation status")).getByRole("button",{name:"Next step: Create / find PR"}));
+ expect(props.onLaunchSkill).toHaveBeenCalledExactlyOnceWith("implement");
+});
+
+test.each([false,true])("active free conversations keep Stop in the strip when busy is %s",async busy=>{
+ const id=`stop-strip-${busy}`;
+ vi.mocked(api.readConversation).mockResolvedValue(snapshot(id,busy));
+ let resolveStop!:()=>void;
+ vi.mocked(stopRun).mockImplementation(()=>new Promise<void>(resolve=>{resolveStop=resolve;}));
+ const props={...workflowProps(id),run:{...workflowProps(id).run!,taskId:undefined,status:"running"},onStopped:vi.fn(),onArchive:vi.fn()};
+ const view=render(<ProjectPrompt {...props}/>);
+ await screen.findByText("Repository explanation");
+ const strip=screen.getByLabelText("Conversation status");
+ const stop=within(strip).getByRole("button",{name:"Stop discussion"});
+ expect(screen.getAllByRole("button",{name:"Stop discussion"})).toHaveLength(1);
+ expect(screen.queryByRole("button",{name:"Archive discussion"})).toBeNull();
+ view.rerender(<ProjectPrompt {...props} agentAvailable={false}/>);
+ expect(stop.hasAttribute("disabled")).toBe(true);
+ view.rerender(<ProjectPrompt {...props} run={{...props.run,cancelRequested:true}}/>);
+ expect(stop.hasAttribute("disabled")).toBe(true);
+ view.rerender(<ProjectPrompt {...props}/>);
+ fireEvent.click(stop);fireEvent.click(stop);
+ expect(stop.hasAttribute("disabled")).toBe(true);
+ expect(stop.title).toBe("Stopping…");
+ expect(stopRun).toHaveBeenCalledExactlyOnceWith(id);
+ const reads=vi.mocked(api.readConversation).mock.calls.length;
+ resolveStop();
+ await waitFor(()=>expect(props.onStopped).toHaveBeenCalledOnce());
+ expect(vi.mocked(api.readConversation).mock.calls.length).toBeGreaterThan(reads);
+ expect(api.controlConversation).not.toHaveBeenCalled();
+});
+
+test("Stop failure retains feedback and allows a guarded retry without changing the draft",async()=>{
+ const id="stop-strip-retry";
+ vi.mocked(api.readConversation).mockResolvedValue(snapshot(id));
+ vi.mocked(stopRun).mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(undefined);
+ const props=workflowProps(id);props.run={...props.run!,status:"running"};
+ render(<ProjectPrompt {...props}/>);
+ await screen.findByText("Repository explanation");
+ typeIn(getComposer(),"Retained after stop failure");
+ fireEvent.click(screen.getByRole("button",{name:"Stop discussion"}));
+ await screen.findByText(/Stop not confirmed/);
+ expect(valueOf(getComposer())).toBe("Retained after stop failure");
+ fireEvent.click(screen.getByRole("button",{name:"Stop discussion"}));
+ await waitFor(()=>expect(stopRun).toHaveBeenCalledTimes(2));
 });

@@ -714,3 +714,9 @@ transfer data or credentials between runtimes. Existing web planning remains
 the V1 owner and is unchanged. See the [candidate support matrix](docs/v1-support-matrix.md)
 for demonstrated combinations rather than interpreting a protocol check as
 full Fleet feature support. No V1 release has been tagged or approved.
+
+In the Tauri desktop, eligible read-only ticket histories offer the next step beside
+Workflow as well as in the header. An active execution on the ticket hides both
+next-step controls. Stop discussion sits in the status strip for active sessions,
+including between turns and in free conversations; inactive conversations retain
+Archive in the header, and archived histories retain Start over.

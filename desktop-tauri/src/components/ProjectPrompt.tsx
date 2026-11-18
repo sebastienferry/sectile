@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { conversationFor, useConversation } from "../lib/conversation-controller";
 import { createConversation, renameConversation, type ConversationAction, type ConversationSnapshot, type TurnOptions } from "../lib/conversation";
 
@@ -257,6 +257,21 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
   const step = task && projectContext ? nextSkill(task, projectContext) : undefined;
   const anyTaskRunActive = sortedTaskRuns.some(isActive) || (run ? isActive(run) : false);
   const currentStage = task ? taskStage(task, board ?? projectContext?.board) : undefined;
+  const nextStepAction = run?.taskId && step?.skillId && onLaunchSkill && !anyTaskRunActive && (
+    <button
+      type="button"
+      className="icon-button"
+      disabled={!agentAvailable}
+      aria-label={`Next step: ${step.label}`}
+      title={`Next step: ${step.label}`}
+      onClick={() => onLaunchSkill(step.skillId!)}
+    >
+      <Icon name="chevron" />
+    </button>
+  );
+  const statusActions = run && isActive(run)
+    ? <button type="button" className="icon-button stop-button" aria-label="Stop discussion" title={stopping ? "Stopping…" : "Stop discussion"} disabled={!agentAvailable || stopping || !!run.cancelRequested} onClick={() => void stopConversation()}><Icon name="stop" /></button>
+    : snapshot.readOnly ? nextStepAction : null;
   return <section className="project-prompt conversation-prompt">
     <header className="workspace-toolbar prompt-heading">
       <div className="workspace-toolbar-main">
@@ -347,18 +362,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
             </select>
           </label>
         )}
-        {run?.taskId && step?.skillId && onLaunchSkill && !anyTaskRunActive && (
-          <button
-            type="button"
-            className="icon-button"
-            disabled={!agentAvailable}
-            aria-label={`Next step: ${step.label}`}
-            title={`Next step: ${step.label}`}
-            onClick={() => onLaunchSkill(step.skillId!)}
-          >
-            <Icon name="chevron" />
-          </button>
-        )}
+        {nextStepAction}
         {snapshot.canAdoptConnection && <button disabled={!agentAvailable || acting || !!error} title="This history is not linked to the selected connection yet." onClick={() => void control({ action: "adoptConnection" }).catch(() => {})}>Link to this connection</button>}
         {snapshot.canRename && <button type="button" className="icon-button" aria-label="Rename conversation" title="Rename conversation" onClick={()=>{setTitle(snapshot.title||displayTitle||"");setRenaming(true);}}><Icon name="edit" /></button>}
         {archived && onStartOver && (!run || !isActive(run)) && (
@@ -372,11 +376,9 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
             <Icon name="refresh" /><span>Start over</span>
           </button>
         )}
-        {run && isActive(run) ? (
-          <button type="button" className="icon-button stop-button" aria-label="Stop discussion" title={stopping ? "Stopping…" : "Stop discussion"} disabled={!agentAvailable || stopping || !!run.cancelRequested} onClick={() => void stopConversation()}><Icon name="stop" /></button>
-        ) : onArchive ? (
+        {(!run || !isActive(run)) && onArchive && (
           <button type="button" className="icon-button" aria-label="Archive discussion" title="Archive discussion" onClick={onArchive}><Icon name="archive" /></button>
-        ) : null}
+        )}
         {run?.taskId && onLaunchSkill && projectContext?.skills && projectContext.skills.length > 0 && (
           <details className="project-action-menu conversation-overflow-menu" ref={overflowMenuRef}>
             <summary
@@ -527,7 +529,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
     )}
     {snapshot.readOnly && <QueuedMessages queue={queue} onRemove={itemId => controller.removeQueued(itemId)} />}
     {snapshot.readOnly ? <>
-      <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} projectContext={projectContext} busy={busy} error={!!error} agentAvailable={agentAvailable} workflowOpen={workflowOpen} onToggleWorkflow={() => setWorkflowOpen(prev => !prev)} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} />
+      <ConversationStatus actions={statusActions} snapshot={snapshot} run={run} task={task} board={board} projectContext={projectContext} busy={busy} error={!!error} agentAvailable={agentAvailable} workflowOpen={workflowOpen} onToggleWorkflow={() => setWorkflowOpen(prev => !prev)} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} />
       <div className="conversation-readonly-footer" aria-label="History options">
         <PromptFolders compact projectId={projectId} runId={id} directory={directory} folders={folders} readOnly onChanged={onFoldersChanged}/>
         <button type="button" className="composer-action" disabled={!directory} title="Open terminal in working folder" onClick={()=>void invoke("open_terminal_at",{path:directory}).catch(()=>setActionError("Unable to open terminal in this folder."))}><Icon name="terminal"/>Terminal</button>
@@ -535,7 +537,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
       </div>
     </> : <form className="composer" onSubmit={e => { e.preventDefault(); submitDraft(); }}>
       <div className="composer-nav-row">
-        <ConversationStatus snapshot={snapshot} run={run} task={task} board={board} projectContext={projectContext} busy={busy} error={!!error} agentAvailable={agentAvailable} workflowOpen={workflowOpen} onToggleWorkflow={() => setWorkflowOpen(prev => !prev)} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} />
+        <ConversationStatus actions={statusActions} snapshot={snapshot} run={run} task={task} board={board} projectContext={projectContext} busy={busy} error={!!error} agentAvailable={agentAvailable} workflowOpen={workflowOpen} onToggleWorkflow={() => setWorkflowOpen(prev => !prev)} onOpenQueue={onOpenQueue} onOpenTask={onOpenTask} />
       </div>
       <div className={`composer-box${isShellDraft(draft) ? " shell-mode" : ""}`}>
         <QueueStrip queue={queue} onRemove={itemId => controller.removeQueued(itemId)} onResume={() => controller.resumeQueue()} onEdit={editQueued} />
@@ -699,7 +701,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
     </div>
   </section>;
 }
-function ConversationStatus({snapshot,run,task,board,projectContext,busy,error,agentAvailable,workflowOpen,onToggleWorkflow,onOpenQueue,onOpenTask}:{snapshot:ConversationSnapshot;run?:Run;task?:Task;board?:BoardMapping;projectContext?:ProjectContext;busy:boolean;error:boolean;agentAvailable:boolean;workflowOpen?:boolean;onToggleWorkflow?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void}) {
+function ConversationStatus({actions,snapshot,run,task,board,projectContext,busy,error,agentAvailable,workflowOpen,onToggleWorkflow,onOpenQueue,onOpenTask}:{actions?:ReactNode;snapshot:ConversationSnapshot;run?:Run;task?:Task;board?:BoardMapping;projectContext?:ProjectContext;busy:boolean;error:boolean;agentAvailable:boolean;workflowOpen?:boolean;onToggleWorkflow?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void}) {
   const stage=task?taskStage(task,board):undefined;
   const activity=!agentAvailable?"Agent unavailable":error?"Status interrupted":snapshot.approvals?.length?"Your answer needed":busy?"Responding":snapshot.readOnly?"Read-only history":"Ready to respond";
   const execution=!agentAvailable?"Status unavailable":run?busy&&run.conversation?"Responding":statusLabel(run):"Loading";
@@ -720,6 +722,7 @@ function ConversationStatus({snapshot,run,task,board,projectContext,busy,error,a
       {onOpenQueue&&<button type="button" onClick={onOpenQueue}>View execution queue</button>}
       {onOpenTask&&<button type="button" onClick={onOpenTask}>Open ticket in tracker</button>}
     </div></details>
+    <span className="conversation-workflow-actions">
     {run?.taskId && onToggleWorkflow && (
       <button
         type="button"
@@ -731,6 +734,8 @@ function ConversationStatus({snapshot,run,task,board,projectContext,busy,error,a
         <span>Workflow{stage ? ` · ${stageLabels[stage]}` : ""}</span>
       </button>
     )}
+    {actions}
+    </span>
   </div>;
 }
 

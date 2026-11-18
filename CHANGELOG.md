@@ -16,6 +16,7 @@ test fixtures or internal plumbing.
 ### Added
 
 - Sectile Desktop provides a sidebar status help legend explaining skill outcomes, conversation indicators and when you need to respond or check a result (#920).
+- Ticket conversation histories offer the next workflow step beside Workflow; active discussions place Stop in the same status strip, including between turns (#925).
 
 - Sectile Desktop lets you mention, with `@`, a file or folder of the project, another conversation or a ticket in a message; mentions show as chips, and the agent gives the assistant the path, the ticket's reference or the conversation's recent transcript (#917).
 - Sectile Desktop completes commands in a conversation: typing `/`, or `$` for Codex skills, as the first word lists the commands the agent offers, ranked and highlighted; a chosen command shows as an inline chip that Backspace deletes whole, and a message starting with `!` shows a Shell badge since it runs as a shell command (#916).
