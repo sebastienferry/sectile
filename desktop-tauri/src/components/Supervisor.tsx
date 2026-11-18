@@ -49,6 +49,7 @@ export function Supervisor({
   initialTaskId = "",
   active = true,
   archivedConversationIds = [],
+  onToggleArchive,
 }: {
   projectId: string;
   tasks: Task[];
@@ -60,6 +61,7 @@ export function Supervisor({
   initialTaskId?: string;
   active?: boolean;
   archivedConversationIds?: string[];
+  onToggleArchive?: (runId: string, archived: boolean) => void;
 }) {
   const [actionError, setActionError] = useState("");
   const [notice, setNotice] = useState("");
@@ -133,9 +135,11 @@ export function Supervisor({
   const runs = projectRuns(snapshot?.runs ?? [], projectId);
   const [executionQuery, setExecutionQuery] = useState("");
   const [archiveFilter, setArchiveFilter] = useState<"all" | "active" | "archived">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "failed" | "completed">("all");
   useEffect(() => {
     setExecutionQuery("");
     setArchiveFilter("all");
+    setStatusFilter("all");
   }, [projectId]);
   const archivedSet = useMemo(() => new Set(archivedConversationIds), [archivedConversationIds]);
   const sortedRuns = useMemo(
@@ -153,6 +157,9 @@ export function Supervisor({
       const isArchived = archivedSet.has(item.id);
       if (archiveFilter === "active" && isArchived) return false;
       if (archiveFilter === "archived" && !isArchived) return false;
+      if (statusFilter === "active" && !isActive(item)) return false;
+      if (statusFilter === "failed" && item.status !== "failed") return false;
+      if (statusFilter === "completed" && item.status !== "completed" && item.status !== "finished") return false;
       if (!words.length) return true;
       const haystack = [
         runTitle(item, tasks),
@@ -168,7 +175,7 @@ export function Supervisor({
         .toLocaleLowerCase();
       return words.every(word => haystack.includes(word));
     });
-  }, [archiveFilter, archivedSet, executionQuery, sortedRuns, tasks]);
+  }, [archiveFilter, archivedSet, executionQuery, sortedRuns, statusFilter, tasks]);
   const activeExecutionCount = runs.filter(run => isActive(run) && (!run.conversation || !!run.taskId)).length;
   const openFreeConversationCount = runs.filter(run => isActive(run) && run.conversation && !run.taskId).length;
   const connected =
@@ -460,6 +467,23 @@ export function Supervisor({
                 onChange={event => setExecutionQuery(event.target.value)}
               />
             </label>
+            <div className="execution-archive-switch" role="group" aria-label="Filter by status">
+              {([
+                ["all", "All"],
+                ["active", "Active"],
+                ["failed", "Failed"],
+                ["completed", "Completed"],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={statusFilter === value}
+                  onClick={() => setStatusFilter(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="execution-archive-switch" role="group" aria-label="Filter by archive status">
               {([
                 ["all", "All"],
@@ -489,7 +513,7 @@ export function Supervisor({
               <button
                 className="run-select"
                 title={runTitle(item, tasks)}
-                onClick={() => item.conversation && onOpenConversation ? onOpenConversation(item.id) : onSelectRun(item.id)}
+                onClick={() => (item.conversation || (item.headless && item.trace)) && onOpenConversation ? onOpenConversation(item.id) : onSelectRun(item.id)}
               >
                 <strong>{runTitle(item, tasks)}</strong>
                 <span>{runSummary(item, archivedSet.has(item.id))}</span>
@@ -498,6 +522,17 @@ export function Supervisor({
                   {item.engineName ? ` · ${item.engineName}` : ""}
                 </small>
               </button>
+              {onToggleArchive && !isActive(item) && (
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={archivedSet.has(item.id) ? "Restore execution" : "Archive execution"}
+                  title={archivedSet.has(item.id) ? "Restore execution" : "Archive execution"}
+                  onClick={() => onToggleArchive(item.id, !archivedSet.has(item.id))}
+                >
+                  <Icon name="archive" />
+                </button>
+              )}
               <button
                 disabled={!!pending || !canStop(item, fresh)}
                 onClick={() =>
@@ -525,11 +560,22 @@ export function Supervisor({
               <button className="text-button" onClick={() => onSelectRun("")}>
                 ← All executions
               </button>
-              {run.conversation && onOpenConversation && <button type="button" onClick={() => onOpenConversation(run.id)}>Open conversation</button>}
+              {(run.conversation || (run.headless && run.trace)) && onOpenConversation && <button type="button" onClick={() => onOpenConversation(run.id)}>Open conversation</button>}
             </div>
             <div className="run-heading">
               <h3 title={runTitle(run, tasks)}>{runTitle(run, tasks)}</h3>
               <span className="run-status">{statusLabel(run)}</span>
+              {onToggleArchive && !isActive(run) && (
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={archivedSet.has(run.id) ? "Restore execution" : "Archive execution"}
+                  title={archivedSet.has(run.id) ? "Restore execution" : "Archive execution"}
+                  onClick={() => onToggleArchive(run.id, !archivedSet.has(run.id))}
+                >
+                  <Icon name="archive" />
+                </button>
+              )}
               <button
                 className="danger"
                 disabled={!!pending || !canStop(run, fresh)}

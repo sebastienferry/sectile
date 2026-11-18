@@ -220,6 +220,8 @@ pub struct UpdateTrackerTask {
     #[serde(skip_serializing_if = "Option::is_none")]
     priority: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     issue_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     sprint: Option<String>,
@@ -285,10 +287,13 @@ pub async fn update_task(app: tauri::AppHandle, project_id: String, task_id: Str
     {
         return Err("Invalid ticket fields".into());
     }
+    if changes.status.as_deref().is_some_and(|v| !["to_clarify", "clarified", "to_implement", "to_test", "to_close", "finished"].contains(&v)) {
+        return Err("Invalid ticket status".into());
+    }
     if changes.pr_links.as_ref().is_some_and(|links| links.len() > 50 || links.iter().any(|link| !valid_pull_request_url(&link.url))) {
         return Err("Invalid PR/MR link".into());
     }
-    if changes.title.is_none() && changes.description.is_none() && changes.priority.is_none() && changes.issue_type.is_none() && changes.sprint.is_none() && changes.assignee.is_none() && changes.pr_links.is_none() {
+    if changes.title.is_none() && changes.description.is_none() && changes.priority.is_none() && changes.status.is_none() && changes.issue_type.is_none() && changes.sprint.is_none() && changes.assignee.is_none() && changes.pr_links.is_none() {
         return Err("No ticket changes".into());
     }
     let body = serde_json::to_value(changes).map_err(|_| "Invalid ticket fields")?;

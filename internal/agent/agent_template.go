@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"tasks/internal/agentconfig"
 	"tasks/internal/models"
 )
 
@@ -25,6 +26,8 @@ type agentCommandContext struct {
 	// values (#700), "" when it has none. Only a built-in Claude line
 	// receives it: a configured template is the owner's own line.
 	ClaudeSettings string
+	// Harness carries workstation-wide sandbox overrides (networkAccess, writablePaths).
+	Harness *agentconfig.HarnessSettings
 	// Skill is what the dispatch runs for its workflow skill (#267), nil when
 	// it was not resolved, which runs the configured command as before.
 	Skill *skillChoice

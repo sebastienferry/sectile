@@ -197,7 +197,7 @@ function Workspace() {
     setConversationActionError("");
     if(archived && currentRef.current?.runId && matchingIds.includes(currentRef.current.runId)){
       const project=projects.find(item=>item.id===currentRef.current?.projectId);
-      if(project)navigate(project,"board");
+      if(project)navigate(project, currentRef.current.view === "executions" ? "executions" : "board");
     }
   }
   async function stopConversation(run:Run) {
@@ -826,7 +826,15 @@ function Workspace() {
                             onClick={() => navigate(project, "executions")}
                           >
                             <Icon name="terminal" />
-                            All executions <span>{runs.length}</span>
+                            All executions
+                            {runs.some(isActive) && (
+                              <span
+                                className="dot live"
+                                aria-label="Active background executions"
+                                title="Active background executions"
+                              />
+                            )}
+                            <span>{runs.length}</span>
                           </button>
                         </div>
                       )}
@@ -941,6 +949,7 @@ function Workspace() {
                       onContextChanged={value=>setNavigationContext({projectId:current.projectId,value})}
                       archivedConversationIds={archivedConversationIds}
                       onArchiveConversation={runId=>setArchived(runId,true)}
+                      onToggleArchiveRun={setArchived}
                     />
                   )}
                 </section>
@@ -1063,6 +1072,7 @@ function ProjectPane({
   onContextChanged,
   archivedConversationIds,
   onArchiveConversation,
+  onToggleArchiveRun,
 }: {
   selection: WorkspaceView;
   project?: Project;
@@ -1075,6 +1085,7 @@ function ProjectPane({
   onContextChanged: (context:ProjectContext) => void;
   archivedConversationIds: string[];
   onArchiveConversation: (runId:string) => void;
+  onToggleArchiveRun: (runId:string, archived:boolean) => void;
   navigate: (
     project: Project,
     view: View,
@@ -1410,7 +1421,7 @@ function ProjectPane({
   // startOver launches the skill in the conversation view with an archived
   // conversation as former context (#906), and rethrows a failure for the
   // dialog to show instead of the toolbar's generic notice.
-  async function startSkill(task:Task,skillId:string,viewOverride?:TaskLaunchView,startOver?:{prompt:string;contextRunId:string}){
+  async function startSkill(task:Task,skillId:string,viewOverride?:TaskLaunchView,startOver?:{prompt:string;contextRunId:string},modeOverride?: "autonomous" | "interactive"){
     if(launching||!project||!context){if(startOver)throw new Error("Another launch is in progress.");return;}
     setLaunching(true);setLaunchError("");
     try{
@@ -1431,7 +1442,7 @@ function ProjectPane({
       }
       const chosenView=viewOverride??readTaskLaunchView();
       if(viewOverride)saveTaskLaunchView(viewOverride);
-      await launchTask(project.id,launchInput(task.id,skillId,"","",chosenView==="terminal"?{view:"terminal"}:undefined));
+      await launchTask(project.id,launchInput(task.id,skillId,"",modeOverride ?? "",chosenView==="terminal"&&modeOverride!=="autonomous"?{view:"terminal"}:undefined));
       await monitor.refresh();
       if (selection.view !== "prompt" || currentRun?.taskId !== task.id) {
         navigate(project,"task",undefined,task.id);
@@ -1468,11 +1479,23 @@ function ProjectPane({
     }catch{setLaunchError("Batch not launched. Check the tickets, skill, and executions before trying again.");}
     finally{setLaunching(false);}
   }
+  function openTicket(task: Task) {
+    if (!project) return;
+    const runsForTask = projectRuns(monitor.snapshot?.runs ?? [], project.id).filter(
+      r => r.taskId === task.id && (r.conversation || (r.headless && r.trace)),
+    );
+    const preferred = runsForTask.find(isActive) ?? runsForTask[0];
+    if (preferred) {
+      navigate(project, "prompt", preferred.id);
+      return;
+    }
+    navigate(project, "task", undefined, task.id);
+  }
   function taskMenu(task:Task){
     const next=context?nextSkill(task,context):undefined;
     const launchDisabled=launching||!monitor.fresh||taskStage(task,context?.board)==="finished";
     const defaultView=readTaskLaunchView();
-    return <select className="task-actions" aria-label={`Actions for ${task.key||task.title}`} title="Ticket actions" defaultValue="" onChange={event=>{const value=event.currentTarget.value;event.currentTarget.value="";if(value==="open"){if(project)navigate(project,"task",undefined,task.id);}else if(value==="edit"){if(project)navigate(project,"ticket-editor",undefined,task.id);}else if(value.startsWith("terminal:")){void startSkill(task,value.slice(9),"terminal");}else if(value.startsWith("conversation:")){void startSkill(task,value.slice(13),"conversation");}else if(value)void startSkill(task,value);}}><option value="">•••</option><option value="open">View workflow</option><option value="edit" disabled={!monitor.fresh||!monitor.snapshot?.status.capabilities?.includes("task-page")}>Edit ticket</option>{next?.skillId&&<option value={next.skillId} disabled={launchDisabled}>Launch: {next.label}</option>}{next?.skillId&&next.skillId!=="pickup"&&(defaultView==="terminal"?<option value={`conversation:${next.skillId}`} disabled={launchDisabled}>Launch in conversation: {next.label}</option>:<option value={`terminal:${next.skillId}`} disabled={launchDisabled}>Launch in terminal: {next.label}</option>)}{context?.skills.filter(skill=>skill.id!==next?.skillId&&skill.id!=="pickup_issues").map(skill=><option key={skill.id} value={skill.id} disabled={launchDisabled}>Launch: {skillLabels[skill.id]||skill.id}</option>)}</select>;
+    return <select className="task-actions" aria-label={`Actions for ${task.key||task.title}`} title="Ticket actions" defaultValue="" onChange={event=>{const value=event.currentTarget.value;event.currentTarget.value="";if(value==="open"){openTicket(task);}else if(value==="edit"){if(project)navigate(project,"ticket-editor",undefined,task.id);}else if(value.startsWith("terminal:")){void startSkill(task,value.slice(9),"terminal");}else if(value.startsWith("conversation:")){void startSkill(task,value.slice(13),"conversation");}else if(value)void startSkill(task,value);}}><option value="">•••</option><option value="open">View workflow</option><option value="edit" disabled={!monitor.fresh||!monitor.snapshot?.status.capabilities?.includes("task-page")}>Edit ticket</option>{next?.skillId&&<option value={next.skillId} disabled={launchDisabled}>Launch: {next.label}</option>}{next?.skillId&&next.skillId!=="pickup"&&(defaultView==="terminal"?<option value={`conversation:${next.skillId}`} disabled={launchDisabled}>Launch in conversation: {next.label}</option>:<option value={`terminal:${next.skillId}`} disabled={launchDisabled}>Launch in terminal: {next.label}</option>)}{context?.skills.filter(skill=>skill.id!==next?.skillId&&skill.id!=="pickup_issues").map(skill=><option key={skill.id} value={skill.id} disabled={launchDisabled}>Launch: {skillLabels[skill.id]||skill.id}</option>)}</select>;
   }
   function epicStyle(task:Task):CSSProperties|undefined {
     const color=context?.board?.epicColors ? epicColorHex(task.parentKey) : undefined;
@@ -1942,9 +1965,7 @@ function ProjectPane({
                           title="Open ticket workflow"
                           aria-label={`Open workflow for ${task.key || task.title}`}
                           className="icon-button"
-                          onClick={() =>
-                            navigate(project, "task", undefined, task.id)
-                          }
+                          onClick={() => openTicket(task)}
                         >
                           <Icon name="chevron" />
                         </button>
@@ -1992,12 +2013,12 @@ function ProjectPane({
             onSelectRun={nextRunId => {
               if (!project || !nextRunId) return;
               const target = monitor.snapshot?.runs.find(item => item.id === nextRunId);
-              if (target?.conversation) navigate(project, "prompt", target.id);
+              if (target?.conversation || (target?.headless && target?.trace)) navigate(project, "prompt", target.id);
               else navigate(project, "executions", nextRunId);
             }}
-            onLaunchSkill={currentRun?.taskId ? skillId => {
+            onLaunchSkill={currentRun?.taskId ? (skillId, mode) => {
               const targetTask = tasks.find(t => t.id === currentRun.taskId);
-              if (targetTask) void startSkill(targetTask, skillId);
+              if (targetTask) void startSkill(targetTask, skillId, undefined, undefined, mode);
             } : undefined}
             onEditTask={currentRun?.taskId && project && monitor.snapshot?.status.capabilities?.includes("task-page") ? () => navigate(project, "ticket-editor", undefined, currentRun.taskId) : undefined}
             onOpenQueue={project?()=>navigate(project,"executions"):undefined}
@@ -2045,7 +2066,7 @@ function ProjectPane({
           onSelectRun={(id) => {
             if (project && id) {
               const r = monitor.snapshot?.runs.find(item => item.id === id);
-              if (r?.conversation) {
+              if (r?.conversation || (r?.headless && r?.trace)) {
                 navigate(project, "prompt", id);
                 return;
               }
@@ -2054,6 +2075,7 @@ function ProjectPane({
           }}
           initialTaskId={selection.taskId}
           archivedConversationIds={archivedConversationIds}
+          onToggleArchive={onToggleArchiveRun}
           active
         />
       )}

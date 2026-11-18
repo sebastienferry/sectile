@@ -124,6 +124,8 @@ pub fn run() {
             workspace::get_agy_settings,
             workspace::get_workstation_sandbox,
             workspace::save_workstation_sandbox,
+            workspace::get_workstation_harness,
+            workspace::save_workstation_harness,
             workspace::install_provider_skills,
             workspace::configure_provider_mcp,
             workspace::project_repositories,

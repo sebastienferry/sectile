@@ -10,8 +10,18 @@ const codexSettingsCapability = "codex-settings"
 
 func (d *agentDaemon) workstationCodexReviewer() string {
 	settings, err := d.readSettings()
-	if err == nil && settings.Defaults.CodexApprovalsReviewer == "auto_review" {
-		return "auto_review"
+	if err == nil {
+		if settings.Defaults.Harness != nil {
+			switch settings.Defaults.Harness.EffectivePermissionMode() {
+			case "auto":
+				return "auto_review"
+			case "accept-edits", "default", "plan":
+				return "user"
+			}
+		}
+		if settings.Defaults.CodexApprovalsReviewer == "auto_review" {
+			return "auto_review"
+		}
 	}
 	return "user"
 }

@@ -1101,7 +1101,7 @@ fn validate_update_result(success: bool, bytes: &[u8]) -> Result<(), String> {
         return Ok(());
     }
     if response["reason"] == "busy" {
-        return Err("Finish active runs and preparations before updating. To continue working, click Check / start local companion.".into());
+        return Err("Stop active runs, open conversations in the sidebar, and preparations before updating. To continue working, click Check / start local companion.".into());
     }
     Err("Shutdown not confirmed. Try again or explicitly start the companion from settings. Check companion.log if needed.".into())
 }
@@ -1146,9 +1146,13 @@ pub async fn enable_local_runtime(app: tauri::AppHandle) -> Result<(), String> {
                 stop.arg("--prepare-update")
                     .arg("--data-dir")
                     .arg(data)
-                    .stdout(Stdio::null())
+                    .stdout(Stdio::piped())
                     .stderr(Stdio::null());
-                let _ = tauri::async_runtime::spawn_blocking(move || stop.status()).await;
+                let output = tauri::async_runtime::spawn_blocking(move || stop.output())
+                    .await
+                    .map_err(|_| "Companion restart interrupted")?
+                    .map_err(|_| "Unable to restart local companion")?;
+                validate_update_result(output.status.success(), &output.stdout)?;
             }
         }
     }

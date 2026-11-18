@@ -70,8 +70,18 @@ export interface WorkstationSandboxPayload {
   claudeSandbox?: ClaudeSandbox;
   projects?: string[];
 }
+export type HarnessPermissionMode = "" | "auto" | "accept-edits" | "default" | "plan";
+export interface HarnessSettings {
+  permissionMode?: HarnessPermissionMode;
+  autoApprove?: boolean;
+  networkAccess?: boolean;
+  writablePaths?: string[];
+}
 export const saveProviderPermissions = (input: ProviderPermissions) => invoke("save_provider_permissions", { input });
 export const getAgySettings = () => invoke<{ conversationMode?: string }>("get_agy_settings");
 export const getWorkstationSandbox = () => invoke<WorkstationSandboxPayload>("get_workstation_sandbox");
 export const saveWorkstationSandbox = (input: { claudeSandbox: ClaudeSandbox; claudeSandboxBase?: ClaudeSandbox; projects: string[] }) =>
   invoke<WorkstationSandboxPayload>("save_workstation_sandbox", { input });
+export const getWorkstationHarness = () => invoke<HarnessSettings>("get_workstation_harness");
+export const saveWorkstationHarness = (input: HarnessSettings) =>
+  invoke<HarnessSettings>("save_workstation_harness", { input });

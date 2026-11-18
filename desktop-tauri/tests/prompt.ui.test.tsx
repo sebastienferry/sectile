@@ -129,7 +129,7 @@ test("a finished discussion archives through its own menu without sending a prov
  const archive=vi.fn();
  render(<ProjectPrompt projectId="p" runId="finished-chat" run={{id:"finished-chat",projectId:"p",taskId:"",skill:"",status:"completed",conversation:true,createdAt:"2026-10-30"}} onArchive={archive} onCreated={vi.fn()}/>);
  await screen.findByText("Repository explanation");
- fireEvent.click(screen.getByRole("button",{name:"Archive discussion"}));
+ fireEvent.click(screen.getAllByRole("button",{name:"Archive discussion"})[0]);
  expect(archive).toHaveBeenCalledOnce();
  expect(api.controlConversation).not.toHaveBeenCalled();
 });

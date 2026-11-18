@@ -162,7 +162,11 @@ test("the execution queue sorts by descending date and filters by text and archi
   expect(screen.queryByTitle("Newer archived chat")).toBeNull();
   expect(screen.getByTitle("Older active chat")).toBeTruthy();
 
-  fireEvent.click(screen.getByRole("button", { name: "All" }));
+  fireEvent.click(
+    screen
+      .getByRole("group", { name: "Filter by archive status" })
+      .querySelectorAll("button")[0],
+  );
   fireEvent.change(screen.getByRole("textbox", { name: "Filter executions" }), { target: { value: "Newer" } });
   expect(screen.getByTitle("Newer archived chat")).toBeTruthy();
   expect(screen.queryByTitle("Older active chat")).toBeNull();
@@ -219,4 +223,76 @@ test("unmount stops polling", async () => {
     await vi.advanceTimersByTimeAsync(10000);
   });
   expect(api.executionSnapshot).toHaveBeenCalledTimes(count);
+});
+test("status filter narrows executions to active runs", async () => {
+  vi.mocked(api.executionSnapshot).mockResolvedValue({
+    status: { connected: true, capabilities: [] },
+    runs: [
+      run,
+      {
+        id: "r2",
+        projectId: "p",
+        taskId: "t2",
+        taskKey: "APP-2",
+        skill: "implement_issue",
+        status: "completed",
+        createdAt: "2026-10-28T11:00:00Z",
+      },
+      {
+        id: "r3",
+        projectId: "p",
+        taskId: "t3",
+        taskKey: "APP-3",
+        skill: "implement_issue",
+        status: "failed",
+        createdAt: "2026-10-28T10:00:00Z",
+      },
+    ],
+  });
+  mount("executions");
+  await screen.findByText("APP-1");
+  expect(screen.getByText("APP-2")).toBeTruthy();
+  expect(screen.getByText("APP-3")).toBeTruthy();
+
+  const statusGroup = screen.getByRole("group", { name: "Filter by status" });
+  fireEvent.click(statusGroup.querySelectorAll("button")[1]);
+  expect(screen.getByText("APP-1")).toBeTruthy();
+  expect(screen.queryByText("APP-2")).toBeNull();
+  expect(screen.queryByText("APP-3")).toBeNull();
+});
+test("completed headless executions expose archive and restore actions", async () => {
+  const onToggleArchive = vi.fn();
+  vi.mocked(api.executionSnapshot).mockResolvedValue({
+    status: { connected: true, capabilities: [] },
+    runs: [
+      run,
+      {
+        id: "r2",
+        projectId: "p",
+        taskId: "t2",
+        taskKey: "APP-2",
+        skill: "pickup",
+        status: "completed",
+        headless: true,
+        createdAt: "2026-10-28T11:00:00Z",
+      },
+    ],
+  });
+  render(
+    <ExecutionProvider>
+      <Supervisor
+        projectId="p"
+        tasks={[task]}
+        onChanged={vi.fn()}
+        view="executions"
+        archivedConversationIds={[]}
+        onToggleArchive={onToggleArchive}
+      />
+    </ExecutionProvider>,
+  );
+  await screen.findByText("APP-2");
+  const archiveButtons = screen.getAllByRole("button", { name: "Archive execution" });
+  expect(archiveButtons).toHaveLength(1);
+  fireEvent.click(archiveButtons[0]);
+  expect(onToggleArchive).toHaveBeenCalledWith("r2", true);
 });

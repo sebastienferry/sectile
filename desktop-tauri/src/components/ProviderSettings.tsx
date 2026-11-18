@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ProviderPreparation } from "./ProviderPreparation";
-import { ProviderPermissions } from "./ProviderPermissions";
 import { ClaudeSandboxSettings } from "./ClaudeSandboxSettings";
 import { ProviderMark } from "./ProviderMark";
 import { WorkstationProfiles } from "./ProjectProfiles";
-import { providerReadiness, type Readiness } from "../lib/workspace";
 import { invoke } from "@tauri-apps/api/core";
 
 type ProviderStatus = {
@@ -15,7 +13,7 @@ type ProviderStatus = {
   authentication: "connected" | "disconnected" | "unknown";
 };
 
-type EngineTab = "overview" | "claude" | "codex" | "agy";
+type EngineTab = "overview" | "claude" | "codex";
 
 export function ProviderSettings({
   projects = [],
@@ -27,7 +25,6 @@ export function ProviderSettings({
   const [tab, setTab] = useState<EngineTab>("overview");
   const [statuses, setStatuses] = useState<Record<string, ProviderStatus>>({});
   const [statusErrors, setStatusErrors] = useState<Record<string, string>>({});
-  const [readiness, setReadiness] = useState<Record<string, Readiness>>({});
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
@@ -36,17 +33,6 @@ export function ProviderSettings({
   const mounted = useRef(false);
   const checking = useRef(false);
   const launching = useRef(false);
-
-  async function refreshReadiness(provider: "claude" | "codex") {
-    try {
-      const data = await providerReadiness(provider);
-      if (mounted.current) {
-        setReadiness((prev) => ({ ...prev, [provider]: data }));
-      }
-    } catch {
-      // Readiness is optional in overview tests when services are mocked.
-    }
-  }
 
   async function refresh() {
     if (checking.current) return;
@@ -88,12 +74,6 @@ export function ProviderSettings({
       mounted.current = false;
     };
   }, []);
-
-  useEffect(() => {
-    if (tab === "claude" || tab === "codex") {
-      void refreshReadiness(tab);
-    }
-  }, [tab]);
 
   useEffect(() => {
     if (!watching) return;
@@ -171,10 +151,7 @@ export function ProviderSettings({
           </button>
         </div>
         {status?.models && status.models.length > 0 && (
-          <div
-            className="provider-models"
-            aria-label={`Detected ${name} models`}
-          >
+          <div className="provider-models" aria-label={`Detected ${name} models`}>
             <span className="provider-models-label">Detected models</span>
             <div className="provider-models-list">
               {status.models.map((model) => (
@@ -185,31 +162,34 @@ export function ProviderSettings({
             </div>
           </div>
         )}
-        {(statusErrors[provider] || status?.path || (status && !status.installed)) && (
-          <div className="provider-card-extra">
-            {statusErrors[provider] && (
-              <p role="alert" className="error">
-                {name}: {statusErrors[provider]}
-              </p>
-            )}
-            {status?.path && (
-              <details className="provider-details">
-                <summary>Installation details</summary>
-                <code>{status.path}</code>
-              </details>
-            )}
-            {status && !status.installed && (
-              <p>
-                Install the official CLI, then run detection again.{" "}
-                <code>
-                  {provider === "claude"
-                    ? "https://code.claude.com/docs/en/setup"
-                    : "https://developers.openai.com/codex/cli"}
-                </code>
-              </p>
-            )}
-          </div>
-        )}
+        <div className="provider-card-extra">
+          {statusErrors[provider] && (
+            <p role="alert" className="error">
+              {name}: {statusErrors[provider]}
+            </p>
+          )}
+          {status?.path && (
+            <details className="provider-details">
+              <summary>Installation details</summary>
+              <code>{status.path}</code>
+            </details>
+          )}
+          {status && !status.installed && (
+            <p>
+              Install the official CLI, then run detection again.{" "}
+              <code>
+                {provider === "claude"
+                  ? "https://code.claude.com/docs/en/setup"
+                  : "https://developers.openai.com/codex/cli"}
+              </code>
+            </p>
+          )}
+          <ProviderPreparation
+            provider={provider}
+            projects={projects}
+            hidePermissions
+          />
+        </div>
       </section>
     );
   }
@@ -222,7 +202,6 @@ export function ProviderSettings({
             ["overview", "Overview", null],
             ["claude", "Claude", "claude"],
             ["codex", "Codex", "codex"],
-            ["agy", "Antigravity", "agy"],
           ] as const
         ).map(([id, label, mark]) => (
           <button
@@ -243,30 +222,19 @@ export function ProviderSettings({
         ))}
       </div>
 
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      {notice && <p role="status">{notice}</p>}
+
       {tab === "overview" && (
         <>
           <div className="provider-settings-toolbar">
-            <p>
-              Engines run on this workstation. Their accounts are separate from
-              trackers.
-            </p>
             <button disabled={pending} onClick={() => void refresh()}>
-              Check connections
+              Detect AI Engines
             </button>
-          </div>
-          {error && (
-            <p role="alert" className="error">
-              {error}
-            </p>
-          )}
-          {notice && <p role="status">{notice}</p>}
-          <div className="provider-grid">
-            {(
-              [
-                ["claude", "Claude Code"],
-                ["codex", "Codex"],
-              ] as const
-            ).map(([provider, name]) => renderProviderCard(provider, name))}
           </div>
           {showProfiles && (
             <WorkstationProfiles
@@ -280,17 +248,6 @@ export function ProviderSettings({
       {tab === "claude" && (
         <div className="provider-engine-panel">
           {renderProviderCard("claude", "Claude Code")}
-          <ProviderPermissions
-            provider="claude"
-            view={readiness.claude}
-            onSaved={() => refreshReadiness("claude")}
-            inline
-          />
-          <ProviderPreparation
-            provider="claude"
-            projects={projects}
-            hidePermissions
-          />
           <ClaudeSandboxSettings projects={projects} />
         </div>
       )}
@@ -298,23 +255,6 @@ export function ProviderSettings({
       {tab === "codex" && (
         <div className="provider-engine-panel">
           {renderProviderCard("codex", "Codex")}
-          <ProviderPermissions
-            provider="codex"
-            view={readiness.codex}
-            onSaved={() => refreshReadiness("codex")}
-            inline
-          />
-          <ProviderPreparation provider="codex" projects={projects} hidePermissions />
-        </div>
-      )}
-
-      {tab === "agy" && (
-        <div className="provider-engine-panel">
-          <ProviderPermissions
-            provider="agy"
-            onSaved={async () => {}}
-            inline
-          />
         </div>
       )}
     </article>

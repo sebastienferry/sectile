@@ -344,6 +344,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopWorkstation(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/workstation/harness" {
+		d.desktopWorkstationHarness(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/workstation/sandbox" {
 		d.desktopWorkstationSandbox(w, r)
 		return
@@ -1932,7 +1936,7 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	line, err := dispatchCommand(config, task.ID, input.SkillID, "", "", "", "", "", agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders), ClaudeSettings: claudeSettings})
+	line, err := dispatchCommand(config, task.ID, input.SkillID, "", "", "", "", "", agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders), ClaudeSettings: claudeSettings, Harness: d.workstationHarnessPtr()})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return

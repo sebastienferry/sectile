@@ -102,8 +102,9 @@ type controlledRun struct {
 	// attach to. It is nil for a run whose engine was not asked for its
 	// reasoning stream, which is every interactive run and every engine whose
 	// stream format is not attested.
-	trace        *runTrace
-	conversation *providerConversation
+	trace             *runTrace
+	conversationTrace *runTrace
+	conversation      *providerConversation
 	// interactiveProvider is the engine a ticket discussion or a free console
 	// opened, recorded at its launch: it decides whether a folder attached from
 	// the run can be typed into it (#676, #689). Empty for every other run.

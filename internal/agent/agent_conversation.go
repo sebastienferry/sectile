@@ -220,6 +220,53 @@ func conversationWriteEvent(trace *runTrace, event conversationEvent) {
 	trace.write(string(data))
 }
 
+func stripANSISequences(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && (s[j] < 0x40 || s[j] > 0x7e) {
+				j++
+			}
+			i = j
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func headlessTraceToConversationEvents(raw []string, prompt string) []string {
+	out := make([]string, 0, len(raw)+2)
+	emit := func(ev conversationEvent) {
+		data, _ := json.Marshal(ev)
+		out = append(out, string(data))
+	}
+	emit(conversationEvent{Kind: "notice", Text: "Autonomous execution", Detail: "Headless read-only conversation."})
+	if trimmed := strings.TrimSpace(prompt); trimmed != "" {
+		emit(conversationEvent{Kind: "user", Text: trimmed})
+	}
+	for _, entry := range raw {
+		clean := strings.TrimSpace(stripANSISequences(entry))
+		if clean == "" || clean == "Autonomous execution · read-only trace" {
+			continue
+		}
+		if rest, ok := strings.CutPrefix(clean, "▸ "); ok {
+			parts := strings.SplitN(rest, " · ", 2)
+			tool := strings.TrimSpace(parts[0])
+			detail := ""
+			if len(parts) == 2 {
+				detail = strings.TrimSpace(parts[1])
+			}
+			emit(conversationEvent{Kind: "tool", Text: tool, Tool: tool, Detail: detail})
+			continue
+		}
+		emit(conversationEvent{Kind: "assistant", Text: clean})
+	}
+	return out
+}
+
 func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -305,7 +352,8 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	run := d.queue.runs[id]
-	if run == nil || !run.desktop.Conversation {
+	headlessReadable := run != nil && r.Method == http.MethodGet && run.desktop.Headless && (run.conversationTrace != nil || run.trace != nil)
+	if run == nil || (!run.desktop.Conversation && !headlessReadable) {
 		http.Error(w, "Conversation not found", http.StatusNotFound)
 		return
 	}
@@ -314,10 +362,24 @@ func (d *agentDaemon) desktopConversation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if r.Method == http.MethodGet {
-		lines, version := run.trace.snapshot()
+		var lines []string
+		var version uint64
+		if run.desktop.Conversation {
+			lines, version = run.trace.snapshot()
+		} else if run.conversationTrace != nil {
+			lines, version = run.conversationTrace.snapshot()
+		} else if run.trace != nil {
+			raw, v := run.trace.snapshot()
+			version = v
+			lines = headlessTraceToConversationEvents(raw, run.desktop.Prompt)
+		}
 		unboundConnection := connectionID != "" && run.desktop.ConnectionID == ""
 		persistenceFailed := run.journal.err() != nil
-		response := map[string]any{"provider": run.desktop.Provider, "id": id, "version": version, "busy": false, "readOnly": run.restored || run.canceled || run.conversation == nil || unboundConnection || persistenceFailed, "title": run.desktop.Title, "canRename": run.desktop.TaskID == "" && d.store != nil, "connectionId": run.desktop.ConnectionID, "canAdoptConnection": unboundConnection && !persistenceFailed && !run.canceled && run.desktop.TaskID == "" && run.conversation != nil && d.store != nil}
+		busy := false
+		if !run.desktop.Conversation && run.desktop.Headless {
+			busy = run.desktop.Status == "running" || run.desktop.Status == "queued" || run.desktop.Status == "pending"
+		}
+		response := map[string]any{"provider": run.desktop.Provider, "id": id, "version": version, "busy": busy, "readOnly": run.restored || run.canceled || run.conversation == nil || unboundConnection || persistenceFailed, "title": run.desktop.Title, "canRename": run.desktop.TaskID == "" && d.store != nil, "connectionId": run.desktop.ConnectionID, "canAdoptConnection": unboundConnection && !persistenceFailed && !run.canceled && run.desktop.TaskID == "" && run.conversation != nil && d.store != nil}
 		if run.journal.err() != nil {
 			response["persistenceError"] = "Local storage is unavailable. Recent output may be lost."
 		}

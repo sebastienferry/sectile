@@ -35,8 +35,15 @@ var agyConversationModes = map[string]bool{
 
 func (d *agentDaemon) workstationAgyConversationMode() string {
 	settings, err := d.readSettings()
-	if err == nil && agyConversationModes[settings.Defaults.AgyConversationMode] {
-		return settings.Defaults.AgyConversationMode
+	if err == nil {
+		if settings.Defaults.Harness != nil {
+			if mode := settings.Defaults.Harness.EffectivePermissionMode(); mode != "" {
+				return mode
+			}
+		}
+		if agyConversationModes[settings.Defaults.AgyConversationMode] {
+			return settings.Defaults.AgyConversationMode
+		}
 	}
 	return "accept-edits"
 }
@@ -644,7 +651,7 @@ func (d *agentDaemon) agyConversationTurn(run *controlledRun, prompt string) {
 	if err != nil {
 		conversationWrite(run.trace, "notice", "Attached folders could not be read for this message", err.Error())
 	}
-	dirs := folderMapDirs(folders)
+	dirs := append(folderMapDirs(folders), agentconfig.ExpandWritablePaths(d.workstationHarnessSettings().WritablePaths)...)
 
 	d.queue.mu.Lock()
 	c := run.conversation

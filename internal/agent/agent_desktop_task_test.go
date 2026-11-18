@@ -124,7 +124,7 @@ func TestDesktopTaskDetailReadsOnlyTheProjectsTasks(t *testing.T) {
 func TestDesktopTaskUpdateForwardsOnlyThePageFields(t *testing.T) {
 	server := &taskPageServer{}
 	d := taskPageDaemon(t, server.start(t))
-	w := taskPageRequest(d, http.MethodPut, "/desktop/tasks/detail?projectId=p&taskId=t1", `{"title":" New title ","status":"finished","projectId":"other","stageProjectId":"x"}`)
+	w := taskPageRequest(d, http.MethodPut, "/desktop/tasks/detail?projectId=p&taskId=t1", `{"title":" New title ","projectId":"other","stageProjectId":"x"}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("update: %d %s", w.Code, w.Body.String())
 	}
@@ -214,7 +214,7 @@ func TestDesktopTaskAssignableRelaysTheSearch(t *testing.T) {
 	}
 }
 
-func TestDesktopTaskFieldsPreserveEmptyTypeAndRejectWorkflowFields(t *testing.T) {
+func TestDesktopTaskFieldsPreserveEmptyTypeAndForwardValidStatus(t *testing.T) {
 	s := &taskPageServer{}
 	d := taskPageDaemon(t, s.start(t))
 	w := taskPageRequest(d, http.MethodPut, "/desktop/tasks/detail?projectId=p&taskId=t1", `{"issueType":"","priority":"low","status":"finished","projectId":"other"}`)
@@ -222,7 +222,7 @@ func TestDesktopTaskFieldsPreserveEmptyTypeAndRejectWorkflowFields(t *testing.T)
 		t.Fatalf("update: %d %s", w.Code, w.Body.String())
 	}
 	body := s.puts[0]
-	if string(body["issueType"]) != `""` || string(body["priority"]) != `"low"` || body["status"] != nil || body["projectId"] != nil {
+	if string(body["issueType"]) != `""` || string(body["priority"]) != `"low"` || string(body["status"]) != `"finished"` || body["projectId"] != nil {
 		t.Fatalf("forwarded fields: %v", body)
 	}
 }

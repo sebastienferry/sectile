@@ -105,6 +105,13 @@ func (d *agentDaemon) registerHeadlessRun(taskRef string, payload agentconfig.Di
 		// rather than as a console that failed to open.
 		run.trace.write(traceLine(traceDim + "Autonomous execution · read-only trace" + traceReset))
 	}
+	if traced && run.conversationTrace == nil {
+		run.conversationTrace = newRunTrace()
+		conversationWrite(run.conversationTrace, "notice", "Autonomous execution", "Headless read-only conversation.")
+		if prompt := strings.TrimSpace(payload.Prompt); prompt != "" {
+			conversationWrite(run.conversationTrace, "user", prompt, "")
+		}
+	}
 	run.desktop = desktopRun{
 		CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt,
 		ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID,
@@ -127,8 +134,10 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 	// run's output is read byte by byte as it always was.
 	d.queue.mu.Lock()
 	var trace *runTrace
+	var convTrace *runTrace
 	if run != nil {
 		trace = run.trace
+		convTrace = run.conversationTrace
 	}
 	d.queue.mu.Unlock()
 
@@ -152,7 +161,7 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 	go func() {
 		defer close(done)
 		if trace != nil {
-			readTracedOutput(trace, output, record)
+			readTracedOutputWithConversation(trace, convTrace, output, record)
 			return
 		}
 		buf := make([]byte, 4096)
@@ -226,11 +235,15 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 // ceiling, which would end the reading for the size of what the engine said
 // rather than for anything wrong.
 func readTracedOutput(trace *runTrace, output io.Reader, record func(string)) {
+	readTracedOutputWithConversation(trace, nil, output, record)
+}
+
+func readTracedOutputWithConversation(trace, convTrace *runTrace, output io.Reader, record func(string)) {
 	reader := bufio.NewReader(output)
 	for {
 		line, err := reader.ReadString('\n')
 		if line != "" {
-			routeTracedLine(trace, strings.TrimRight(line, "\r\n"), record)
+			routeTracedLine(trace, convTrace, strings.TrimRight(line, "\r\n"), record)
 		}
 		if err != nil {
 			return
@@ -246,10 +259,13 @@ func readTracedOutput(trace *runTrace, output io.Reader, record func(string)) {
 // interesting case: standard error shares this pipe, so a missing binary, a
 // crash or a shell error arrives here as plain text, and that is where a failed
 // run explains itself: it goes to the activity untouched.
-func routeTracedLine(trace *runTrace, line string, record func(string)) {
+func routeTracedLine(trace, convTrace *runTrace, line string, record func(string)) {
 	events, result, done := runner.ParseReasoningLine(line)
 	for _, event := range events {
 		trace.publish(event)
+		if convTrace != nil {
+			publishConversationReasoningEvent(convTrace, event)
+		}
 	}
 	switch {
 	case done:
@@ -258,6 +274,9 @@ func routeTracedLine(trace *runTrace, line string, record func(string)) {
 		}
 		for _, denial := range permissionDenialLines(line) {
 			record(denial + "\n")
+			if convTrace != nil {
+				conversationWrite(convTrace, "error", denial, "")
+			}
 		}
 	case len(events) > 0 || isStreamFrame(line):
 		// Shown in the trace, or protocol the reader had nothing to show for:
@@ -265,6 +284,31 @@ func routeTracedLine(trace *runTrace, line string, record func(string)) {
 	case strings.TrimSpace(line) == "":
 	default:
 		record(line + "\n")
+		if convTrace != nil {
+			conversationWrite(convTrace, "error", line, "")
+		}
+	}
+}
+
+func publishConversationReasoningEvent(convTrace *runTrace, event runner.ReasoningEvent) {
+	switch event.Kind {
+	case runner.ReasoningText:
+		if strings.TrimSpace(event.Text) != "" {
+			conversationWrite(convTrace, "assistant", event.Text, "")
+		}
+	case runner.ReasoningThinking:
+		if strings.TrimSpace(event.Text) != "" {
+			conversationWrite(convTrace, "thinking", event.Text, "")
+		}
+	case runner.ReasoningTool:
+		conversationWriteEvent(convTrace, conversationEvent{
+			Kind:   "tool",
+			Text:   event.Text,
+			Detail: event.Detail,
+			Tool:   event.Tool,
+			Input:  event.Input,
+			ToolID: event.ToolID,
+		})
 	}
 }
 

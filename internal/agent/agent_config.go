@@ -524,6 +524,10 @@ func agentCommandLine(provider, template, model, prompt string, contexts ...agen
 // could not work and the board never moves. Only an attested flag is passed, for
 // the same reason the provider list itself is attested.
 func headlessCommandLine(provider, model, prompt, settings string, addDirs ...string) (string, error) {
+	return headlessCommandLineWithHarness(provider, model, prompt, settings, nil, addDirs...)
+}
+
+func headlessCommandLineWithHarness(provider, model, prompt, settings string, harness *agentconfig.HarnessSettings, addDirs ...string) (string, error) {
 	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
 	dirFlags := words(addDirArgs(provider, addDirs), settingsArg(provider, settings))
 	reasoning := ""
@@ -534,9 +538,18 @@ func headlessCommandLine(provider, model, prompt, settings string, addDirs ...st
 	case "claude":
 		return words("claude", companionMCPFlags("claude"), "-p", "--permission-mode", "bypassPermissions", reasoning, modelFlag, quoteShell(prompt), dirFlags), nil
 	case "codex":
-		// Keep workspace-write sandboxing and route approvals through Codex's
-		// automatic reviewer: an exec process has no human input channel.
-		return words("codex", companionMCPFlags("codex"), "exec", "--approve-for-me", "--json", modelFlag, quoteShell(prompt), dirFlags), nil
+		// Keep workspace-write sandboxing by default and route approvals through
+		// Codex's automatic reviewer: an exec process has no human input channel.
+		// When the workstation harness grants full auto mode, bypass sandboxing
+		// so local loopback test fixtures can bind sockets on macOS.
+		approvalFlag := "--approve-for-me"
+		networkFlag := ""
+		if harness != nil && harness.EffectivePermissionMode() == "auto" {
+			approvalFlag = "--dangerously-bypass-approvals-and-sandbox"
+		} else if harness != nil && harness.NetworkAccess {
+			networkFlag = "-c sandbox_workspace_write.network_access=true"
+		}
+		return words("codex", companionMCPFlags("codex"), "exec", approvalFlag, networkFlag, "--json", modelFlag, quoteShell(prompt), dirFlags), nil
 	default:
 		return "", fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
 	}
@@ -659,8 +672,17 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 	}
 	var addDirs []string
 	settings := ""
+	codexNetwork := false
+	var harness *agentconfig.HarnessSettings
 	if len(contexts) > 0 {
 		addDirs, settings = contexts[0].AddDirs, contexts[0].ClaudeSettings
+		if contexts[0].Harness != nil {
+			harness = contexts[0].Harness
+			codexNetwork = contexts[0].Harness.NetworkAccess
+			if len(contexts[0].Harness.WritablePaths) > 0 {
+				addDirs = append(append([]string(nil), addDirs...), agentconfig.ExpandWritablePaths(contexts[0].Harness.WritablePaths)...)
+			}
+		}
 	}
 	if autonomous {
 		if provider == "codex" && len(contexts) > 0 {
@@ -668,7 +690,7 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 			// Reuse the turn policy's scope; templates above own their policy.
 			addDirs = append(append([]string(nil), addDirs...), worktreeGitWritableRoots(contexts[0].Directory)...)
 		}
-		return headlessCommandLine(provider, model, prompt, settings, addDirs...)
+		return headlessCommandLineWithHarness(provider, model, prompt, settings, harness, addDirs...)
 	}
 	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
 	switch provider {
@@ -680,7 +702,11 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 		// A private app server keeps commands started from this PTY inside the
 		// process tree Sectile supervises, so Stop can cancel the turn before the
 		// terminal process tree is closed.
-		return words(provider, "--no-daemon", companionMCPFlags(provider), modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
+		networkFlag := ""
+		if codexNetwork {
+			networkFlag = "-c sandbox_workspace_write.network_access=true"
+		}
+		return words(provider, "--no-daemon", companionMCPFlags(provider), networkFlag, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
 	default:
 		return "", fmt.Errorf("unsupported AI provider %q; configure an AI command template", provider)
 	}

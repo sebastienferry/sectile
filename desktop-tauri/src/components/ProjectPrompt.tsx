@@ -11,7 +11,7 @@ import { statusLabel } from "../domain/execution";
 import { isActive } from "../domain/execution";
 import { stopRun } from "../lib/agent";
 import type { Task } from "../domain/board";
-import { nextSkill, skillLabels, stageLabels, stages, taskStage } from "../domain/workflow";
+import { chainProgress, nextSkill, skillLabels, stageLabels, stages, taskStage } from "../domain/workflow";
 import type { BoardMapping, ProjectContext } from "../lib/workspace";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
@@ -50,7 +50,7 @@ interface ProjectPromptProps {
   knownAssignees?:string[];
   onTaskSaved?:(task:Task)=>void;
   onSelectRun?:(runId:string)=>void;
-  onLaunchSkill?:(skillId:string)=>void;
+  onLaunchSkill?:(skillId:string, mode?:"autonomous"|"interactive")=>void;
   onEditTask?:()=>void;
   onCreated:(id:string)=>void; onTitleChanged?:()=>void; onFoldersChanged?:()=>void;
   /** What `@` can mention besides files: the project's conversations and tickets (#917). */
@@ -172,7 +172,7 @@ export default function ProjectPrompt({ projectId, projectName, runId, agentAvai
     {error && <p role="alert" className="error">{error}</p>}
   </section>;
 }
-function Conversation({ id, projectId, projectName, agentAvailable, directory, folders, run, task, board, projectContext, taskRuns, canEditTask, knownSprints, knownAssignees, onTaskSaved, onSelectRun, onLaunchSkill, onOpenQueue, onOpenTask, onArchive, onStopped, onFoldersChanged, onTitleChanged, archived, onStartOver, onOpenSource, mentionSources }: { mentionSources:MentionSources; id:string;projectId:string;projectName?:string;agentAvailable:boolean;directory?:string;folders?:Run["folders"];run?:Run;task?:Task;board?:BoardMapping;projectContext?:ProjectContext;taskRuns?:Run[];canEditTask?:boolean;knownSprints?:string[];knownAssignees?:string[];onTaskSaved?:(task:Task)=>void;onSelectRun?:(runId:string)=>void;onLaunchSkill?:(skillId:string)=>void;onEditTask?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onArchive?:()=>void;onStopped?:()=>void;onFoldersChanged?:()=>void;onTitleChanged?:()=>void;archived?:boolean;onStartOver?:()=>void;onOpenSource?:(runId:string)=>void }) {
+function Conversation({ id, projectId, projectName, agentAvailable, directory, folders, run, task, board, projectContext, taskRuns, canEditTask, knownSprints, knownAssignees, onTaskSaved, onSelectRun, onLaunchSkill, onOpenQueue, onOpenTask, onArchive, onStopped, onFoldersChanged, onTitleChanged, archived, onStartOver, onOpenSource, mentionSources }: { mentionSources:MentionSources; id:string;projectId:string;projectName?:string;agentAvailable:boolean;directory?:string;folders?:Run["folders"];run?:Run;task?:Task;board?:BoardMapping;projectContext?:ProjectContext;taskRuns?:Run[];canEditTask?:boolean;knownSprints?:string[];knownAssignees?:string[];onTaskSaved?:(task:Task)=>void;onSelectRun?:(runId:string)=>void;onLaunchSkill?:(skillId:string, mode?:"autonomous"|"interactive")=>void;onEditTask?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onArchive?:()=>void;onStopped?:()=>void;onFoldersChanged?:()=>void;onTitleChanged?:()=>void;archived?:boolean;onStartOver?:()=>void;onOpenSource?:(runId:string)=>void }) {
   const { controller, snapshot, loaded, pending, error, queue } = useConversation(id);
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
@@ -264,6 +264,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
   const step = task && projectContext ? nextSkill(task, projectContext) : undefined;
   const anyTaskRunActive = sortedTaskRuns.some(isActive) || (run ? isActive(run) : false);
   const currentStage = task ? taskStage(task, board ?? projectContext?.board) : undefined;
+  const chain = task && projectContext ? chainProgress(task, projectContext) : undefined;
   const nextStepAction = run?.taskId && step?.skillId && onLaunchSkill && !anyTaskRunActive && (
     <button
       type="button"
@@ -276,9 +277,12 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
       <Icon name="chevron" />
     </button>
   );
+  const archiveStatusAction = !archived && onArchive ? (
+    <button type="button" className="icon-button" aria-label="Archive discussion" title="Archive discussion" onClick={onArchive}><Icon name="archive" /></button>
+  ) : null;
   const statusActions = run && isActive(run)
     ? <button type="button" className="icon-button stop-button" aria-label="Stop discussion" title={stopping ? "Stopping…" : "Stop discussion"} disabled={!agentAvailable || stopping || !!run.cancelRequested} onClick={() => void stopConversation()}><Icon name="stop" /></button>
-    : snapshot.readOnly ? nextStepAction : null;
+    : <>{snapshot.readOnly ? nextStepAction : null}{archiveStatusAction}</>;
   return <section className="project-prompt conversation-prompt">
     <header className="workspace-toolbar prompt-heading">
       <div className="workspace-toolbar-main">
@@ -532,6 +536,57 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
             </li>
           ))}
         </ol>
+        {onLaunchSkill && (
+          <div className="conversation-workflow-controls">
+            {step?.skillId && (
+              <button
+                type="button"
+                className="primary"
+                disabled={!agentAvailable || anyTaskRunActive}
+                onClick={() => onLaunchSkill(step.skillId!)}
+              >
+                Next step: {step.label}
+              </button>
+            )}
+            {projectContext?.skills?.some(s => s.id === "pickup") && (
+              chain?.reached ? (
+                <span className="muted">Chain target reached: {stageLabels[chain.target]}.</span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={!agentAvailable || anyTaskRunActive}
+                  onClick={() => onLaunchSkill("pickup", "autonomous")}
+                >
+                  Run chain · up to {projectContext.policy?.fullChainStopStage === "reviewed" ? "Reviewed" : "Implemented"}
+                </button>
+              )
+            )}
+            {canEditTask && (
+              <button type="button" onClick={() => { setSidePane("ticket"); setEditingTicketInline(true); setWorkflowOpen(false); }}>
+                Edit ticket
+              </button>
+            )}
+          </div>
+        )}
+        {sortedTaskRuns.length > 0 && (
+          <div className="conversation-workflow-history">
+            <span className="eyebrow">EXECUTIONS · {sortedTaskRuns.length}</span>
+            <ul className="conversation-workflow-runs">
+              {sortedTaskRuns.map(item => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className={item.id === id ? "selected" : undefined}
+                    onClick={() => onSelectRun?.(item.id)}
+                  >
+                    <span>{skillLabels[item.skill] || item.skill || "Conversation"}</span>
+                    <small>{item.headless ? "Autonomous" : "Conversation"} · {statusLabel(item)} · {new Date(item.createdAt).toLocaleString("en")}</small>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
     )}
     {snapshot.readOnly && <QueuedMessages queue={queue} onRemove={itemId => controller.removeQueued(itemId)} />}

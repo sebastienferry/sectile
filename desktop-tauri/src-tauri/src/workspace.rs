@@ -586,6 +586,20 @@ pub async fn save_workstation_sandbox(
     }
     request_agent(app, Method::PUT, "/desktop/workstation/sandbox", &[], Some(input)).await
 }
+#[tauri::command]
+pub async fn get_workstation_harness(app: tauri::AppHandle) -> Result<Value, String> {
+    request_agent(app, Method::GET, "/desktop/workstation/harness", &[], None).await
+}
+#[tauri::command]
+pub async fn save_workstation_harness(
+    app: tauri::AppHandle,
+    input: Value,
+) -> Result<Value, String> {
+    if !input.is_object() {
+        return Err("Invalid harness payload".into());
+    }
+    request_agent(app, Method::PUT, "/desktop/workstation/harness", &[], Some(input)).await
+}
 #[cfg(test)]
 mod permission_tests {
     use super::*;

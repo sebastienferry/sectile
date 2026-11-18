@@ -3,6 +3,7 @@ package agentconfig
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -89,6 +90,74 @@ type Defaults struct {
 	// ClaudeSandboxProjects is the whitelist of the projects ClaudeSandbox
 	// applies to, by project ID. Empty covers every project.
 	ClaudeSandboxProjects []string `json:"claudeSandboxProjects,omitempty"`
+	// Harness holds workstation-wide sandbox permissions translated across all
+	// built-in AI engines (network/loopback access and extra writable directories).
+	Harness *HarnessSettings `json:"harness,omitempty"`
+}
+
+// HarnessSettings configures workstation-wide sandbox permissions that Sectile
+// translates transparently to Claude Code, Codex, and Antigravity.
+type HarnessSettings struct {
+	PermissionMode string   `json:"permissionMode,omitempty"`
+	AutoApprove    bool     `json:"autoApprove,omitempty"`
+	NetworkAccess  bool     `json:"networkAccess,omitempty"`
+	WritablePaths  []string `json:"writablePaths,omitempty"`
+}
+
+// EffectivePermissionMode returns the normalized global permission mode
+// ("auto", "accept-edits", "default", "plan", or "" when unset).
+func (h HarnessSettings) EffectivePermissionMode() string {
+	switch strings.TrimSpace(h.PermissionMode) {
+	case "auto", "accept-edits", "default", "plan":
+		return strings.TrimSpace(h.PermissionMode)
+	}
+	if h.AutoApprove {
+		return "auto"
+	}
+	return ""
+}
+
+// NormalizeHarnessSettings trims and deduplicates WritablePaths, refusing empty
+// or multi-line entries and invalid permission modes.
+func NormalizeHarnessSettings(h HarnessSettings) (HarnessSettings, error) {
+	mode := strings.TrimSpace(h.PermissionMode)
+	switch mode {
+	case "", "auto", "accept-edits", "default", "plan":
+	default:
+		return HarnessSettings{}, fmt.Errorf("permissionMode: invalid mode %q", mode)
+	}
+	paths, err := normalizeEntries(h.WritablePaths)
+	if err != nil {
+		return HarnessSettings{}, fmt.Errorf("writablePaths: %w", err)
+	}
+	autoApprove := h.AutoApprove || mode == "auto"
+	return HarnessSettings{PermissionMode: mode, AutoApprove: autoApprove, NetworkAccess: h.NetworkAccess, WritablePaths: paths}, nil
+}
+
+// ExpandWritablePaths resolves leading ~/ entries against the user's home
+// directory and returns unique cleaned paths.
+func ExpandWritablePaths(paths []string) []string {
+	home, _ := os.UserHomeDir()
+	var out []string
+	seen := map[string]bool{}
+	for _, raw := range paths {
+		p := strings.TrimSpace(raw)
+		if p == "" {
+			continue
+		}
+		if p == "~" && home != "" {
+			p = home
+		} else if strings.HasPrefix(p, "~/") && home != "" {
+			p = filepath.Join(home, p[2:])
+		}
+		p = filepath.Clean(p)
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
 }
 
 // Console views, as ConsoleView names them.

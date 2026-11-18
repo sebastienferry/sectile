@@ -66,5 +66,17 @@ func (d *agentDaemon) workstationConversationMode() string {
 	if err != nil {
 		return conversationMode("")
 	}
+	if settings.Defaults.Harness != nil {
+		switch settings.Defaults.Harness.EffectivePermissionMode() {
+		case "auto":
+			return "auto"
+		case "accept-edits":
+			return "acceptEdits"
+		case "default":
+			return "default"
+		case "plan":
+			return "plan"
+		}
+	}
 	return conversationMode(settings.Defaults.ConversationMode)
 }

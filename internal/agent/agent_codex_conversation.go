@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"tasks/internal/agentconfig"
 	"tasks/internal/agentexec"
 	"tasks/internal/runner"
 	"tasks/internal/version"
@@ -410,11 +411,13 @@ func (d *agentDaemon) initializeCodexConversation(run *controlledRun, state *cod
 
 func (d *agentDaemon) startCodexTurn(run *controlledRun, state *codexConversation, message string) error {
 	reviewer := d.workstationCodexReviewer()
+	harness := d.workstationHarnessSettings()
 	folders, _, err := d.conversationFolders(run.desktop.ProjectID, run.desktop.Directory)
 	if err != nil {
 		conversationWrite(run.trace, "notice", "Attached folders could not be read for this message", err.Error())
 	}
 	gitRoots := worktreeGitWritableRoots(run.desktop.Directory)
+	extraRoots := agentconfig.ExpandWritablePaths(harness.WritablePaths)
 	d.queue.mu.Lock()
 	c := run.conversation
 	dirs := append(folderMapDirs(folders), c.extraDirs...)
@@ -426,7 +429,8 @@ func (d *agentDaemon) startCodexTurn(run *controlledRun, state *codexConversatio
 	if mode == "workspace-write" {
 		writable := append([]string{run.desktop.Directory}, dirs...)
 		writable = append(writable, gitRoots...)
-		sandbox = map[string]any{"type": "workspaceWrite", "writableRoots": writable, "networkAccess": false}
+		writable = append(writable, extraRoots...)
+		sandbox = map[string]any{"type": "workspaceWrite", "writableRoots": writable, "networkAccess": harness.NetworkAccess}
 	}
 	effort := c.effort
 	if effort == "" {

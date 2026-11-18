@@ -2,8 +2,16 @@ import { useEffect, useState } from "react";
 import { createTask, getTask, taskIssueTypes, taskTrackers, updateTask, type TaskFields, type TaskTrackers, type TaskUpdateFields } from "../lib/agent";
 import type { Task, TaskPullRequest } from "../domain/board";
 
-const emptyDraft: TaskFields = { title: "", description: "", priority: "medium", issueType: "" };
+const emptyDraft: TaskFields & { status?: string } = { title: "", description: "", priority: "medium", issueType: "" };
 const priorityOptions = [["urgent", "Urgent"], ["high", "High"], ["medium", "Medium"], ["low", "Low"]];
+const statusOptions = [
+  ["to_clarify", "To clarify"],
+  ["clarified", "Clarified"],
+  ["to_implement", "Specified"],
+  ["to_test", "Implemented"],
+  ["to_close", "Reviewed"],
+  ["finished", "Finished"],
+];
 const taskLinks = (task?: Task): TaskPullRequest[] => task?.prLinks?.length ? task.prLinks : task?.prUrl ? [{ url: task.prUrl }] : [];
 const sameLinks = (left: TaskPullRequest[], right: TaskPullRequest[]) => left.length === right.length && left.every((link, index) => link.url === right[index].url);
 function validatedLink(value: string, existing: TaskPullRequest[]): { url?: string; error?: string } {
@@ -24,7 +32,7 @@ export function TaskEditor({ projectId, projectName, projects, onSelectProject, 
   const [trackers, setTrackers] = useState<TaskTrackers>();
   const [trackerId, setTrackerId] = useState("");
   const [original, setOriginal] = useState<Task>();
-  const [draft, setDraft] = useState<TaskFields>(emptyDraft);
+  const [draft, setDraft] = useState<TaskFields & { status?: string }>(emptyDraft);
   const [types, setTypes] = useState<string[]>([]);
   const [typesError, setTypesError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -41,7 +49,7 @@ export function TaskEditor({ projectId, projectName, projects, onSelectProject, 
       if (!current) return;
       setTrackers(sources);
       setOriginal(task);
-      setDraft(task ? { title: task.title ?? "", description: task.description ?? "", priority: task.priority || "medium", issueType: task.issueType ?? "", sprint: task.sprint ?? "", assignee: task.assignee ?? "" } : emptyDraft);
+      setDraft(task ? { title: task.title ?? "", description: task.description ?? "", priority: task.priority || "medium", status: task.status || "to_clarify", issueType: task.issueType ?? "", sprint: task.sprint ?? "", assignee: task.assignee ?? "" } : emptyDraft);
       setLinks(taskLinks(task));
       const selected = task?.trackerId || sources.defaultTrackerId || sources.trackers[0]?.id || "";
       setTrackerId(selected);
@@ -57,7 +65,7 @@ export function TaskEditor({ projectId, projectName, projects, onSelectProject, 
       .catch(() => { if (current) { setTypes([]); setTypesError("Ticket types unavailable. The current type can still be used."); } });
     return () => { current = false; };
   }, [projectId, trackerId]);
-  const dirty = original ? draft.title !== original.title || draft.description !== (original.description ?? "") || draft.priority !== (original.priority || "medium") || draft.issueType !== (original.issueType ?? "") || (draft.sprint ?? "").trim() !== (original.sprint ?? "").trim() || (draft.assignee ?? "").trim() !== (original.assignee ?? "").trim() || !sameLinks(links, taskLinks(original)) : !!draft.title.trim() || !!draft.description.trim() || !!(draft.sprint ?? "").trim() || !!(draft.assignee ?? "").trim();
+  const dirty = original ? draft.title !== original.title || draft.description !== (original.description ?? "") || draft.priority !== (original.priority || "medium") || (draft.status ?? (original.status || "to_clarify")) !== (original.status || "to_clarify") || draft.issueType !== (original.issueType ?? "") || (draft.sprint ?? "").trim() !== (original.sprint ?? "").trim() || (draft.assignee ?? "").trim() !== (original.assignee ?? "").trim() || !sameLinks(links, taskLinks(original)) : !!draft.title.trim() || !!draft.description.trim() || !!(draft.sprint ?? "").trim() || !!(draft.assignee ?? "").trim();
   const canSave = available && !loading && !saving && !createdId && !!trackers?.trackers.length && !!trackerId && !!draft.title.trim() && draft.title.length <= 500 && draft.description.length <= 60000;
   const selectedTracker = trackers?.trackers.find(item => item.id === trackerId);
   async function save(launchAfterCreate = false) {
@@ -91,6 +99,7 @@ export function TaskEditor({ projectId, projectName, projects, onSelectProject, 
         if (title !== original.title) changes.title = title;
         if (draft.description !== (original.description ?? "")) changes.description = draft.description;
         if (draft.priority !== (original.priority || "medium")) changes.priority = draft.priority;
+        if (draft.status && draft.status !== (original.status || "to_clarify")) changes.status = draft.status;
         if (draft.issueType !== (original.issueType ?? "")) changes.issueType = draft.issueType;
         if (sprint !== (original.sprint ?? "").trim()) changes.sprint = sprint;
         if (assignee !== (original.assignee ?? "").trim()) changes.assignee = assignee;
@@ -135,6 +144,7 @@ export function TaskEditor({ projectId, projectName, projects, onSelectProject, 
         )}
         {taskId ? <p><span>Tracker</span><strong>{selectedTracker?.name || selectedTracker?.scope || original?.source || "—"}</strong></p> : trackers && trackers.trackers.length > 1 && <label>Tracker<select value={trackerId} onChange={event => { setTrackerId(event.target.value); setDraft(value => ({ ...value, issueType: "" })); }}>{trackers.trackers.map(item => <option key={item.id} value={item.id}>{item.name || item.scope || item.provider}</option>)}</select></label>}
         <label>Type<select value={draft.issueType} onChange={event => setDraft(value => ({ ...value, issueType: event.target.value }))}><option value="">Default</option>{[...new Set([...types, ...(draft.issueType ? [draft.issueType] : [])])].map(type => <option key={type} value={type}>{type}</option>)}</select></label>
+        {taskId && <label>Status<select value={draft.status || "to_clarify"} onChange={event => setDraft(value => ({ ...value, status: event.target.value }))}>{statusOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
         <label>Priority<select value={draft.priority} onChange={event => setDraft(value => ({ ...value, priority: event.target.value }))}>{priorityOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label>Sprint<input list="task-editor-sprints" maxLength={200} value={draft.sprint ?? ""} onChange={event => setDraft(value => ({ ...value, sprint: event.target.value }))} placeholder="No sprint" /></label>
         <datalist id="task-editor-sprints">{[...new Set([...knownSprints, ...(original?.sprint ? [original.sprint] : [])])].map(s => <option key={s} value={s} />)}</datalist>

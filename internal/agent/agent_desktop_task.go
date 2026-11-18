@@ -36,6 +36,7 @@ func (d *agentDaemon) desktopTaskDetail(w http.ResponseWriter, r *http.Request) 
 		var input struct {
 			IssueType         *string                   `json:"issueType"`
 			Priority          *models.Priority          `json:"priority"`
+			Status            *models.Status            `json:"status"`
 			Title             *string                   `json:"title"`
 			Description       *string                   `json:"description"`
 			Assignee          *string                   `json:"assignee"`
@@ -47,6 +48,14 @@ func (d *agentDaemon) desktopTaskDetail(w http.ResponseWriter, r *http.Request) 
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 128<<10)).Decode(&input) != nil {
 			http.Error(w, "Invalid request body", 400)
 			return
+		}
+		if input.Status != nil {
+			switch *input.Status {
+			case models.StatusToClarify, models.StatusClarified, models.StatusToImplement, models.StatusToTest, models.StatusToClose, models.StatusFinished:
+			default:
+				http.Error(w, "Invalid status", 400)
+				return
+			}
 		}
 		if input.Title != nil {
 			title := strings.TrimSpace(*input.Title)
@@ -64,7 +73,7 @@ func (d *agentDaemon) desktopTaskDetail(w http.ResponseWriter, r *http.Request) 
 				}
 			}
 		}
-		update = models.UpdateTaskRequest{IssueType: input.IssueType, Priority: input.Priority, Title: input.Title, Description: input.Description, Assignee: input.Assignee, AssigneeAccountID: input.AssigneeAccountID, AssigneeAvatar: input.AssigneeAvatar, Sprint: input.Sprint, PrLinks: input.PrLinks}
+		update = models.UpdateTaskRequest{IssueType: input.IssueType, Priority: input.Priority, Status: input.Status, Title: input.Title, Description: input.Description, Assignee: input.Assignee, AssigneeAccountID: input.AssigneeAccountID, AssigneeAvatar: input.AssigneeAvatar, Sprint: input.Sprint, PrLinks: input.PrLinks}
 	}
 	if !d.desktopTaskOfProject(w, r, projectID, taskID) {
 		return

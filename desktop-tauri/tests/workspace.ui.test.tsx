@@ -1136,3 +1136,21 @@ test("sidebar help is available with an empty filtered list and no agent connect
   expect(await screen.findByRole("dialog", { name: "Sidebar status help" })).toBeTruthy();
   expect(api.launchTask).not.toHaveBeenCalled();
 });
+
+test("sidebar All executions shows live dot when background executions are active", async () => {
+ vi.mocked(api.executionSnapshot).mockResolvedValue({
+  status: { connected: true, capabilities: [] },
+  runs: [{
+   id: "bg-run-1",
+   projectId: "p",
+   title: "Background run",
+   skill: "implement",
+   status: "running",
+   createdAt: "2026-11-15T19:55:00Z",
+  }],
+ });
+ render(<App />);
+ const sidebar = await screen.findByRole("complementary");
+ const allExecButton = await within(sidebar).findByRole("button", { name: /All executions/ });
+ expect(allExecButton.querySelector(".dot.live")).not.toBeNull();
+});

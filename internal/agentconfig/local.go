@@ -137,6 +137,10 @@ func overlay(base, top Settings) Settings {
 		// No legacy layout knows the Sandbox values (#700, #730) either.
 		ClaudeSandbox:         firstSandbox(top.Defaults.ClaudeSandbox, base.Defaults.ClaudeSandbox),
 		ClaudeSandboxProjects: firstList(top.Defaults.ClaudeSandboxProjects, base.Defaults.ClaudeSandboxProjects),
+		Harness:               top.Defaults.Harness,
+	}
+	if out.Defaults.Harness == nil {
+		out.Defaults.Harness = base.Defaults.Harness
 	}
 	if out.Defaults.SkillCommands == nil {
 		out.Defaults.SkillCommands = base.Defaults.SkillCommands

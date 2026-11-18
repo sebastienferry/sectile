@@ -1283,6 +1283,9 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	}
 	payload.Mode = liveSessionMode(payload.SkillID, payload.Action, payload.Mode)
 	autonomous := models.NormalizeSkillMode(payload.Mode) == models.SkillModeAutonomous
+	if autonomous {
+		payload.Prompt += "\nAutonomous headless execution: there is no terminal or human user to reply. Never ask the user questions, never pause for confirmation, and never call report_waiting. Complete the task autonomously or fail with a concrete explanation via finish_run."
+	}
 	if autonomous && !models.SupportsAutonomousRun(config.AIProvider, config.AICommandTemplate, config.AICommandTemplateAutonomous) {
 		provider := strings.TrimSpace(config.AIProvider)
 		if provider == "" {
@@ -1319,7 +1322,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
 	}
-	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, payload.Model, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders), ClaudeSettings: claudeSettings, Skill: choice})
+	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, payload.Model, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders), ClaudeSettings: claudeSettings, Harness: d.workstationHarnessPtr(), Skill: choice})
 	if err != nil {
 		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())

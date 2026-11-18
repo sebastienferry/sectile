@@ -92,7 +92,7 @@ func (d *agentDaemon) handleMacroDispatch(ctx context.Context, conn *websocket.C
 		return
 	}
 	fullLine, err := dispatchCommand(config, macroKey, payload.SkillID, payload.Action, strings.TrimSpace(prompt), payload.Command, payload.Mode, payload.Model,
-		agentCommandContext{Branch: workspace.Branch, Directory: root, Tracker: config.IssueTracker, Repo: config.GithubRepo, ClaudeSettings: claudeSettings, Skill: choice})
+		agentCommandContext{Branch: workspace.Branch, Directory: root, Tracker: config.IssueTracker, Repo: config.GithubRepo, ClaudeSettings: claudeSettings, Harness: d.workstationHarnessPtr(), Skill: choice})
 	if err != nil {
 		launchFailure = err
 		return

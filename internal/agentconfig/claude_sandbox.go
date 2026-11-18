@@ -20,6 +20,7 @@ type ClaudeSandbox struct {
 	// Optional booleans preserve explicit false values; nil inherits.
 	AutoAllowBashIfSandboxed *bool    `json:"autoAllowBashIfSandboxed,omitempty"`
 	AllowUnsandboxedCommands *bool    `json:"allowUnsandboxedCommands,omitempty"`
+	AllowLocalBinding        *bool    `json:"allowLocalBinding,omitempty"`
 	AdditionalDirectories    []string `json:"additionalDirectories,omitempty"`
 	Enabled                  *bool    `json:"enabled,omitempty"`
 	AllowedDomains           []string `json:"allowedDomains,omitempty"`
@@ -34,7 +35,7 @@ type ClaudeSandbox struct {
 
 // IsZero reports values that state nothing, a nil pointer included.
 func (c *ClaudeSandbox) IsZero() bool {
-	return c == nil || (c.Enabled == nil && c.AutoAllowBashIfSandboxed == nil && c.AllowUnsandboxedCommands == nil && len(c.AdditionalDirectories) == 0 && len(c.AllowedDomains) == 0 && len(c.ExcludedCommands) == 0 && len(c.AllowWrite) == 0 &&
+	return c == nil || (c.Enabled == nil && c.AutoAllowBashIfSandboxed == nil && c.AllowUnsandboxedCommands == nil && c.AllowLocalBinding == nil && len(c.AdditionalDirectories) == 0 && len(c.AllowedDomains) == 0 && len(c.ExcludedCommands) == 0 && len(c.AllowWrite) == 0 &&
 		len(c.Allow) == 0 && len(c.Deny) == 0)
 }
 
@@ -162,8 +163,15 @@ func claudeSettingsDocument(c ClaudeSandbox, goos string) map[string]any {
 		if c.Enabled != nil {
 			sandbox["enabled"] = *c.Enabled
 		}
-		if len(c.AllowedDomains) > 0 {
-			sandbox["network"] = map[string]any{"allowedDomains": c.AllowedDomains}
+		if len(c.AllowedDomains) > 0 || c.AllowLocalBinding != nil {
+			network := map[string]any{}
+			if len(c.AllowedDomains) > 0 {
+				network["allowedDomains"] = c.AllowedDomains
+			}
+			if c.AllowLocalBinding != nil {
+				network["allowLocalBinding"] = *c.AllowLocalBinding
+			}
+			sandbox["network"] = network
 		}
 		if len(c.ExcludedCommands) > 0 {
 			sandbox["excludedCommands"] = c.ExcludedCommands
@@ -318,36 +326,66 @@ func (s Settings) ResolvedClaudeSandbox(projectID string) *ClaudeSandbox {
 	if s.Defaults.CoversProject(projectID) {
 		global = s.Defaults.ClaudeSandbox
 	}
-	if global.IsZero() {
-		if project.IsZero() {
-			return nil
+	var harnessPaths []string
+	harnessAutoApprove := false
+	harnessNetwork := false
+	if s.Defaults.Harness != nil {
+		if len(s.Defaults.Harness.WritablePaths) > 0 {
+			harnessPaths = ExpandWritablePaths(s.Defaults.Harness.WritablePaths)
 		}
-		return project
+		harnessAutoApprove = s.Defaults.Harness.EffectivePermissionMode() == "auto"
+		harnessNetwork = s.Defaults.Harness.NetworkAccess
 	}
-	if project.IsZero() {
-		return global
+	var base *ClaudeSandbox
+	if global.IsZero() {
+		if !project.IsZero() {
+			copyProject := *project
+			base = &copyProject
+		}
+	} else if project.IsZero() {
+		copyGlobal := *global
+		base = &copyGlobal
+	} else {
+		out := ClaudeSandbox{
+			Enabled:                  global.Enabled,
+			AutoAllowBashIfSandboxed: global.AutoAllowBashIfSandboxed,
+			AllowUnsandboxedCommands: global.AllowUnsandboxedCommands,
+			AdditionalDirectories:    unionEntries(global.AdditionalDirectories, project.AdditionalDirectories),
+			AllowedDomains:           unionEntries(global.AllowedDomains, project.AllowedDomains),
+			ExcludedCommands:         unionEntries(global.ExcludedCommands, project.ExcludedCommands),
+			AllowWrite:               unionEntries(global.AllowWrite, project.AllowWrite),
+			Allow:                    unionEntries(global.Allow, project.Allow),
+			Deny:                     unionEntries(global.Deny, project.Deny),
+		}
+		if project.AutoAllowBashIfSandboxed != nil {
+			out.AutoAllowBashIfSandboxed = project.AutoAllowBashIfSandboxed
+		}
+		if project.AllowUnsandboxedCommands != nil {
+			out.AllowUnsandboxedCommands = project.AllowUnsandboxedCommands
+		}
+		if project.Enabled != nil {
+			out.Enabled = project.Enabled
+		}
+		base = &out
 	}
-	out := ClaudeSandbox{
-		Enabled:                  global.Enabled,
-		AutoAllowBashIfSandboxed: global.AutoAllowBashIfSandboxed,
-		AllowUnsandboxedCommands: global.AllowUnsandboxedCommands,
-		AdditionalDirectories:    unionEntries(global.AdditionalDirectories, project.AdditionalDirectories),
-		AllowedDomains:           unionEntries(global.AllowedDomains, project.AllowedDomains),
-		ExcludedCommands:         unionEntries(global.ExcludedCommands, project.ExcludedCommands),
-		AllowWrite:               unionEntries(global.AllowWrite, project.AllowWrite),
-		Allow:                    unionEntries(global.Allow, project.Allow),
-		Deny:                     unionEntries(global.Deny, project.Deny),
+	if len(harnessPaths) > 0 || harnessAutoApprove || harnessNetwork {
+		if base == nil {
+			base = &ClaudeSandbox{}
+		}
+		if len(harnessPaths) > 0 {
+			base.AdditionalDirectories = unionEntries(base.AdditionalDirectories, harnessPaths)
+			base.AllowWrite = unionEntries(base.AllowWrite, harnessPaths)
+		}
+		if harnessAutoApprove && base.AutoAllowBashIfSandboxed == nil {
+			t := true
+			base.AutoAllowBashIfSandboxed = &t
+		}
+		if harnessNetwork && base.AllowLocalBinding == nil {
+			t := true
+			base.AllowLocalBinding = &t
+		}
 	}
-	if project.AutoAllowBashIfSandboxed != nil {
-		out.AutoAllowBashIfSandboxed = project.AutoAllowBashIfSandboxed
-	}
-	if project.AllowUnsandboxedCommands != nil {
-		out.AllowUnsandboxedCommands = project.AllowUnsandboxedCommands
-	}
-	if project.Enabled != nil {
-		out.Enabled = project.Enabled
-	}
-	return &out
+	return base
 }
 
 // unionEntries is the entries of the lists in order, each once, compared

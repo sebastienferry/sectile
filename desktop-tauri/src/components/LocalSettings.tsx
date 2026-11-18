@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ProviderSettings } from "./ProviderSettings";
+import { HarnessSettings } from "./HarnessSettings";
 import { OAuthConnections } from "./OAuthConnections";
 import { Icon } from "./Icon";
 import { ProjectTrackerSetup } from "./ProjectTrackerSetup";
@@ -7,9 +8,10 @@ import * as api from "../lib/local";
 import { trackerApiSite } from "../tracker-site";
 import { useAppearance, useFontSize, type Appearance, type FontSize } from "../lib/appearance";
 
-type SettingsSection = "engines" | "profile" | "connections" | "projects" | "services" | "appearance";
+type SettingsSection = "engines" | "harness" | "profile" | "connections" | "projects" | "services" | "appearance";
 const sections = [
  {id:"engines", label:"AI engines", icon:"agent", description:"Connect Claude Code or Codex to work in your projects."},
+ {id:"harness", label:"Harness", icon:"shield", description:"Workstation permission mode, sandbox network, and shared writable directories across all AI engines."},
  {id:"profile", label:"Profile", icon:"user", description:"Your identity for actions performed from this workstation."},
  {id:"connections", label:"Accounts and trackers", icon:"link", description:"Connect your accounts and choose your ticket sources."},
  {id:"projects", label:"Projects", icon:"folder", description:"Start from a local folder or link a project to a tracker."},
@@ -229,6 +231,7 @@ export function LocalSettings({ onChanged, onClose, onOpenFolder, onConfigurePro
     <div className="settings-content">
     {section !== "engines" && <header className="settings-section-heading"><h2>{activeSection ? sectionLabel(activeSection) : ""}</h2><p>{section === "services" && fleetMode ? "Connection status and Fleet agent attached to this workstation." : activeSection?.description}</p></header>}
     <div hidden={section !== "engines"}>{setup?.agentReady ? <ProviderSettings key={`${setup.mode}:${setup.fleetServer??""}`} projects={setup.projects??[]} showProfiles /> : <article><p>Connect a Local or Fleet agent to check your AI engines.</p><button onClick={()=>setSection("services")}>Configure connection</button></article>}</div>
+    <div hidden={section !== "harness"}>{setup?.agentReady ? <HarnessSettings key={`${setup.mode}:${setup.fleetServer??""}`} /> : <article><p>Connect a Local or Fleet agent to configure the global harness.</p><button onClick={()=>setSection("services")}>Configure connection</button></article>}</div>
     <div hidden={section !== "appearance"}>
       <article>
         <h2>Theme and typography</h2>
@@ -262,10 +265,10 @@ export function LocalSettings({ onChanged, onClose, onOpenFolder, onConfigurePro
       {setup?.backendError && <p role="alert" className="error">{setup.backendError}</p>}
       {setup?.mode === "fleet" && setup.apiSetupAvailable === false && <p className="muted">This agent was attached without a workstation API credential. Configure accounts and projects on the Fleet backend.</p>}
       {setup?.dataDirectory && <p className="muted runtime-path">{setup.dataDirectory}</p>}
-      <p className="muted">{setup?.mode === "fleet" ? setup.apiSetupAvailable === false ? "This Fleet agent is managed by its original installation." : "The Fleet agent starts automatically on this workstation and continues in the background when you close the desktop." : "The companion starts automatically. It continues in the background when you close the desktop so running tasks can finish."}</p>
+      <p className="muted">{setup?.mode === "fleet" ? setup.apiSetupAvailable === false ? "This Fleet agent is managed by its original installation." : "The Fleet agent starts automatically on this workstation and continues in the background when you close the desktop." : "The companion starts automatically and stays running in the background while tasks or open conversations (even idle ones) remain active in the sidebar."}</p>
       {setup && setup.mode !== "fleet" && <button disabled={pending} onClick={() => void perform(api.enableLocalRuntime, "Local companion started and Local mode selected.")}>{setup.enabled ? "Check / start local companion" : "Start in Local mode"}</button>}
       {setup?.mode === "local" && (setup.agentReady || setup.updatePreparing) && <details className="update-preparation"><summary>Update application</summary>
-        <p>Finish active tasks and close other Tauri instances. This stops the companion and closes this desktop before replacing the application. Your data is preserved. No download is started.</p>
+        <p>Stop active runs and open conversations in the sidebar, and close other Tauri instances. This stops the companion and closes this desktop before replacing the application. Your data is preserved. No download is started.</p>
         <button disabled={pending} onClick={() => void prepareUpdate()}>Stop and quit to update</button>
       </details>}
       {setup?.mode === "local" && (
