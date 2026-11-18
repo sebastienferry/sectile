@@ -33,8 +33,9 @@ PR: https://github.com/sebastienferry/sectile/pull/934
 The PR targets `feat/tauri-monorepo` and is ready for human review. The complete
 diff satisfies the specification; no further defect was found. PR comments,
 reviews and inline feedback were retrieved successfully and were empty. The
-branch is current with its remote base. GitHub reports no check runs for this
-PR; the local validation above is the available check evidence.
+branch is current with its remote base. Local validation above provides the
+Tauri check evidence; GitHub also runs the Docker image workflow once the PR
+is ready for review.
 
 The first push published the branch successfully but could not save local
 upstream configuration because shared `.git/config` is protected. No retry of
