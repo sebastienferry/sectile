@@ -8,10 +8,10 @@ Implementation is preserved on feat/920. Verification and publication blockers a
 4. [x] Implement title/accessible name, initial focus, Tab/Shift+Tab containment, explicit Close, Escape and focus restoration, including sidebar disappearance. Keep decorative symbols out of the accessibility tree.
 5. [x] Apply viewport-bounded wrapping/scrolling layout and existing reduced-motion behavior. Ensure footer access with an empty list and a long scrolling list.
 6. [x] Add focused UI tests: keyboard/click opening; all inventory meanings; Close/Escape; focus behavior; no selected-run/draft changes or execution mutation; empty/long lists; sidebar unmount. Reuse existing status fixtures without altering reconciliation expectations.
-7. [ ] Perform browser/native verification: compare all symbols with production rows, normal/reduced motion, 320 CSS pixel viewport, overflowing content, keyboard traversal and restoration, active execution continuing while help is open. Record evidence and limitations.
+7. [x] Perform browser/native verification: compare all symbols with production rows, normal/reduced motion, 320 CSS pixel viewport, overflowing content, keyboard traversal and restoration, active execution continuing while help is open. Record evidence and limitations.
 8. [x] Update docs/USER_GUIDE.md with access, contextual status explanations and completion caveat; add one Added entry under CHANGELOG.md [Unreleased]. Update other feature documentation only where affected.
-9. [ ] Run the desktop-tauri required checks: npm run check, npm test, npm run test:ui, npm run build and npm run test:rust. Resolve failures attributable to the change and record external blockers truthfully.
-10. [ ] At implemented stage only, follow configured creation-owner checks, commit/push policy and PR discovery/creation policy. Reuse an existing PR if present, preserve attained stage and never advance to reviewed as part of creation recovery. No PR is created during specification.
+9. [x] Run the desktop-tauri required checks: npm run check, npm test, npm run test:ui, npm run build and npm run test:rust. Resolve failures attributable to the change and record external blockers truthfully.
+10. [x] At implemented stage only, follow configured creation-owner checks, commit/push policy and PR discovery/creation policy. Reuse an existing PR if present, preserve attained stage and never advance to reviewed as part of creation recovery. No PR is created during specification.
 
 ## Specification verification
 
@@ -39,3 +39,14 @@ Implementation is preserved on feat/920. Verification and publication blockers a
 - Next action: obtain authorization/environment access for the denied local-server checks, resolve or baseline the Node crash, perform browser verification, then finish creation-owner checks, commit/push and create a draft PR before reporting implemented. Preserve this implementation and completed checklist items on retry.
 
 Detailed command output is retained at `/tmp/920-ui-verified.log`, `/tmp/920-unit.log`, `/tmp/920-unit-retry.log`, `/tmp/920-rust.log` and `/tmp/920-build.log` on this workstation.
+
+## Recovery verification (2026-11-18)
+
+- Preserved implementation commit `8d9c69d9` and all accepted artifacts. The owner explicitly authorized scoped retries of denied local-server, Git and browser-control operations.
+- All required automated checks passed: `npm run check`; `npm test` (114 passed, zero failed); `npm run test:ui` (32 files, 287 passed); `npm run build` (221 ms, existing large-chunk advisory); `npm run test:rust` (48 passed, zero failed). The earlier Node crash did not recur with test-server access. Recovery logs: `/tmp/920-unit-recovery.log` and `/tmp/920-rust-recovery.log`.
+- Real Chromium through PinchTab, using the existing isolated UX fixture with `VITE_UX_FIXTURE=1`, verified keyboard opening, initial Close focus, native modal keyboard traversal, Close/Escape dismissal and trigger focus restoration. Browser chrome can receive focus during native dialog traversal; application controls outside the modal remain excluded.
+- At 320 by 640 CSS pixels, the dialog bounds were x=12, y=12, width=296, height=616. The last entry scrolled into view while the header stayed at y=13. All eleven entries were present, and empty sidebar filtering retained an operable footer help button.
+- Production and legend amber indicators both computed to `rgb(220, 160, 79)`. Shared pulse computed to `run-state-pulse` normally and `none` with reduced motion. Symbol shape classes remain shared with production rendering.
+- A typed CodeMirror draft (`Sidebar help verification draft`) and selected conversation survived opening and closing help. Fixture execution state remained present. This is isolated fixture verification, not evidence from a running provider: integration tests additionally assert that opening/closing help calls neither stop nor launch APIs. No real execution was interrupted or launched for verification.
+- Re-read the implementation diff; `git diff --check` passed. Fetched origin and confirmed zero commits behind `origin/main`; the feature belongs on `feat/tauri-monorepo`, avoiding unrelated monorepo history in the PR. Open PR lookup returned no match before creation.
+- Published `feat/920` and created draft PR https://github.com/sebastienferry/sectile/pull/928 against `feat/tauri-monorepo`. Creation does not advance the task to reviewed. The final implementation report records the verified implemented stage.
