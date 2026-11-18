@@ -203,6 +203,7 @@ func ValidConversationMode(mode string) bool {
 		return false
 	}
 }
+
 // ValidateEngines checks a catalogue before it is written. Every message names
 // the engine it is about.
 func ValidateEngines(e Engines) error {

@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -408,58 +406,6 @@ func (d *agentDaemon) initializeCodexConversation(run *controlledRun, state *cod
 	d.updateConversationJournalLocked(run)
 	d.queue.mu.Unlock()
 	return nil
-}
-
-// worktreeGitWritableRoots returns the worktree-specific git metadata and
-// shared object/ref/log subdirectories when dir is a linked git worktree.
-// Codex's workspaceWrite sandbox keeps .git itself read-only, so naming these
-// subdirectories in writableRoots lets git add/commit succeed inside the
-// sandbox without opening .git/hooks or .git/config.
-func worktreeGitWritableRoots(dir string) []string {
-	if strings.TrimSpace(dir) == "" {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	out, err := gitLocal(ctx, dir, "rev-parse", "--git-dir", "--git-common-dir")
-	if err != nil {
-		return nil
-	}
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) < 2 {
-		return nil
-	}
-	resolve := func(p string) string {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			return ""
-		}
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(dir, p)
-		}
-		p = filepath.Clean(p)
-		if real, evalErr := filepath.EvalSymlinks(p); evalErr == nil {
-			return real
-		}
-		return p
-	}
-	gitDir := resolve(lines[0])
-	commonDir := resolve(lines[1])
-	if gitDir == "" || commonDir == "" || gitDir == commonDir {
-		return nil
-	}
-	var roots []string
-	for _, candidate := range []string{
-		gitDir,
-		filepath.Join(commonDir, "objects"),
-		filepath.Join(commonDir, "refs"),
-		filepath.Join(commonDir, "logs"),
-	} {
-		if info, statErr := os.Stat(candidate); statErr == nil && info.IsDir() {
-			roots = append(roots, candidate)
-		}
-	}
-	return roots
 }
 
 func (d *agentDaemon) startCodexTurn(run *controlledRun, state *codexConversation, message string) error {
