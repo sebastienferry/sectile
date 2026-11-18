@@ -520,3 +520,32 @@ worktrees are unaffected.
 The **Autonomy in sandbox** action enables the sandbox, explicitly auto-approves sandboxed shell commands and blocks unsandboxed retries. It preserves allow and deny rules. Configure toolchain caches and domains separately; incompatible commands fail instead of prompting to escape. File, web and MCP tools retain their own permission checks. Approved directory additions from **Always allow** persist in the project’s workstation settings as `permissions.additionalDirectories`. Existing sessions apply changes on the next message or launch.
 
 **Commands outside the sandbox** lists the commands Claude Code runs outside its sandbox (`sandbox.excludedCommands`, #764), for the ones the sandbox breaks: `git` over SSH cannot read the SSH keys, and `gh` or `glab` cannot reach the system certificates. An entry is written as the inside of a `Bash(...)` rule: `glab *` matches `glab` with or without arguments, `glab` alone only the bare command. Prefer it to allowing unsandboxed retries (`allowUnsandboxedCommands: true`): only the listed commands leave the sandbox, every other command stays in it, and Claude Code cannot decide to escape for any command. A listed command runs with full access and still follows the allow and deny rules, so it asks unless an allow rule covers it. The match is on the command text: a call joining several commands leaves the sandbox only when each of them is listed, and a script that runs `git` itself stays sandboxed. So the prompt of a Claude run whose resolved values list commands names them and asks the run to call each one alone, with no `cd … &&`, pipe, `;` or prefix. Workstation and project entries add up, and the list does not apply on Windows. The workstation preset **Outside the sandbox (git, gh, glab)** lists `git fetch`, `pull`, `push`, `clone` and `ls-remote`, `gh` and `glab`; it is not part of **Apply recommended**.
+
+### Codex task worktrees and shared Git metadata
+
+Built-in Codex app-server workspace-write turns and autonomous CLI launches use
+the same linked-worktree scope: the worktree's own Git metadata, shared
+`objects`, `refs` and `logs`, plus `packed-refs`, `packed-refs.lock` and
+`packed-refs.new`. The latter paths are explicit file grants, including files
+Git has not created yet. A pre-existing symlink or directory at one of those
+file paths receives no file grant. The common Git directory, hooks and
+configuration stay protected. Read-only turns and custom command templates
+receive no added Git write scope from this feature.
+
+This fixes the shared packed-reference lock warning from ordinary Git commit
+cleanup and permits ref packing without granting the entire common directory.
+It does not grant every Git maintenance operation: auto-GC that needs separate
+`gc.pid` or `gc.log` files can still be refused. Report a successful commit and
+any denied auxiliary maintenance separately. Do not suppress maintenance,
+silently retry, or disable sandbox protections. Inspect the recorded Git state
+and obtain owner direction for a separately authorized maintenance action.
+
+Native enforcement was qualified with Codex 0.164.0 and Apple Git 2.50.1 on
+macOS 27.2. Other platforms and older CLI versions have no newly established
+qualification. Managed restrictions may impose additional limits; a generated
+scope is not proof that an administrative policy permits it. Upgrade the
+Sectile agent/companion to receive the correction and start a new autonomous
+run (with owner direction after a denial); app-server turns resolve their scope
+on each message. [Qualification evidence](testing/shared-git-worktree-permissions-921.md)
+and [the test recipe](TESTING.md#codex-linked-worktree-sandbox-qualification)
+describe the exact scope.

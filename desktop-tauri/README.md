@@ -17,6 +17,7 @@ existing Sectile Go server, workstation agent and MCP infrastructure.
 - Conversation composers keep folder attachment, terminal launch and MCP verification in a compact action row. The project folder path beneath the title can be copied. Folder attachment is shared with the project and applies to a running conversation on its next message.
 - Ticket conversations show linked pull requests and merge requests with their last known forge state; the status strip and ticket workflow list every link, while the sidebar provides a compact shortcut to the primary link. An unavailable forge credential is shown explicitly rather than implying a current state.
 - Ticket conversations use the ticket title in the sidebar instead of the agent skill command.
+- The next-step action in a ticket conversation uses the same compact icon button and interaction states as adjacent header actions, with a 32-pixel click target and a tooltip naming the next step.
 - Task launch with project-provided skills, inherited or explicit execution mode, and optional instructions.
 - Ticket workflows keep unverified provider preparation in a compact disclosure; actual MCP configuration conflicts remain visible before launch.
 - Ticket workflows use one return action to the board, with project prompts and settings available from the project sidebar.

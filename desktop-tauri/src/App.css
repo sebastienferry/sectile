@@ -2423,16 +2423,6 @@ button.prompt-folders-add svg { width:14px; height:14px; color:var(--muted); }
   cursor: pointer;
 }
 
-.conversation-next-step-btn {
-  width: 32px;
-  height: 32px;
-  padding: 0 !important;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
 .conversation-overflow-menu {
   position: relative;
   display: inline-flex;

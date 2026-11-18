@@ -128,3 +128,55 @@ This verifies packaged recovery from prepared states; it does not inject
 SIGKILL into the packaged process or qualify a native installer, a real OAuth
 grant or provider-session resumption. Without the variable, the source test
 continues to run as before.
+
+## Tests launched from a Sectile provider session
+
+Launcher-only variables describe the real desktop runtime, not the test
+fixtures. In particular, inherited `SECTILE_LOCAL_RUNTIME_KEY` changes OAuth
+callback handling, while `SECTILE_COMPANION_MCP_URL` and
+`SECTILE_DESKTOP_MCP_URL` change generated provider commands. Remove these from
+the child test environment when running the repository suite from a launched
+session. Keep intentionally configured `SECTILE_TEST_*` variables. Do not change
+the desktop runtime or production settings to accommodate a test fixture.
+
+The Go suite starts local HTTP test servers and supervises child processes. Run
+it in an authorized environment that permits local loopback listeners; a sandbox
+refusal such as `httptest: failed to listen on a port` prevents qualification.
+Preserve the refusal and obtain owner direction before retrying with different
+execution permissions. A failed sandbox setup is not a passing test result.
+
+## Codex linked-worktree sandbox qualification
+
+`TestCodexNativeSandboxLinkedWorktree` is an opt-in macOS integration test against
+an installed Codex app-server. It uses the production launch command and Git
+scope resolver, a real repository and linked worktree, and sandboxed
+`command/exec`; it requires no model inference. Use an absolute fixture root
+outside system temp, because Codex normally permits writes to system temp:
+
+```sh
+mkdir -p "$PWD/.tasks/codex-sandbox-tests"
+SECTILE_TEST_CODEX_SANDBOX_ROOT="$PWD/.tasks/codex-sandbox-tests" \
+  go test ./internal/agent -run '^TestCodexNativeSandboxLinkedWorktree$' -count=1 -v
+```
+
+Run from a host that can start Codex's own native sandbox; nesting it inside an
+agent sandbox is not equivalent qualification. The measured commands always
+retain workspace-write enforcement and network isolation. The test deliberately
+checks denied writes to disposable hooks, config, a metadata sibling and unrelated
+paths; obtain owner authorization for these expected denials when local guard
+rules require it. It never retries a denied command or escalates it.
+
+The fixture exercises `git add`, the `git commit` cleanup of `AUTO_MERGE`, and
+`git pack-refs --all`, both before and after a packed-ref file exists. It checks
+committed content, index and branch state, stderr/status, protected boundaries and
+read-only behavior. Without the opt-in variable it skips; normal scope and launch
+serialization tests still run. Full model-backed `thread/start` / `turn/start`
+and autonomous `codex exec --approve-for-me --json` must also be qualified
+separately when changing permission propagation; command execution alone does
+not prove that either full launch received the intended policy.
+
+See [the #921 evidence](testing/shared-git-worktree-permissions-921.md) for tested
+versions, requested policies, baseline failures, successful full-path runs and
+remaining platform/maintenance limits. Record command exit, stdout/stderr and
+resulting Git state independently: a successful commit can still report an
+auxiliary operation denial.
