@@ -6,7 +6,7 @@
   intentional repeated text, refusal, availability and queue feedback/order.
 - [x] T4 Update Tauri README and both Unreleased Fixed sections.
 - [x] T5 Run Tauri check, unit tests, UI tests, build and Rust tests; review full diff.
-- [ ] T6 Publish and verify the task PR against feat/tauri-monorepo; record stages.
+- [x] T6 Publish and verify the task PR against feat/tauri-monorepo; record stages.
 
 ## Validation - 2026-11-18
 
@@ -25,3 +25,17 @@
   ticket. The complete two-worker run passed all 311 without a board/test change.
 - Full diff reviewed against `origin/feat/tauri-monorepo`; `git diff --check`
   passes. Production changes only affect the Tauri conversation composer.
+
+## Publication and review
+
+PR: https://github.com/sebastienferry/sectile/pull/934
+
+The PR targets `feat/tauri-monorepo` and is ready for human review. The complete
+diff satisfies the specification; no further defect was found. PR comments,
+reviews and inline feedback were retrieved successfully and were empty. The
+branch is current with its remote base. GitHub reports no check runs for this
+PR; the local validation above is the available check evidence.
+
+The first push published the branch successfully but could not save local
+upstream configuration because shared `.git/config` is protected. No retry of
+that configuration write was made; publication uses the explicit remote branch.
