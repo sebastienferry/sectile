@@ -25,3 +25,21 @@ Branch: `feat/925`. Accepted clarification and specification artifacts are prese
 Visual inspection could not start: Vite reported `listen EPERM: operation not permitted 127.0.0.1:1422`; PinchTab reported `open /Users/sferry/.pinchtab/server.log: operation not permitted`. No alternate route was attempted after these denials. An optional process inspection also reported `zsh:1: operation not permitted: ps` and was abandoned.
 
 Per AGENTS.md, obtain explicit authorization before retrying denied intentions. Then rerun unit and Rust checks with loopback permissions, inspect narrow/wide layout, long labels, focus and disabled states, and complete attachment/folder preservation verification (T009/T011). Resolve any actual failures, finish checklist review, fetch and verify the base, push the preserved branch, create/reuse a draft PR targeting `feat/tauri-monorepo`, verify its head and URL, and submit implemented with that URL. Never advance to reviewed as part of this recovery.
+
+
+## Authorized recovery — 2026-11-18
+
+The owner explicitly authorized retrying validation with required permissions. A new code-issue run was started; the completed launcher run was not reused. All accepted artifacts and production code were preserved.
+
+- Unit suite with loopback access: `tests 114`, `pass 114`, `fail 0` on installed Node 26.7.0. The prior native crash no longer reproduces with those permissions; no test or runtime workaround was needed.
+- Rust suite with loopback access: `48 passed; 0 failed`; main and doc-test targets also pass. Existing objc macro cfg warnings remain.
+- Final TypeScript: `tsc --noEmit`, exit 0.
+- Final UI suite after added preservation assertions: `Test Files 32 passed (32)`, `Tests 300 passed (300)`.
+- Final production build: exit 0, `built in 159ms`; existing bundle-size warning remains.
+- Focused prompt UI: 35 passed. Added Tab from Workflow to contextual action, Enter/Space activation, unchanged draft text with a file reference, unchanged folder tray, source conversation context, and folder availability after read-only transition.
+- PinchTab fixture inspected at 800 and 1280 px wide with 600 px height. At 800 px the Workflow/action group wraps together below activity and execution; at 1280 px it stays on the same row. Both controls remain reachable and aligned. Contextual next-step is 32 by 32 px; keyboard Tab reaches it with a clear accent outline. Disconnected next-step controls are disabled and retain their positions. The longest normal label, Workflow Implemented, fits with the adjacent next-step. Active task Stop is 32 by 32 px beside Workflow and absent from the header. No redundant Stop appears in read-only history.
+- Fixture JSON and transport mocks restored byte-for-byte after visual checks; temporary frame and screenshots removed. No fixture changes are delivered.
+- Re-read production diff against acceptance scenarios: no backend, workflow resolver, launch callback, draft owner, archive/start-over or stop lifecycle changes. No ADR needed for a placement/action-slot change.
+- Remote base `origin/feat/tauri-monorepo` was fetched and is an ancestor of this branch. Successful GitHub lookup confirmed no existing open feat/925 PR before creation.
+
+PR publication and final stage report follow these checks. This invocation must stop at implemented, never reviewed.
