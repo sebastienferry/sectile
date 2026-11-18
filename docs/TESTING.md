@@ -139,6 +139,12 @@ the child test environment when running the repository suite from a launched
 session. Keep intentionally configured `SECTILE_TEST_*` variables. Do not change
 the desktop runtime or production settings to accommodate a test fixture.
 
+The Go suite starts local HTTP test servers and supervises child processes. Run
+it in an authorized environment that permits local loopback listeners; a sandbox
+refusal such as `httptest: failed to listen on a port` prevents qualification.
+Preserve the refusal and obtain owner direction before retrying with different
+execution permissions. A failed sandbox setup is not a passing test result.
+
 ## Codex linked-worktree sandbox qualification
 
 `TestCodexNativeSandboxLinkedWorktree` is an opt-in macOS integration test against

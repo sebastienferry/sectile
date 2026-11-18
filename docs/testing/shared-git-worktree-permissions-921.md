@@ -451,3 +451,58 @@ the integration target were ancestors at publication. The three accepted
 clarification/specification commits were retained. This documentation follow-up
 records the completed checklist; no implementation changed after verification.
 The workflow result is implemented only, with review and merge left to the owner.
+
+## Adjustment review (2026-11-18)
+
+The matching existing PR #926 was verified open on `feat/921`, targeting
+`feat/tauri-monorepo`, before adjustment. After fetching origin, both
+`origin/main` (`b8fabf44`) and the integration target (`c88fed19`) were already
+ancestors of the task branch. No base integration or history rewrite was needed.
+The task diff against its integration target contains 16 files; the much larger
+comparison with `main` also contains the inherited Tauri integration work.
+
+PR discussion comments, reviews and inline review comments were retrieved
+successfully and were all empty. There are no external feedback items awaiting
+disposition. Review of the complete task diff against the accepted specification
+found no actionable production defect. The review checked exact file grants,
+absent files, pre-existing symlink/directory exclusions, canonical worktree paths,
+both launch paths, custom templates, read-only turns, hidden Git discovery and
+preservation of successful command output containing an auxiliary denial.
+
+The initial adjustment race suite encountered the enclosing sandbox's loopback
+listener refusal:
+
+```text
+httptest: failed to listen on a port: listen tcp6 [::1]:0: bind: operation not permitted
+```
+
+The suite was stopped and its log preserved at `.tasks/921-adjust-checks.log`.
+Process inspection also returned `zsh:1: operation not permitted: ps`; no
+alternative inspection was attempted. The invocation ended without changing PR
+readiness or recording reviewed. The owner then explicitly authorized resuming
+validation with local loopback access. The new invocation uses a new execution
+ID and retains the failed invocation's evidence.
+
+The review found that the test-environment documentation did not state the
+loopback requirement. `docs/TESTING.md` now explains that requirement and the
+required stop after a sandbox refusal. No production or test implementation
+changed during adjustment. The native sandbox regression was rerun separately
+and passed (`tasks/internal/agent`, 2.296s); its command runs retain Codex
+workspace-write/read-only enforcement and network isolation. Full model-backed
+qualification remains the separately recorded implementation evidence above;
+the native command regression does not replace it.
+
+Reviewer attention remains on the three exact packed-reference file grants and
+their CLI propagation. Native enforcement is qualified on the recorded macOS
+installation only; general GC bookkeeping and arbitrary administrative policy
+overrides remain outside scope.
+
+The authorized adjustment validation completed with exit 0 for the full
+`go test -race -timeout 60m ./...` suite, `go vet ./...`, the agent build,
+`make fmt-check` and `git diff --check`. The agent race tests took 214.476s.
+Launcher-only `SECTILE_*` variables were removed from the child environment,
+`SECTILE_TEST_*` values were preserved, and `GOCACHE` pointed to the authorized
+`/tmp/sectile-921-go-cache`. Raw output is retained at
+`.tasks/921-adjust-authorized-checks.log` and `.tasks/921-adjust-native.log`.
+Only the documentation recorded in this section changed during adjustment;
+the implementation and its qualification scope remain unchanged.
