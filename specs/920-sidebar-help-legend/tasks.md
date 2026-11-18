@@ -50,3 +50,12 @@ Detailed command output is retained at `/tmp/920-ui-verified.log`, `/tmp/920-uni
 - A typed CodeMirror draft (`Sidebar help verification draft`) and selected conversation survived opening and closing help. Fixture execution state remained present. This is isolated fixture verification, not evidence from a running provider: integration tests additionally assert that opening/closing help calls neither stop nor launch APIs. No real execution was interrupted or launched for verification.
 - Re-read the implementation diff; `git diff --check` passed. Fetched origin and confirmed zero commits behind `origin/main`; the feature belongs on `feat/tauri-monorepo`, avoiding unrelated monorepo history in the PR. Open PR lookup returned no match before creation.
 - Published `feat/920` and created draft PR https://github.com/sebastienferry/sectile/pull/928 against `feat/tauri-monorepo`. Creation does not advance the task to reviewed. The final implementation report records the verified implemented stage.
+
+## Adjustment review (2026-11-18)
+
+- Verified existing PR #928 is open, targets `feat/tauri-monorepo`, and matches `feat/920`. Retrieved PR comments, reviews and inline comments successfully: all empty; no feedback requires action.
+- Reviewed the complete feature diff against the accepted specification, status reconciliation, production symbol styles and modal lifecycle. No actionable code defects found; existing user guidance and changelog cover the feature.
+- Merged the two current integration-base commits without conflicts, preserving published branch history. Both `origin/main` and `origin/feat/tauri-monorepo` are included.
+- Final production state passed TypeScript, 32 UI files / 287 tests, production build, 114 Node tests and 48 Rust tests. The existing build chunk-size advisory remains. Rust loopback tests initially hit sandbox permission denial; the owner explicitly authorized the successful scoped retry. Logs: `/tmp/920-adjust-node-authorized.log` and `/tmp/920-adjust-rust-authorized.log`.
+- Prior Chromium fixture evidence above remains applicable. No new browser checks or live-provider observations are claimed by this review. Review attention: native dialog focus behavior across supported WebViews and shared status-symbol correspondence as rendering evolves.
+- Replay from `desktop-tauri`: `npm run check`, `npm test`, `npm run test:ui`, `npm run build`, `npm run test:rust` (local test servers require loopback access).
