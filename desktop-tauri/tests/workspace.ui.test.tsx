@@ -1104,3 +1104,35 @@ test("sidebar conversation row shows needs-input indicator when run has waitingS
  expect(rowButton.getAttribute("title")).toContain("Action required");
  expect(rowButton.querySelector(".conversation-indicator.needs-input")).not.toBeNull();
 });
+
+test("sidebar help stays outside the scrolling list and preserves the selected live run", async () => {
+  vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(function (this: HTMLDialogElement) { this.setAttribute("open", ""); });
+  vi.spyOn(HTMLDialogElement.prototype, "close").mockImplementation(function (this: HTMLDialogElement) { this.removeAttribute("open"); });
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: /All executions/ }));
+  await screen.findByText("Workstation executions · 1 active execution");
+  fireEvent.click(screen.getByRole("button", { name: /APP-1/ }));
+  await screen.findByText("Live output");
+  const trigger = screen.getByRole("button", { name: "Sidebar status help" });
+  expect(trigger.closest(".sidebar-scroll")).toBeNull();
+  fireEvent.click(trigger);
+  expect(screen.getByText("Live output")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Close", exact: true }));
+  expect(screen.getByText("Live output")).toBeTruthy();
+  expect(api.stopRun).not.toHaveBeenCalled();
+  expect(api.launchTask).not.toHaveBeenCalled();
+});
+
+test("sidebar help is available with an empty filtered list and no agent connection", async () => {
+  vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(function (this: HTMLDialogElement) { this.setAttribute("open", ""); });
+  vi.spyOn(HTMLDialogElement.prototype, "close").mockImplementation(function (this: HTMLDialogElement) { this.removeAttribute("open"); });
+  vi.mocked(api.executionSnapshot).mockResolvedValue({status:{connected:false,capabilities:[]},runs:[]});
+  render(<App />);
+  await screen.findByRole("button", { name: "Example" });
+  fireEvent.change(screen.getByRole("textbox", { name: "Filter projects" }), {target:{value:"No matching project"}});
+  expect(screen.queryByRole("button", {name:"Example"})).toBeNull();
+  const trigger = screen.getByRole("button", { name: "Sidebar status help" });
+  fireEvent.click(trigger);
+  expect(await screen.findByRole("dialog", { name: "Sidebar status help" })).toBeTruthy();
+  expect(api.launchTask).not.toHaveBeenCalled();
+});

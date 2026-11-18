@@ -7,3 +7,8 @@ if (typeof Range !== "undefined") {
   Range.prototype.getClientRects ??= emptyRects;
 }
 if (typeof document !== "undefined" && !document.elementFromPoint) document.elementFromPoint = () => null;
+// Native dialog behavior is supplied by the WebView; jsdom only models the DOM.
+if (typeof HTMLDialogElement !== "undefined") {
+  HTMLDialogElement.prototype.showModal ??= function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close ??= function () { this.removeAttribute("open"); };
+}
