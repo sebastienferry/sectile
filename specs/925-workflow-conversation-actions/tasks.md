@@ -13,7 +13,7 @@ Implementation and authorized validation are complete. Publication evidence is r
 - [x] T009 Cover Tab and Enter/Space activation and accessible labels/tooltips. Check draft, attachments and folders survive placement/visibility changes; compare launch/stop effects with existing behavior rather than require new draft transfer.
 - [x] T010 Update root/Tauri Unreleased changelog entries and relevant README guidance for the new action locations.
 - [x] T011 Run `npm run check`, `npm test`, `npm run test:ui`, `npm run build`, and `npm run test:rust` from `desktop-tauri`. Record results; visually inspect long labels and narrow/wide windows for spacing, reachability, disabled and focus states.
-- [ ] T012 Review diff against all spec acceptance scenarios and confirm no backend/lifecycle rule change. Complete configured implementation and PR creation checks at the implemented stage; do not mark reviewed merely for creating/recovering a PR.
+- [x] T012 Review diff against all spec acceptance scenarios and confirm no backend/lifecycle rule change. Complete configured implementation and PR creation checks at the implemented stage; do not mark reviewed merely for creating/recovering a PR.
 
 ## Dependencies and completion
 

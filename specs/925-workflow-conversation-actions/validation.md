@@ -43,3 +43,8 @@ The owner explicitly authorized retrying validation with required permissions. A
 - Remote base `origin/feat/tauri-monorepo` was fetched and is an ancestor of this branch. Successful GitHub lookup confirmed no existing open feat/925 PR before creation.
 
 PR publication and final stage report follow these checks. This invocation must stop at implemented, never reviewed.
+
+
+## Publication
+
+Draft PR: https://github.com/sebastienferry/sectile/pull/932. Base: `feat/tauri-monorepo`; head: `feat/925`. First publication used `git push -u origin feat/925`, without force. PR creation followed successful branch lookup. The accepted artifacts remain on the task branch. Creation-owner validation is complete; stage reporting is implemented only. No merge, approval, review-stage transition or worktree cleanup was performed.
