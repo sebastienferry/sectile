@@ -7,7 +7,7 @@
 - [x] Run typecheck, unit tests, UI tests, build and Rust tests (failures below).
 - [x] Verify header appearance and interaction states in the browser.
 - [x] Review the complete diff and commit implementation.
-- [ ] Verify current remote base, publish a draft PR and record implemented.
+- [x] Verify current remote base and publish draft PR #929; submit implemented to Sectile for validation.
 - [ ] Separate review stage (outside this code-issue invocation; do not advance to reviewed).
 
 ## Validation - 2026-11-17
@@ -77,3 +77,13 @@
 - Visual inspection confirmed consistent alignment and sizing at minimum and
   desktop widths; browser geometry verified the intermediate responsive width.
 - `git diff --check`: exit 0. No production logic or test changes needed.
+
+## Publication
+
+- Draft PR: https://github.com/sebastienferry/sectile/pull/929
+- Base: `feat/tauri-monorepo`; branch: `feat/922`.
+- First publication used `git push -u origin feat/922`; no force push.
+- Confirmed OPEN and draft, matching remote/local head. Docker CI was running
+  at creation; local required checks completed as documented above.
+- This invocation stops at implemented. Review and ready-for-merge ownership
+  remain outside its scope.
