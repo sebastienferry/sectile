@@ -1,8 +1,8 @@
 # Tasks #921 - Shared Git worktree permissions
 
-Implementation checks complete: focused regression, native macOS sandbox regression, both full launch paths, the full Go race suite, agent build, Go static analysis, repository formatting and diff checks passed. Baseline environment failures and two formatting-only repairs are documented in `docs/testing/shared-git-worktree-permissions-921.md`. Preserve all accepted artifacts, implementation, fixtures and branch `feat/921` on retry.
+Implementation and publication complete. Focused regression, native macOS sandbox regression, both full launch paths, the full Go race suite, agent build, Go static analysis, repository formatting and diff checks passed. Baseline environment failures and two formatting-only repairs are documented in `docs/testing/shared-git-worktree-permissions-921.md`.
 
-Publication pending: commit/push and create or reuse a draft PR targeting `feat/tauri-monorepo`, verify its head, then record implemented only. Both the remote default `main` and the integration target are ancestors of HEAD; targeting `main` would include unrelated integration history. Do not advance to reviewed.
+Draft PR: https://github.com/sebastienferry/sectile/pull/926, branch `feat/921`, base `feat/tauri-monorepo`. The draft state, base and implementation head were verified remotely. Preserve accepted artifacts, the worktree, branch and qualification fixtures. Record implemented only; do not advance to reviewed or merge.
 
 ## 1. Establish evidence (US1, US2)
 
@@ -29,4 +29,4 @@ Publication pending: commit/push and create or reuse a draft PR targeting `feat/
 
 - [x] T13 Record sanitized per-path evidence and supported reproduction/recovery steps in relevant launch/testing documentation. Update README/configuration documentation only if affected; add an English Unreleased entry for a user-visible change.
 - [x] T14 Review all FR1-FR7 criteria and state each path's disposition and platform limits. Resolve investigation gaps or report them as blockers.
-- [ ] T15 At implemented stage only, follow configured PR creation checks and preserve any existing PR/stage on retry. This specification does not advance to reviewed.
+- [x] T15 At implemented stage only, follow configured PR creation checks and preserve any existing PR/stage on retry. This specification does not advance to reviewed.

@@ -439,3 +439,15 @@ two formatting-only blank-line repairs described above.
 All FR1-FR7 requirements have an evidenced disposition. Both built-in paths
 receive the supported local correction. There is no upstream-only completion
 claim and no new platform guarantee beyond the recorded macOS qualification.
+
+
+## Publication
+
+Draft [PR #926](https://github.com/sebastienferry/sectile/pull/926) was created
+from `feat/921` against `feat/tauri-monorepo`. The remote PR was verified open
+and draft, with implementation head
+`9372e5ecabab9160f15b6c1b1ad7a0f4acad746c`. Both the remote default branch and
+the integration target were ancestors at publication. The three accepted
+clarification/specification commits were retained. This documentation follow-up
+records the completed checklist; no implementation changed after verification.
+The workflow result is implemented only, with review and merge left to the owner.
