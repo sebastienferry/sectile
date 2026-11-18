@@ -402,8 +402,9 @@ Go retains the transcript and run history. A stopped conversation labels its
 saved turn as completed and replaces the disabled composer with compact
 read-only folder and terminal controls.
 
-While the agent responds, the composer queues follow-up messages instead of
-sending them: press Enter or **Queue** beside **Interrupt**. Queued messages
+The composer keeps the **Send** button available while the agent responds:
+click it or press Enter to queue a follow-up without interrupting the turn.
+When idle with an empty queue, either action sends immediately. Queued messages
 show at the top of the composer box, apart from the transcript: the next one on
 a single line, the whole list behind a toggle when several wait. Each can be
 copied, removed, or moved back into the composer with **Edit**, which keeps the

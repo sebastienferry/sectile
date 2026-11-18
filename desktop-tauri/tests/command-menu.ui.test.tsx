@@ -122,7 +122,7 @@ test("a draft starting with ! shows the shell indicator, also while queueing", a
   expect(box.classList.contains("shell-mode")).toBe(true);
   expect(within(box as HTMLElement).getByText("Shell")).toBeTruthy();
   expect(editor.getAttribute("aria-description")).toContain("shell command in this conversation's folder");
-  expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
   typeIn(editor, "git status");
   expect(box.classList.contains("shell-mode")).toBe(false);
   expect(editor.getAttribute("aria-description")).toBeNull();

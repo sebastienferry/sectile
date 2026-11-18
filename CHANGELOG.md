@@ -42,6 +42,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- Sectile Desktop keeps the Send button visible while a conversation is busy; clicking it or pressing Enter queues the draft once for the next turn, without interrupting the response (#931).
 - Built-in Codex conversations and autonomous runs can stage, commit and pack refs in linked task worktrees without the shared `packed-refs.lock` permission warning, while keeping Git hooks and configuration protected (#921).
 
 - Sectile Desktop's conversation next-step button now matches the size, spacing and interaction states of the adjacent header icons.

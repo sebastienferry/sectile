@@ -175,6 +175,11 @@ export default function ProjectPrompt({ projectId, projectName, runId, agentAvai
 function Conversation({ id, projectId, projectName, agentAvailable, directory, folders, run, task, board, projectContext, taskRuns, canEditTask, knownSprints, knownAssignees, onTaskSaved, onSelectRun, onLaunchSkill, onOpenQueue, onOpenTask, onArchive, onStopped, onFoldersChanged, onTitleChanged, archived, onStartOver, onOpenSource, mentionSources }: { mentionSources:MentionSources; id:string;projectId:string;projectName?:string;agentAvailable:boolean;directory?:string;folders?:Run["folders"];run?:Run;task?:Task;board?:BoardMapping;projectContext?:ProjectContext;taskRuns?:Run[];canEditTask?:boolean;knownSprints?:string[];knownAssignees?:string[];onTaskSaved?:(task:Task)=>void;onSelectRun?:(runId:string)=>void;onLaunchSkill?:(skillId:string)=>void;onEditTask?:()=>void;onOpenQueue?:()=>void;onOpenTask?:()=>void;onArchive?:()=>void;onStopped?:()=>void;onFoldersChanged?:()=>void;onTitleChanged?:()=>void;archived?:boolean;onStartOver?:()=>void;onOpenSource?:(runId:string)=>void }) {
   const { controller, snapshot, loaded, pending, error, queue } = useConversation(id);
   const [draft, setDraft] = useState("");
+  const draftRef = useRef("");
+  function updateDraft(value: string) {
+    draftRef.current = value;
+    setDraft(value);
+  }
   const [queueFeedback, setQueueFeedback] = useState("");
   const [actionError, setActionError] = useState("");
   const [mcpFeedback,setMcpFeedback]=useState("");
@@ -195,7 +200,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
   function editQueued(itemId: string) {
     const item = controller.withdrawQueued(itemId);
     if (!item) return;
-    setDraft(current => mergeDraft(current, item.text));
+    updateDraft(mergeDraft(draftRef.current, item.text));
     setOptions({ ...item.options });
     setQueueFeedback("");
     messageInput.current?.focus();
@@ -227,11 +232,13 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
   const queueFull = queue.items.length >= QUEUE_LIMIT;
   useEffect(() => { if (!queueFull) setQueueFeedback(""); }, [queueFull]);
   function submitDraft() {
-    if (!loaded || snapshot.readOnly || attaching || !draft.trim()) return;
+    const message = draftRef.current;
+    if (!loaded || snapshot.readOnly || attaching || !message.trim()) return;
     if (!queueing && (!agentAvailable || error)) return;
-    const result = controller.submit(draft, options);
+    const result = controller.submit(message, options);
     if (result === "sent" || result === "queued") {
-      setDraft(""); setQueueFeedback(""); messageInput.current?.resetHistory();
+      // Consume before React renders so another submit event cannot reuse this draft.
+      updateDraft(""); setQueueFeedback(""); messageInput.current?.resetHistory();
       setFollowRequest(value => value + 1);
     } else if (result === "full") setQueueFeedback(`Queue full (${QUEUE_LIMIT} messages). Remove one to add another.`);
   }
@@ -550,7 +557,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
           conversationId={id}
           mentions={mentionSources}
           value={draft}
-          onChange={setDraft}
+          onChange={updateDraft}
           commands={snapshot.commands}
           prompts={sentPrompts}
           readOnly={!!snapshot.readOnly}
@@ -583,9 +590,7 @@ function Conversation({ id, projectId, projectName, agentAvailable, directory, f
             <Icon name="stopSquare" />
           </button>
         )}
-        {queueing
-          ? <button className="send-button queue-button" aria-label="Queue message" title="Queue · Enter" disabled={!loaded || attaching || !!snapshot.readOnly || queueFull || !draft.trim()}><Icon name="plus" /></button>
-          : <button className="send-button" aria-label="Send" title="Send · Enter" disabled={!agentAvailable || !loaded || busy || attaching || !!snapshot.readOnly || !!error || !draft.trim()}><Icon name="send" /></button>}</div>
+        <button className="send-button" aria-label="Send" title={queueing ? "Send when ready · Enter to queue" : "Send · Enter"} disabled={!loaded || attaching || !!snapshot.readOnly || !draft.trim() || (queueing ? queueFull : !agentAvailable || !!error)}><Icon name="send" /></button></div>
       </div>
       {snapshot.busy && <p className="composer-feedback composer-shortcuts">Enter to queue · Esc to interrupt</p>}
       {queueFeedback && <p className="composer-feedback" role="status">{queueFeedback}</p>}
