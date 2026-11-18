@@ -1857,8 +1857,8 @@ button.composer-effort-step.is-active .composer-effort-dot { opacity:0; }
 .conversation-prompt .prompt-transcript-content { max-width:1060px; margin:0 auto; padding:16px 32px 0; box-sizing:border-box; }
 .conversation-prompt .conversation-controls { max-width:1060px; width:100%; margin:0 auto; padding:0 32px; box-sizing:border-box; }
 .conversation-prompt .conversation-rename { max-width:1060px; width:100%; margin:10px auto 0; padding:0 32px; box-sizing:border-box; }
-.prompt-heading .stop-button { color:var(--danger); }
-.prompt-heading .stop-button:hover:not(:disabled) { background:color-mix(in srgb,var(--danger) 15%,transparent); }
+.conversation-status-strip .stop-button { color:var(--danger); }
+.conversation-status-strip .stop-button:hover:not(:disabled) { background:color-mix(in srgb,var(--danger) 15%,transparent); }
 .conversation-pr-link { display:inline-flex; align-items:center; gap:3px; padding:0; border:0; background:transparent; color:#9a72e6; font-size:inherit; cursor:pointer; }
 .conversation-pr-link svg { width:13px; height:13px; }
 .conversation-pr-menu { position:relative; }
@@ -3230,3 +3230,7 @@ button.context-tray-toggle:hover,button.context-tray-toggle:focus-visible { colo
 .sidebar-help-body li { display:flex; align-items:baseline; gap:12px; margin:16px 0; }
 .sidebar-help-body .skill-status-mark { margin-right:0; }
 .sidebar-help-body li p { margin:4px 0 0; color:var(--muted); }
+.conversation-workflow-actions { display:inline-flex; align-items:center; gap:6px; min-width:0; max-width:100%; }
+.conversation-workflow-actions .conversation-workflow-toggle { min-width:0; }
+.conversation-workflow-actions .conversation-workflow-toggle span { overflow-wrap:anywhere; }
+.conversation-workflow-actions .icon-button { flex-shrink:0; }

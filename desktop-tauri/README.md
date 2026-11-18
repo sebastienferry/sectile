@@ -14,6 +14,7 @@ existing Sectile Go server, workstation agent and MCP infrastructure.
 - Native authenticated loopback bridge; the agent token never enters the webview.
 - Project-scoped free prompts with Claude Code or Codex, using a lightweight React controller over the Go conversation engine.
 - Free-prompt conversations show concise activity and execution status; ticket-linked conversations add their skill, tracker status, PR/MR and workflow stage.
+- Eligible read-only ticket histories offer the next step beside Workflow and in the header, unless a task execution is active. Stop discussion sits in the status strip for active sessions, including between turns and in free conversations. Inactive conversations retain Archive in the header; archived histories retain Start over.
 - Conversation composers keep folder attachment, terminal launch and MCP verification in a compact action row. The project folder path beneath the title can be copied. Folder attachment is shared with the project and applies to a running conversation on its next message.
 - Ticket conversations show linked pull requests and merge requests with their last known forge state; the status strip and ticket workflow list every link, while the sidebar provides a compact shortcut to the primary link. An unavailable forge credential is shown explicitly rather than implying a current state.
 - Ticket conversations use the ticket title in the sidebar instead of the agent skill command.
