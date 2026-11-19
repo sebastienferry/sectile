@@ -11,6 +11,6 @@
   }
   ```
 
-  `project` is a Jira project key. `component` and `label` narrow a rule to the tickets that carry them. `path` is the folder of a local clone. `remote` is the repository's address without its scheme, used to recognise its pull requests.
+  `project` is a Jira project key. `component` and `label` narrow a rule to the tickets that carry them. `path` is the folder of a local clone. `remote` is the repository's address without its scheme, used to recognise its pull requests. Compare two addresses as host and path only: drop the scheme, any user, a trailing `.git` and a trailing slash, and read `git@host:group/repo` as `host/group/repo`.
 - For each ticket, its project, components, labels and pull request links (the remote links on the issue).
 - The sessions this session already started, from the host's list of linked sessions.

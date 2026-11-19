@@ -134,6 +134,7 @@ func TestLitePluginShipsTheDispatcher(t *testing.T) {
 		"~/.config/sectile-lite/repositories.json",
 		"never guess a path",
 		"write the file only on a yes",
+		"Compare two addresses as host and path only",
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("the dispatcher lacks %q", required)
