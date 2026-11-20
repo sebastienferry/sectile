@@ -1,0 +1,3 @@
+- `board.html`, in this skill's directory. It is finished: only its `__BOARD_CONFIG__` placeholder is filled in.
+- The argument, when there is one: the JQL the board opens on.
+- The connectors this session exposes, under the names the host gives them.

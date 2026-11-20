@@ -15,7 +15,7 @@ import (
 	"tasks/internal/skills"
 )
 
-var updatePlugin = flag.Bool("update", false, "rewrite the plugin golden files under testdata/plugin")
+var updatePlugin = flag.Bool("update", false, "rewrite the plugin golden files under testdata/plugin and testdata/plugin-lite")
 
 const pluginTestVersion = "0.0.0-test"
 
@@ -24,7 +24,13 @@ func TestRenderPluginMatchesGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := filepath.Join("testdata", "plugin")
+	matchPluginGolden(t, filepath.Join("testdata", "plugin"), files)
+}
+
+// matchPluginGolden compares a rendered plugin with its golden directory, file
+// by file, and rewrites the directory under -update.
+func matchPluginGolden(t *testing.T, root string, files map[string][]byte) {
+	t.Helper()
 	if *updatePlugin {
 		if err := os.RemoveAll(root); err != nil {
 			t.Fatal(err)
@@ -41,7 +47,7 @@ func TestRenderPluginMatchesGolden(t *testing.T) {
 	}
 
 	onDisk := map[string]bool{}
-	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
 			return err
 		}

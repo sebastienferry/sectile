@@ -1,0 +1,4 @@
+- Do not change the page beyond `__BOARD_CONFIG__`, and do not write it into the repository.
+- Do not share the board: it is the user's, private until they share it from its own menu.
+- Do not publish a board without a connector it can read Jira with.
+- When the host cannot publish pages, publish nothing: give the path of the filled-in file instead.

@@ -1,0 +1,1 @@
+Publish this user's own Sectile Board: the page shipped next to this skill (`board.html`), a board of their Jira tickets in the six Sectile columns, read live through their own Atlassian connector. Running the skill again updates the same board to the plugin's current version instead of creating another one.

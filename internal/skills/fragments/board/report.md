@@ -1,0 +1,3 @@
+- The board's link, and whether it is new or an update of the existing one.
+- The connector, site and query it was published with.
+- End every reply addressed to a person with the `### 📋 Status Update` block (Done, Remaining (Agent), Pending (User)), written in the language of the conversation.

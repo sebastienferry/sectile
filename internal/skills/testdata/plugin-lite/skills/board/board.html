@@ -1,0 +1,1112 @@
+<title>Sectile Board</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: the Sectile web board, one toolbar over either six tinted stage columns of compact cards or a sortable ticket table. */
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #eceef1;
+  --input: #ffffff;
+  --border: #dde1e6;
+  --fg: #111315;
+  --fg-2: #4a525c;
+  --muted: #6b7480;
+  --accent: #1f7a55;
+  --accent-soft: rgb(31 122 85 / 0.12);
+  --danger: #c2360f;
+  --danger-soft: rgb(194 54 15 / 0.1);
+  --warn: #9a5b00;
+  --warn-soft: rgb(255 155 0 / 0.14);
+  --s-new: #7d8590;
+  --s-clarified: #2b7fb3;
+  --s-specified: #7a5cc4;
+  --s-implemented: #c27c0e;
+  --s-reviewed: #2f8a6d;
+  --s-finished: #3d9a4f;
+  --p-high: #c2360f;
+  --p-medium: #005eda;
+  --p-low: #7d8590;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1014; --surface: #1a1d22; --surface-2: #22262c; --input: #15181c; --border: #2c3138;
+    --fg: #f1f3f5; --fg-2: #c3c9d0; --muted: #8b949e; --accent: #34b37e; --accent-soft: rgb(52 179 126 / 0.16);
+    --danger: #f08a82; --danger-soft: rgb(240 138 130 / 0.12); --warn: #f0b765; --warn-soft: rgb(240 183 101 / 0.12);
+    --s-new: #8b949e; --s-clarified: #5ab0e6; --s-specified: #a68ad8; --s-implemented: #e0a443; --s-reviewed: #4cc49a; --s-finished: #6cc77c;
+    --p-high: #f08a82; --p-medium: #6aa9ff; --p-low: #8b949e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1014; --surface: #1a1d22; --surface-2: #22262c; --input: #15181c; --border: #2c3138;
+  --fg: #f1f3f5; --fg-2: #c3c9d0; --muted: #8b949e; --accent: #34b37e; --accent-soft: rgb(52 179 126 / 0.16);
+  --danger: #f08a82; --danger-soft: rgb(240 138 130 / 0.12); --warn: #f0b765; --warn-soft: rgb(240 183 101 / 0.12);
+  --s-new: #8b949e; --s-clarified: #5ab0e6; --s-specified: #a68ad8; --s-implemented: #e0a443; --s-reviewed: #4cc49a; --s-finished: #6cc77c;
+  --p-high: #f08a82; --p-medium: #6aa9ff; --p-low: #8b949e;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 13px; line-height: 1.4;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 12px 20px;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Toolbar */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; position: relative; }
+.search { flex: 1 1 320px; min-width: 0; position: relative; }
+.search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+#search {
+  width: 100%; padding: 7px 10px 7px 32px; border-radius: 7px; border: 1px solid var(--border);
+  background: var(--input); color: var(--fg); font: inherit;
+}
+.tb-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--fg-2); white-space: nowrap;
+}
+.tb-btn:hover { color: var(--fg); background: var(--surface-2); }
+.tb-btn.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.badge {
+  display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px;
+  background: var(--accent); color: var(--surface); font-size: 10.5px; font-weight: 600;
+}
+.pill { padding: 6px 10px; border-radius: 7px; border: 1px solid var(--border); color: var(--fg-2); background: var(--surface); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.presence { display: flex; align-items: center; }
+.avatar {
+  width: 24px; height: 24px; border-radius: 50%; display: inline-grid; place-items: center;
+  font-size: 10px; font-weight: 600; color: var(--surface); background: var(--accent);
+  border: 2px solid var(--bg); margin-left: -6px;
+}
+.presence .avatar:first-child { margin-left: 0; }
+
+/* Filters popover */
+.popover {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: min(340px, 100%);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.28); padding: 12px;
+}
+.pop-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.pop-title { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.link { background: none; border: 0; padding: 0; color: var(--muted); font-size: 12px; }
+.link:hover { color: var(--accent); }
+.field { display: grid; grid-template-columns: 76px 1fr; align-items: center; gap: 8px; margin-bottom: 6px; }
+.field label { color: var(--fg-2); }
+.field select, .field input {
+  width: 100%; min-width: 0; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--input); color: var(--fg); font: inherit;
+}
+.field input { font-family: var(--font-mono); font-size: 12px; }
+.status-list { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.status-row {
+  display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 8px; padding: 5px 6px;
+  border-radius: 6px; cursor: pointer; color: var(--fg-2);
+}
+.status-row:hover { background: var(--surface-2); }
+.status-row.on { background: var(--accent-soft); color: var(--fg); }
+.status-row input { margin: 0; accent-color: var(--accent); }
+.status-row .n { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.sep { height: 1px; background: var(--border); margin: 10px -12px; }
+
+/* Board */
+.board { display: grid; grid-template-columns: repeat(6, minmax(230px, 1fr)); gap: 10px; overflow-x: auto; padding-bottom: 6px; align-items: start; }
+.col {
+  min-width: 0; border-radius: 9px; border: 1px solid color-mix(in srgb, var(--tone) 28%, var(--border));
+  background: color-mix(in srgb, var(--tone) 9%, var(--surface));
+}
+.col-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-weight: 600; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tone); flex: none; }
+.col-head .n { margin-left: auto; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+.cards { display: flex; flex-direction: column; gap: 8px; padding: 0 8px 8px; }
+.cards:empty { display: none; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px 8px;
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
+}
+.card:hover { border-color: color-mix(in srgb, var(--tone) 45%, var(--border)); }
+.card.watched { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+.card-top { display: flex; align-items: center; gap: 7px; }
+.key { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); text-decoration: none; }
+.key:hover { color: var(--accent); text-decoration: underline; }
+/* Where a ticket's stage comes from: its Sectile label in a solid tag, or the Jira status it was guessed from in a dashed one. */
+.src {
+  display: inline-block; min-width: 0; max-width: 16em; padding: 0 7px; border-radius: 999px; border: 1px solid;
+  font-size: 11px; line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: help;
+}
+.src.label {
+  font-family: var(--font-mono); color: var(--tone); border-color: color-mix(in srgb, var(--tone) 45%, var(--border));
+  background: color-mix(in srgb, var(--tone) 10%, transparent);
+}
+.src.guessed { border-style: dashed; border-color: var(--muted); color: var(--muted); }
+.list .stage .src { margin-left: 4px; }
+.icon-btn {
+  margin-left: auto; padding: 3px; line-height: 0; border-radius: 6px; border: 1px solid transparent;
+  background: transparent; color: var(--muted);
+}
+.icon-btn:hover:not(:disabled) { color: var(--fg); background: var(--surface-2); border-color: var(--border); }
+.icon-btn:disabled { opacity: .35; cursor: default; }
+.icon-btn.done { color: var(--accent); }
+.title { margin: 0; font-size: 13px; color: var(--fg); overflow-wrap: anywhere; }
+.meta { display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; }
+.prio { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-2); }
+.prio .dot { width: 6px; height: 6px; }
+.card-foot { display: flex; align-items: center; gap: 6px; }
+.assignee { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.card-foot .icon-btn { margin-left: auto; }
+
+.card[draggable="true"] { cursor: grab; }
+.card.moving { opacity: .55; }
+.card.dragging { opacity: .4; }
+.col.drop { border-color: var(--tone); box-shadow: inset 0 0 0 1px var(--tone); }
+.menu .menu-head { padding: 6px 9px 4px; font-size: 11.5px; color: var(--muted); }
+.menu button.current { color: var(--fg); font-weight: 600; }
+
+.skeleton { height: 92px; border-radius: 8px; background: color-mix(in srgb, var(--border) 60%, transparent); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+
+/* Card menu */
+.menu {
+  position: fixed; z-index: 30; min-width: 230px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 9px; box-shadow: 0 12px 32px rgb(0 0 0 / 0.28); padding: 4px;
+}
+.menu button, .menu a {
+  display: flex; text-decoration: none; font-size: 13px; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 7px 9px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--fg-2);
+}
+.menu a:hover, .menu button:hover:not(:disabled) { background: var(--surface-2); color: var(--fg); }
+.menu button:disabled { opacity: .4; cursor: default; }
+
+.notice { border-radius: 8px; padding: 9px 12px; margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.notice.warn { background: var(--warn-soft); color: var(--warn); }
+.notice.crit { background: var(--danger-soft); color: var(--danger); }
+.notice p { margin: 0; flex: 1 1 260px; }
+.notice button { padding: 4px 10px; border-radius: 6px; border: 1px solid currentColor; background: transparent; }
+
+footer { margin-top: 14px; color: var(--muted); font-size: 11.5px; max-width: 90ch; }
+footer code { font-family: var(--font-mono); font-size: 11px; }
+
+/* View switch */
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; background: var(--surface); }
+.seg button { padding: 6px 8px; line-height: 0; border: 0; background: transparent; color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+
+/* Columns popover */
+#columns { width: min(240px, 100%); }
+.col-list { display: flex; flex-direction: column; gap: 2px; }
+
+/* List */
+.list-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
+.list th {
+  text-align: left; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap;
+  position: sticky; top: 0; background: var(--surface);
+}
+.list th button { background: none; border: 0; padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; }
+.list th button:hover, .list th.sorted button { color: var(--accent); }
+.list td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.list tr:last-child td { border-bottom: 0; }
+.list tbody tr:hover { background: var(--surface-2); }
+.list tr.watched { box-shadow: inset 3px 0 0 var(--accent); }
+.list td.k { white-space: nowrap; }
+.list td.k .key { color: var(--accent); }
+.list td.t { min-width: 260px; color: var(--fg); }
+.list td.c { white-space: nowrap; color: var(--fg-2); }
+.list td.dim { color: var(--muted); }
+.stage { display: inline-flex; align-items: center; gap: 6px; }
+.list td.a { white-space: nowrap; text-align: right; }
+.list td.a .act { display: inline-flex; gap: 4px; align-items: center; }
+.step-btn {
+  padding: 4px 10px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--accent-soft); color: var(--accent); font-weight: 500;
+}
+.step-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.step-btn:disabled { opacity: .4; cursor: default; }
+.list .icon-btn { margin: 0; border-color: var(--border); }
+.empty-list { padding: 24px; text-align: center; color: var(--muted); }
+.cached { color: var(--muted); }
+
+@media (max-width: 760px) {
+  .board { grid-template-columns: 1fr; overflow-x: visible; }
+  .popover { left: 0; right: auto; width: 100%; }
+}
+</style>
+
+<div class="toolbar" id="toolbar">
+  <div class="seg" role="group" aria-label="View">
+    <button type="button" id="viewBoard" aria-pressed="true" title="Board view"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 4v12"/><path d="M12 4v8"/><path d="M18 4v14"/></svg></button>
+    <button type="button" id="viewList" aria-pressed="false" title="List view"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg></button>
+  </div>
+  <div class="search">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <label for="search" hidden>Search tickets</label>
+    <input id="search" placeholder="Search tickets..." autocomplete="off" spellcheck="false">
+  </div>
+  <button type="button" class="tb-btn" id="filtersBtn" aria-haspopup="dialog" aria-expanded="false">Filters <span class="badge" id="filtersBadge" hidden>0</span></button>
+  <button type="button" class="tb-btn" id="columnsBtn" aria-haspopup="dialog" aria-expanded="false" hidden>Columns <span class="badge" id="columnsBadge">0</span></button>
+  <span class="pill" id="countPill">…</span>
+  <button type="button" class="tb-btn" id="moreBtn" hidden>Load more</button>
+  <button type="button" class="tb-btn" id="linkBtn" title="Copy a link that opens this view with its filters">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>Link</button>
+  <div class="presence" id="presence" hidden></div>
+
+  <div class="popover" id="filters" role="dialog" aria-label="Filters" hidden>
+    <div class="pop-head"><span class="pop-title">Filters</span><button type="button" class="link" id="resetBtn">Reset</button></div>
+    <div class="field"><label for="fSprint">Sprint</label>
+      <select id="fSprint"><option value="">All sprints</option><option value="open">Open sprints</option></select></div>
+    <div class="field"><label for="fAssignee">Assignee</label><select id="fAssignee"></select></div>
+    <div class="field"><label for="fType">Type</label><select id="fType"></select></div>
+    <div class="field"><label for="fPriority">Priority</label><select id="fPriority"></select></div>
+    <div class="field"><label for="fJql">JQL</label><input id="fJql" spellcheck="false" autocomplete="off"></div>
+    <div class="sep"></div>
+    <div class="pop-head"><span class="pop-title">Status</span><button type="button" class="link" id="allStatusBtn">All</button></div>
+    <div class="status-list" id="statusList"></div>
+  </div>
+
+  <div class="popover" id="columns" role="dialog" aria-label="Columns" hidden>
+    <div class="pop-head"><span class="pop-title">Columns</span><button type="button" class="link" id="colsResetBtn">Reset</button></div>
+    <div class="col-list" id="colList"></div>
+  </div>
+</div>
+
+<div id="notice"></div>
+<main id="view"></main>
+<div class="menu" id="menu" role="menu" hidden></div>
+
+<footer>
+  Sectile Lite 0.0.0-test. A ticket's stage is its Sectile label (<code>#clarified</code>, <code>#specified</code>, <code>#implemented</code>, <code>#reviewed</code>, <code>#finished</code>); the tag beside a card's key shows it, or, dashed, the Jira status the stage was guessed from when the ticket has no such label.
+  The next-step buttons hand the ticket to the Claude Code session open beside the board that runs <code>/sectile-lite:dispatch</code>; without one, the command is copied. Link copies a bookmark of this view and its filters.
+  Drag a card to another column, or use its Move to menu, to set the ticket's stage label in Jira with your own account; its Jira status does not change.
+</footer>
+
+<script>
+(() => {
+  // /sectile-lite:board replaces __BOARD_CONFIG__ with a JSON object when it publishes this page.
+  const CONFIG = __BOARD_CONFIG__;
+  const SERVER = CONFIG.connector;
+  const TOOL = "searchJiraIssuesUsingJql";
+  // Moving a ticket rewrites its stage label with this tool, as the viewer.
+  const EDIT_TOOL = "editJiraIssue";
+  const CLOUD = CONFIG.site;
+  // The page's own claude.ai link, which bookmarks extend with their #token. The page cannot read it itself.
+  const PAGE_URL = CONFIG.url || "";
+  // The Sectile Lite plugin: its skills keep the stage as Sectile's #<stage> label, which this board reads.
+  const PLUGIN = "sectile-lite";
+  const DEFAULT_JQL = CONFIG.jql;
+  // The Sprint field is a custom field whose id differs per Jira site; without it the filter falls back to open sprints only.
+  const SPRINT_FIELD = CONFIG.sprintField || "";
+  const FIELDS = ["summary", "status", "assignee", "labels", "issuetype", "priority"].concat(SPRINT_FIELD ? [SPRINT_FIELD] : []);
+  const PAGE_SIZE = 100;
+  const DEFAULT_PAGES = 5;
+  // Load all stops at 10,000 tickets, a hundred calls to Jira.
+  const MAX_PAGES = 100;
+  const CACHE_KEY = "sectile.board.cache";
+
+  // The next step of each stage, as on the Sectile card.
+  const STAGES = [
+    { id: "new", name: "To clarify", skill: "clarify-issue", verb: "Clarify",
+      step: "Advance one step: clarify the requirements (clarify-issue)",
+      auto: "Advance autonomously: Clarify, Specify, Code, Adjust" },
+    { id: "clarified", name: "Clarified", skill: "specify-issue", verb: "Specify",
+      step: "Advance one step: specify the technical solution (specify-issue)",
+      auto: "Advance autonomously: Specify, Code, Adjust" },
+    { id: "specified", name: "Specified", skill: "implement-issue", verb: "Code",
+      step: "Advance one step: implement the code and tests (implement-issue)",
+      auto: "Advance autonomously: Code, Adjust" },
+    { id: "implemented", name: "Implemented", skill: "adjust-issue", verb: "Adjust",
+      step: "Adjust the existing pull request (adjust-issue)",
+      auto: "Adjust the existing PR and stop for human review" },
+    { id: "reviewed", name: "Reviewed", skill: "handoff-issue", verb: "Handoff",
+      step: "Advance one step: confirm the merge and close the ticket (handoff-issue)",
+      auto: null },
+    { id: "finished", name: "Finished", skill: null, verb: null, step: null, auto: null },
+  ];
+  const BY_ID = Object.fromEntries(STAGES.map(s => [s.id, s]));
+  const STAGE_RANK = Object.fromEntries(STAGES.map((s, i) => [s.id, i]));
+  // Sectile's stage labels and their aliases (internal/trackerapi/mapping.go), read with their # prefix: the last one wins.
+  const LABEL_STAGE = { new: "new", untouched: "new", clarified: "clarified", specified: "specified",
+    implemented: "implemented", reviewed: "reviewed", finished: "finished", closed: "finished", done: "finished" };
+  const PRIORITY_RANK = ["blocker", "critical", "highest", "high", "major", "medium", "low", "minor", "lowest", "trivial"];
+
+  // The list's optional columns; key, title and actions always show.
+  const COLUMNS = [
+    { id: "stage", name: "Stage", on: true },
+    { id: "status", name: "Status", on: true },
+    { id: "priority", name: "Priority", on: true },
+    { id: "sprint", name: "Sprint", on: true },
+    { id: "assignee", name: "Assignee", on: true },
+    { id: "type", name: "Type", on: false },
+  ];
+  const DEFAULT_COLS = COLUMNS.filter(c => c.on).map(c => c.id);
+
+  const $ = id => document.getElementById(id);
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
+  };
+
+  // ---- state, from the bookmark, then this viewer's last visit ----
+  function blankState() {
+    return { view: "board", jql: DEFAULT_JQL, sprint: "", assignee: "", type: "", priority: "", stages: [],
+      search: "", sort: { by: "stage", dir: 1 }, cols: DEFAULT_COLS.slice() };
+  }
+  function normalizeState(raw) {
+    const b = blankState();
+    if (!raw || typeof raw !== "object") return b;
+    const str = (v, d) => (typeof v === "string" ? v : d);
+    return {
+      view: raw.view === "list" ? "list" : "board",
+      jql: str(raw.jql, b.jql) || b.jql,
+      sprint: str(raw.sprint, ""), assignee: str(raw.assignee, ""), type: str(raw.type, ""), priority: str(raw.priority, ""),
+      stages: Array.isArray(raw.stages) ? raw.stages.filter(s => BY_ID[s]) : [],
+      search: str(raw.search, ""),
+      sort: raw.sort && typeof raw.sort.by === "string" ? { by: raw.sort.by, dir: raw.sort.dir === -1 ? -1 : 1 } : b.sort,
+      cols: Array.isArray(raw.cols) ? raw.cols.filter(c => COLUMNS.some(x => x.id === c)) : b.cols,
+    };
+  }
+  // A bookmark is the view and its filters as base64url JSON in a #v.<token> anchor, the only part of a link an artifact receives.
+  function encodeView(st) {
+    const json = JSON.stringify({ view: st.view, jql: st.jql === DEFAULT_JQL ? undefined : st.jql, sprint: st.sprint || undefined,
+      assignee: st.assignee || undefined, type: st.type || undefined, priority: st.priority || undefined,
+      stages: st.stages.length ? st.stages : undefined, search: st.search || undefined, sort: st.sort, cols: st.cols });
+    const bytes = new TextEncoder().encode(json);
+    let bin = "";
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return "v." + btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function decodeView(token) {
+    try {
+      const b64 = token.slice(2).replace(/-/g, "+").replace(/_/g, "/");
+      const bin = atob(b64 + "=".repeat((4 - b64.length % 4) % 4));
+      return JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0))));
+    } catch { return null; }
+  }
+  function stateFromHash() {
+    const h = decodeURIComponent((location.hash || "").replace(/^#/, ""));
+    if (h.startsWith("v.")) { const raw = decodeView(h); return raw ? normalizeState(raw) : null; }
+    if (h === "list" || h === "board") return { ...normalizeState(store.get("sectile.board")), view: h };
+    return null;
+  }
+
+  let state = stateFromHash() || normalizeState(store.get("sectile.board"));
+  function persist() { store.set("sectile.board", state); }
+
+  let mcp = null, room = null, unwatch = null, canSend = null;
+  let firstPage = null, extraPages = [], wantedPages = DEFAULT_PAGES, generation = 0, loadingMore = false, loadedSoFar = 0;
+  let issues = null, cachedAt = null, peers = [];
+  // Tickets whose move is being written to Jira, key -> target stage.
+  const moving = new Map();
+  // Labels written by a move, key -> {labels, at}: Jira's search can answer with the old ones for a short while.
+  const moved = new Map();
+  const MOVED_TTL = 120000;
+  let dragKey = null;
+
+  function el(tag, attrs, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k === "class") n.className = v;
+      else if (k === "text") n.textContent = v;
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v === true ? "" : v);
+    }
+    for (const kid of kids.flat()) if (kid != null && kid !== false) n.append(kid);
+    return n;
+  }
+  const ICONS = {
+    dots: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
+    step: '<path d="m9 18 6-6-6-6"/>',
+    auto: '<path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/>',
+    copy: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
+    open: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    move: '<path d="M5 9 2 12l3 3"/><path d="M19 9l3 3-3 3"/><path d="M2 12h20"/>',
+  };
+  function icon(name) {
+    const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    for (const [k, v] of Object.entries({ width: 15, height: 15, viewBox: "0 0 24 24", fill: name === "dots" ? "currentColor" : "none",
+      stroke: name === "dots" ? "none" : "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) s.setAttribute(k, v);
+    s.innerHTML = ICONS[name];
+    return s;
+  }
+  function initials(name) {
+    return (name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
+  }
+
+  // ---- tickets: Jira issues reduced to what the page shows, which is also what the local cache keeps ----
+  function sprintsOf(f) {
+    if (!SPRINT_FIELD) return [];
+    let v = f[SPRINT_FIELD];
+    if (v == null && f.customFields) {
+      for (const c of Object.values(f.customFields)) if (c && c.id === SPRINT_FIELD) { v = c.value; break; }
+    }
+    return Array.isArray(v) ? v.filter(x => x && x.id != null).map(x => ({ id: String(x.id), name: String(x.name || x.id), state: x.state || "", start: x.startDate || "" })) : [];
+  }
+  function reduce(issue) {
+    const f = issue.fields || {};
+    return {
+      key: issue.key, url: issue.webUrl || `https://${CLOUD}/browse/${issue.key}`,
+      summary: f.summary || "", status: f.status?.name || "", cat: f.status?.statusCategory?.key || "",
+      assigneeId: f.assignee?.accountId || "", assignee: f.assignee?.displayName || "",
+      labels: Array.isArray(f.labels) ? f.labels.map(String) : [], type: f.issuetype?.name || "", priority: f.priority?.name || "",
+      sprints: sprintsOf(f),
+    };
+  }
+  function stageOf(t) {
+    if (moving.has(t.key)) { const id = moving.get(t.key); return { id, inferred: false, label: `#${id}` }; }
+    let id = null, label = "";
+    for (const l of t.labels) {
+      const s = LABEL_STAGE[l.replace(/^#/, "").toLowerCase()];
+      if (s && l.startsWith("#")) { id = s; label = l; }
+    }
+    if (id) return { id, inferred: false, label };
+    if (t.cat === "done") return { id: "finished", inferred: true };
+    if (/review|revue|validation|qa/i.test(t.status)) return { id: "reviewed", inferred: true };
+    if (t.cat === "indeterminate") return { id: "implemented", inferred: true };
+    return { id: "new", inferred: true };
+  }
+  function sprintLabel(t) {
+    const active = t.sprints.find(x => x.state === "active");
+    const pick = active || t.sprints.slice().sort((a, b) => b.start.localeCompare(a.start))[0];
+    return pick ? pick.name : "";
+  }
+  function prioRank(name) { const i = PRIORITY_RANK.indexOf(String(name).toLowerCase()); return i < 0 ? 5 : i; }
+  // The tag that says where the stage comes from; in the list, whose Status column already names the status, a guess reads "guessed".
+  function sourceTag(t, st, inList) {
+    if (!st.inferred) return el("span", { class: "src label", text: st.label,
+      title: `Stage set by the Sectile label ${st.label}. Jira status: ${t.status || "none"}.` });
+    return el("span", { class: "src guessed", text: inList ? "guessed" : `Jira: ${t.status || "no status"}`,
+      title: `No Sectile label: stage guessed from the Jira status "${t.status}". Running a step puts the label on the ticket.` });
+  }
+  function prioTone(name) {
+    const r = prioRank(name);
+    return r <= 4 ? "var(--p-high)" : r >= 6 ? "var(--p-low)" : "var(--p-medium)";
+  }
+
+  // ---- local cache: the last tickets of each query, so the page opens on them before Jira answers ----
+  function cacheRead() {
+    const c = store.get(CACHE_KEY);
+    return c && typeof c === "object" && c[state.jql] ? c[state.jql] : null;
+  }
+  let cacheTimer = null;
+  function cacheWrite() {
+    clearTimeout(cacheTimer);
+    cacheTimer = setTimeout(() => {
+      if (!issues) return;
+      const all = store.get(CACHE_KEY) || {};
+      all[state.jql] = { at: Date.now(), list: issues.list, more: issues.more };
+      // Keep the five most recent queries; drop the oldest when the browser refuses the size.
+      const keys = Object.keys(all).sort((a, b) => all[b].at - all[a].at);
+      for (const k of keys.slice(5)) delete all[k];
+      while (!store.set(CACHE_KEY, all) && Object.keys(all).length > 1) {
+        delete all[Object.keys(all).sort((a, b) => all[a].at - all[b].at)[0]];
+      }
+    }, 500);
+  }
+
+  // ---- filters ----
+  const UNASSIGNED = "__none__";
+  function passesFields(t) {
+    if (state.assignee && (t.assigneeId || UNASSIGNED) !== state.assignee) return false;
+    if (state.type && t.type !== state.type) return false;
+    if (state.priority && t.priority !== state.priority) return false;
+    if (SPRINT_FIELD && state.sprint) {
+      if (state.sprint === "none") { if (t.sprints.length) return false; }
+      else if (state.sprint === "open") { if (!t.sprints.some(x => x.state === "active")) return false; }
+      else if (!t.sprints.some(x => x.id === state.sprint)) return false;
+    }
+    if (state.search) {
+      const q = state.search.toLowerCase();
+      if (![t.key, t.summary, t.assignee].some(v => v.toLowerCase().includes(q))) return false;
+    }
+    return true;
+  }
+  function visibleTickets() {
+    const out = [];
+    for (const t of issues?.list || []) {
+      if (!passesFields(t)) continue;
+      const st = stageOf(t);
+      if (state.stages.length && !state.stages.includes(st.id)) continue;
+      out.push([t, st]);
+    }
+    return out;
+  }
+  function activeFilterCount() {
+    return [state.sprint, state.assignee, state.type, state.priority].filter(Boolean).length
+      + (state.stages.length ? 1 : 0) + (state.jql !== DEFAULT_JQL ? 1 : 0);
+  }
+  function effectiveJql() {
+    if (SPRINT_FIELD || state.sprint !== "open") return state.jql;
+    const m = /\s+ORDER\s+BY\s+/i.exec(state.jql);
+    const where = m ? state.jql.slice(0, m.index) : state.jql;
+    const order = m ? state.jql.slice(m.index) : "";
+    return `(${where.trim() || "created is not EMPTY"}) AND sprint in openSprints()${order}`;
+  }
+
+  function fillSelect(sel, placeholder, entries, value) {
+    const opts = [el("option", { value: "", text: placeholder })];
+    for (const [v, label] of entries) opts.push(el("option", { value: v, text: label }));
+    if (value && !entries.some(([v]) => v === value)) opts.push(el("option", { value, text: value === UNASSIGNED ? "Unassigned" : value }));
+    sel.replaceChildren(...opts);
+    sel.value = value;
+  }
+  function renderFilters() {
+    const list = issues?.list || [];
+    const assignees = new Map(), types = new Set(), prios = new Set(), sprints = new Map();
+    let unassigned = false;
+    for (const t of list) {
+      if (t.assigneeId) assignees.set(t.assigneeId, t.assignee); else unassigned = true;
+      if (t.type) types.add(t.type);
+      if (t.priority) prios.add(t.priority);
+      for (const x of t.sprints) sprints.set(x.id, x);
+    }
+    const people = [...assignees].sort((a, b) => a[1].localeCompare(b[1]));
+    if (unassigned) people.push([UNASSIGNED, "Unassigned"]);
+    fillSelect($("fAssignee"), "All assignees", people, state.assignee);
+    fillSelect($("fType"), "All types", [...types].sort().map(t => [t, t]), state.type);
+    fillSelect($("fPriority"), "All priorities", [...prios].sort((a, b) => prioRank(a) - prioRank(b)).map(p => [p, p]), state.priority);
+    if (SPRINT_FIELD) {
+      const rank = { active: 0, future: 1, closed: 2 };
+      const sorted = [...sprints.values()].sort((a, b) => (rank[a.state] ?? 3) - (rank[b.state] ?? 3) || b.start.localeCompare(a.start) || a.name.localeCompare(b.name));
+      fillSelect($("fSprint"), "All sprints", [["open", "Active sprints"], ["none", "No sprint"]]
+        .concat(sorted.map(x => [x.id, x.state === "active" ? `${x.name} (active)` : x.name])), state.sprint);
+    } else {
+      $("fSprint").value = state.sprint;
+    }
+    $("fJql").value = state.jql;
+
+    const counts = Object.fromEntries(STAGES.map(s => [s.id, 0]));
+    for (const t of list) if (passesFields(t)) counts[stageOf(t).id]++;
+    $("statusList").replaceChildren(...STAGES.map(s => {
+      const on = state.stages.includes(s.id);
+      return el("label", { class: "status-row" + (on ? " on" : "") },
+        el("input", { type: "checkbox", checked: on, onchange: () => {
+          state.stages = on ? state.stages.filter(x => x !== s.id) : state.stages.concat(s.id);
+          persist(); render();
+        } }),
+        el("span", { text: s.name }),
+        el("span", { class: "n", text: String(counts[s.id]) }));
+    }));
+    const n = activeFilterCount();
+    $("filtersBadge").hidden = !n;
+    $("filtersBadge").textContent = String(n);
+    $("filtersBtn").classList.toggle("on", n > 0);
+
+    $("colList").replaceChildren(...COLUMNS.map(c => {
+      const on = state.cols.includes(c.id);
+      return el("label", { class: "status-row" + (on ? " on" : "") },
+        el("input", { type: "checkbox", checked: on, onchange: () => {
+          state.cols = on ? state.cols.filter(x => x !== c.id) : COLUMNS.map(x => x.id).filter(x => x === c.id || state.cols.includes(x));
+          persist(); render();
+        } }),
+        el("span", { text: c.name }), el("span"));
+    }));
+    $("columnsBadge").textContent = `${state.cols.length}/${COLUMNS.length}`;
+  }
+
+  // ---- launching ----
+  async function copyText(btn, text, notice) {
+    try {
+      await navigator.clipboard.writeText(text);
+      if (btn) flash(btn);
+      if (notice) showNotice("warn", notice);
+    } catch {
+      showNotice("warn", `Copy refused by this browser: ${text}`);
+    }
+  }
+  function flash(btn) {
+    const old = [...btn.childNodes];
+    btn.replaceChildren(icon("check"));
+    btn.classList.add("done");
+    setTimeout(() => { btn.replaceChildren(...old); btn.classList.remove("done"); }, 1500);
+  }
+  // Must run synchronously inside the click: the platform proves the gesture from the call.
+  function launch(btn, t, autonomous) {
+    const def = BY_ID[stageOf(t).id];
+    const skill = autonomous ? "pickup-issue" : def.skill;
+    if (!skill) return;
+    const cmd = `/${PLUGIN}:${skill} ${t.key}`;
+    const copied = `Copied: ${cmd}. Paste it into a Claude Code session on the ticket's repository.`;
+    if (!room || !canSend) { copyText(btn, cmd, copied); return; }
+    const data = {
+      label: `${t.key} · ${autonomous ? "autonomous" : skill}`,
+      ticket: t.key, title: t.summary.slice(0, 300), url: t.url,
+      skill: `${PLUGIN}:${skill}`, command: cmd, autonomous: !!autonomous,
+      instructions: `Hand this ticket to /${PLUGIN}:dispatch: it opens a dedicated Claude Code session, in its own worktree, that starts with the command above. Do not run the command in this conversation.`,
+    };
+    const opts = canSend === "available" ? { attachPresence: false } : { deliver: "send", attachPresence: false };
+    room.sendToClaudeSession(data, opts).then(() => { if (btn) flash(btn); }).catch(err => {
+      if (err?.code === "claude_unavailable") { refreshCanSend(); copyText(btn, cmd, copied); }
+      else if (err?.code === "rate_limited") showNotice("warn", "Too many hand-offs in a row. Try again in a moment.");
+      else showNotice("warn", `The hand-off to Claude failed. Paste the command into a Claude Code session: ${cmd}`);
+    });
+  }
+  async function refreshCanSend() {
+    const before = canSend;
+    try {
+      const v = room ? await room.canSendToClaudeSession() : null;
+      canSend = ["available", "available_if_summoned", "available_if_opened"].includes(v) ? v : null;
+    } catch { canSend = null; }
+    if (canSend !== before && issues) render();
+  }
+
+  // ---- ticket menu ----
+  const menu = $("menu");
+  function openMenu(btn, t) {
+    const def = BY_ID[stageOf(t).id];
+    const item = (ic, text, onclick, disabled) =>
+      el("button", { type: "button", role: "menuitem", disabled: !!disabled, onclick: e => { closeMenu(); onclick(e); } }, icon(ic), text);
+    menu.replaceChildren(
+      item("step", def.skill ? `Next step: ${def.skill}` : "No next step", () => launch(btn, t, false), !def.skill),
+      item("auto", def.auto || "Merge stays manual", () => launch(btn, t, true), !def.auto),
+      item("copy", def.skill ? `Copy /${PLUGIN}:${def.skill}` : "Nothing to copy",
+        () => copyText(null, `/${PLUGIN}:${def.skill} ${t.key}`, `Copied: /${PLUGIN}:${def.skill} ${t.key}`), !def.skill),
+      item("move", "Move to…", () => openMoveMenu(btn, t), !mcp || moving.has(t.key)),
+      el("a", { href: t.url, target: "_blank", rel: "noopener", role: "menuitem", onclick: closeMenu }, icon("open"), "Open in Jira"));
+    placeMenu(btn);
+  }
+  function openMoveMenu(btn, t) {
+    const current = stageOf(t);
+    menu.replaceChildren(el("div", { class: "menu-head", text: `Move ${t.key} to` }),
+      ...STAGES.map(s => el("button", { type: "button", role: "menuitem",
+        class: s.id === current.id ? "current" : null,
+        disabled: s.id === current.id && !current.inferred,
+        onclick: () => { closeMenu(); moveTo(t, s.id); } },
+        el("span", { class: "dot", style: `background: var(--s-${s.id})` }), s.name)));
+    placeMenu(btn);
+  }
+  function placeMenu(btn) {
+    menu.hidden = false;
+    const r = btn.getBoundingClientRect();
+    const w = menu.offsetWidth, h = menu.offsetHeight;
+    menu.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + "px";
+    menu.style.top = (r.bottom + h + 8 > innerHeight ? Math.max(8, r.top - h - 4) : r.bottom + 4) + "px";
+    menu.querySelector("button:not(:disabled), a")?.focus();
+  }
+  function closeMenu() { menu.hidden = true; }
+
+  // ---- presence ----
+  function watchedKeys() {
+    const set = new Set();
+    for (const p of peers) {
+      const focus = p.presence?.focus;
+      if (!p.isMe && p.kind === "viewer" && typeof focus === "string") set.add(focus);
+    }
+    return set;
+  }
+  let lastFocus = null;
+  function focusOn(key) {
+    if (!room || key === lastFocus) return;
+    lastFocus = key;
+    room.presence({ focus: key }).catch(() => {});
+  }
+
+  // ---- board view ----
+  function card(t, stage, watched) {
+    const def = BY_ID[stage.id];
+    const busy = moving.has(t.key);
+    return el("article", { class: "card" + (watched ? " watched" : "") + (busy ? " moving" : ""), tabindex: "0",
+      title: busy ? "Saving the move to Jira" : watched ? "Someone else is looking at this ticket" : null,
+      draggable: mcp && !busy ? "true" : null, "data-key": t.key,
+      ondragstart: e => { dragKey = t.key; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", t.key); e.currentTarget.classList.add("dragging"); },
+      ondragend: e => { dragKey = null; e.currentTarget.classList.remove("dragging"); document.querySelectorAll(".col.drop").forEach(c => c.classList.remove("drop")); },
+      onmouseenter: () => focusOn(t.key), onfocusin: () => focusOn(t.key) },
+      el("div", { class: "card-top" },
+        el("a", { class: "key", href: t.url, target: "_blank", rel: "noopener", text: t.key }),
+        sourceTag(t, stage, false),
+        el("button", { type: "button", class: "icon-btn", "aria-label": `Actions for ${t.key}`, "aria-haspopup": "menu",
+          onclick: e => { e.stopPropagation(); openMenu(e.currentTarget, t); } }, icon("dots"))),
+      el("p", { class: "title", text: t.summary || "(untitled)" }),
+      el("div", { class: "meta" },
+        t.priority ? el("span", { class: "prio" }, el("span", { class: "dot", style: `background:${prioTone(t.priority)}` }), t.priority) : null),
+      el("div", { class: "card-foot" },
+        el("span", { class: "assignee", text: t.assignee || "Unassigned" }),
+        el("button", { type: "button", class: "icon-btn", disabled: !def.skill,
+          title: def.step ? def.step + (canSend ? "" : " (copies the command)") : "Finished",
+          "aria-label": def.step || "Finished", onclick: e => launch(e.currentTarget, t, false) }, icon("step"))));
+  }
+  function renderBoard(rows) {
+    const groups = Object.fromEntries(STAGES.map(s => [s.id, []]));
+    for (const r of rows) groups[r[1].id].push(r);
+    const watched = watchedKeys();
+    return el("div", { class: "board" }, STAGES.map(s =>
+      el("section", { class: "col", style: `--tone: var(--s-${s.id})`, "aria-label": s.name,
+        ondragover: e => { if (!dragKey) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; e.currentTarget.classList.add("drop"); },
+        ondragleave: e => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove("drop"); },
+        ondrop: e => {
+          e.preventDefault(); e.currentTarget.classList.remove("drop");
+          const t = issues?.list.find(x => x.key === (dragKey || e.dataTransfer.getData("text/plain")));
+          dragKey = null;
+          if (t) moveTo(t, s.id);
+        } },
+        el("div", { class: "col-head" }, el("span", { class: "dot" }), el("span", { text: s.name }),
+          el("span", { class: "n", text: String(groups[s.id].length) })),
+        el("div", { class: "cards" }, groups[s.id].map(([t, st]) => card(t, st, watched.has(t.key)))))));
+  }
+
+  // ---- list view ----
+  const SORTERS = {
+    key: t => { const m = /^(.*?)-(\d+)$/.exec(t.key); return m ? [m[1], Number(m[2])] : [t.key, 0]; },
+    title: t => t.summary.toLowerCase(),
+    stage: (t, st) => STAGE_RANK[st.id],
+    status: t => t.status.toLowerCase(),
+    priority: t => prioRank(t.priority),
+    sprint: t => sprintLabel(t).toLowerCase(),
+    assignee: t => (t.assignee || "~").toLowerCase(),
+    type: t => t.type.toLowerCase(),
+  };
+  function compare(a, b) {
+    if (Array.isArray(a)) return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1];
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+  function renderList(rows) {
+    const by = SORTERS[state.sort.by] ? state.sort.by : "stage";
+    const dir = state.sort.dir;
+    const sorted = rows.map((r, i) => [r, i]).sort((x, y) =>
+      dir * compare(SORTERS[by](x[0][0], x[0][1]), SORTERS[by](y[0][0], y[0][1])) || x[1] - y[1]).map(x => x[0]);
+    const cols = COLUMNS.filter(c => state.cols.includes(c.id));
+    const watched = watchedKeys();
+    const head = (id, name) => el("th", { class: by === id ? "sorted" : null, "aria-sort": by === id ? (dir === 1 ? "ascending" : "descending") : null },
+      el("button", { type: "button", onclick: () => {
+        state.sort = { by: id, dir: state.sort.by === id ? -state.sort.dir : 1 };
+        persist(); render();
+      } }, name + (by === id ? (dir === 1 ? " ▲" : " ▼") : "")));
+    const cell = (c, t, st) => {
+      if (c.id === "stage") return el("td", { class: "c" }, el("span", { class: "stage", style: `--tone: var(--s-${st.id})` },
+        el("span", { class: "dot" }), BY_ID[st.id].name, sourceTag(t, st, true)));
+      if (c.id === "status") return el("td", { class: "c dim", text: t.status || "-" });
+      if (c.id === "priority") return el("td", { class: "c" }, t.priority
+        ? el("span", { class: "prio" }, el("span", { class: "dot", style: `background:${prioTone(t.priority)}` }), t.priority) : "-");
+      if (c.id === "sprint") return el("td", { class: "c dim", text: sprintLabel(t) || "-" });
+      if (c.id === "assignee") return el("td", { class: "c dim", text: t.assignee || "Unassigned" });
+      return el("td", { class: "c dim", text: t.type || "-" });
+    };
+    const body = sorted.map(([t, st]) => {
+      const def = BY_ID[st.id];
+      return el("tr", { class: watched.has(t.key) ? "watched" : null, onmouseenter: () => focusOn(t.key) },
+        el("td", { class: "k" }, el("a", { class: "key", href: t.url, target: "_blank", rel: "noopener", text: t.key })),
+        el("td", { class: "t", text: t.summary || "(untitled)" }),
+        cols.map(c => cell(c, t, st)),
+        el("td", { class: "a" }, el("span", { class: "act" },
+          el("button", { type: "button", class: "step-btn", disabled: !def.skill,
+            title: def.step ? def.step + (canSend ? "" : " (copies the command)") : "Finished",
+            onclick: e => launch(e.currentTarget, t, false), text: def.verb || "Done" }),
+          el("button", { type: "button", class: "icon-btn", "aria-label": `Actions for ${t.key}`, "aria-haspopup": "menu",
+            onclick: e => { e.stopPropagation(); openMenu(e.currentTarget, t); } }, icon("dots")))));
+    });
+    return el("div", { class: "list-wrap" },
+      el("table", { class: "list" },
+        el("thead", {}, el("tr", {}, head("key", "Key"), head("title", "Title"), cols.map(c => head(c.id, c.name)), el("th", { style: "text-align:right" }, "Actions"))),
+        el("tbody", {}, body)),
+      sorted.length ? null : el("div", { class: "empty-list", text: issues ? "No ticket matches these filters." : "Loading tickets…" }));
+  }
+
+  function render() {
+    renderFilters();
+    $("viewBoard").setAttribute("aria-pressed", String(state.view === "board"));
+    $("viewList").setAttribute("aria-pressed", String(state.view === "list"));
+    $("columnsBtn").hidden = state.view !== "list";
+    if (!issues) { renderSkeleton(); return; }
+    const rows = visibleTickets();
+    $("view").replaceChildren(state.view === "list" ? renderList(rows) : renderBoard(rows));
+    renderCount(rows.length);
+  }
+  function renderCount(shown) {
+    const n = issues.list.length;
+    const pill = $("countPill");
+    pill.textContent = shown === n ? `${n} ticket${n === 1 ? "" : "s"}` : `${shown} of ${n} tickets`;
+    pill.title = cachedAt ? `From this browser's cache, ${new Date(cachedAt).toLocaleString()}; refreshing from Jira` : "";
+    pill.classList.toggle("cached", !!cachedAt);
+    const more = issues.more && n < PAGE_SIZE * MAX_PAGES;
+    $("moreBtn").hidden = !more && !loadingMore;
+    $("moreBtn").disabled = loadingMore;
+    $("moreBtn").textContent = loadingMore ? `Loading… ${loadedSoFar || n}` : "Load all";
+    $("moreBtn").title = `Load every ticket of the query, up to ${PAGE_SIZE * MAX_PAGES}`;
+  }
+  function renderSkeleton() {
+    if (state.view === "list") { $("view").replaceChildren(renderList([])); }
+    else {
+      $("view").replaceChildren(el("div", { class: "board" }, STAGES.map(s =>
+        el("section", { class: "col", style: `--tone: var(--s-${s.id})` },
+          el("div", { class: "col-head" }, el("span", { class: "dot" }), el("span", { text: s.name })),
+          el("div", { class: "cards" }, s.id === "new" ? [el("div", { class: "skeleton" }), el("div", { class: "skeleton" })] : [])))));
+    }
+    $("countPill").textContent = "Loading…";
+  }
+
+  function showNotice(kind, text, action) {
+    $("notice").replaceChildren(text ? el("div", { class: `notice ${kind}`, role: "status" },
+      el("p", { text }), action ? el("button", { type: "button", onclick: action.run, text: action.label }) : null) : "");
+  }
+  function handleError(err) {
+    const code = err?.code || "upstream_error";
+    const keep = issues ? " The board shows the last tickets received." : "";
+    switch (code) {
+      case "needs_reauth":
+        issues = null; render();
+        showNotice("crit", `Your ${SERVER} connection expired. Reconnect it in claude.ai, Settings, Connectors, then reload this page.`); break;
+      case "server_not_connected": case "selection_required":
+        issues = null; render();
+        showNotice("crit", `This board reads Jira through the "${SERVER}" connector. Add it in claude.ai, Settings, Connectors.`); break;
+      case "not_in_manifest": case "blocked_by_policy":
+        issues = null; render();
+        showNotice("crit", "Jira access is not allowed for this page. Turn it on from the artifact's Permissions menu."); break;
+      case "approval_required":
+        showNotice("warn", "This board needs your approval to read Jira with your account.", { label: "Allow and load", run: loadOnce }); break;
+      case "tool_error":
+        showNotice("crit", `Jira refused the query: ${err.message || "unknown error"}. Check the JQL in Filters.`); break;
+      case "shape":
+        showNotice("crit", "Jira answered in a format this board cannot read."); break;
+      case "server_unavailable": case "rate_limited":
+        showNotice("warn", `Jira is not answering right now.${keep || " The next refresh will try again."}`); break;
+      default:
+        showNotice("warn", `Could not read Jira (${code}).${keep}`, { label: "Retry", run: loadOnce });
+    }
+  }
+
+  // ---- moving a ticket ----
+  // A stage is one # label (ADR 0064): every other stage label goes, in any case and with or without its #.
+  function isStageLabel(l) { return Object.hasOwn(LABEL_STAGE, String(l).replace(/^#/, "").toLowerCase()); }
+  async function moveTo(t, stageId) {
+    const from = stageOf(t);
+    if (!mcp || moving.has(t.key) || (from.id === stageId && !from.inferred)) return;
+    moving.set(t.key, stageId);
+    render();
+    try {
+      // Labels are written as a whole list: read them fresh, so a label added since the last refresh survives.
+      const read = extractIssues(payloadOf(await mcp.callTool(SERVER, TOOL,
+        { cloudId: CLOUD, jql: `key = ${t.key}`, maxResults: 1, fields: ["labels"] }, { cache: false })));
+      const current = read.list[0]?.labels ?? t.labels;
+      const labels = current.filter(l => !isStageLabel(l)).concat(`#${stageId}`);
+      await mcp.callTool(SERVER, EDIT_TOOL, { cloudId: CLOUD, issueIdOrKey: t.key, fields: { labels } }, { cache: false });
+      t.labels = labels;
+      moved.set(t.key, { labels, at: Date.now() });
+      moving.delete(t.key);
+      showNotice();
+      cacheWrite();
+      render();
+      mcp.invalidate(SERVER, TOOL).catch(() => {});
+    } catch (err) {
+      moving.delete(t.key);
+      render();
+      moveFailed(t, stageId, err);
+    }
+  }
+  function moveFailed(t, stageId, err) {
+    const to = BY_ID[stageId].name;
+    switch (err?.code) {
+      case "approval_required": case "not_granted":
+        showNotice("warn", `Moving ${t.key} needs your approval to edit Jira with your account.`, { label: "Allow and move", run: () => moveTo(t, stageId) }); break;
+      case "not_in_manifest": case "blocked_by_policy":
+        showNotice("crit", "Editing Jira is not allowed for this page. Turn it on from the artifact's Permissions menu."); break;
+      case "needs_reauth":
+        showNotice("crit", `Your ${SERVER} connection expired. Reconnect it in claude.ai, Settings, Connectors.`); break;
+      case "tool_error":
+        showNotice("crit", `Jira refused to move ${t.key} to ${to}: ${err.message || "unknown error"}.`); break;
+      default:
+        showNotice("warn", `Could not move ${t.key} to ${to} (${err?.code || "error"}). It stays where it was.`, { label: "Retry", run: () => moveTo(t, stageId) });
+    }
+  }
+
+  // ---- Jira ----
+  function input() { return { cloudId: CLOUD, jql: effectiveJql(), maxResults: PAGE_SIZE, fields: FIELDS }; }
+  function payloadOf(result) { return result.payload ?? result.content?.[0]?.text; }
+  function extractIssues(payload) {
+    const p = typeof payload === "string" ? JSON.parse(payload) : payload;
+    const list = p?.issues?.nodes || p?.data?.issues?.nodes || (Array.isArray(p?.issues) ? p.issues : null);
+    if (!Array.isArray(list)) throw Object.assign(new Error("unexpected"), { code: "shape" });
+    const info = p?.issues?.pageInfo || p?.data?.issues?.pageInfo || {};
+    return { list: list.map(reduce), more: !!info.hasNextPage, cursor: info.endCursor || null };
+  }
+  function combine() {
+    const seen = new Set(), list = [];
+    for (const page of [firstPage, ...extraPages]) for (const t of page.list) if (!seen.has(t.key)) { seen.add(t.key); list.push(t); }
+    // Until the later pages arrive, keep the cached tickets past the first page rather than shrinking the board.
+    if (cachedAt && issues && !extraPages.length && wantedPages > 1) {
+      for (const t of issues.list) if (!seen.has(t.key)) { seen.add(t.key); list.push(t); }
+    }
+    const now = Date.now();
+    for (const [key, m] of moved) if (now - m.at > MOVED_TTL) moved.delete(key);
+    const patched = list.map(t => moved.has(t.key) ? { ...t, labels: moved.get(t.key).labels } : t);
+    const last = extraPages.length ? extraPages[extraPages.length - 1] : firstPage;
+    issues = { list: patched, more: last.more, cursor: last.cursor };
+    render();
+  }
+  // The first page is watched and refreshed every minute; the pages after it follow its cursor, from a four-minute cache.
+  async function fetchExtraPages() {
+    const gen = ++generation;
+    if (!firstPage || wantedPages <= 1 || !firstPage.more) { extraPages = []; cachedAt = null; combine(); cacheWrite(); return; }
+    loadingMore = true;
+    if (issues) renderCount(visibleTickets().length);
+    const pages = [];
+    let cursor = firstPage.cursor;
+    try {
+      while (cursor && pages.length < wantedPages - 1) {
+        const r = await mcp.callTool(SERVER, TOOL, { ...input(), nextPageToken: cursor }, { cache: { staleTime: 240000, gcTime: 900000 } });
+        if (gen !== generation) return;
+        const page = extractIssues(payloadOf(r));
+        pages.push(page);
+        cursor = page.more ? page.cursor : null;
+        loadedSoFar = (pages.length + 1) * PAGE_SIZE;
+        if (issues) renderCount(visibleTickets().length);
+      }
+    } catch (e) {
+      if (gen === generation) handleError(e);
+    } finally {
+      if (gen === generation) {
+        loadingMore = false;
+        loadedSoFar = 0;
+        if (pages.length || !extraPages.length) extraPages = pages;
+        cachedAt = null;
+        combine();
+        cacheWrite();
+      }
+    }
+  }
+  function accept(result) {
+    try {
+      firstPage = extractIssues(payloadOf(result));
+      showNotice();
+      combine();
+      fetchExtraPages();
+    } catch (e) { handleError(e); }
+  }
+  async function loadOnce() {
+    if (!mcp) return;
+    try { accept(await mcp.callTool(SERVER, TOOL, input(), { cache: { staleTime: 30000, gcTime: 600000, refresh: true } })); }
+    catch (e) { handleError(e); }
+  }
+  function watch() {
+    if (!mcp) return;
+    if (unwatch) unwatch();
+    unwatch = mcp.watchTool(SERVER, TOOL, input(), ev => {
+      if (ev.type === "data") accept(ev.result); else handleError(ev.error);
+    }, { cache: { staleTime: 30000, gcTime: 600000 }, refetchInterval: 60000 });
+  }
+  function loadCache() {
+    const c = cacheRead();
+    if (c && Array.isArray(c.list)) { issues = { list: c.list, more: !!c.more, cursor: null }; cachedAt = c.at; }
+    else { issues = null; cachedAt = null; }
+  }
+  function requery() {
+    firstPage = null; extraPages = []; wantedPages = DEFAULT_PAGES; generation++; loadingMore = false;
+    loadCache();
+    render();
+    watch();
+  }
+
+  // ---- wiring ----
+  const pops = { filters: $("filters"), columns: $("columns") };
+  const popBtns = { filters: $("filtersBtn"), columns: $("columnsBtn") };
+  function setPopover(name, open) {
+    for (const [k, p] of Object.entries(pops)) {
+      const on = k === name && open;
+      p.hidden = !on;
+      popBtns[k].setAttribute("aria-expanded", String(on));
+    }
+    if (open) renderFilters();
+  }
+  for (const k of Object.keys(pops)) popBtns[k].addEventListener("click", e => { e.stopPropagation(); setPopover(k, pops[k].hidden); });
+  document.addEventListener("click", e => {
+    for (const [k, p] of Object.entries(pops)) if (!p.hidden && !p.contains(e.target)) setPopover(k, false);
+    if (!menu.hidden && !menu.contains(e.target)) closeMenu();
+  });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") { setPopover("", false); closeMenu(); } });
+  addEventListener("scroll", closeMenu, true);
+
+  $("viewBoard").addEventListener("click", () => { state.view = "board"; persist(); render(); });
+  $("viewList").addEventListener("click", () => { state.view = "list"; persist(); render(); });
+  $("search").value = state.search;
+  $("search").addEventListener("input", e => { state.search = e.target.value.trim(); persist(); render(); });
+  for (const [id, key] of [["fAssignee", "assignee"], ["fType", "type"], ["fPriority", "priority"]]) {
+    $(id).addEventListener("change", e => { state[key] = e.target.value; persist(); render(); });
+  }
+  $("fSprint").addEventListener("change", e => { state.sprint = e.target.value; persist(); if (SPRINT_FIELD) render(); else requery(); });
+  $("fJql").addEventListener("change", e => {
+    const next = e.target.value.trim() || DEFAULT_JQL;
+    if (next === state.jql) return;
+    state.jql = next; persist(); requery();
+  });
+  $("allStatusBtn").addEventListener("click", () => { state.stages = []; persist(); render(); });
+  $("resetBtn").addEventListener("click", () => {
+    const requeryNeeded = (!SPRINT_FIELD && state.sprint) || state.jql !== DEFAULT_JQL;
+    Object.assign(state, { jql: DEFAULT_JQL, sprint: "", assignee: "", type: "", priority: "", stages: [] });
+    persist();
+    if (requeryNeeded) requery(); else render();
+  });
+  $("colsResetBtn").addEventListener("click", () => { state.cols = DEFAULT_COLS.slice(); persist(); render(); });
+  $("moreBtn").addEventListener("click", () => { wantedPages = MAX_PAGES; fetchExtraPages(); });
+  $("linkBtn").addEventListener("click", e => {
+    const token = encodeView(state);
+    const link = PAGE_URL ? `${PAGE_URL}#${token}` : `#${token}`;
+    copyText(e.currentTarget, link, PAGE_URL ? "Copied a link to this view and its filters." : "Copied this view's anchor: add it after the board's link.");
+  });
+  addEventListener("hashchange", () => {
+    const next = stateFromHash();
+    if (!next) return;
+    const jqlChanged = next.jql !== state.jql || (!SPRINT_FIELD && next.sprint !== state.sprint);
+    state = next; persist(); $("search").value = state.search;
+    if (jqlChanged) requery(); else render();
+  });
+
+  function renderPeers(user, list) {
+    const people = new Map();
+    for (const p of list) {
+      if (p.kind !== "viewer") continue;
+      const id = p.by || (typeof p.presence?.uid === "string" ? p.presence.uid : null);
+      const key = id || p.peer;
+      if (!people.has(key)) people.set(key, { id, isMe: p.isMe });
+    }
+    const all = [...people.values()];
+    const box = $("presence");
+    if (all.length < 2) { box.hidden = true; return; }
+    const ids = all.map(p => p.id).filter(Boolean);
+    (user && ids.length ? user.profiles(ids).catch(() => ({})) : Promise.resolve({})).then(profiles => {
+      box.replaceChildren(...all.slice(0, 6).map(p => {
+        const name = (p.id && profiles[p.id]?.name) || (p.isMe ? "You" : "Someone");
+        return el("span", { class: "avatar", title: p.isMe ? `${name} (you)` : name, text: initials(name) });
+      }));
+      box.hidden = false;
+    });
+  }
+
+  async function boot() {
+    loadCache();
+    render();
+    const claude = window.claude;
+    if (!claude?.use) {
+      showNotice("crit", "Open this board in claude.ai: it reads Jira with the Atlassian connector of whoever views it.");
+      return;
+    }
+    claude.use("mcp").then(ns => {
+      mcp = ns;
+      if (!mcp) { showNotice("crit", "Connectors are not available in this view. Open the board in claude.ai, signed in to your account."); return; }
+      watch();
+    });
+    const [roomNs, user] = await Promise.all([claude.use("room"), claude.use("user")]);
+    room = roomNs;
+    if (!room) return;
+    let me = null;
+    try { me = user ? await user.id() : null; } catch {}
+    room.presence({ uid: me }).catch(() => {});
+    room.onPeers(change => {
+      peers = change?.peers || [];
+      renderPeers(user, peers);
+      if (issues) render();
+    });
+    refreshCanSend();
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshCanSend(); });
+  }
+  boot();
+})();
+</script>
