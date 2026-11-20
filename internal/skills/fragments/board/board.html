@@ -153,6 +153,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .assignee { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .card-foot .icon-btn { margin-left: auto; }
 
+.card[draggable="true"] { cursor: grab; }
+.card.moving { opacity: .55; }
+.card.dragging { opacity: .4; }
+.col.drop { border-color: var(--tone); box-shadow: inset 0 0 0 1px var(--tone); }
+.menu .menu-head { padding: 6px 9px 4px; font-size: 11.5px; color: var(--muted); }
+.menu button.current { color: var(--fg); font-weight: 600; }
+
 .skeleton { height: 92px; border-radius: 8px; background: color-mix(in srgb, var(--border) 60%, transparent); animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
@@ -280,6 +287,8 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
   const CONFIG = __BOARD_CONFIG__;
   const SERVER = CONFIG.connector;
   const TOOL = "searchJiraIssuesUsingJql";
+  // Moving a ticket rewrites its stage label with this tool, as the viewer.
+  const EDIT_TOOL = "editJiraIssue";
   const CLOUD = CONFIG.site;
   // The page's own claude.ai link, which bookmarks extend with their #token. The page cannot read it itself.
   const PAGE_URL = CONFIG.url || "";
@@ -386,6 +395,12 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
   let mcp = null, room = null, unwatch = null, canSend = null;
   let firstPage = null, extraPages = [], wantedPages = DEFAULT_PAGES, generation = 0, loadingMore = false;
   let issues = null, cachedAt = null, peers = [];
+  // Tickets whose move is being written to Jira, key -> target stage.
+  const moving = new Map();
+  // Labels written by a move, key -> {labels, at}: Jira's search can answer with the old ones for a short while.
+  const moved = new Map();
+  const MOVED_TTL = 120000;
+  let dragKey = null;
 
   function el(tag, attrs, ...kids) {
     const n = document.createElement(tag);
@@ -406,6 +421,7 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
     copy: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
     open: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
+    move: '<path d="M5 9 2 12l3 3"/><path d="M19 9l3 3-3 3"/><path d="M2 12h20"/>',
   };
   function icon(name) {
     const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -438,6 +454,7 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
     };
   }
   function stageOf(t) {
+    if (moving.has(t.key)) return { id: moving.get(t.key), inferred: false };
     let id = null;
     for (const l of t.labels) {
       const s = LABEL_STAGE[l.replace(/^#/, "").toLowerCase()];
@@ -638,7 +655,21 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
       item("auto", def.auto || "Merge stays manual", () => launch(btn, t, true), !def.auto),
       item("copy", def.skill ? `Copy /${PLUGIN}:${def.skill}` : "Nothing to copy",
         () => copyText(null, `/${PLUGIN}:${def.skill} ${t.key}`, `Copied: /${PLUGIN}:${def.skill} ${t.key}`), !def.skill),
+      item("move", "Move to…", () => openMoveMenu(btn, t), !mcp || moving.has(t.key)),
       el("a", { href: t.url, target: "_blank", rel: "noopener", role: "menuitem", onclick: closeMenu }, icon("open"), "Open in Jira"));
+    placeMenu(btn);
+  }
+  function openMoveMenu(btn, t) {
+    const current = stageOf(t);
+    menu.replaceChildren(el("div", { class: "menu-head", text: `Move ${t.key} to` }),
+      ...STAGES.map(s => el("button", { type: "button", role: "menuitem",
+        class: s.id === current.id ? "current" : null,
+        disabled: s.id === current.id && !current.inferred,
+        onclick: () => { closeMenu(); moveTo(t, s.id); } },
+        el("span", { class: "dot", style: `background: var(--s-${s.id})` }), s.name)));
+    placeMenu(btn);
+  }
+  function placeMenu(btn) {
     menu.hidden = false;
     const r = btn.getBoundingClientRect();
     const w = menu.offsetWidth, h = menu.offsetHeight;
@@ -667,8 +698,12 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
   // ---- board view ----
   function card(t, stage, watched) {
     const def = BY_ID[stage.id];
-    return el("article", { class: "card" + (watched ? " watched" : ""), tabindex: "0",
-      title: watched ? "Someone else is looking at this ticket" : null,
+    const busy = moving.has(t.key);
+    return el("article", { class: "card" + (watched ? " watched" : "") + (busy ? " moving" : ""), tabindex: "0",
+      title: busy ? "Saving the move to Jira" : watched ? "Someone else is looking at this ticket" : null,
+      draggable: mcp && !busy ? "true" : null, "data-key": t.key,
+      ondragstart: e => { dragKey = t.key; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", t.key); e.currentTarget.classList.add("dragging"); },
+      ondragend: e => { dragKey = null; e.currentTarget.classList.remove("dragging"); document.querySelectorAll(".col.drop").forEach(c => c.classList.remove("drop")); },
       onmouseenter: () => focusOn(t.key), onfocusin: () => focusOn(t.key) },
       el("div", { class: "card-top" },
         el("span", { class: "box" + (stage.inferred ? " inferred" : ""),
@@ -690,7 +725,15 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
     for (const r of rows) groups[r[1].id].push(r);
     const watched = watchedKeys();
     return el("div", { class: "board" }, STAGES.map(s =>
-      el("section", { class: "col", style: `--tone: var(--s-${s.id})`, "aria-label": s.name },
+      el("section", { class: "col", style: `--tone: var(--s-${s.id})`, "aria-label": s.name,
+        ondragover: e => { if (!dragKey) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; e.currentTarget.classList.add("drop"); },
+        ondragleave: e => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove("drop"); },
+        ondrop: e => {
+          e.preventDefault(); e.currentTarget.classList.remove("drop");
+          const t = issues?.list.find(x => x.key === (dragKey || e.dataTransfer.getData("text/plain")));
+          dragKey = null;
+          if (t) moveTo(t, s.id);
+        } },
         el("div", { class: "col-head" }, el("span", { class: "dot" }), el("span", { text: s.name }),
           el("span", { class: "n", text: String(groups[s.id].length) })),
         el("div", { class: "cards" }, groups[s.id].map(([t, st]) => card(t, st, watched.has(t.key)))))));
@@ -817,6 +860,50 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
     }
   }
 
+  // ---- moving a ticket ----
+  // A stage is one # label (ADR 0064): every other stage label goes, in any case and with or without its #.
+  function isStageLabel(l) { return Object.hasOwn(LABEL_STAGE, String(l).replace(/^#/, "").toLowerCase()); }
+  async function moveTo(t, stageId) {
+    const from = stageOf(t);
+    if (!mcp || moving.has(t.key) || (from.id === stageId && !from.inferred)) return;
+    moving.set(t.key, stageId);
+    render();
+    try {
+      // Labels are written as a whole list: read them fresh, so a label added since the last refresh survives.
+      const read = extractIssues(payloadOf(await mcp.callTool(SERVER, TOOL,
+        { cloudId: CLOUD, jql: `key = ${t.key}`, maxResults: 1, fields: ["labels"] }, { cache: false })));
+      const current = read.list[0]?.labels ?? t.labels;
+      const labels = current.filter(l => !isStageLabel(l)).concat(`#${stageId}`);
+      await mcp.callTool(SERVER, EDIT_TOOL, { cloudId: CLOUD, issueIdOrKey: t.key, fields: { labels } }, { cache: false });
+      t.labels = labels;
+      moved.set(t.key, { labels, at: Date.now() });
+      moving.delete(t.key);
+      showNotice();
+      cacheWrite();
+      render();
+      mcp.invalidate(SERVER, TOOL).catch(() => {});
+    } catch (err) {
+      moving.delete(t.key);
+      render();
+      moveFailed(t, stageId, err);
+    }
+  }
+  function moveFailed(t, stageId, err) {
+    const to = BY_ID[stageId].name;
+    switch (err?.code) {
+      case "approval_required": case "not_granted":
+        showNotice("warn", `Moving ${t.key} needs your approval to edit Jira with your account.`, { label: "Allow and move", run: () => moveTo(t, stageId) }); break;
+      case "not_in_manifest": case "blocked_by_policy":
+        showNotice("crit", "Editing Jira is not allowed for this page. Turn it on from the artifact's Permissions menu."); break;
+      case "needs_reauth":
+        showNotice("crit", `Your ${SERVER} connection expired. Reconnect it in claude.ai, Settings, Connectors.`); break;
+      case "tool_error":
+        showNotice("crit", `Jira refused to move ${t.key} to ${to}: ${err.message || "unknown error"}.`); break;
+      default:
+        showNotice("warn", `Could not move ${t.key} to ${to} (${err?.code || "error"}). It stays where it was.`, { label: "Retry", run: () => moveTo(t, stageId) });
+    }
+  }
+
   // ---- Jira ----
   function input() { return { cloudId: CLOUD, jql: effectiveJql(), maxResults: PAGE_SIZE, fields: FIELDS }; }
   function payloadOf(result) { return result.payload ?? result.content?.[0]?.text; }
@@ -834,8 +921,11 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
     if (cachedAt && issues && !extraPages.length && wantedPages > 1) {
       for (const t of issues.list) if (!seen.has(t.key)) { seen.add(t.key); list.push(t); }
     }
+    const now = Date.now();
+    for (const [key, m] of moved) if (now - m.at > MOVED_TTL) moved.delete(key);
+    const patched = list.map(t => moved.has(t.key) ? { ...t, labels: moved.get(t.key).labels } : t);
     const last = extraPages.length ? extraPages[extraPages.length - 1] : firstPage;
-    issues = { list, more: last.more, cursor: last.cursor };
+    issues = { list: patched, more: last.more, cursor: last.cursor };
     render();
   }
   // The first page is watched and refreshed every minute; the pages after it follow its cursor, from a four-minute cache.

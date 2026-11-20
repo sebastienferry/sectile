@@ -162,7 +162,7 @@ func TestLitePluginShipsTheBoard(t *testing.T) {
 	if !ok {
 		t.Fatal("the Lite plugin lacks the board skill")
 	}
-	for _, required := range []string{"---\nname: board\n", "`__BOARD_CONFIG__`", "searchJiraIssuesUsingJql", "titled `Sectile Board`"} {
+	for _, required := range []string{"---\nname: board\n", "`__BOARD_CONFIG__`", "searchJiraIssuesUsingJql", "editJiraIssue", "titled `Sectile Board`"} {
 		if !strings.Contains(string(skill), required) {
 			t.Errorf("the board skill lacks %q", required)
 		}
@@ -179,5 +179,11 @@ func TestLitePluginShipsTheBoard(t *testing.T) {
 	}
 	if !strings.Contains(page, `const PLUGIN = "`+skills.LitePluginName+`"`) {
 		t.Error("the board page launches another plugin's skills")
+	}
+	// The page may call only the tools the skill declares for it.
+	for _, tool := range []string{"searchJiraIssuesUsingJql", "editJiraIssue"} {
+		if !strings.Contains(page, `"`+tool+`"`) {
+			t.Errorf("the board page does not call %s, which its skill declares", tool)
+		}
 	}
 }

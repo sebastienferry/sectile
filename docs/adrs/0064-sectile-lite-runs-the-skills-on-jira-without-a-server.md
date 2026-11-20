@@ -83,7 +83,14 @@ ticket's stage is Sectile's own `#<stage>` label.**
 - The board that goes with Lite is an artifact that reads the labels, not the
   Sectile web board. It shows what Jira holds and nothing more: no run in
   progress, no waiting state, no orchestration capacity.
-- **The board ships in the plugin.** It keeps no state, so a shared copy
+- **Moving a card writes the stage label, and nothing else.** Dragging a
+  ticket to another column, or its "Move to" menu, rewrites its stage label
+  with `editJiraIssue`, through the viewer's own connector: it first reads the
+  ticket's labels afresh, since Jira replaces the whole list, then removes
+  every stage label and adds the new one. A move leaves the Jira status alone,
+  posts no `Sectile · <stage>` comment and starts no skill: it is a correction
+  by hand, as on the Sectile board, not a stage a skill reached.
+- **The board ships in the plugin.** It keeps no state of its own, so a shared copy
   would add little beyond presence, and it would depend on one owner and drift
   from the skills installed on each workstation. The plugin carries the page
   (`fragments/board/board.html`, stamped with the plugin version) beside a

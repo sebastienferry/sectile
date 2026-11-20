@@ -199,7 +199,8 @@ to install the skills and register the MCP server:
   or label), asks when no rule matches, and offers to save the answer.
   `/sectile-lite:board [JQL]` publishes your own Sectile Board
   as a claude.ai artifact, and updates it in place when run again after a
-  plugin update. Macro skills are not included. See
+  plugin update. Dragging a card to another column, or its "Move to" menu,
+  rewrites the ticket's `#<stage>` label in Jira with your own connector. Macro skills are not included. See
   [ADR 0064](docs/adrs/0064-sectile-lite-runs-the-skills-on-jira-without-a-server.md).
 - **Direct CLI setup (Claude, Codex, Antigravity)**: run
   `./bin/agent init --provider claude` (or `codex`, `agy`), or click
