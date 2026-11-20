@@ -134,10 +134,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .card:hover { border-color: color-mix(in srgb, var(--tone) 45%, var(--border)); }
 .card.watched { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
 .card-top { display: flex; align-items: center; gap: 7px; }
-.card-top .box { width: 13px; height: 13px; border-radius: 3px; border: 1.5px solid var(--muted); flex: none; }
-.card-top .box.inferred { border-style: dashed; }
 .key { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); text-decoration: none; }
 .key:hover { color: var(--accent); text-decoration: underline; }
+/* Where a ticket's stage comes from: its Sectile label in a solid tag, or the Jira status it was guessed from in a dashed one. */
+.src {
+  display: inline-block; min-width: 0; max-width: 16em; padding: 0 7px; border-radius: 999px; border: 1px solid;
+  font-size: 11px; line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: help;
+}
+.src.label {
+  font-family: var(--font-mono); color: var(--tone); border-color: color-mix(in srgb, var(--tone) 45%, var(--border));
+  background: color-mix(in srgb, var(--tone) 10%, transparent);
+}
+.src.guessed { border-style: dashed; border-color: var(--muted); color: var(--muted); }
+.list .stage .src { margin-left: 4px; }
 .icon-btn {
   margin-left: auto; padding: 3px; line-height: 0; border-radius: 6px; border: 1px solid transparent;
   background: transparent; color: var(--muted);
@@ -214,8 +223,6 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
 .list td.t { min-width: 260px; color: var(--fg); }
 .list td.c { white-space: nowrap; color: var(--fg-2); }
 .list td.dim { color: var(--muted); }
-.list .box { display: inline-block; width: 13px; height: 13px; border-radius: 3px; border: 1.5px solid var(--muted); vertical-align: -2px; }
-.list .box.inferred { border-style: dashed; }
 .stage { display: inline-flex; align-items: center; gap: 6px; }
 .list td.a { white-space: nowrap; text-align: right; }
 .list td.a .act { display: inline-flex; gap: 4px; align-items: center; }
@@ -277,8 +284,9 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
 <div class="menu" id="menu" role="menu" hidden></div>
 
 <footer>
-  Sectile Lite __PLUGIN_VERSION__. A ticket's stage is its Sectile label (<code>#clarified</code>, <code>#specified</code>, <code>#implemented</code>, <code>#reviewed</code>, <code>#finished</code>); without one it is read from the Jira status (dashed box).
+  Sectile Lite __PLUGIN_VERSION__. A ticket's stage is its Sectile label (<code>#clarified</code>, <code>#specified</code>, <code>#implemented</code>, <code>#reviewed</code>, <code>#finished</code>); the tag beside a card's key shows it, or, dashed, the Jira status the stage was guessed from when the ticket has no such label.
   The next-step buttons hand the ticket to the Claude Code session open beside the board that runs <code>/sectile-lite:dispatch</code>; without one, the command is copied. Link copies a bookmark of this view and its filters.
+  Drag a card to another column, or use its Move to menu, to set the ticket's stage label in Jira with your own account; its Jira status does not change.
 </footer>
 
 <script>
@@ -300,7 +308,8 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
   const FIELDS = ["summary", "status", "assignee", "labels", "issuetype", "priority"].concat(SPRINT_FIELD ? [SPRINT_FIELD] : []);
   const PAGE_SIZE = 100;
   const DEFAULT_PAGES = 5;
-  const MAX_PAGES = 20;
+  // Load all stops at 10,000 tickets, a hundred calls to Jira.
+  const MAX_PAGES = 100;
   const CACHE_KEY = "sectile.board.cache";
 
   // The next step of each stage, as on the Sectile card.
@@ -393,7 +402,7 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
   function persist() { store.set("sectile.board", state); }
 
   let mcp = null, room = null, unwatch = null, canSend = null;
-  let firstPage = null, extraPages = [], wantedPages = DEFAULT_PAGES, generation = 0, loadingMore = false;
+  let firstPage = null, extraPages = [], wantedPages = DEFAULT_PAGES, generation = 0, loadingMore = false, loadedSoFar = 0;
   let issues = null, cachedAt = null, peers = [];
   // Tickets whose move is being written to Jira, key -> target stage.
   const moving = new Map();
@@ -454,13 +463,13 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
     };
   }
   function stageOf(t) {
-    if (moving.has(t.key)) return { id: moving.get(t.key), inferred: false };
-    let id = null;
+    if (moving.has(t.key)) { const id = moving.get(t.key); return { id, inferred: false, label: `#${id}` }; }
+    let id = null, label = "";
     for (const l of t.labels) {
       const s = LABEL_STAGE[l.replace(/^#/, "").toLowerCase()];
-      if (s && l.startsWith("#")) id = s;
+      if (s && l.startsWith("#")) { id = s; label = l; }
     }
-    if (id) return { id, inferred: false };
+    if (id) return { id, inferred: false, label };
     if (t.cat === "done") return { id: "finished", inferred: true };
     if (/review|revue|validation|qa/i.test(t.status)) return { id: "reviewed", inferred: true };
     if (t.cat === "indeterminate") return { id: "implemented", inferred: true };
@@ -472,6 +481,13 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
     return pick ? pick.name : "";
   }
   function prioRank(name) { const i = PRIORITY_RANK.indexOf(String(name).toLowerCase()); return i < 0 ? 5 : i; }
+  // The tag that says where the stage comes from; in the list, whose Status column already names the status, a guess reads "guessed".
+  function sourceTag(t, st, inList) {
+    if (!st.inferred) return el("span", { class: "src label", text: st.label,
+      title: `Stage set by the Sectile label ${st.label}. Jira status: ${t.status || "none"}.` });
+    return el("span", { class: "src guessed", text: inList ? "guessed" : `Jira: ${t.status || "no status"}`,
+      title: `No Sectile label: stage guessed from the Jira status "${t.status}". Running a step puts the label on the ticket.` });
+  }
   function prioTone(name) {
     const r = prioRank(name);
     return r <= 4 ? "var(--p-high)" : r >= 6 ? "var(--p-low)" : "var(--p-medium)";
@@ -706,9 +722,8 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
       ondragend: e => { dragKey = null; e.currentTarget.classList.remove("dragging"); document.querySelectorAll(".col.drop").forEach(c => c.classList.remove("drop")); },
       onmouseenter: () => focusOn(t.key), onfocusin: () => focusOn(t.key) },
       el("div", { class: "card-top" },
-        el("span", { class: "box" + (stage.inferred ? " inferred" : ""),
-          title: stage.inferred ? `Stage read from the Jira status "${t.status}"` : `Jira status: ${t.status}` }),
         el("a", { class: "key", href: t.url, target: "_blank", rel: "noopener", text: t.key }),
+        sourceTag(t, stage, false),
         el("button", { type: "button", class: "icon-btn", "aria-label": `Actions for ${t.key}`, "aria-haspopup": "menu",
           onclick: e => { e.stopPropagation(); openMenu(e.currentTarget, t); } }, icon("dots"))),
       el("p", { class: "title", text: t.summary || "(untitled)" }),
@@ -768,7 +783,7 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
       } }, name + (by === id ? (dir === 1 ? " ▲" : " ▼") : "")));
     const cell = (c, t, st) => {
       if (c.id === "stage") return el("td", { class: "c" }, el("span", { class: "stage", style: `--tone: var(--s-${st.id})` },
-        el("span", { class: "dot" }), BY_ID[st.id].name));
+        el("span", { class: "dot" }), BY_ID[st.id].name, sourceTag(t, st, true)));
       if (c.id === "status") return el("td", { class: "c dim", text: t.status || "-" });
       if (c.id === "priority") return el("td", { class: "c" }, t.priority
         ? el("span", { class: "prio" }, el("span", { class: "dot", style: `background:${prioTone(t.priority)}` }), t.priority) : "-");
@@ -779,9 +794,7 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
     const body = sorted.map(([t, st]) => {
       const def = BY_ID[st.id];
       return el("tr", { class: watched.has(t.key) ? "watched" : null, onmouseenter: () => focusOn(t.key) },
-        el("td", { class: "k" }, el("span", { class: "box" + (st.inferred ? " inferred" : ""),
-          title: st.inferred ? `Stage read from the Jira status "${t.status}"` : "Stage from its Sectile label" }), " ",
-          el("a", { class: "key", href: t.url, target: "_blank", rel: "noopener", text: t.key })),
+        el("td", { class: "k" }, el("a", { class: "key", href: t.url, target: "_blank", rel: "noopener", text: t.key })),
         el("td", { class: "t", text: t.summary || "(untitled)" }),
         cols.map(c => cell(c, t, st)),
         el("td", { class: "a" }, el("span", { class: "act" },
@@ -817,7 +830,8 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
     const more = issues.more && n < PAGE_SIZE * MAX_PAGES;
     $("moreBtn").hidden = !more && !loadingMore;
     $("moreBtn").disabled = loadingMore;
-    $("moreBtn").textContent = loadingMore ? "Loading…" : `Load ${PAGE_SIZE * 5} more`;
+    $("moreBtn").textContent = loadingMore ? `Loading… ${loadedSoFar || n}` : "Load all";
+    $("moreBtn").title = `Load every ticket of the query, up to ${PAGE_SIZE * MAX_PAGES}`;
   }
   function renderSkeleton() {
     if (state.view === "list") { $("view").replaceChildren(renderList([])); }
@@ -943,12 +957,15 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
         const page = extractIssues(payloadOf(r));
         pages.push(page);
         cursor = page.more ? page.cursor : null;
+        loadedSoFar = (pages.length + 1) * PAGE_SIZE;
+        if (issues) renderCount(visibleTickets().length);
       }
     } catch (e) {
       if (gen === generation) handleError(e);
     } finally {
       if (gen === generation) {
         loadingMore = false;
+        loadedSoFar = 0;
         if (pages.length || !extraPages.length) extraPages = pages;
         cachedAt = null;
         combine();
@@ -1028,7 +1045,7 @@ table.list { width: 100%; border-collapse: collapse; font-size: 13px; }
     if (requeryNeeded) requery(); else render();
   });
   $("colsResetBtn").addEventListener("click", () => { state.cols = DEFAULT_COLS.slice(); persist(); render(); });
-  $("moreBtn").addEventListener("click", () => { wantedPages = Math.min(MAX_PAGES, wantedPages + 5); fetchExtraPages(); });
+  $("moreBtn").addEventListener("click", () => { wantedPages = MAX_PAGES; fetchExtraPages(); });
   $("linkBtn").addEventListener("click", e => {
     const token = encodeView(state);
     const link = PAGE_URL ? `${PAGE_URL}#${token}` : `#${token}`;
