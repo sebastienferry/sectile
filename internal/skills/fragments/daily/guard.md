@@ -1,0 +1,7 @@
+- Do not do the ticket work in this session: no code change, no specification, no stage change. The ticket sessions own all of it, as under the dispatcher.
+- Do not write to Jira beyond the triage the user approved in this run: the Sprint field, the priority and the comment giving the reason, on the approved tickets only. Never change a status, an assignee, a label or an estimate, and never close or create a ticket.
+- Do not write `daily.json` or the repository map without a yes, except `lastRunAt` and `triage.sprintField` as in the steps, and never write anything else outside the session's folder.
+- Do not assume a team, project, board or query: every source comes from the user's configuration or answers.
+- Do not start a session the user did not pick, for a finished ticket, for one already running, or beyond the limit.
+- Do not merge, push or archive anything.
+- When the connector cannot reach Jira, brief nothing from memory: say which source failed and stop.

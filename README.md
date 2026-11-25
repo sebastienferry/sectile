@@ -200,7 +200,15 @@ to install the skills and register the MCP server:
   `/sectile-lite:board [JQL]` publishes your own Sectile Board
   as a claude.ai artifact, and updates it in place when run again after a
   plugin update. Dragging a card to another column, or its "Move to" menu,
-  rewrites the ticket's `#<stage>` label in Jira with your own connector. Macro skills are not included. See
+  rewrites the ticket's `#<stage>` label in Jira with your own connector.
+  `/sectile-lite:daily` is the morning brief: it reads the ticket sources you
+  chose once (JQL, a Jira filter or board, your Sectile Board's query), saved in
+  `~/.config/sectile-lite/daily.json`, lists what waits on you, what is in flight
+  and the next tickets with the command that runs each, triages the new tickets
+  of your tracker query (into the sprint, up in priority, or left in the backlog,
+  applied in Jira after one approval), then stays open as the
+  day's master session that starts the ones you pick through the dispatcher.
+  `/sectile-lite:daily configure` changes the sources. Macro skills are not included. See
   [ADR 0064](docs/adrs/0064-sectile-lite-runs-the-skills-on-jira-without-a-server.md).
 - **Direct CLI setup (Claude, Codex, Antigravity)**: run
   `./bin/agent init --provider claude` (or `codex`, `agy`), or click

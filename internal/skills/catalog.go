@@ -572,12 +572,33 @@ var LiteBoardSkill = StageSkill{
 	GuardTitle:      "Do not",
 }
 
+// LiteDailySkill is the Sectile Lite morning brief: it reads the user's own
+// ticket sources, remembered on the workstation, ranks the next tickets and
+// then stays open as the day's dispatcher. Like the dispatcher, it has no
+// stage.
+var LiteDailySkill = StageSkill{
+	ID:              "daily",
+	Name:            "Daily",
+	DirName:         "daily",
+	Command:         "/daily",
+	Title:           "Daily Brief",
+	FrontmatterDesc: "Morning brief on your Jira tickets from the sources you configured once (what waits on you, what is in flight, which new tracker tickets should enter the sprint or move up in priority, the next tickets to run), then the day's master session that starts and tracks one session per ticket.",
+	GuardTitle:      "Do not",
+}
+
 // RenderLiteDispatchSkillContent builds the SKILL.md of the dispatcher. It
 // reads tickets through the Lite task access contract and records nothing on
 // them, so it carries neither the session title nor the transition contract:
 // the ticket sessions it starts own both.
 func RenderLiteDispatchSkillContent() string {
 	return renderLiteOnlySkill(LiteDispatchSkill, true)
+}
+
+// RenderLiteDailySkillContent builds the SKILL.md of the morning brief. It
+// reads tickets through the Lite task access contract and, like the
+// dispatcher it hands the picked tickets to, records nothing on them.
+func RenderLiteDailySkillContent() string {
+	return renderLiteOnlySkill(LiteDailySkill, true)
 }
 
 // RenderLiteBoardSkillContent builds the SKILL.md of the board skill, which

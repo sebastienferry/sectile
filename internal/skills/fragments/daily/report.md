@@ -1,0 +1,5 @@
+- The brief: Needs me, Triage, In flight, Moved since the last brief, Next, each line with the ticket's key as a link, and the Sectile Board's link when there is one.
+- The triage applied: each ticket moved into the sprint or raised in priority, each write that failed, and what was left in the backlog.
+- The sources read, those that failed, and whether the configuration was created, changed or used as it was.
+- The ticket sessions started (with their links and folders), queued and skipped, against the limit.
+- End every reply addressed to a person with the `### 📋 Status Update` block (Done, Remaining (Agent), Pending (User)), written in the language of the conversation.

@@ -187,3 +187,52 @@ func TestLitePluginShipsTheBoard(t *testing.T) {
 		}
 	}
 }
+
+// The morning brief reads the user's own sources, remembered on the
+// workstation, and hands the tickets it starts to the dispatcher: it names no
+// team default and records no stage.
+func TestLitePluginShipsTheDailyBrief(t *testing.T) {
+	files, err := skills.RenderLitePlugin(pluginTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, ok := files["skills/daily/SKILL.md"]
+	if !ok {
+		t.Fatal("the Lite plugin lacks the daily brief")
+	}
+	text := string(content)
+	for _, required := range []string{
+		"---\nname: daily\n",
+		"## Ticket access",
+		"~/.config/sectile-lite/daily.json",
+		"write it only on a yes",
+		"`lastRunAt`",
+		"sectile-lite:dispatch",
+		"Do not assume a team, project, board or query",
+		"Do not do the ticket work in this session",
+		"**Triage the newcomers.**",
+		"`triage.jql`",
+		"Ask once for the whole batch",
+		"Do not write to Jira beyond the triage the user approved",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("the daily brief lacks %q", required)
+		}
+	}
+	for _, banned := range []string{"## Execution and ticket state", "## Session title"} {
+		if strings.Contains(text, banned) {
+			t.Errorf("the daily brief carries %q", banned)
+		}
+	}
+	// Its own sections name no team: the examples of the shared ticket access
+	// contract are the only Jira keys in it.
+	body := text[strings.Index(text, "## Goal\n"):]
+	for _, banned := range []string{"PE-", "equativ"} {
+		if strings.Contains(strings.ToLower(body), strings.ToLower(banned)) {
+			t.Errorf("the daily brief names a team: %q", banned)
+		}
+	}
+	if _, ok := skills.StageSkillByID("daily"); ok {
+		t.Error("the daily brief leaked into the shared catalogue")
+	}
+}

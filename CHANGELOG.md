@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- `/sectile-lite:daily`, a morning brief on your Jira tickets: it asks once which queries, Jira filter or board to read and remembers them in `~/.config/sectile-lite/daily.json`, lists what waits on you, what is in flight, what moved since the last brief and the next tickets to run with their command, triages the new tickets of your tracker query into the sprint or up in priority and applies the decisions you approve in one batch, then stays open as the day's master session that starts the tickets you pick, one session each.
 - Sectile Lite, a Claude plugin for teams without a Sectile server: the same ticket skills run on Jira tickets from Claude, through your own Atlassian connector, and record each stage with Sectile's own `#<stage>` label on the ticket, so Sectile and Lite read each other's tickets. Its `/sectile-lite:dispatch` skill opens a dedicated Claude Code session, in its own worktree, for each ticket you hand it, three at a time, in the local clone your `~/.config/sectile-lite/repositories.json` maps it to (it asks once and offers to remember the answer when none matches), and `/sectile-lite:board` publishes your own Sectile Board, a live page of your Jira tickets in the Sectile stages, showing where each ticket's stage comes from, whose buttons start the next step, where dragging a card to another column moves the ticket to that stage, and which can load every ticket of its query. Write it with `make plugin ARGS=-lite`.
 
 ### Fixed
