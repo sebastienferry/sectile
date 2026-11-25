@@ -13,6 +13,7 @@ is in [ADR 0064](adrs/0064-sectile-lite-runs-the-skills-on-jira-without-a-server
 - [Install](#install)
 - [First run: `/sectile-lite:setup`](#first-run-sectile-litesetup)
 - [The skills](#the-skills)
+- [The ticket workspace](#the-ticket-workspace)
 - [Stages and labels](#stages-and-labels)
 - [A typical day](#a-typical-day)
 - [Configuration files](#configuration-files)
@@ -30,6 +31,7 @@ is in [ADR 0064](adrs/0064-sectile-lite-runs-the-skills-on-jira-without-a-server
 | `gh` logged in, for repositories on GitHub | Pull requests. | `gh auth status` |
 | `glab` logged in, for repositories on GitLab | Merge requests. | `glab auth status --hostname <host>` |
 | A local clone of each repository your tickets change | The ticket sessions work in a worktree of it. | |
+| A ticket workspace, and `uv` (Spec Kit) or `npm` (OpenSpec) | Each ticket's specification and notes, in a Spec-Driven Design framework. `setup` creates the workspace and installs the framework. | `/sectile-lite:setup` |
 
 The plugin itself declares no MCP server and asks for nothing at install time.
 
@@ -68,22 +70,30 @@ Run `/sectile-lite:setup` once on each workstation. It:
 2. asks once for your team: the Jira site, the team's name, its Jira projects
    and its ticket query. It runs the query, shows what it returns, and writes
    `~/.config/sectile-lite/config.json` only after you say yes;
-3. checks the host: whether it can start sessions (needed by `dispatch` and
+3. sets up the [ticket workspace](#the-ticket-workspace): asks for its folder
+   (`~/sectile-workspace` by default) and whether to sync it with your team
+   through a Git remote, then creates or clones it after you say yes;
+4. detects its Spec-Driven Design framework (Spec Kit or OpenSpec) and, when
+   there is none, proposes one and installs it after you say yes, showing each
+   command first;
+5. checks the host: whether it can start sessions (needed by `dispatch` and
    `daily`) and publish pages (needed by `board`);
-4. checks `git`, and `gh` or `glab` for the forges your repositories live on,
+6. checks `git`, and `gh` or `glab` for the forges your repositories live on,
    with one read-only call on a real repository;
-5. checks the plugin's local files, `daily.json` and `repositories.json`;
-6. ends with one table: ✓ passed, ✗ failed or not needed, and the command
+7. checks the plugin's local files, `daily.json` and `repositories.json`;
+8. ends with one table: ✓ passed, ✗ failed or not needed, and the command
    that fixes each failure.
 
-It only reads. It installs nothing, logs in to nothing, never prints a token,
-and writes nothing to Jira or to a forge.
+Apart from the workspace and its framework, which it sets up only after you
+say yes, it only reads: it logs in to nothing, never prints a token, and
+writes nothing to Jira.
 
 | Command | Does |
 | --- | --- |
 | `/sectile-lite:setup` | The full run: checks, plus the team question when `config.json` is missing. |
 | `/sectile-lite:setup check` | The diagnosis only: asks nothing and writes nothing. Run it when a skill fails. |
 | `/sectile-lite:setup team` | Changes the team only. |
+| `/sectile-lite:setup workspace` | Changes the ticket workspace only. |
 
 ## The skills
 
@@ -146,6 +156,45 @@ team's workflow. Move it yourself, or through your usual Jira automation.
 In the master session, say "brief", "refresh" or "what's next" to get the
 brief again with only what changed since the morning.
 
+## The ticket workspace
+
+Each ticket gets a clarification report, a specification and working notes.
+They are written in the **ticket workspace**, a folder of your workstation,
+rather than in the code repository: the code branch then carries code only,
+and the specifications of every ticket sit in one place.
+
+```text
+<workspace>/
+  docs/clarifications/PE-123.md      the clarification rounds and decisions
+  specs/PE-123-short-title/          the Spec Kit specification (spec, plan, tasks)
+  openspec/changes/PE-123-.../       or the OpenSpec change, with OpenSpec
+  notes/PE-123.md                    the working notes
+```
+
+- **Review in Claude.** Each time a stage writes or changes one of these files,
+  the session opens it for you as Markdown, in the Claude desktop app's file
+  pane, so you review the clarification or the specification where you answer
+  the session. When it waits for your confirmation, it asks once the file is
+  open.
+- **Notes.** `notes/<KEY>.md` is yours as much as the skills'. Write context,
+  constraints or decisions there before a stage starts: every stage reads it
+  first. Each stage then appends a dated section with what it decided, what is
+  still open and its links. Nothing already there is rewritten.
+- **Git by default.** The workspace is a Git repository, so every stage
+  commits the ticket's files with its message.
+- **Synced or local.** `setup` asks whether to sync it with your team:
+  - **synced**: the workspace is a clone of a shared repository. Each ticket
+    works in its own worktree of it, `<workspace>/.tasks/worktrees/<KEY>`, on a
+    branch named like the ticket's code branch, pushed after each stage. You
+    open the merge request of that branch to have the specification reviewed
+    by the team; `handoff-issue` removes the worktree once it is merged;
+  - **local**: the files are committed in the workspace itself, never pushed.
+- **Framework.** The workspace holds the Spec-Driven Design framework the
+  specification follows, Spec Kit (`.specify/`) or OpenSpec (`openspec/`),
+  recorded in `config.json`.
+- Without a workspace, the skills write in the ticket's code worktree, as
+  before, and say so.
+
 ## Stages and labels
 
 A ticket's stage is one Jira label: `#new`, `#clarified`, `#specified`,
@@ -178,7 +227,8 @@ No skill writes them without asking, except the timestamps noted below.
 
 ### `config.json`: your team
 
-Written by `setup`. The board and the daily brief take their defaults from it.
+Written by `setup`. The board and the daily brief take their defaults from
+its `team`; the ticket skills write in its `workspace`.
 
 ```json
 {
@@ -187,6 +237,11 @@ Written by `setup`. The board and the daily brief take their defaults from it.
     "name": "Payments",
     "projects": ["ABC"],
     "jql": "project in (ABC) AND statusCategory != Done ORDER BY Rank ASC"
+  },
+  "workspace": {
+    "path": "/Users/me/sectile-workspace",
+    "sync": true,
+    "framework": "speckit"
   },
   "checkedAt": "2026-11-25T09:00:00+01:00"
 }
@@ -270,10 +325,12 @@ make plugin VERSION=X.Y.Z OUT=/tmp/sectile-lite-gen ARGS="-lite -marketplace -fo
 ```
 
 Copy the generated tree into a clone of the marketplace repository, keeping its
-`.git` and its `README.md`, then commit and push:
+`.git`, its `README.md` and its `docs/` folder, refresh the copy of this guide
+there, then commit and push:
 
 ```bash
-rsync -a --delete --exclude .git --exclude README.md /tmp/sectile-lite-gen/ <marketplace clone>/
+rsync -a --delete --exclude .git --exclude README.md --exclude docs /tmp/sectile-lite-gen/ <marketplace clone>/
+cp docs/SECTILE_LITE.md <marketplace clone>/docs/SECTILE_LITE.md
 git -C <marketplace clone> add -A
 git -C <marketplace clone> commit -m "chore(release): sectile-lite X.Y.Z"
 git -C <marketplace clone> push

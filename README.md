@@ -215,7 +215,11 @@ to install the skills and register the MCP server:
   board and the daily brief take their defaults, then checks the Atlassian
   connector, the host's session and page features, `git`, and `gh` or `glab`
   for the forges your repositories live on, and gives the command that fixes
-  each failure. `/sectile-lite:setup check` only diagnoses. Macro skills are not included.
+  each failure. It also sets up the ticket workspace, a Git folder (synced
+  with your team or local) where the ticket skills write each ticket's
+  clarification, specification and notes, opened in Claude for review, with
+  its Spec Kit or OpenSpec framework installed after a yes.
+  `/sectile-lite:setup check` only diagnoses. Macro skills are not included.
   The [Sectile Lite guide](docs/SECTILE_LITE.md) covers install, setup, every
   skill, the configuration files and troubleshooting. See
   [ADR 0064](docs/adrs/0064-sectile-lite-runs-the-skills-on-jira-without-a-server.md).

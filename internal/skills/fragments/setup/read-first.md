@@ -8,12 +8,17 @@
       "projects": ["ABC"],
       "jql": "project in (ABC) AND statusCategory != Done ORDER BY Rank ASC"
     },
+    "workspace": {
+      "path": "/Users/me/sectile-workspace",
+      "sync": true,
+      "framework": "speckit"
+    },
     "checkedAt": "2026-11-25T09:00:00+01:00"
   }
   ```
 
-  `site` is the Jira site. `team.name` is how the user names their team. `team.projects` are the Jira project keys the team works in. `team.jql` is the team's ticket query: the default query of the board and the default source and triage pool of the daily brief. `checkedAt` is when the last full check passed.
-- The argument, when there is one: `check` to diagnose without asking anything nor writing any file, `team` to change the team only.
+  `site` is the Jira site. `team.name` is how the user names their team. `team.projects` are the Jira project keys the team works in. `team.jql` is the team's ticket query: the default query of the board and the default source and triage pool of the daily brief. `workspace` is the ticket workspace, where the ticket skills write each ticket's clarification, specification and notes for the owner to review in Claude: `path` its folder, `sync` whether it is a Git clone shared through a remote (one branch and one merge request per ticket) or local only, `framework` its Spec-Driven Design framework (`speckit` or `openspec`). `checkedAt` is when the last full check passed.
+- The argument, when there is one: `check` to diagnose without asking anything nor writing any file, `team` to change the team only, `workspace` to change the ticket workspace only.
 - The other files of the plugin, when they exist: the daily brief's `~/.config/sectile-lite/daily.json` and the dispatcher's repository map, `~/.config/sectile-lite/repositories.json`.
 - The connectors and tools this session exposes, under the names the host gives them.
 - The current folder, and whether it is a git clone with an `origin` remote.

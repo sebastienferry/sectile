@@ -259,7 +259,11 @@ func TestLitePluginShipsTheSetup(t *testing.T) {
 		"`repositories.json`",
 		"Do not install, upgrade or log in to anything",
 		"Do not print, copy or store a token",
-		"Do not write to Jira or to a forge",
+		"Do not write to Jira",
+		"**Set up the ticket workspace, once.**",
+		"whether to sync it with the team",
+		"**Set up the Spec-Driven Design framework.**",
+		"only after a yes",
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("the setup skill lacks %q", required)
@@ -284,6 +288,37 @@ func TestLitePluginShipsTheSetup(t *testing.T) {
 	for _, path := range []string{"skills/board/SKILL.md", "skills/daily/SKILL.md"} {
 		if !strings.Contains(string(files[path]), "~/.config/sectile-lite/config.json") {
 			t.Errorf("%s ignores the team configuration", path)
+		}
+	}
+}
+
+// A Lite ticket skill writes the ticket's issue artefacts and notes in the
+// workstation's ticket workspace, not in the code repository, and shows each
+// one to the owner for review in Claude.
+func TestLiteSkillsWriteInTheTicketWorkspace(t *testing.T) {
+	for _, id := range []string{"clarify", "specify", "implement", "adjust", "handoff", "pickup"} {
+		s, ok := skills.StageSkillByID(id)
+		if !ok {
+			t.Fatalf("no %s skill", id)
+		}
+		text := skills.RenderLiteSkillContent(s)
+		for _, required := range []string{
+			"## Specifications workspace",
+			"~/.config/sectile-lite/config.json",
+			"notes/<KEY>.md",
+			".tasks/worktrees/<KEY>",
+			"never `git add -A`",
+			"never force",
+			"**Review in Claude**",
+		} {
+			if !strings.Contains(text, required) {
+				t.Errorf("%s: the Lite skill lacks %q", id, required)
+			}
+		}
+		for _, banned := range []string{"SECTILE_SPEC_REPO", "SECTILE_SPEC_BRANCH"} {
+			if strings.Contains(text, banned) {
+				t.Errorf("%s: the Lite skill refers to %q", id, banned)
+			}
 		}
 	}
 }
