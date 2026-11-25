@@ -21,6 +21,10 @@ server, workstation agent, web interface, and desktop companion.
   - Sign in, seal personal tracker credentials, configure projects, pair
     workstations, and run SDD workflows from the web board, Sectile Desktop, or
     Claude Code / Codex.
+- [**Sectile Lite Guide** (`SECTILE_LITE.md`)](./SECTILE_LITE.md)
+  - Installing the Sectile Lite Claude plugin, first run with
+    `/sectile-lite:setup`, the ticket and workstation skills (board, dispatch,
+    daily brief), the configuration files, updates and troubleshooting.
 - [**Desktop Guide** (`../desktop/README.md`)](../desktop/README.md)
   - Installing Sectile Desktop via Homebrew (`macOS`), Scoop (`Windows`), or
     release archives; using the interactive Claude Code & Codex conversation
