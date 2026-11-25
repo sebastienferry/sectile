@@ -151,7 +151,8 @@ func LiteStageSkills() []StageSkill {
 // RenderLitePlugin returns the Sectile Lite plugin: the workflow skills for a
 // team that keeps its tickets on Jira and runs them from Claude, without a
 // Sectile server, the dispatcher that opens a session per ticket, the morning
-// brief that ranks the next tickets and hands them to it, and the
+// brief that ranks the next tickets and hands them to it, the setup skill that
+// remembers the team and checks the tools, and the
 // board skill with the page it publishes. It declares no MCP server and asks
 // nothing at install time: the skills reach Jira through the Atlassian
 // connector of whoever runs them, and record each stage as Sectile's own
@@ -177,6 +178,7 @@ func RenderLitePlugin(version string) (map[string][]byte, error) {
 	}
 	files["skills/"+LiteDispatchSkill.DirName+"/SKILL.md"] = []byte(RenderLiteDispatchSkillContent())
 	files["skills/"+LiteDailySkill.DirName+"/SKILL.md"] = []byte(RenderLiteDailySkillContent())
+	files["skills/"+LiteSetupSkill.DirName+"/SKILL.md"] = []byte(RenderLiteSetupSkillContent())
 	files["skills/"+LiteBoardSkill.DirName+"/SKILL.md"] = []byte(RenderLiteBoardSkillContent())
 	files["skills/"+LiteBoardSkill.DirName+"/board.html"] = RenderLiteBoardPage(version)
 	return files, nil

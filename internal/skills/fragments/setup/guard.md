@@ -1,0 +1,5 @@
+- Do not install, upgrade or log in to anything: give the command, the user runs it.
+- Do not print, copy or store a token, a password or the content of a credential file. Read a login's status, never its secret.
+- Do not write `config.json` without a yes, except `checkedAt` as in the steps, and do not write `daily.json`, `repositories.json` or anything outside `~/.config/sectile-lite/`.
+- Do not write to Jira or to a forge: every call of this skill only reads.
+- Do not assume a team, site, project or query: they come from the user's answers or from their own files.

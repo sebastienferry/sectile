@@ -208,7 +208,14 @@ to install the skills and register the MCP server:
   of your tracker query (into the sprint, up in priority, or left in the backlog,
   applied in Jira after one approval), then stays open as the
   day's master session that starts the ones you pick through the dispatcher.
-  `/sectile-lite:daily configure` changes the sources. Macro skills are not included. See
+  `/sectile-lite:daily configure` changes the sources.
+  `/sectile-lite:setup` is the first thing to run on a new workstation, and
+  the diagnosis when a Lite skill fails: it asks once for your team (Jira site,
+  projects, team query), saved in `~/.config/sectile-lite/config.json` where the
+  board and the daily brief take their defaults, then checks the Atlassian
+  connector, the host's session and page features, `git`, and `gh` or `glab`
+  for the forges your repositories live on, and gives the command that fixes
+  each failure. `/sectile-lite:setup check` only diagnoses. Macro skills are not included. See
   [ADR 0064](docs/adrs/0064-sectile-lite-runs-the-skills-on-jira-without-a-server.md).
 - **Direct CLI setup (Claude, Codex, Antigravity)**: run
   `./bin/agent init --provider claude` (or `codex`, `agy`), or click

@@ -586,6 +586,20 @@ var LiteDailySkill = StageSkill{
 	GuardTitle:      "Do not",
 }
 
+// LiteSetupSkill gets a workstation ready for Sectile Lite: it asks for the
+// user's team once, remembers it where the other Lite skills read it, and
+// checks the connector, the host and the command-line tools they rely on.
+// Like the dispatcher, it has no stage.
+var LiteSetupSkill = StageSkill{
+	ID:              "setup",
+	Name:            "Setup",
+	DirName:         "setup",
+	Command:         "/setup",
+	Title:           "Sectile Lite Setup",
+	FrontmatterDesc: "Get this workstation ready for Sectile Lite: ask for your team once and remember it for every Lite skill, check the Atlassian connector, the host, git and the GitHub or GitLab CLIs, and say what fixes each failure.",
+	GuardTitle:      "Do not",
+}
+
 // RenderLiteDispatchSkillContent builds the SKILL.md of the dispatcher. It
 // reads tickets through the Lite task access contract and records nothing on
 // them, so it carries neither the session title nor the transition contract:
@@ -599,6 +613,12 @@ func RenderLiteDispatchSkillContent() string {
 // dispatcher it hands the picked tickets to, records nothing on them.
 func RenderLiteDailySkillContent() string {
 	return renderLiteOnlySkill(LiteDailySkill, true)
+}
+
+// RenderLiteSetupSkillContent builds the SKILL.md of the setup skill. It only
+// reads Jira to check the connector, so it carries no ticket contract.
+func RenderLiteSetupSkillContent() string {
+	return renderLiteOnlySkill(LiteSetupSkill, false)
 }
 
 // RenderLiteBoardSkillContent builds the SKILL.md of the board skill, which

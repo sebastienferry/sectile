@@ -1,0 +1,4 @@
+- The check table, with the fix of each failure.
+- The team configuration: created, changed, used as it was, or not written.
+- The Lite skills ready to run, and those that wait on a fix.
+- End every reply addressed to a person with the `### 📋 Status Update` block (Done, Remaining (Agent), Pending (User)), written in the language of the conversation.

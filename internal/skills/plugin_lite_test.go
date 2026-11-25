@@ -236,3 +236,54 @@ func TestLitePluginShipsTheDailyBrief(t *testing.T) {
 		t.Error("the daily brief leaked into the shared catalogue")
 	}
 }
+
+// The setup skill remembers the user's team where the other Lite skills read
+// it, checks the tools they rely on, and only reads: it installs, logs in and
+// writes nothing on its own.
+func TestLitePluginShipsTheSetup(t *testing.T) {
+	files, err := skills.RenderLitePlugin(pluginTestVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, ok := files["skills/setup/SKILL.md"]
+	if !ok {
+		t.Fatal("the Lite plugin lacks the setup skill")
+	}
+	text := string(content)
+	for _, required := range []string{
+		"---\nname: setup\n",
+		"~/.config/sectile-lite/config.json",
+		"write it only on a yes",
+		"`gh auth status`",
+		"`glab auth status --hostname <host>`",
+		"`repositories.json`",
+		"Do not install, upgrade or log in to anything",
+		"Do not print, copy or store a token",
+		"Do not write to Jira or to a forge",
+	} {
+		if !strings.Contains(text, required) {
+			t.Errorf("the setup skill lacks %q", required)
+		}
+	}
+	for _, banned := range []string{"## Ticket access", "## Execution and ticket state", "## Session title"} {
+		if strings.Contains(text, banned) {
+			t.Errorf("the setup skill carries %q", banned)
+		}
+	}
+	body := text[strings.Index(text, "## Goal\n"):]
+	for _, banned := range []string{"PE-", "equativ"} {
+		if strings.Contains(strings.ToLower(body), strings.ToLower(banned)) {
+			t.Errorf("the setup skill names a team: %q", banned)
+		}
+	}
+	if _, ok := skills.StageSkillByID("setup"); ok {
+		t.Error("the setup skill leaked into the shared catalogue")
+	}
+	// The board and the daily brief take their defaults from the team the
+	// setup skill remembered.
+	for _, path := range []string{"skills/board/SKILL.md", "skills/daily/SKILL.md"} {
+		if !strings.Contains(string(files[path]), "~/.config/sectile-lite/config.json") {
+			t.Errorf("%s ignores the team configuration", path)
+		}
+	}
+}
